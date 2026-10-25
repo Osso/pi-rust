@@ -155,10 +155,24 @@ pub fn with_seekable_session_transcript<T>(
     if !source.ends_with(".jsonl.zst") {
         return read(&source);
     }
-    let directory = tempfile::Builder::new().prefix("pi-transcript-").tempdir()?;
-    let plain = directory.path().join("transcript.jsonl");
-    let result = spool_archived_transcript(&source, &plain, &directory.path().join("worker-error"))
-        .and_then(|()| read(&pi_js_compat::node_fs::decode_node_path(plain.as_os_str())));
-    directory.close()?;
+    let prefix = crate::utils::paths::node_join(pi_js_compat::node_os::tmpdir(), "pi-transcript-");
+    let directory = pi_js_compat::node_fs::mkdtemp(&prefix).map_err(|error| CallbackError::from(*error))?;
+    let plain = crate::utils::paths::node_join(directory.clone(), "transcript.jsonl");
+    let errors = crate::utils::paths::node_join(directory.clone(), "worker-error");
+    let result = spool_archived_transcript(
+        &source,
+        Path::new(&encode_node_utf8(&plain)),
+        Path::new(&encode_node_utf8(&errors)),
+    )
+    .and_then(|()| read(&plain));
+    match fs::remove_dir_all(encode_node_utf8(&directory)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        Err(error) => {
+            return Err(CallbackError::from(NativeNodeError::from(node_fs_error_record(
+                &error, "rmdir", &directory,
+            ))));
+        }
+    }
     result
 }

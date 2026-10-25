@@ -3,6 +3,9 @@
 //! Raw errno names reuse the existing platform table; unproven descriptions retain
 //! the previous std display text. This is not a complete libuv strerror port.
 
+mod temp;
+pub use temp::mkdtemp;
+
 use rustix::io::Errno;
 use std::io;
 

@@ -1,13 +1,17 @@
 import { createInterface } from "node:readline";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const spool = await import(pathToFileURL(join(process.argv[2], "session-transcript-spool.ts")).href);
-type Request = { id: number; path: string; kind: string };
+type Request = { id: number; path: string; kind: string; tmpdir?: string; op?: string };
 function observeSpool(request: Request): unknown {
     let temporary: string | undefined;
     try {
+        if (request.op === "mkdtemp") {
+            const path = mkdtempSync(request.path);
+            return { ok: true, path, mode: statSync(path).mode & 0o777 };
+        }
         const output = spool.withSeekableSessionTranscript(request.path, (plain: string) => {
             temporary = plain;
             if (request.kind === "callback") throw Object.assign(new TypeError("callback failed"), { code: "FIXTURE" });
@@ -24,5 +28,12 @@ function observeSpool(request: Request): unknown {
 }
 for await (const line of createInterface({ input: process.stdin })) {
     const request: Request = JSON.parse(line);
-    console.log(JSON.stringify({ id: request.id, ok: true, output: observeSpool(request) }));
+    const previous = process.env.TMPDIR;
+    try {
+        if (request.tmpdir !== undefined) process.env.TMPDIR = request.tmpdir;
+        console.log(JSON.stringify({ id: request.id, ok: true, output: observeSpool(request) }));
+    } finally {
+        if (previous === undefined) delete process.env.TMPDIR;
+        else process.env.TMPDIR = previous;
+    }
 }
