@@ -16,6 +16,24 @@ fn native_spool(path: &str, kind: &str) -> Value {
     let result = with_seekable_session_transcript(&JsString::from(path), |plain| -> Result<Value, CallbackError> {
         temporary = Some(encode_node_utf8(plain));
         match kind {
+            "path" => Ok(json!({"path":plain})),
+            "remove" | "replace" => {
+                let bytes = std::fs::read(encode_node_utf8(plain)).unwrap();
+                let encoded = encode_node_utf8(plain);
+                let directory = std::path::Path::new(&encoded).parent().unwrap();
+                std::fs::remove_dir_all(directory).unwrap();
+                if kind == "replace" {
+                    std::fs::write(directory, b"replacement").unwrap();
+                }
+                Ok(json!({"bytes":bytes}))
+            }
+            "cleanup" => {
+                let directory = std::path::Path::new(temporary.as_ref().unwrap()).parent().unwrap();
+                std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o000)).unwrap();
+                Err(CallbackError::new(
+                    "callback failure must be replaced by cleanup failure",
+                ))
+            }
             "callback" => Err(CallbackError::from(
                 NativeNodeError::from_constructor(NativeErrorClass::TypeError, "callback failed")
                     .with_property("code", JsValue::String("FIXTURE".into())),
@@ -25,6 +43,19 @@ fn native_spool(path: &str, kind: &str) -> Value {
                 "mode":std::fs::metadata(encode_node_utf8(plain)).unwrap().permissions().mode() & 0o777})),
         }
     });
+    if kind == "cleanup" {
+        let directory = std::path::Path::new(temporary.as_ref().unwrap()).parent().unwrap();
+        std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+        std::fs::remove_dir_all(directory).unwrap();
+        let error = result.unwrap_err().thrown_value().as_error().unwrap().value();
+        return json!({"ok":false,"error":error.to_serde().unwrap(),"directory":directory});
+    }
+    if kind == "replace" {
+        let directory = std::path::Path::new(temporary.as_ref().unwrap()).parent().unwrap();
+        if directory.exists() {
+            std::fs::remove_file(directory).unwrap();
+        }
+    }
     let exists = temporary.is_some_and(|path| std::path::Path::new(&path).exists());
     match result {
         Ok(output) => json!({"ok":true,"output":output,"temporaryExists":exists}),
@@ -36,6 +67,64 @@ fn native_spool(path: &str, kind: &str) -> Value {
             json!({"ok":false,"error":error.to_serde().unwrap(),"temporaryExists":exists})
         }
     }
+}
+
+#[test]
+fn plain_pass_through_and_already_removed_spools_match_frozen() {
+    transcript_worker::configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let plain = tmp.path().join("plain.jsonl");
+    std::fs::write(&plain, b"existing plain").unwrap();
+    let missing = tmp.path().join("missing.jsonl");
+    let other = tmp.path().join("ordinary.txt");
+    let mut ts = oracle::TsOracle::spawn("storage-spool-oracle.mts", "packages/coding-agent/src/core");
+    for path in [
+        plain.to_str().unwrap(),
+        missing.to_str().unwrap(),
+        other.to_str().unwrap(),
+        "",
+    ] {
+        let expected = ts.request(&json!({"id":1,"path":path,"kind":"path"}));
+        assert_eq!(native_spool(path, "path"), expected["output"]);
+    }
+    let archive = tmp.path().join("fixture.jsonl.zst");
+    let bytes = zstd::stream::encode_all(&b"no leftover temporary files"[..], 0).unwrap();
+    std::fs::write(&archive, &bytes).unwrap();
+    for kind in ["remove", "replace"] {
+        let expected = ts.request(&json!({"id":2,"path":archive,"kind":kind}));
+        assert_eq!(
+            native_spool(archive.to_str().unwrap(), kind),
+            expected["output"],
+            "{kind}"
+        );
+    }
+    assert_eq!(std::fs::read(archive).unwrap(), bytes);
+}
+
+#[test]
+fn cleanup_failure_overrides_callback_failure_with_frozen_rm_error() {
+    transcript_worker::configure_worker();
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("cleanup.jsonl.zst");
+    std::fs::write(&path, zstd::stream::encode_all(&b"private plaintext"[..], 0).unwrap()).unwrap();
+    let mut ts = oracle::TsOracle::spawn("storage-spool-oracle.mts", "packages/coding-agent/src/core");
+    let source = ts.request(&json!({"id":1,"path":path,"kind":"cleanup"}));
+    assert_eq!(source["output"]["ok"], false);
+    let native = native_spool(path.to_str().unwrap(), "cleanup");
+    let normalize = |mut value: Value| {
+        let directory = value["directory"].as_str().unwrap().to_owned();
+        assert_eq!(
+            value["error"]["path"], directory,
+            "the failure path must be exactly its own temp directory"
+        );
+        let message = value["error"]["message"].as_str().unwrap();
+        assert!(message.ends_with(&format!("'{directory}'")));
+        value["error"]["message"] = json!(message.replace(&directory, "<temporary>"));
+        value["error"]["path"] = json!("<temporary>");
+        value["directory"] = json!("<temporary>");
+        value
+    };
+    assert_eq!(normalize(native), normalize(source["output"].clone()));
 }
 
 #[test]

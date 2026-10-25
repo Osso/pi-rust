@@ -542,12 +542,35 @@ pub fn node_rm_error(error: &io::Error, path: &JsString) -> JsString {
     if error.kind() == io::ErrorKind::IsADirectory {
         return js_format!("Path is a directory: rm returned EISDIR (is a directory) {}", path);
     }
-    if error.kind() == io::ErrorKind::PermissionDenied {
-        // Unlike rm's directory validation, this error comes back from the fs binding.
-        let path = JsString::from(encode_node_utf8(path));
-        return js_format!("{}, Permission denied: '{}'", node_error_code(error), path);
+    node_rm_recursive_error_record(error, path).message
+}
+
+/// Node rmSync's C++ filesystem errors use positive errno and syscall `rm`,
+/// unlike libuv unlink/rmdir errors. Source: node_file.cc::RmSync1778-1803.
+pub fn node_rm_recursive_error_record(error: &io::Error, path: &JsString) -> NodeFsError {
+    let (errno, code, description) = match error.raw_os_error() {
+        Some(errno) if errno == Errno::PERM.raw_os_error() => (errno, "EPERM", "Operation not permitted:".to_owned()),
+        Some(errno) if errno == Errno::NOTEMPTY.raw_os_error() => {
+            (errno, "ENOTEMPTY", "Directory not empty:".to_owned())
+        }
+        Some(errno) if errno == Errno::NOTDIR.raw_os_error() => (errno, "ENOTDIR", "Not a directory:".to_owned()),
+        Some(errno) if errno == Errno::ACCESS.raw_os_error() => (errno, "EACCES", "Permission denied:".to_owned()),
+        other => {
+            let description = other
+                .map(|errno| nix::errno::Errno::from_raw(errno).desc().to_owned())
+                .unwrap_or_else(|| error.to_string());
+            (-4094, "", format!("Unknown error: {description}"))
+        }
+    };
+    let path = JsString::from(encode_node_utf8(path));
+    NodeFsError {
+        name: "Error",
+        errno: Some(errno),
+        code: code.to_owned(),
+        syscall: "rm".into(),
+        message: js_format!("{}, {} '{}'", code, description, path),
+        path: Some(path),
     }
-    node_fs_error(error, "unlink", path)
 }
 
 /// Node `error.code` for an `io::Error`: the raw OS errno name first, then the
