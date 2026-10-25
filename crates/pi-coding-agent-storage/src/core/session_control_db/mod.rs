@@ -791,21 +791,21 @@ pub(crate) fn to_runtime_mailbox_message_status(value: impl Into<JsString>) -> R
 
 /// `getRuntimeProcessInstanceId`: throws when the process identity cannot be read.
 pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError> {
-    static INSTANCE: OnceLock<Result<String, JsString>> = OnceLock::new();
+    static INSTANCE: OnceLock<Result<String, ControlDbError>> = OnceLock::new();
     INSTANCE
         .get_or_init(|| process_instance_id_from(read_process_identity(std::process::id())))
         .as_deref()
-        .map_err(|message| ControlDbError::new(message.clone()))
+        .map_err(Clone::clone)
 }
 
 fn process_instance_id_from(
     identity: Result<ProcessIdentity, crate::core::runtime_process::ProcessIdentityError>,
-) -> Result<String, JsString> {
-    let identity = identity.map_err(|error| error.message)?;
+) -> Result<String, ControlDbError> {
+    let identity = identity.map_err(|error| ControlDbError::new(error.message))?;
     let value = serde_json::json!({
         "pid": identity.pid,
         "startTimeTicks": identity.start_time_ticks,
-        "incarnation": pi_agent_core::uuidv7(),
+        "incarnation": pi_ai::utils::random_uuid::random_uuid()?,
     });
     Ok(js_json::stringify(&value))
 }
@@ -1194,7 +1194,7 @@ mod tests {
     fn process_instance_id_propagates_identity_read_failure() {
         assert_eq!(
             process_instance_id_from(identity_read_failure("Invalid process stat for process 1")),
-            Err("Invalid process stat for process 1".into())
+            Err(ControlDbError::new("Invalid process stat for process 1"))
         );
     }
 

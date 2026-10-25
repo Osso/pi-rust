@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Runtime instance UUID wire format (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-instance-red.log` validates frozen UUIDv4 then finds a native UUIDv7 incarnation in getRuntimeProcessInstanceId output. Generation now uses the existing random_uuid authority; its failures use the existing ControlDbError rather than panicking in the UUIDv7 generator. The public return type is unchanged. Source/native GREEN `/tmp/storage3-control-instance-green.log` checks cached wire equality, exact field order, UUID version/variant and the native live PID; three existing identity/cache tests pass in `/tmp/storage3-control-instance-unit.log`. Random values and process-specific identities are not falsely compared across runtimes.
+
 ## Empty-host mailbox wake (2026-10-25)
 
 Actual-source process-boundary RED `/tmp/storage3-mailbox-notify-valid-red.log` receives the frozen SIGUSR2 wake but times out waiting for native enqueue with recipientHost:"". Both enqueue APIs now share the frozen absent/empty/local notification guard. The owned Node child installs its signal handler before registration and carries a recognized entrypoint argument; no provider or external process is used. GREEN `/tmp/storage3-mailbox-notify-green.log` observes real source, native stored-enqueue and native existing-row routing wakes. Retry identity remains under the existing approved empty-host delta.

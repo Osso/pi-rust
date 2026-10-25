@@ -86,6 +86,8 @@ pub mod repin_storage_control_eligibility;
 pub mod repin_storage_control_finalization;
 #[path = "repin_storage_control_history.rs"]
 pub mod repin_storage_control_history;
+#[path = "repin_storage_control_instance.rs"]
+pub mod repin_storage_control_instance;
 #[path = "repin_storage_control_legacy_owner.rs"]
 pub mod repin_storage_control_legacy_owner;
 #[path = "repin_storage_control_recovery.rs"]
