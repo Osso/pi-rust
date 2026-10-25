@@ -22,3 +22,5 @@ Port of frozen `packages/orchestrator/src/serve.ts`. Native boundary decisions a
 
 ## Out of scope
 Live services, user state and real Radius network calls; native packaging follows the approved library boundary.
+
+Startup directory failures preserve the frozen Node filesystem error message, including operation and path; the native CLI embedding returns exit1.
