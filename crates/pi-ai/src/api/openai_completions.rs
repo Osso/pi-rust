@@ -774,7 +774,8 @@ fn thinking_level_from_str(value: &str) -> Option<ModelThinkingLevel> {
     }
 }
 
-fn map_value(model: &Model, level: ModelThinkingLevel) -> Option<Option<String>> {
+// Frozen607/729: lookup preserves missing, explicit null and native string units.
+fn map_value(model: &Model, level: ModelThinkingLevel) -> Option<Option<JsString>> {
     model
         .thinking_level_map
         .as_ref()
@@ -783,11 +784,12 @@ fn map_value(model: &Model, level: ModelThinkingLevel) -> Option<Option<String>>
 }
 
 /// `map[level] ?? fallback` for a requested effort string.
-fn nullish_effort(model: &Model, effort: &str) -> String {
+fn nullish_effort(model: &Model, effort: &str) -> JsString {
+    // Frozen633/640/657/662/668 uses ??, not truthiness.
     thinking_level_from_str(effort)
         .and_then(|level| map_value(model, level))
         .flatten()
-        .unwrap_or_else(|| effort.to_owned())
+        .unwrap_or_else(|| effort.into())
 }
 
 fn insert_nullish_reasoning_effort(
@@ -801,22 +803,22 @@ fn insert_nullish_reasoning_effort(
     {
         params.insert(
             "reasoning_effort".into(),
-            JsValue::String(nullish_effort(model, effort).into()),
+            JsValue::String(nullish_effort(model, effort)),
         );
     }
 }
 
 /// `map[level]` where a missing key falls back to the requested effort and an
 /// explicit `null` stays `None`.
-fn strict_effort(model: &Model, effort: &str) -> Option<String> {
+fn strict_effort(model: &Model, effort: &str) -> Option<JsString> {
     match thinking_level_from_str(effort).and_then(|level| map_value(model, level)) {
-        None => Some(effort.to_owned()),
+        None => Some(effort.into()),
         Some(value) => value,
     }
 }
 
 /// `map.off`; `None` means the key is absent, `Some(None)` means explicit null.
-fn off_value(model: &Model) -> Option<Option<String>> {
+fn off_value(model: &Model) -> Option<Option<JsString>> {
     map_value(model, ModelThinkingLevel::Off)
 }
 
@@ -837,8 +839,8 @@ fn resolve_chat_template_kwarg_value(model: &Model, effort: Option<&str>, value:
         return Some(JsValue::Bool(effort.is_some()));
     }
     match effort {
-        Some(effort) => strict_effort(model, effort).map(|value| JsValue::String(value.into())),
-        None => off_value(model).flatten().map(|value| JsValue::String(value.into())),
+        Some(effort) => strict_effort(model, effort).map(JsValue::String),
+        None => off_value(model).flatten().map(JsValue::String),
     }
 }
 
@@ -939,7 +941,7 @@ pub fn build_params(
             && compat.supports_reasoning_effort
             && let Some(mapped) = strict_effort(model, effort)
         {
-            params.insert("reasoning_effort".into(), JsValue::String(mapped.into()));
+            params.insert("reasoning_effort".into(), JsValue::String(mapped));
         }
     } else if compat.thinking_format == ThinkingFormat::Qwen && model.reasoning {
         params.insert("enable_thinking".into(), JsValue::Bool(effort.is_some()));
@@ -972,14 +974,14 @@ pub fn build_params(
         if let Some(effort) = effort {
             params.insert(
                 "reasoning".into(),
-                lossless_object(vec![("effort", JsValue::String(nullish_effort(model, effort).into()))]),
+                lossless_object(vec![("effort", JsValue::String(nullish_effort(model, effort)))]),
             );
         } else if off_value(model) != Some(None) {
             params.insert(
                 "reasoning".into(),
                 lossless_object(vec![(
                     "effort",
-                    JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into()).into()),
+                    JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into())),
                 )]),
             );
         }
@@ -991,7 +993,7 @@ pub fn build_params(
         {
             params.insert(
                 "reasoning".into(),
-                lossless_object(vec![("effort", JsValue::String(mapped.into()))]),
+                lossless_object(vec![("effort", JsValue::String(mapped))]),
             );
         }
     } else if compat.thinking_format == ThinkingFormat::Together && model.reasoning {
@@ -1002,11 +1004,11 @@ pub fn build_params(
         insert_nullish_reasoning_effort(&mut params, model, effort, compat.supports_reasoning_effort);
     } else if compat.thinking_format == ThinkingFormat::StringThinking && model.reasoning {
         if let Some(effort) = effort {
-            params.insert("thinking".into(), JsValue::String(nullish_effort(model, effort).into()));
+            params.insert("thinking".into(), JsValue::String(nullish_effort(model, effort)));
         } else if off_value(model) != Some(None) {
             params.insert(
                 "thinking".into(),
-                JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into()).into()),
+                JsValue::String(off_value(model).flatten().unwrap_or_else(|| "none".into())),
             );
         }
     } else if let Some(effort) = effort
@@ -1015,14 +1017,14 @@ pub fn build_params(
     {
         params.insert(
             "reasoning_effort".into(),
-            JsValue::String(nullish_effort(model, effort).into()),
+            JsValue::String(nullish_effort(model, effort)),
         );
     } else if effort.is_none()
         && model.reasoning
         && compat.supports_reasoning_effort
         && let Some(off_value) = off_value(model).flatten()
     {
-        params.insert("reasoning_effort".into(), JsValue::String(off_value.into()));
+        params.insert("reasoning_effort".into(), JsValue::String(off_value));
     }
 
     if let Some(ModelCompat::OpenAICompletions(raw_compat)) = &model.compat {

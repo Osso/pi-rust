@@ -86,13 +86,20 @@ async function main(): Promise<void> {
 			: ModelRegistry.inMemory(storage);
 		if (request.operation === "config_request") {
 			const response = request.response;
+			const modelId = request.modelId;
+			if (typeof modelId !== "string")
+				throw new TypeError("Fixture model ID must be a string");
 			if (typeof response !== "string")
 				throw new TypeError("Fixture response must be a string");
 			const requests: unknown[] = [];
-			setFetchScript((async (_input: unknown, init?: RequestInit) => {
-				const headers = new Headers(init?.headers);
+			setFetchScript((async (input: unknown, init?: RequestInit) => {
+				const requestObject = input instanceof Request ? input : undefined;
+				const headers = new Headers(init?.headers ?? requestObject?.headers);
+				const body = requestObject
+					? await requestObject.text()
+					: String(init?.body);
 				requests.push({
-					body: JSON.parse(String(init?.body)),
+					body: JSON.parse(body),
 					headers: Object.fromEntries(
 						["session_id", "x-client-request-id", "x-session-affinity"].map(
 							(name) => [name, headers.get(name)],
@@ -105,13 +112,13 @@ async function main(): Promise<void> {
 				});
 			}) as typeof fetch);
 			try {
-				const model = registry.find("local", "fixture-model");
+				const model = registry.find("local", modelId);
 				const auth = await registry.getApiKeyAndHeaders(model);
 				if (!auth.ok) throw new Error(auth.error);
 				const api = await import(
 					new URL(`../../../ai/src/api/${request.api}.ts`, source).href
 				);
-				const stream = api.stream(
+				const stream = api[request.simple ? "streamSimple" : "stream"](
 					model,
 					{
 						systemPrompt: "fixture system",
@@ -124,6 +131,7 @@ async function main(): Promise<void> {
 						apiKey: auth.apiKey,
 						headers: auth.headers,
 						maxTokens: 11,
+						...(request.simple ? { reasoning: "high" } : {}),
 						...(request.streamOptions as Record<string, unknown> | undefined),
 					},
 				);

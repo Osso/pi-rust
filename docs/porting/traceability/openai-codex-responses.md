@@ -52,6 +52,10 @@ Line references below name the unmodified common pin; the account delta shifts l
 | 1598–1609 JWT atob/JSON/truthy account | lossless claim until header coercion |34actual-source JWT/account cases, Latin-1 atob semantics, empty/truthy/nonstring values and ByteString errors |
 | 1612–1678 UUID and Headers construction | UUIDv4, validated header list/shared property ordering | real no-session UUID version/header match; numeric-key validation order; model/additional append/set/delete/trim/Set-Cookie projection |
 
+## Thinking-map carrier dependency (2026-10-24)
+
+The registry's lossless ThinkingLevelMap migration changes only `reasoning_effort_value`'s owned result to JsString and its direct JSON insertion. Frozen536-537 still uses the same nullish default; arbitrary selected units are not projected through UTF8. No map value is used as a header or ID, and transport/cache/status semantics are unchanged. Carrier/consumer acceptance remains part of the registry slice, not a reopened Codex port.
+
 ## JsValue domain bound
 
 Parent2026-10-24 ruling: onPayload returns JsValue. Port only operations frozen performs directly on its returned body and body.input: spread/rest, nullish default, iterable spread, length/coercion, slice and JSON equality. Missing/undefined, null, string, number, boolean, plain object, array-like object and array are covered. Nested input items frozen never inspects pass opaquely to serialization; no recursive validation surface is added.

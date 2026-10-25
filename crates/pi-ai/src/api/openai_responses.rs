@@ -126,7 +126,8 @@ fn thinking_level_from_str(value: &str) -> Option<ModelThinkingLevel> {
     }
 }
 
-fn mapped_effort(model: &Model, effort: &str) -> String {
+// Frozen253: selected native string ?? requested effort, without scalar projection.
+fn mapped_effort(model: &Model, effort: &str) -> JsString {
     thinking_level_from_str(effort)
         .and_then(|level| {
             model
@@ -136,17 +137,18 @@ fn mapped_effort(model: &Model, effort: &str) -> String {
                 .cloned()
                 .flatten()
         })
-        .unwrap_or_else(|| effort.to_owned())
+        .unwrap_or_else(|| effort.into())
 }
 
-fn off_effort(model: &Model) -> Option<String> {
+// Frozen260-262: explicit null disables; absent off defaults to "none".
+fn off_effort(model: &Model) -> Option<JsString> {
     let Some(map) = model.thinking_level_map.as_ref() else {
-        return Some("none".to_owned());
+        return Some("none".into());
     };
     match map.get(&ModelThinkingLevel::Off) {
         Some(Some(value)) => Some(value.clone()),
         Some(None) => None,
-        None => Some("none".to_owned()),
+        None => Some("none".into()),
     }
 }
 
@@ -209,7 +211,7 @@ pub fn build_params(
             params.insert(
                 "reasoning".into(),
                 JsValue::object(vec![
-                    ("effort", JsValue::String(effort.into())),
+                    ("effort", JsValue::String(effort)),
                     ("summary", JsValue::String(summary.into())),
                 ]),
             );
@@ -222,7 +224,7 @@ pub fn build_params(
         {
             params.insert(
                 "reasoning".into(),
-                JsValue::object(vec![("effort", JsValue::String(effort.into()))]),
+                JsValue::object(vec![("effort", JsValue::String(effort))]),
             );
         }
     }
