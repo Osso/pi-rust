@@ -45,9 +45,9 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             mode.complete_provider_authentication(provider,&name,kind,previous).await.unwrap();
             let mut actual = authentication_ui_snapshot(&mode);
             if let Some(error) = setter_error {
-                actual["setterError"] = error;
+                actual["setterError"] = JsValue::from(error);
             }
-            assert_eq!(actual, expected["output"], "case={case}");
+            assert_eq!(actual, JsValue::from(&expected["output"]), "case={case}");
             if case!=1 {registry.unregister_provider(provider).unwrap();}
             if failed_metadata_path.is_some() {
                 mode.session().session_manager().set_metadata_control_db_path(None, Default::default()).unwrap();

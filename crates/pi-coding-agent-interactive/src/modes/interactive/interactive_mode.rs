@@ -5963,14 +5963,20 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn set_tools_expanded(&self, expanded: bool) {
+    fn set_tools_expanded(&self, expanded: bool) -> Result<(), CallbackError> {
         self.tool_output_expanded.set(expanded);
-        self.settings_mut(|settings| settings.set_output_pad(if expanded { 0 } else { 1 }));
+        self.expand_active_header()?;
+        let resources = self.loaded_resources_container.borrow().children().to_vec();
+        let chat = self.chat_container.borrow().children().to_vec();
+        for child in resources.iter().chain(&chat) {
+            expand_component(child, expanded);
+        }
         self.ui.request_render();
+        Ok(())
     }
 
-    fn toggle_tool_output_expansion(&self) {
-        self.set_tools_expanded(!self.tool_output_expanded.get());
+    fn toggle_tool_output_expansion(&self) -> Result<(), CallbackError> {
+        self.set_tools_expanded(!self.tool_output_expanded.get())
     }
 
     fn detach_running_tool(&self) -> Result<bool, CallbackError> {
@@ -6636,6 +6642,28 @@ fn changelog_display_for(
     }
 }
 
+fn expand_component(child: &ComponentRef, expanded: bool) {
+    let mut child = child.borrow_mut();
+    let Some(view) = child.as_any_mut() else { return };
+    macro_rules! expand {
+        ($component:ty) => {
+            if let Some(component) = view.downcast_mut::<$component>() {
+                component.set_expanded(expanded);
+                return;
+            }
+        };
+    }
+    expand!(ExpandableText);
+    expand!(ToolExecutionComponent);
+    expand!(BashExecutionComponent);
+    expand!(SkillInvocationMessageComponent);
+    expand!(CompactionSummaryMessageComponent);
+    expand!(BranchSummaryMessageComponent);
+    expand!(CustomMessageComponent);
+    expand!(CustomEntryComponent);
+    expand!(crate::modes::interactive::components::coordination_message::CoordinationMessageComponent);
+}
+
 impl InteractiveMode {
     /// Installs synchronous TUI callbacks that enqueue async work.
     fn bind_callbacks(self: &Rc<Self>) {
@@ -6718,7 +6746,10 @@ impl InteractiveMode {
         );
         self.default_editor.borrow_mut().on_action(
             "app.tools.expand",
-            action(self, InteractiveMode::toggle_tool_output_expansion),
+            action(self, |mode| {
+                mode.toggle_tool_output_expansion()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+            }),
         );
         self.default_editor.borrow_mut().on_action(
             "app.tool.background",
@@ -10837,7 +10868,10 @@ impl InteractiveMode {
                         on_toggle_tools_expanded: Some(Rc::new({
                             let mode = self.ui_id.get();
                             move || {
-                                with_mode(mode, |mode| mode.toggle_tool_output_expansion());
+                                with_mode(mode, |mode| {
+                                    mode.toggle_tool_output_expansion()
+                                        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+                                });
                             }
                         })),
                     },
@@ -11015,7 +11049,7 @@ impl InteractiveMode {
                 self.editor().borrow_mut().set_text(&text)?;
                 self.ui.request_render();
             }
-            UiRequest::SetToolsExpanded(expanded) => self.set_tools_expanded(expanded),
+            UiRequest::SetToolsExpanded(expanded) => self.set_tools_expanded(expanded)?,
             UiRequest::SetFooter(factory) => {
                 self.set_extension_footer(factory);
             }
@@ -12494,6 +12528,55 @@ mod ui_tests {
         }
     }
 
+    fn completed_fixture_response(text: &str) -> pi_ai::providers::faux::FauxResponseStep {
+        faux_assistant_message(
+            vec![
+                faux_text(text),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    pi_js_compat::js_json::JsObject::from_iter([("reason".into(), JsValue::String(text.into()))]),
+                    Some(format!("end-{text}")),
+                ),
+            ],
+            Default::default(),
+        )
+        .into()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fixture_streams_keep_their_responses_across_other_registry_refreshes() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (first, _first_terminal, first_faux, _first_temp) = build_mode().await;
+                let (second, _second_terminal, second_faux, _second_temp) = build_mode().await;
+                first_faux.set_responses(vec![completed_fixture_response("first session")]);
+                second_faux.set_responses(vec![completed_fixture_response("second session")]);
+                second.session().model_registry().refresh().unwrap();
+                first
+                    .session()
+                    .prompt("first request", PromptOptions::default())
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    first.session().get_last_assistant_text(),
+                    Some("first session".into()),
+                    "messages: {:?}",
+                    first.session().messages()
+                );
+                first.session().model_registry().refresh().unwrap();
+                second
+                    .session()
+                    .prompt("second request", PromptOptions::default())
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    second.session().get_last_assistant_text(),
+                    Some("second session".into())
+                );
+            })
+            .await;
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn hidden_coordination_queue_keeps_user_input_and_delivery_intact() {
         let local = tokio::task::LocalSet::new();
@@ -13178,6 +13261,7 @@ mod ui_tests {
                 let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
+                    let stream_provider = Arc::clone(&faux.provider);
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
@@ -13188,10 +13272,8 @@ mod ui_tests {
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
-                                Box::pin(async move {
-                                    pi_ai::compat::stream_simple(model, context, options)
-                                        .map_err(pi_agent_core::AgentError::from)
-                                })
+                                let stream = stream_provider.stream_simple(model, context, options);
+                                Box::pin(async move { stream.map_err(pi_agent_core::AgentError::from) })
                             },
                         )),
                         ..Default::default()
@@ -13728,8 +13810,22 @@ mod ui_tests {
                 let expected = source.request(&serde_json::json!({"expanded":expanded,"quiet":quiet,"verbose":verbose,"version":mode.version,"bindings":request_bindings,"width":100,"colors":crate::modes::interactive::theme::REQUIRED_COLORS}));
                 assert_eq!(expected["ok"],true,"source: {expected}");
                 mode.build_header();
-                let capture = || mode.header_container.borrow_mut().render(100).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
-                let mut frames = vec![capture()];
+                mode.loaded_resources_container.borrow_mut().add_child(component(ExpandableText::new(|| "resource-collapsed".into(), || "resource-expanded".into(), false, 0, 0)));
+                mode.chat_container.borrow_mut().add_child(component(ExpandableText::new(|| "chat-collapsed".into(), || "chat-expanded".into(), false, 0, 0)));
+                mode.chat_container.borrow_mut().add_child(component(Text::new("plain child", 0, 0)));
+                let capture = || {
+                    let render = |container: &mut dyn Component| container.render(100).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
+                    serde_json::json!({"header":render(&mut *mode.header_container.borrow_mut()),"resources":render(&mut *mode.loaded_resources_container.borrow_mut()),"chat":render(&mut *mode.chat_container.borrow_mut())})
+                };
+                let mut frames = Vec::new();
+                let mut capture_expansion = || {
+                    frames.push(capture());
+                    for expanded in [true, false] {
+                        mode.set_tools_expanded(expanded).unwrap();
+                        frames.push(capture());
+                    }
+                };
+                capture_expansion();
                 for expandable in [true,false] {
                     mode.set_extension_header(Some(Arc::new(move |_| {
                         let expanded = Rc::new(Cell::new(false));
@@ -13741,10 +13837,11 @@ mod ui_tests {
                             component: Box::new(HeaderFixture { expanded, expandable }), set_expanded,
                         })
                     }))).unwrap();
-                    frames.push(capture());
+                    capture_expansion();
                 }
                 mode.set_extension_header(None).unwrap();
-                frames.push(capture());
+                capture_expansion();
+                assert_eq!(mode.settings(|settings| settings.get_output_pad()), 1, "expansion does not change output padding");
                 assert_eq!(serde_json::json!(frames),expected["output"],"expanded={expanded},quiet={quiet},verbose={verbose}");
                 mode.stop().unwrap();
             }
@@ -18726,6 +18823,13 @@ mod ui_tests {
                 let (mode, terminal, _faux, _temp) = build_mode().await;
                 let mut events = start(&mode).await;
                 let output = pump(&mode, &mut events, &terminal, |output| output.contains("faux-1")).await;
+                assert!(output.contains("Press ctrl+o to show full startup help and loaded resources."));
+                terminal.borrow_mut().send_input("\u{f}");
+                mode.ui.process_events();
+                let output = pump(&mode, &mut events, &terminal, |output| {
+                    output.contains("ctrl+b to background tools")
+                })
+                .await;
                 assert!(output.contains("ctrl+b to background tools"), "output:\n{output:?}");
 
                 let context = mode.session().extension_runner().create_context();
