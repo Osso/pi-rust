@@ -807,7 +807,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `client/src/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `client/src/unix.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `client/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
-| `coding-agent/examples/extensions/kimi-deferred-tools.ts` | done | `crates/pi-coding-agent/examples/extensions/kimi_deferred_tools.rs` |
+| `coding-agent/examples/extensions/kimi-deferred-tools.ts` | done | Removed: no frozen counterpart (2026-10-25) |
 | `coding-agent/extensions/agents-core/src/control-runtime.ts` | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/control_runtime.rs` |
 | `coding-agent/extensions/agents-core/src/dispatch-runtime.ts` | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/dispatch_runtime.rs` |
 | `coding-agent/extensions/agents-core/src/mailbox-runtime.ts` | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/mailbox_runtime.rs` |
@@ -917,12 +917,12 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `session-backends/sqlite-node/src/sqlite/storage/writer-leases.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `session-backends/sqlite-node/src/sqlite/types.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `session-backends/sqlite-node/vitest.config.ts` | gap | Removed: no frozen counterpart (2026-10-21) |
-| `telemetry/src/index.ts` | done | `crates/pi-telemetry/src/lib.rs` |
-| `telemetry/src/memory.ts` | done | `crates/pi-telemetry/src/memory.rs` |
-| `telemetry/src/noop.ts` | done | `crates/pi-telemetry/src/noop.rs` |
-| `telemetry/src/testing/conformance.ts` | gap | — |
-| `telemetry/src/testing/index.ts` | gap | — |
-| `telemetry/src/testing/types.ts` | gap | — |
+| `telemetry/src/index.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `telemetry/src/memory.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `telemetry/src/noop.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `telemetry/src/testing/conformance.ts` | gap | Removed: no frozen counterpart (2026-10-25) |
+| `telemetry/src/testing/index.ts` | gap | Removed: no frozen counterpart (2026-10-25) |
+| `telemetry/src/testing/types.ts` | gap | Removed: no frozen counterpart (2026-10-25) |
 | `tui/native/darwin/build.sh` | gap | — |
 | `tui/native/win32/build.mjs` | gap | — |
 | `tui/src/alt-screen-search.ts` | done | Removed Q2: no frozen counterpart; [proof](q2-tui-components-proof.md) |

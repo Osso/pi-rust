@@ -98,3 +98,10 @@ the failing target; no later target is claimed as exercised in that run. Log 36
 exits 0: 5 tests pass, zero warnings. Ledger records base revision, exact working
 diff snapshots/digests and restoration. Other examples remain outside this
 follow-up's verification scope.
+
+## Removed old-only Kimi example (2026-10-25)
+
+`kimi-deferred-tools.ts` is absent from frozen `4f9e6f8a4` (tracked source
+inventory and module-import RED). The opt-in Rust factory and its one
+differential test were removed, rather than treating an absent source as
+passing or borrowing a newer source. No frozen example behavior changed.
