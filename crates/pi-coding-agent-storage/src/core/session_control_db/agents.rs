@@ -3537,7 +3537,14 @@ pub fn recover_dead_multi_agent_runtime(
                     error: RecoverDeadRuntimeError::MutationMismatch,
                 });
             };
-            let recoverable = read_recoverable_multi_agent_runtime(db, &input.expected_owner, true)?;
+            if let Some(replay) = read_dead_runtime_recovery_replay(db, &input.expected_owner)? {
+                return Ok(replay);
+            }
+            let recoverable = read_recoverable_multi_agent_runtime(
+                db,
+                &input.expected_owner,
+                Some(&input.supervisor.process_identity),
+            )?;
             let recoverable = match recoverable {
                 RecoverableMultiAgentRuntime::Ok { agent, agent_data } => (agent, agent_data),
                 RecoverableMultiAgentRuntime::Err(error) => {
@@ -3554,6 +3561,58 @@ pub fn recover_dead_multi_agent_runtime(
         Ok(RecoverDeadMultiAgentRuntimeResult::Err {
             error: RecoverDeadRuntimeError::MutationMismatch,
         })
+    })
+}
+
+fn read_dead_runtime_recovery_replay(
+    db: &Connection,
+    expected_owner: &MultiAgentRuntimeOwnershipIdentity,
+) -> Result<Option<RecoverDeadMultiAgentRuntimeResult>, ControlDbError> {
+    let Some(data) = read_agent_data_row(db, &expected_owner.session_path, &expected_owner.agent_id)? else {
+        return Ok(None);
+    };
+    let context = js_format!(
+        "multi_agent_agents:{}#{}",
+        expected_owner.session_path,
+        expected_owner.agent_id
+    );
+    let agent = parse_stored_json_object_lossless(&data, &context)?;
+    if !has_lost_runtime_terminal_state(&agent) {
+        return Ok(None);
+    }
+    let owner = read_multi_agent_runtime_ownership_row(db, &expected_owner.session_path, &expected_owner.agent_id)?;
+    let Some(owner) = owner else {
+        return Ok(None);
+    };
+    if owner.process_identity.is_some() || owner.owner_session_id.is_some() || owner.owner_agent_id.is_some() {
+        return Ok(None);
+    }
+    build_dead_runtime_replay(agent, &context).map(Some)
+}
+
+fn has_lost_runtime_terminal_state(agent: &JsObject) -> bool {
+    let lifecycle = agent.get("lifecycle").and_then(JsValue::as_string);
+    let terminal = lifecycle.is_some_and(|value| value == "failed" || value == "aborted");
+    let code = agent
+        .get("error")
+        .and_then(|error| error.get("code"))
+        .and_then(JsValue::as_string);
+    terminal && code.is_some_and(|value| value == "lost_runtime")
+}
+
+fn build_dead_runtime_replay(
+    agent: JsObject,
+    context: &JsString,
+) -> Result<RecoverDeadMultiAgentRuntimeResult, ControlDbError> {
+    validate_persisted_agent_payload(&agent, context)?;
+    let terminal_revision = agent
+        .get("revision")
+        .and_then(JsValue::as_f64)
+        .ok_or_else(|| ControlDbError::new(js_format!("Invalid persisted agent payload at {}", context)))?
+        as i64;
+    Ok(RecoverDeadMultiAgentRuntimeResult::Ok {
+        agent,
+        terminal_revision,
     })
 }
 
@@ -3633,7 +3692,7 @@ fn read_supervisor_recovery_authority(
 fn read_recoverable_multi_agent_runtime(
     db: &Connection,
     expected_owner: &MultiAgentRuntimeOwnershipIdentity,
-    verify_owner_liveness: bool,
+    replacement: Option<&crate::core::runtime_process::ProcessIdentity>,
 ) -> Result<RecoverableMultiAgentRuntime, ControlDbError> {
     let data = read_agent_data_row(db, &expected_owner.session_path, &expected_owner.agent_id)?;
     let Some(data) = data else {
@@ -3674,8 +3733,13 @@ fn read_recoverable_multi_agent_runtime(
             RecoverDeadRuntimeError::InvalidTransition,
         ));
     }
-    if verify_owner_liveness && process_identity_is_alive(&expected_owner.process_identity) {
-        return Ok(RecoverableMultiAgentRuntime::Err(RecoverDeadRuntimeError::OwnerAlive));
+    if let Some(replacement) = replacement {
+        let owner_alive = process_identity_is_alive(&expected_owner.process_identity);
+        let owner_superseded =
+            crate::core::runtime_process::is_superseded_runtime_identity(&expected_owner.process_identity, replacement);
+        if owner_alive && !owner_superseded {
+            return Ok(RecoverableMultiAgentRuntime::Err(RecoverDeadRuntimeError::OwnerAlive));
+        }
     }
     Ok(RecoverableMultiAgentRuntime::Ok {
         agent,
@@ -4020,7 +4084,7 @@ fn reconcile_dead_detached_agent_runtime(
     now_iso: &str,
 ) -> Result<i64, ControlDbError> {
     for _ in 0..3 {
-        let recoverable = read_recoverable_multi_agent_runtime(db, expected_owner, false)?;
+        let recoverable = read_recoverable_multi_agent_runtime(db, expected_owner, None)?;
         let (agent, agent_data) = match recoverable {
             RecoverableMultiAgentRuntime::Ok { agent, agent_data } => (agent, agent_data),
             RecoverableMultiAgentRuntime::Err(_) => return Ok(0),

@@ -84,6 +84,8 @@ pub mod repin_storage_control_cancellation;
 pub mod repin_storage_control_history;
 #[path = "repin_storage_control_legacy_owner.rs"]
 pub mod repin_storage_control_legacy_owner;
+#[path = "repin_storage_control_recovery.rs"]
+pub mod repin_storage_control_recovery;
 #[path = "repin_storage_copy_validation.rs"]
 pub mod repin_storage_copy_validation;
 #[path = "repin_storage_history.rs"]

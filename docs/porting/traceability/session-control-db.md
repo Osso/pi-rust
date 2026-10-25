@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Superseded runtime recovery and replay (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-recovery-red.log` exposes missing ordinary recovery branches: native rejected a live PID whose old incarnation was superseded by the registered supervisor, and rejected replay of an already recovered lost_runtime terminal row. Recovery now passes the replacement identity to the existing supersession authority and checks the frozen terminal/error/cleared-owner replay before active-runtime planning. Reconciliation supplies no replacement identity, preserving its existing behavior. Two source/native tests cover running→failed and cancelling→aborted, retained tool-call ID, unchanged replay result and exactly one terminal outbox row. Source creates both databases and primes replay through the real public API.
+
 ## Agent metadata clearing and insertion order (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-agent-metadata-red.log` reproduces two ordinary failures: clearing lastActivity retained its previous value, and a combined activity/model update wrote model before currentActivity in canonical JSON. The activity helper now supplies the existing deletion sentinel for None; combined metadata is built in frozen currentActivity-then-model order. Source seeds both DBs; tests compare complete returned values and stored bytes. No new sentinel/carrier or metadata algorithm.
