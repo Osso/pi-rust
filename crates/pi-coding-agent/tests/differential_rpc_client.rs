@@ -78,6 +78,35 @@ async fn native(request: &JsValue) -> JsValue {
 }
 
 #[tokio::test]
+async fn rpc_client_honors_the_runtime_executable_and_argument_order() {
+    // Frozen rpc-client.ts:98-106 uses executablePath, then nodeArgs/cliPath/mode/provider/model/args.
+    use std::os::unix::fs::PermissionsExt;
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("runtime.py");
+    std::fs::write(&path, "#!/usr/bin/python3\nimport json,sys,os\nfor line in sys.stdin:\n c=json.loads(line)\n print(json.dumps({'id':c['id'],'type':'response','command':c['type'],'success':True,'data':{'argv':sys.argv[1:],'env':os.environ['PI_RPC_TOKEN']}}),flush=True)\n").unwrap();
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let client = RpcClient::new(RpcClientOptions {
+        executable_path: Some(path.to_str().unwrap().into()),
+        cli_path: Some("entry".into()),
+        node_args: vec!["runtime-flag".into()],
+        provider: Some("provider".into()),
+        model: Some("model".into()),
+        args: vec!["extra".into()],
+        env: std::collections::BTreeMap::from([("PI_RPC_TOKEN".into(), "private".into())]),
+        ..Default::default()
+    });
+    client.start().await.unwrap();
+    let response = client.send(RpcCommandBody::GetState).await.unwrap();
+    client.stop().await.unwrap();
+    assert_eq!(
+        response.get("data"),
+        Some(
+            &pi_js_compat::js_json!({"argv":["runtime-flag","entry","--mode","rpc","--provider","provider","--model","model","extra"],"env":"private"})
+        )
+    );
+}
+
+#[tokio::test]
 async fn rpc_client_accepts_declared_model_shapes_without_requiring_full_models() {
     // Frozen client :262-288 and :46-51 declare reference/info shapes, not full Models.
     let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);

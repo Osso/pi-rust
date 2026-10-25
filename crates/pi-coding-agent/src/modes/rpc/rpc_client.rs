@@ -51,6 +51,8 @@ pub type RpcEventListener = Arc<dyn Fn(&JsValue) + Send + Sync>;
 /// Options for [`RpcClient::start`].
 #[derive(Debug, Clone, Default)]
 pub struct RpcClientOptions {
+    /// Runtime executable, defaulting to node (frozen executablePath).
+    pub executable_path: Option<JsString>,
     /// Path to the CLI entry point (default: `dist/cli.js`).
     pub cli_path: Option<PathBuf>,
     /// Working directory for the agent.
@@ -1015,7 +1017,8 @@ struct SpawnedProcess {
 
 fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
     let cli_path = options.cli_path.clone().unwrap_or_else(|| PathBuf::from("dist/cli.js"));
-    let mut command = Command::new("node");
+    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
+    let mut command = Command::new(encode_node_utf8(&executable));
     command.args(&options.node_args);
     command.arg(&cli_path);
     command.args(["--mode", "rpc"]);
@@ -1036,7 +1039,7 @@ fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedPr
         .stderr(Stdio::piped());
 
     let mut child = command.spawn().map_err(|error| RpcClientError::ProcessError {
-        message: spawn_error_message(&error),
+        message: node_spawn_error_message("spawn", &executable, &error),
         stderr,
     })?;
     let stdin = child.stdin.take().expect("piped child stdin must exist");
@@ -1077,10 +1080,6 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
     process.stdin = Some(spawned.stdin);
     process.reader = Some(reader);
     inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
-}
-
-fn spawn_error_message(error: &std::io::Error) -> JsString {
-    node_spawn_error_message("spawn", &JsString::from("node"), error)
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {
