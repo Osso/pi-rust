@@ -2,6 +2,7 @@ import { mkdirSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+import type { AgentMessage } from "@pi-oracle-source/agent-core/src/index.ts";
 import type { Model } from "@pi-oracle-source/ai/src/types.ts";
 import type { AgentSessionEvent } from "@pi-oracle-source/coding-agent/src/core/agent-session.ts";
 import type { CreateAgentSessionRuntimeFactory } from "@pi-oracle-source/coding-agent/src/core/agent-session-runtime.ts";
@@ -83,6 +84,7 @@ interface Request {
 		| "factory-object";
 	importPath?: string;
 	events?: AgentSessionEvent[];
+	replayMessages?: AgentMessage[];
 }
 
 async function captureStartup(request: Request) {
@@ -209,20 +211,27 @@ async function captureStartup(request: Request) {
 			container: { render(width: number): string[] },
 			width = 120,
 		) => container.render(width).map(units);
+		const captureEventFrame = () => ({
+			chat: render(mode.chatContainer),
+			tail: render(mode.transcriptTailContainer),
+			status: render(mode.statusContainer),
+			narrow: {
+				chat: render(mode.chatContainer, 25),
+				tail: render(mode.transcriptTailContainer, 25),
+				status: render(mode.statusContainer, 25),
+			},
+			progress: [...terminal.progress],
+		});
 		const eventFrames = [];
+		if (request.replayMessages) {
+			for (const message of request.replayMessages)
+				mode.sessionManager.appendMessage(message);
+			mode.rebuildChatFromMessages();
+			eventFrames.push(captureEventFrame());
+		}
 		for (const event of request.events ?? []) {
 			await mode.handleEvent(event);
-			eventFrames.push({
-				chat: render(mode.chatContainer),
-				tail: render(mode.transcriptTailContainer),
-				status: render(mode.statusContainer),
-				narrow: {
-					chat: render(mode.chatContainer, 25),
-					tail: render(mode.transcriptTailContainer, 25),
-					status: render(mode.statusContainer, 25),
-				},
-				progress: [...terminal.progress],
-			});
+			eventFrames.push(captureEventFrame());
 		}
 		const output = {
 			header: render(mode.headerContainer),

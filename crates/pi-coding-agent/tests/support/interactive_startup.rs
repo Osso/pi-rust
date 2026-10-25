@@ -346,7 +346,15 @@ async fn startup_capture_child() {
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();
         let mut event_frames = Vec::new();
         if let Some(case) = request["eventCase"].as_str() {
-            let events = build_display_fixture_events(case);
+            let replay = case.starts_with("replay-");
+            let messages = if replay { build_display_replay_messages(case) } else { Vec::new() };
+            let events = if replay { Vec::new() } else { build_display_fixture_events(case) };
+            if replay {
+                request["replayMessages"] = serde_json::to_value(&messages).unwrap();
+                for message in messages { mode.session().session_manager().append_message(message).unwrap(); }
+                mode.rebuild_chat_from_messages();
+                event_frames.push(capture_event_display_frame(&mode, &terminal));
+            }
             request["events"] = serde_json::to_value(&events).unwrap();
             for event in events {
                 mode.handle_event(event).await;

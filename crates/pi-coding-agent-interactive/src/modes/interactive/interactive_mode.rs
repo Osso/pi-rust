@@ -5077,6 +5077,7 @@ impl InteractiveMode {
                             assistant
                                 .error_message
                                 .clone()
+                                .filter(|error| !error.is_empty())
                                 .unwrap_or_else(|| JsString::from("Error"))
                         };
                         if let Some(component_value) = component_ref
@@ -5093,7 +5094,7 @@ impl InteractiveMode {
                                     is_error: true,
                                 },
                                 false,
-                                None,
+                                Some(assistant.timestamp),
                             );
                         }
                     } else {
@@ -5121,7 +5122,7 @@ impl InteractiveMode {
                             is_error: result.is_error,
                         },
                         false,
-                        timing.map(|(_, finished_at)| finished_at),
+                        Some(timing.map_or(result.timestamp, |(_, finished_at)| finished_at)),
                     );
                 }
             }

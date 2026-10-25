@@ -8,7 +8,16 @@ fn interleaved_text_tool_and_retry_compaction_frames_match_frozen() {
     }
     let mut source = oracle::TsOracle::spawn("interactive-startup-oracle.mts", "packages/coding-agent/src");
     let mut mismatches = Vec::new();
-    for case in ["mixed", "retry-empty", "compaction", "compaction-empty", "provider-retry"] {
+    for case in [
+        "mixed",
+        "retry-empty",
+        "compaction",
+        "compaction-empty",
+        "provider-retry",
+        "replay-error",
+        "replay-complete",
+        "replay-aborted",
+    ] {
         let root = tempfile::tempdir().unwrap();
         let skill = root.path().join("skill");
         std::fs::create_dir(&skill).unwrap();
@@ -65,7 +74,9 @@ fn interleaved_text_tool_and_retry_compaction_frames_match_frozen() {
 }
 
 fn build_display_fixture_events(case: &str) -> Vec<AgentSessionEvent> {
-    use crate::core::agent_session::{AutoRetryEndEvent, CompactionEndEvent, CompactionStartEvent, ProviderStreamRetryEvent};
+    use crate::core::agent_session::{
+        AutoRetryEndEvent, CompactionEndEvent, CompactionStartEvent, ProviderStreamRetryEvent,
+    };
     if case == "retry-empty" {
         return vec![AgentSessionEvent::AutoRetryEnd(AutoRetryEndEvent {
             event_type: "auto_retry_end",
@@ -79,7 +90,15 @@ fn build_display_fixture_events(case: &str) -> Vec<AgentSessionEvent> {
             pi_js_compat::js_json!({"attempt":2,"maxAttempts":3,"delayMs":1250,"reason":"server busy"}),
             pi_js_compat::js_json!({"attempt":1,"reason":"connection reset"}),
             pi_js_compat::js_json!({"attempt":1,"fallbackTransport":"sse","reason":"socket unavailable"}),
-        ].into_iter().map(|retry| AgentSessionEvent::ProviderStreamRetry(ProviderStreamRetryEvent { event_type:"provider_stream_retry", retry:pi_js_compat::js_json::from_value(&retry).unwrap() })).collect();
+        ]
+        .into_iter()
+        .map(|retry| {
+            AgentSessionEvent::ProviderStreamRetry(ProviderStreamRetryEvent {
+                event_type: "provider_stream_retry",
+                retry: pi_js_compat::js_json::from_value(&retry).unwrap(),
+            })
+        })
+        .collect();
     }
     if case == "compaction" || case == "compaction-empty" {
         return vec![
@@ -134,6 +153,32 @@ fn build_display_fixture_events(case: &str) -> Vec<AgentSessionEvent> {
             message: AgentMessage::Assistant(Box::new(partial)),
         }),
     ]
+}
+
+fn build_display_replay_messages(case: &str) -> Vec<AgentMessage> {
+    let timestamp = 1_792_843_696_000.0;
+    let mut assistant = faux_assistant_message(faux_text("Reading fixture"), Default::default());
+    assistant.timestamp = timestamp;
+    assistant.content.push(pi_ai::types::AssistantContent::ToolCall(
+        pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({"type":"toolCall","id":"call-replay","name":"read","arguments":{"path":"fixture.txt"}})).unwrap()
+    ));
+    match case {
+        "replay-error" => {
+            assistant.stop_reason = pi_ai::types::StopReason::Error;
+            assistant.error_message = Some(JsString::default());
+            vec![assistant.into()]
+        }
+        "replay-aborted" => {
+            assistant.stop_reason = pi_ai::types::StopReason::Aborted;
+            vec![assistant.into()]
+        }
+        "replay-complete" => {
+            assistant.stop_reason = pi_ai::types::StopReason::ToolUse;
+            let result: AgentMessage = pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({"role":"toolResult","toolCallId":"call-replay","toolName":"read","content":[{"type":"text","text":"File body"}],"isError":false,"timestamp":timestamp+1000.0})).unwrap();
+            vec![assistant.into(), result]
+        }
+        _ => panic!("unknown replay fixture: {case}"),
+    }
 }
 
 fn capture_event_display_frame(mode: &InteractiveMode, terminal: &Rc<RefCell<CaptureTerminal>>) -> serde_json::Value {
