@@ -111,50 +111,69 @@ pub trait GitBranchRunner: Send + Sync {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemGitBranchRunner;
 
-impl SystemGitBranchRunner {
-    fn command(repo_dir: &JsString) -> std::process::Command {
-        let mut command = std::process::Command::new("git");
-        command
-            .arg("--no-optional-locks")
-            .arg("symbolic-ref")
-            .arg("--quiet")
-            .arg("--short")
-            .arg("HEAD")
-            .current_dir(encode_node_utf8(repo_dir));
-        command
-    }
+const GIT_BRANCH_ARGS: [&str; 5] = ["--no-optional-locks", "symbolic-ref", "--quiet", "--short", "HEAD"];
+const GIT_MAX_BUFFER_BYTES: usize = 1024 * 1024;
+
+fn decode_git_branch(bytes: &[u8]) -> Option<JsString> {
+    let branch = JsString::from(String::from_utf8_lossy(bytes).as_ref()).trim();
+    (!branch.is_empty()).then_some(branch)
 }
 
 impl GitBranchRunner for SystemGitBranchRunner {
     fn resolve_sync(&self, repo_dir: &JsString) -> Option<JsString> {
-        let output = Self::command(repo_dir).output().ok()?;
-        if !output.status.success() {
+        use crate::utils::child_process::{
+            ChildStdio, ChildStdioOptions,
+            sync::{SpawnSyncOptions, spawn_sync},
+        };
+        let cwd = encode_node_utf8(repo_dir);
+        let arguments = GIT_BRANCH_ARGS.map(JsString::from);
+        let output = spawn_sync(
+            &"git".into(),
+            &arguments,
+            SpawnSyncOptions {
+                cwd: Some(Path::new(&cwd)),
+                max_buffer: Some(GIT_MAX_BUFFER_BYTES),
+                stdio: ChildStdioOptions {
+                    stdin: ChildStdio::Ignore,
+                    stdout: ChildStdio::Pipe,
+                    stderr: ChildStdio::Ignore,
+                },
+                ..Default::default()
+            },
+        )
+        .ok()?;
+        if output.status != Some(0) {
             return None;
         }
-        let branch = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
-        let branch = branch.trim();
-        (!branch.is_empty()).then(|| branch.to_owned())
+        decode_git_branch(output.stdout.as_deref().expect("successful piped git stdout"))
     }
 
     fn resolve_async(&self, repo_dir: &JsString) -> BoxFuture<'static, Option<JsString>> {
         let repo_dir = repo_dir.clone();
         Box::pin(async move {
-            let output = tokio::process::Command::new("git")
-                .arg("--no-optional-locks")
-                .arg("symbolic-ref")
-                .arg("--quiet")
-                .arg("--short")
-                .arg("HEAD")
+            use std::process::Stdio;
+            let mut child = tokio::process::Command::new("git")
+                .args(GIT_BRANCH_ARGS)
                 .current_dir(encode_node_utf8(&repo_dir))
-                .output()
-                .await
+                .env_clear()
+                .envs(pi_js_compat::process_env::vars())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
                 .ok()?;
-            if !output.status.success() {
+            let captured = crate::utils::child_process::capture_child_process(
+                &mut child,
+                Some(GIT_MAX_BUFFER_BYTES),
+                None,
+                rustix::process::Signal::TERM,
+            )
+            .await
+            .ok()?;
+            if captured.stopped.is_some() || captured.output.status != Some(0) {
                 return None;
             }
-            let branch = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
-            let branch = branch.trim();
-            (!branch.is_empty()).then(|| branch.to_owned())
+            decode_git_branch(&captured.output.stdout)
         })
     }
 }

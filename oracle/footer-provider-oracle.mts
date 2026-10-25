@@ -14,14 +14,22 @@ const { FooterDataProvider } = (await import(
 )) as { FooterDataProvider: new (cwd: string) => Provider };
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line) as {
-		operation: "numbers" | "live" | "dispose" | "throw" | "metadata";
+		operation: "numbers" | "live" | "dispose" | "throw" | "metadata" | "git";
 		cwd: string;
 	};
 	const provider = new FooterDataProvider(request.cwd);
 	const trace: string[] = [];
 	let result: unknown;
 	try {
-		if (request.operation === "metadata") {
+		if (request.operation === "git") {
+			const sync = provider.getGitBranch();
+			const async = await (
+				Reflect.get(provider, "resolveGitBranchAsync") as () => Promise<
+					string | null
+				>
+			).call(provider);
+			result = { sync, async };
+		} else if (request.operation === "metadata") {
 			result = provider.getGitBranch();
 		} else if (request.operation === "numbers") {
 			result = [
