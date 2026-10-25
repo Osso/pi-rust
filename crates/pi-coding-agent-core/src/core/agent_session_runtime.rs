@@ -631,7 +631,7 @@ impl AgentSessionRuntime {
 
     fn resolve_existing_directory(&self, input_path: &JsString) -> Result<JsString, CallbackError> {
         let resolved =
-            resolve_path(input_path, &self.cwd(), &PathInputOptions::default()).map_err(CallbackError::from)?;
+            resolve_path(input_path, self.cwd(), &PathInputOptions::default()).map_err(CallbackError::from)?;
         let encoded = encode_node_utf8(&resolved);
         let path = std::path::Path::new(&encoded);
         if !path.exists() {
@@ -783,8 +783,7 @@ impl AgentSessionRuntime {
             .await;
         }
 
-        let session_manager = if is_persisted && current_session_file.is_some() {
-            let file = current_session_file.as_ref().expect("checked session file");
+        let session_manager = if is_persisted && let Some(file) = current_session_file.as_ref() {
             let (dir, cwd) = {
                 let session = self.session();
                 let manager = session.session_manager();

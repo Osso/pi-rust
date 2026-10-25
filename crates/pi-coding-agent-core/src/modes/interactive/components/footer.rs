@@ -254,7 +254,7 @@ impl FooterComponent {
             stats_parts.push(js_format!(
                 "{} {}",
                 with_theme(|theme| theme.fg(ThemeColor::Dim, "•")),
-                with_theme(|theme| theme.bold(&theme.fg(ThemeColor::Warning, "xp")))
+                with_theme(|theme| theme.bold(theme.fg(ThemeColor::Warning, "xp")))
             ));
         }
 

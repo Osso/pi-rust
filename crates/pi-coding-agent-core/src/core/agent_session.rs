@@ -248,7 +248,7 @@ impl ToolDefinition {
     pub fn from_tool(tool: Arc<dyn AgentTool>) -> Self {
         Self {
             name: tool.name().to_owned(),
-            description: tool.description().into(),
+            description: tool.description(),
             parameters: tool.parameters().clone(),
             prompt_snippet: None,
             prompt_guidelines: Vec::new(),
@@ -1393,7 +1393,7 @@ impl AgentSession {
                 .map(Ok)
                 .unwrap_or_else(|| {
                     crate::config::get_user_state_root()
-                        .map(|root| crate::core::session_control_db::get_control_db_path(&root).into())
+                        .map(|root| crate::core::session_control_db::get_control_db_path(&root))
                 })?;
             manager
                 .set_metadata_control_db_path(Some(&path), Default::default())
@@ -2183,7 +2183,7 @@ impl AgentSession {
                 Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason.into()),
+                    reason: Some(reason),
                     terminate: None,
                 }))
             }
@@ -2243,7 +2243,7 @@ impl AgentSession {
                             let result = tool
                                 .execute(
                                     format!("permission-prompt:{tool_use_id}"),
-                                    params.into(),
+                                    params,
                                     None,
                                     Arc::new(|_| Ok(())),
                                     None,
@@ -2305,7 +2305,7 @@ impl AgentSession {
                 Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason.into()),
+                    reason: Some(reason),
                     terminate: None,
                 }))
             }
@@ -2467,9 +2467,7 @@ impl AgentSession {
                             let mut payload = JsObject::new();
                             payload.insert(
                                 "activeGoal".into(),
-                                active_goal
-                                    .map(|goal| JsValue::String(goal.into()))
-                                    .unwrap_or(JsValue::Null),
+                                active_goal.map(JsValue::String).unwrap_or(JsValue::Null),
                             );
                             payload.insert(
                                 "currentUserRequest".into(),
@@ -2707,7 +2705,7 @@ impl AgentSession {
     fn runtime_mailbox_recipient(&self) -> crate::core::session_control_db::RuntimeMailboxAddress {
         crate::core::session_control_db::RuntimeMailboxAddress {
             agent_id: self.inner.multi_agent_agent_id.clone(),
-            session_id: self.session_id().into(),
+            session_id: self.session_id(),
         }
     }
 
@@ -3436,7 +3434,7 @@ impl AgentSession {
         if options.trigger_if_idle && !self.is_streaming() {
             Box::pin(self.send_custom_message(
                 &"shared_channel".into(),
-                CustomMessageContent::Text(prompt.to_owned().into()),
+                CustomMessageContent::Text(prompt.to_owned()),
                 true,
                 None,
                 true,
@@ -3453,7 +3451,7 @@ impl AgentSession {
         self.emit_queue_update();
         self.inner.agent.follow_up(create_custom_message(
             &"shared_channel".into(),
-            CustomMessageContent::Text(prompt.to_owned().into()),
+            CustomMessageContent::Text(prompt.to_owned()),
             true,
             None,
             crate::utils::iso_time::now_iso_string(),
@@ -4228,7 +4226,7 @@ impl AgentSession {
         let _ = crate::core::session_control_db::write_last_message(
             control_db_path,
             "assistant",
-            &encode_node_utf8(&content),
+            encode_node_utf8(&content),
         );
     }
 
@@ -5520,11 +5518,7 @@ impl AgentSession {
             attempt,
             max_attempts: settings.max_retries as u64,
             delay_ms,
-            error_message: message
-                .error_message
-                .clone()
-                .unwrap_or_else(|| "Unknown error".into())
-                .into(),
+            error_message: message.error_message.clone().unwrap_or_else(|| "Unknown error".into()),
         }));
         let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
@@ -6941,7 +6935,7 @@ impl AgentSession {
             (settings.get_shell_command_prefix().cloned(), settings.get_shell_path())
         };
         let resolved_command = match prefix.filter(|prefix| !prefix.is_empty()) {
-            Some(prefix) => JsString::from(prefix) + "\n" + command,
+            Some(prefix) => prefix + "\n" + command,
             None => command.clone(),
         };
         let operations = options.operations.clone().unwrap_or_else(|| {
@@ -6985,7 +6979,7 @@ impl AgentSession {
             exit_code: result.exit_code,
             cancelled: result.cancelled,
             truncated: result.truncated,
-            full_output_path: result.full_output_path.clone().map(JsString::from),
+            full_output_path: result.full_output_path.clone(),
             timestamp: pi_js_compat::date::js_now_millis() as f64,
             exclude_from_context,
         };
@@ -7223,7 +7217,7 @@ impl AgentSession {
             }
             ResolvedRequestAuth::Ok { .. } => {}
         }
-        if self.inner.model_registry.is_using_oauth(&model) {
+        if self.inner.model_registry.is_using_oauth(model) {
             return Err(error(format!(
                 "Authentication failed for \"{}\". Credentials may have expired or network is unavailable. Run '/login {}' to re-authenticate.",
                 model.provider, model.provider
@@ -7617,7 +7611,7 @@ impl AgentSession {
         header.insert("type".into(), JsValue::String("session".into()));
         header.insert(
             "version".into(),
-            JsValue::Number(crate::core::session_manager::CURRENT_SESSION_VERSION as f64),
+            JsValue::Number(crate::core::session_manager::CURRENT_SESSION_VERSION),
         );
         header.insert("id".into(), JsValue::String(session_id));
         header.insert(
@@ -8217,7 +8211,7 @@ impl AgentSession {
             return;
         };
         if let Err(error) =
-            crate::core::session_control_db::record_prompt_history_entry(control_db_path, &encode_node_utf8(text))
+            crate::core::session_control_db::record_prompt_history_entry(control_db_path, encode_node_utf8(text))
         {
             eprintln!("Failed to persist prompt history for handled slash command: {error}");
         }
@@ -8273,13 +8267,14 @@ impl AgentSession {
 fn tool_call_result_to_before(result: crate::core::extensions::types::ToolCallEventResult) -> BeforeToolCallResult {
     BeforeToolCallResult {
         block: result.block,
-        reason: result.reason.map(JsString::from),
+        reason: result.reason,
     }
 }
 
 fn extension_source_label(extension_path: &JsString) -> JsString {
     if extension_path.starts_with('<') {
-        return JsString::from("extension:") + extension_path.replace('<', "").replace('>', "");
+        let without_opening_bracket = extension_path.replace('<', "");
+        return JsString::from("extension:") + without_opening_bracket.replace('>', "");
     }
     let base = crate::utils::paths::node_basename(extension_path);
     let name = base
@@ -8922,8 +8917,8 @@ impl AgentSession {
             .get_registered_commands()
             .into_iter()
             .map(|command| SlashCommandInfo {
-                name: command.invocation_name.into(),
-                description: command.description.map(Into::into),
+                name: command.invocation_name,
+                description: command.description,
                 source: crate::core::slash_commands::SlashCommandSource::Extension,
                 source_info: command.source_info,
             })
