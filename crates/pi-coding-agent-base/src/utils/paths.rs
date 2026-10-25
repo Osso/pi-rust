@@ -315,9 +315,7 @@ pub fn node_join(base: impl Into<JsString>, tail: impl Into<JsString>) -> JsStri
 pub fn node_resolve(base: impl Into<JsString>, tail: impl Into<JsString>) -> Result<JsString, PathError> {
     let base = base.into();
     let tail = tail.into();
-    let joined = if node_is_absolute(&tail) {
-        tail
-    } else if base.is_empty() {
+    let joined = if node_is_absolute(&tail) || base.is_empty() {
         tail
     } else {
         base + "/" + tail

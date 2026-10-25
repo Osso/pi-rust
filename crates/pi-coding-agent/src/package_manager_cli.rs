@@ -93,9 +93,7 @@ pub enum PackageAction {
         force: bool,
         show_extensions_skipped_note: bool,
     },
-    Config {
-        local: bool,
-    },
+    Config,
 }
 
 /// Result of the ported portion of `handlePackageCommand`.
@@ -132,32 +130,6 @@ pub fn package_command_usage(command: PackageCommand) -> JsString {
         ),
         PackageCommand::List => pi_js_compat::js_format!("{} list [--approve|--no-approve]", app_name),
     }
-}
-
-fn config_command_usage() -> JsString {
-    pi_js_compat::js_format!("{} config [-l] [--approve|--no-approve]", app_name())
-}
-
-/// `printConfigCommandHelp` text, including the trailing newline from `console.log`.
-pub fn config_command_help() -> JsString {
-    let chalk = Chalk::stdout();
-    let text = pi_js_compat::js_format!(
-        "\n  {}
-
-Open the resource configuration TUI to enable or disable package resources.
-Without -l, starts in global settings (~/{}/agent/settings.json).
-Press Tab in the TUI to switch between global and project-local modes.
-
-Options:
-  -l, --local       Edit project overrides ({}/settings.json)
-  -a, --approve     Trust project-local files for this command with -l
-  -na, --no-approve Ignore project-local files for this command with -l
-",
-        config_command_usage(),
-        config_dir_name(),
-        config_dir_name()
-    );
-    chalk.bold("Usage:") + text
 }
 
 /// `printPackageCommandHelp` text, including the trailing newline from `console.log`.
@@ -548,58 +520,27 @@ pub fn handle_package_command(args: &[JsString]) -> Option<CommandOutcome> {
     Some(outcome)
 }
 
-/// `handleConfigCommand` argument validation; `None` when the command differs.
+/// `handleConfigCommand`: only trust overrides are parsed; all other arguments are ignored.
 pub fn handle_config_command(args: &[JsString]) -> Option<CommandOutcome> {
-    let (command, rest) = args.split_first()?;
-    if command != "config" {
+    if args.first().is_none_or(|command| command != "config") {
         return None;
     }
-    let mut outcome = CommandOutcome {
+    let project_trust_override = args.iter().fold(None, |previous, arg| {
+        if arg == "--approve" || arg == "-a" {
+            Some(true)
+        } else if arg == "--no-approve" || arg == "-na" {
+            Some(false)
+        } else {
+            previous
+        }
+    });
+    Some(CommandOutcome {
         stdout: Vec::new(),
         stderr: Vec::new(),
         exit_code: None,
-        action: None,
-        project_trust_override: None,
-    };
-    if rest.iter().any(|arg| arg == "-h" || arg == "--help") {
-        outcome.stdout.push(config_command_help());
-        return Some(outcome);
-    }
-    let chalk_stderr = Chalk::stderr();
-    let mut local = false;
-    let mut project_trust_override = None;
-    for arg in rest {
-        if arg == "-l" || arg == "--local" {
-            local = true;
-        } else if arg == "-a" || arg == "--approve" {
-            project_trust_override = Some(true);
-        } else if arg == "-na" || arg == "--no-approve" {
-            project_trust_override = Some(false);
-        } else if arg.starts_with('-') {
-            outcome
-                .stderr
-                .push(chalk_stderr.red(&pi_js_compat::js_format!("Unknown option {} for \"config\".", arg)));
-            outcome.stderr.push(chalk_stderr.dim(&pi_js_compat::js_format!(
-                "Use \"{} --help\" or \"{}\".",
-                app_name(),
-                config_command_usage()
-            )));
-            outcome.exit_code = Some(1);
-            return Some(outcome);
-        } else {
-            outcome
-                .stderr
-                .push(chalk_stderr.red(&pi_js_compat::js_format!("Unexpected argument {}.", arg)));
-            outcome
-                .stderr
-                .push(chalk_stderr.dim(&pi_js_compat::js_format!("Usage: {}", config_command_usage())));
-            outcome.exit_code = Some(1);
-            return Some(outcome);
-        }
-    }
-    outcome.project_trust_override = project_trust_override;
-    outcome.action = Some(PackageAction::Config { local });
-    Some(outcome)
+        action: Some(PackageAction::Config),
+        project_trust_override,
+    })
 }
 
 /// `list` output text for configured packages.
@@ -1296,7 +1237,7 @@ pub async fn execute_package_command(
                 run_self_update_target(&mut outcome, effects, &agent_dir, force, npm_command.as_deref()).await?;
             }
         }
-        PackageAction::Config { .. } => {}
+        PackageAction::Config => {}
     }
     Ok(Some(outcome))
 }
@@ -1444,7 +1385,7 @@ pub async fn execute_config_command(
         return Ok(None);
     };
     let action = outcome.action.take();
-    let Some(PackageAction::Config { .. }) = action else {
+    let Some(PackageAction::Config) = action else {
         return Ok(Some(outcome));
     };
     let cwd = effects.cwd();

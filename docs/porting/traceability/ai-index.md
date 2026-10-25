@@ -1,7 +1,7 @@
 # ai index / base traceability
 
 Sources: `packages/ai/src/index.ts` and `packages/ai/src/base.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
+`4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 Rust: crate-root re-exports in `crates/pi-ai/src/lib.rs`, `crates/pi-ai/src/base.rs`.
 Tests: `crates/pi-ai/tests/public_index.rs` (compiles and exercises every
 re-exported path), plus the module-level tests of each re-exported item.
@@ -26,15 +26,13 @@ crate root mirrors it with `pub use` globs. `base.ts` re-exports `compat`, so
 | `OpenAICodexResponsesOptions`, `OpenAICodexWebSocketDebugStats` | `api::openai_codex_responses::{OpenAICodexResponsesOptions, OpenAICodexWebSocketDebugStats}` |
 | `OpenAICompletionsOptions` | `api::openai_completions::OpenAICompletionsOptions` |
 | `OpenAIResponsesOptions` | `api::openai_responses::OpenAIResponsesOptions` |
-| `PiMessagesEvent`, `PiMessagesOptions`, `PiMessagesRewriteImpact` | `api::pi_messages::{PiMessagesEvent, PiMessagesOptions, PiMessagesRewriteImpact}` |
 | `export * from auth/context.ts` | `auth::context::*` |
 | `export * from auth/credential-store.ts` | `auth::credential_store::*` |
 | `export * from auth/helpers.ts` | `auth::helpers::*` |
 | `export * from auth/types.ts` | `auth::types::*` |
-| `OAuthAuthInfo`, `OAuthDeviceCodeInfo`, `OAuthLoginCallbacks`, `OAuthPrompt`, `OAuthSelectOption`, `OAuthSelectPrompt` | `compat::extension_oauth_types::{...}` |
+| `OAuthAuthInfo`, `OAuthCredentials`, `OAuthDeviceCodeInfo`, `OAuthLoginCallbacks`, `OAuthPrompt`, `OAuthSelectOption`, `OAuthSelectPrompt` | `compat::extension_oauth_types::{...}` |
 | `export * from images-models.ts` | `images_models::*` |
 | `export * from models.ts` | `models::*` |
-| `export * from models-store.ts` | `models_store::*` |
 | `export * from providers/faux.ts` | `providers::faux::*` |
 | `export * from session-resources.ts` | `session_resources::*` |
 | `export * from types.ts` | `types::*` + `request::*` (request-side interfaces live in `request.rs`) |
@@ -43,8 +41,6 @@ crate root mirrors it with `pub use` globs. `base.ts` re-exports `compat`, so
 | `export * from utils/json-parse.ts` | `utils::json_parse::*` |
 | `export * from utils/overflow.ts` | `utils::overflow::*` |
 | `export * from utils/retry.ts` | `utils::retry::*` |
-| `contentText` | `utils::text::content_text` |
-| `uuidv7` | `utils::uuid::uuidv7` |
 | `export * from utils/typebox-helpers.ts` | `utils::typebox_helpers::*` |
 | `export * from utils/validation.ts` | `utils::validation::*` |
 
@@ -76,3 +72,7 @@ means using the crate-root path.
   through the `./compat` package export, not `index.ts`).
 - `models.rs` intentionally exports a `Models` trait; `index.ts` also exports the
   same name, so the mapping is one-to-one.
+
+## Current-pin closure (2026-10-25)
+
+Added the five missing root OAuth type names: OAuthCredentials, OAuthProviderId, OAuthProvider, OAuthProviderInfo and OAuthProviderInterface. `public_oauth_types` fails to compile before the root re-exports and exercises the legacy getApiKey boundary after them. Strict source witness `oracle/ai-root-oauth-types-fixture.mts` imports these names from the unmodified frozen index. Existing public_index runtime tests remain unchanged. Removed old-only PiMessages, models-store, text and UUID root exports in their owning slices; TypeBox runtime builders remain the existing typed exclusion. Linking the Rust crate does not execute provider factories or register compat providers. Imported modules retain their independent coverage status.

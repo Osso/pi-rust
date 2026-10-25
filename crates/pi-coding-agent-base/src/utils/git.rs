@@ -170,7 +170,7 @@ fn split_url_ref(url: &JsString) -> SplitRef {
     parsed.set_path(&encode_node_utf8(&js_format!("/{}", repo_path)));
     SplitRef {
         repo: parsed.to_string().trim_end_matches('/').into(),
-        reference: Some(reference.into()),
+        reference: Some(reference),
     }
 }
 

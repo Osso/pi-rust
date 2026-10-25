@@ -78,9 +78,6 @@ fn differential_help_and_validation_output() {
         &["update", "--extension", "a", "source"],
         &["update", "--self", "source"],
         &["update", "--extensions", "source"],
-        &["config", "--help"],
-        &["config", "--bogus"],
-        &["config", "extra"],
     ];
     for args in cases {
         let operation = if args[0] == "config" {
