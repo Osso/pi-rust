@@ -176,9 +176,7 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
         support::context_actions(),
         Some(ProviderActions {
             register_provider: Some(Arc::new(move |name, config| {
-                target
-                    .register_provider(name, config.clone())
-                    .map_err(|error| error.message().clone())
+                target.register_provider(name, config.clone())
             })),
             ..Default::default()
         }),
