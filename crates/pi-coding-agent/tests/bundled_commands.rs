@@ -719,7 +719,7 @@ async fn effort_reports_missing_model() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
+async fn effort_injects_proactive_policy_and_restores_disabled_mode() {
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, "/repo").await;
     let mut options = HarnessOptions::new("/repo");
@@ -750,12 +750,12 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
     assert_eq!(
         harness.actions.entries.lock().unwrap().last().cloned(),
-        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"}))))
+        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "disabled"}))))
     );
 
     let result = harness
@@ -769,8 +769,7 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
         .await
         .expect("before_agent_start result");
     let prompt = result.system_prompt.expect("system prompt");
-    assert!(prompt.contains("Do not spawn sub-agents unless"));
-    assert!(!prompt.contains("Proactive multi-agent delegation is active."));
+    assert_eq!(prompt, "base");
 }
 
 #[tokio::test(start_paused = true)]
@@ -780,7 +779,7 @@ async fn effort_restores_mode_from_branch() {
         pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from(cwd)), None)
             .expect("session");
     session
-        .append_custom_entry(&JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"})))
+        .append_custom_entry(&JsString::from("multi-agent-mode"), Some(json!({"mode": "disabled"})))
         .expect("entry");
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, cwd).await;
@@ -805,12 +804,7 @@ async fn effort_restores_mode_from_branch() {
         )
         .await
         .expect("before_agent_start result");
-    assert!(
-        result
-            .system_prompt
-            .expect("system prompt")
-            .contains("Do not spawn sub-agents unless")
-    );
+    assert_eq!(result.system_prompt.expect("system prompt"), "base");
 }
 
 #[tokio::test(start_paused = true)]
@@ -840,15 +834,12 @@ async fn effort_ultra_activates_proactive_and_maps_thinking() {
     );
     assert_eq!(
         harness.ui.last_notification(),
-        Some((
-            JsString::from("Effort: ultra (max + proactive)"),
-            Some(NotifyType::Info)
-        ))
+        Some((JsString::from("Effort: ultra (max + active)"), Some(NotifyType::Info)))
     );
 }
 
 #[tokio::test(start_paused = true)]
-async fn effort_explicit_from_ultra_keeps_max_reasoning() {
+async fn effort_disabled_from_ultra_keeps_max_reasoning() {
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, "/repo").await;
     let mut options = HarnessOptions::new("/repo");
@@ -863,9 +854,9 @@ async fn effort_explicit_from_ultra_keeps_max_reasoning() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
 
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::Max);
 }
@@ -884,9 +875,9 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
     harness.actions.entries.lock().unwrap().clear();
 
     let mut event = ExtensionEvent::ThinkingLevelSelect(ThinkingLevelSelectEvent {
@@ -917,9 +908,9 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
 
     assert!(harness.actions.entries.lock().unwrap().is_empty());
     assert_eq!(
@@ -967,7 +958,7 @@ async fn effort_status_dims_only_the_prefix() {
                     pi_coding_agent::modes::interactive::theme::ThemeColor::Dim,
                     "multi-agent: "
                 ),
-                JsString::from("proactive")
+                JsString::from("active")
             ],
             ""
         ))

@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_ai::{
-    api::lazy::{LazyApiCapabilities, lazy_api},
+    api::lazy::lazy_api,
     request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions},
     types::{Context, Model},
     utils::event_stream::AssistantMessageEventStream,
@@ -75,13 +75,10 @@ async fn native_snapshot(method: &str, kind: &str, value: &JsString) -> JsValue 
         error: rejection(kind, value),
         calls: calls.clone(),
     });
-    let api = lazy_api(
-        Arc::new(move || {
-            let module = module.clone();
-            Box::pin(async move { Ok(module) })
-        }),
-        LazyApiCapabilities::default(),
-    );
+    let api = lazy_api(Arc::new(move || {
+        let module = module.clone();
+        Box::pin(async move { Ok(module) })
+    }));
     let model = js_json::from_value(&model_value()).unwrap();
     let context = js_json::from_value(&js_json!({"messages":[]})).unwrap();
     let before = pi_ai::request::now_millis() as f64;

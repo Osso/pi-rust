@@ -1792,6 +1792,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         crate::core::host_relay_resident::run_relay_connect().await?;
         return Ok(None);
     }
+    if crate::cli::args::is_terminal_export_invocation(args) {
+        return crate::cli::export_terminal::export_terminal_history(parse_args(args)).map(Some);
+    }
     if reject_invalid_standalone_worker_startup(args) {
         return Ok(Some(1));
     }

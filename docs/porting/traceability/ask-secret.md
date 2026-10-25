@@ -25,3 +25,23 @@ Gaps / discrepancies:
   exit code before throwing the same message.
 - Invalid JS runtime input types (non-string fields) are rejected with a Rust error;
   typed API exclusion per the 2026-08-12 decision.
+
+## Current-pin browser fields and file secrets (2026-10-25)
+
+Native request schema now matches frozen `path/label` or `record/fields`, with
+ordered text/email/password prompts and masked passwords. Provisioning uses
+`--fields-json` plus the UTF-8 JSON values array on stdin; no values are returned.
+The obsolete username/password selector interface is replaced, not retained.
+File requests validate destinations before prompting and before rename, create
+owner-only parents, write/sync a new owner-only UUID-named temporary file, then
+rename and remove the temporary path. Payload bytes are zeroed after use.
+`renameFile` remains the same source injection seam for failure tests.
+
+RED: old browser registration metadata differs from frozen; a real source file
+write succeeds while native rejects its missing record. New differential checks
+exact returned/UI data, file bytes including newline, modes 0600/0700 and no
+remaining temporary files. Other realistic persistence/failure cases are pending
+focused proof, not claimed here.
+
+gap: std File drop close-fault reporting and adversarial JSON type errors are
+not equivalent to Node FileHandle faults; ordinary paths/errors remain explicit.

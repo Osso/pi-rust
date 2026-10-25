@@ -144,12 +144,9 @@ impl ProviderStreams for GoogleGenerativeAiApi {
 
 /// `googleGenerativeAIApi()` from `google-generative-ai.lazy.ts`.
 pub fn google_generative_ai_api() -> LazyApi {
-    lazy_api(
-        std::sync::Arc::new(|| {
-            Box::pin(async { Ok(std::sync::Arc::new(GoogleGenerativeAiApi) as std::sync::Arc<dyn ProviderStreams>) })
-        }),
-        Default::default(),
-    )
+    lazy_api(std::sync::Arc::new(|| {
+        Box::pin(async { Ok(std::sync::Arc::new(GoogleGenerativeAiApi) as std::sync::Arc<dyn ProviderStreams>) })
+    }))
 }
 
 fn run_stream(model: Model, context: Context, options: GoogleOptions) -> AssistantMessageEventStream {

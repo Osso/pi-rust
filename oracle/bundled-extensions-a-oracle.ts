@@ -255,11 +255,13 @@ async function runEffortCase(
 	const entries: unknown[] = [];
 	const selectCalls: Array<[string, string[]]> = [];
 	let thinkingLevel = input.thinkingLevel ?? "off";
-	let activeTools: string[] = [];
+	let activeTools: string[] = [...(input.activeTools ?? [])];
+	const toolUpdates: string[][] = []; 
 	const pi = {
 		getActiveTools: () => [...activeTools],
 		setActiveTools(names: string[]) {
 			activeTools = [...names];
+			toolUpdates.push([...names]);
 		},
 		getThinkingLevel: () => thinkingLevel,
 		setThinkingLevel(level: string) {
@@ -343,6 +345,8 @@ async function runEffortCase(
 		editor,
 		entries,
 		selectCalls,
+		activeTools,
+		toolUpdates,
 		systemPrompt,
 	};
 }

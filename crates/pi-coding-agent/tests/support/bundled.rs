@@ -185,6 +185,8 @@ pub struct RecordedActions {
     pub message_options: Mutex<Vec<Option<SendMessageOptions>>>,
     pub user_messages: Mutex<Vec<(UserMessageContent, Option<SendUserMessageOptions>)>>,
     pub entries: Mutex<Vec<(JsString, Option<Value>)>>,
+    pub active_tools: Mutex<Vec<String>>,
+    pub tool_updates: Mutex<Vec<Vec<String>>>,
 }
 
 pub struct HarnessOptions {
@@ -286,6 +288,14 @@ impl Harness {
         extension_actions.send_message = send_message;
         extension_actions.send_user_message = send_user_message;
         extension_actions.append_entry = append_entry;
+        let recorded = Arc::clone(&actions);
+        extension_actions.get_active_tools = Arc::new(move || Ok(recorded.active_tools.lock().unwrap().clone()));
+        let recorded = Arc::clone(&actions);
+        extension_actions.set_active_tools = Arc::new(move |names| {
+            *recorded.active_tools.lock().unwrap() = names.to_vec();
+            recorded.tool_updates.lock().unwrap().push(names.to_vec());
+            Ok(())
+        });
 
         let model_getter = Arc::clone(&model);
         let thinking_getter = Arc::clone(&thinking);

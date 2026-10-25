@@ -1,36 +1,24 @@
-# coding-agent keybindings.ts traceability
+# Coding-agent keybindings
 
-Source: `packages/coding-agent/src/core/keybindings.ts` (434 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-data/src/core/keybindings.rs`.
-The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/src/keybindings.rs`
-(see `keybindings.md`); this module only layers `app.*` bindings on top.
+Source: common pin `4f9e6f8a4`, `coding-agent/src/core/keybindings.ts`, all 444 lines. Native: `crates/pi-coding-agent-data/src/core/keybindings.rs`. [Contract](../../specs/coding-agent-keybindings.md). The underlying registry is independently mapped in [TUI keybindings](keybindings.md).
 
-## Exported symbols
+## Whole-module map (2026-10-25)
 
-| TS symbol | Rust item | Tests |
-| --- | --- | --- |
-| `AppKeybindings` interface | ids in `app_keybindings()` | `defaults_bash_backgrounding_and_agent_slots` |
-| `AppKeybinding` | `&str` id | same |
-| `KEYBINDINGS` (`TUI_KEYBINDINGS` spread + `app.*`) | `keybindings()` = `tui_keybindings()` + `app_keybindings()` | differential `load` requests compare the full effective config |
-| `KeybindingsManager` | `KeybindingsManager` wrapping `pi_tui::keybindings::KeybindingsManager` | focused + differential |
-| `KeybindingsManager.create(agentDir)` | `KeybindingsManager::create(Option<&Path>)` | `loads_legacy_key_names_before_the_file_is_rewritten`, differential `load` |
-| `reload` | `reload` | `reload_rereads_the_keybindings_file` |
-| `getEffectiveConfig` | `get_effective_config` | differential `effective` |
-| `migrateKeybindingsConfig` | `migrate_keybindings_config` | differential `migrate` (legacy rename, collision keeps namespaced value, extras, array-index ordering) |
-| `Keybinding`, `KeyId`, `KeybindingsConfig` re-exports | `pi_tui::keybindings` types | compile-time reuse |
-| private `orderKeybindingsConfig` | `order_keybindings_config` + `with_javascript_key_order` | differential `migrate` |
-| private `loadRawConfig` / `toKeybindingsConfig` | `load_raw_config` / `to_keybindings_config` | differential `load` (invalid JSON, non-object, invalid values) |
+| Frozen surface / branch | Native mapping | Behavioral proof |
+|---|---|---|
+| `AppKeybindings`, `AppKeybinding`, `KEYBINDINGS`, type reexports | App catalog layered after the TUI definitions; existing native key/config types | Complete ordered exported definition/default/description differential; background and agent-slot units |
+| Legacy table; `migrateKeybindingsConfig` renamed/unchanged/collision branches | `keybinding_name_migrations`, `migrate_keybindings_config` | Five concrete source migration fixtures; explicit namespaced value wins; values retained |
+| `orderKeybindingsConfig` known order, extras, JS numeric enumeration | `order_keybindings_config`, native UTF-16 comparison and JS object enumeration | Exact source entries for known/unknown/alphabetic/numeric ids; existing raw app-keybinding corpus |
+| `isRecord`, `toKeybindingsConfig`, `loadRawConfig`, `loadFromFile` | Existing object/string/string-array filter, lossless JSON loader and source catch behavior | Four source load cases: legacy/mixed/malformed/missing file; existing raw file fixtures |
+| Constructor, `create(agentDir)`, config path, `getEffectiveConfig` | Manager around the existing shared TUI authority; Node path join and config-dir authority | Full loaded effective-id/key order snapshots; file-loading units |
+| `reload` with/without config path | Reload current file through the same TUI manager; no-path return | Eight source/native snapshots: new override, conflicting legacy override, deletion, duplicate/empty overrides; user/effective/conflict/match results and final unchanged file bytes |
+| Inherited matching/conflict/user/resolved behavior | Delegated to the mapped TUI authority | Reload snapshots plus underlying registry proofs; scalar/array JS key unions normalize to native key lists |
 
-## Branches
+RED: `/tmp/repin-interactive-2-proof/keybindings-red.log` exposes the extra native `app.message.copy` id. Expanded RED `keybindings-definitions-red.log` compares the actual exported data, including every visible description. The port removes that old-only definition/action, the clipboard description suffix and the obsolete macOS fold/unfold ordering branch. Parent confirmed that old-only feature removal is the re-pin rule; `/copy` is unchanged. GREEN `keybindings-green.log` covers complete definitions, five migrations, four file loads and eight reload snapshots.
 
-- Platform defaults: `app.suspend` is empty on Windows; `app.clipboard.pasteImage` is `alt+v` on Windows;
-  tree fold/unfold key order is macOS-specific. Rust uses `cfg!(target_os = ...)`; Linux CI exercises the
-  non-Windows/non-macOS branch.
-- Unknown ids, non-string/non-string-array values, missing file, and invalid JSON are dropped, matching
-  `toKeybindingsConfig` and the `loadRawConfig` catch.
-- JavaScript array-index keys are enumerated first in numeric order (`with_javascript_key_order`).
+File formats are read-only here: migration returns the original values in frozen key order, and loading/reload does not write the input bytes. UTF-16 ids, keys, descriptions and config paths retain existing `JsString`/`JsValue` carriers through the actual filesystem boundary. Owned returned values and typed Rust shape exclusions follow project policy; no alternate path or compatibility table is added.
 
-## Gaps
+## Recorded exclusions
 
 - Windows and macOS default-key branches are not executed on this host; they are literal ports of the
   `process.platform` conditionals.
@@ -57,3 +45,5 @@ KeybindingsManager::create accepts Option<&JsString>; stored config_path remains
 ## Baseline registry re-pin (2026-10-25)
 
 Frozen default app keybindings omit app.message.copy; remove that extra native default. The loaded-config differential was RED on precisely that extra action ID. Explicit user mappings remain governed by the existing manager.
+
+Gap: Windows suspend/paste defaults are not executed on this Linux host; malformed UTF-8 configuration files and prototype-inherited lookups are pathological/runtime-oddity exclusions under the user-observable policy. No new proof matrix or carrier is introduced for them.
