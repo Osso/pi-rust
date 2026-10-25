@@ -9,6 +9,8 @@ Package command execution follows frozen `packages/coding-agent/src/package-mana
 - [x] Report missing update executables as `spawn <command> ENOENT` and child termination with Node signal names.
 - [x] Include the release lookup's original error message in its wrapper.
 
+- [x] Read stdout terminal width for update notes, independent of stdin. Empty source/option arguments follow frozen truthiness.
+
 ## How it works
 
 - [Command trace](../porting/traceability/package-manager-cli.md).

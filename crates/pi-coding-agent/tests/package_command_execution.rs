@@ -999,6 +999,53 @@ fn report_project_trust_warnings_are_yellow() {
 }
 
 #[test]
+fn empty_package_arguments_follow_frozen_truthiness() {
+    use pi_coding_agent::package_manager_cli::handle_package_command;
+    let missing = handle_package_command(&args(&["install", ""])).unwrap();
+    assert_eq!(missing.exit_code, Some(1));
+    assert_eq!(missing.stderr[0], Chalk::stderr().red("Missing install source."));
+    let extension = handle_package_command(&args(&["update", "--extension", ""])).unwrap();
+    assert_eq!(extension.exit_code, Some(1));
+    assert_eq!(
+        extension.stderr[0],
+        Chalk::stderr().red("Missing value for --extension.")
+    );
+    let next = handle_package_command(&args(&["install", "", "./fixture"])).unwrap();
+    assert_eq!(next.exit_code, None);
+    assert_eq!(
+        next.action,
+        Some(pi_coding_agent::package_manager_cli::PackageAction::Install {
+            source: "./fixture".into(),
+            local: false,
+        })
+    );
+}
+
+#[test]
+fn self_update_note_reads_stdout_terminal_width() {
+    let winsize = nix::pty::Winsize {
+        ws_row: 24,
+        ws_col: 37,
+        ws_xpixel: 0,
+        ws_ypixel: 0,
+    };
+    let pty = nix::pty::openpty(Some(&winsize), None).unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "package_command_execution::package_config_effects_struct_exposes_the_host_values",
+            "--nocapture",
+        ])
+        .env("PI_PACKAGE_COLUMNS_CHILD", "37")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::from(pty.slave))
+        .stderr(std::process::Stdio::piped())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8(output.stderr).unwrap());
+}
+
+#[test]
 fn package_config_effects_struct_exposes_the_host_values() {
     let root = temp_dir("effects");
     let context = bun_install_context(&root);
@@ -1023,7 +1070,10 @@ fn package_config_effects_struct_exposes_the_host_values() {
     };
     assert_eq!(effects.cwd(), root.display().to_string());
     assert_eq!(effects.agent_dir(), root.join("agent").display().to_string());
-    assert_eq!(effects.stdout_columns(), None);
+    let expected_columns = std::env::var("PI_PACKAGE_COLUMNS_CHILD")
+        .ok()
+        .map(|value| value.parse::<usize>().unwrap());
+    assert_eq!(effects.stdout_columns(), expected_columns);
     assert_eq!(effects.entrypoint(), (context.entrypoint.clone()).map(JsString::from));
     assert_eq!(effects.install_context().package_dir, context.package_dir);
     assert_eq!(effects.install_context().exec_path, context.exec_path);
