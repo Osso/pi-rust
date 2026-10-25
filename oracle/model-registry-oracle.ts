@@ -84,6 +84,44 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "registration_reentry") {
+			const provider = "registry-reentrant";
+			const nested = "registry-reentrant-nested";
+			const observations: unknown[] = [];
+			const snapshot = () => ({
+				ids: registry
+					.getAll()
+					.filter((model: { provider: string }) => model.provider === provider)
+					.map((model: { id: string }) => model.id),
+				display: registry.getProviderDisplayName(provider),
+				nestedDisplay: registry.getProviderDisplayName(nested),
+			});
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				name: "Registered Fixture",
+				oauth: {
+					name: "OAuth Fixture",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (credential: unknown) => credential,
+					getApiKey: (credential: { access: string }) => credential.access,
+					modifyModels: (models: unknown[], credential: { access: string }) => {
+						observations.push({ ...snapshot(), access: credential.access });
+						registry.registerProvider(nested, {
+							name: `Nested ${observations.length}`,
+						});
+						return models;
+					},
+				},
+			});
+			registry.refresh();
+			const afterRefresh = snapshot();
+			registry.unregisterProvider(provider);
+			const afterUnregister = snapshot();
+			registry.unregisterProvider(nested);
+			return { observations, afterRefresh, afterUnregister };
+		}
 		if (request.operation === "config_request") {
 			const response = request.response;
 			const modelId = request.modelId;
