@@ -98,6 +98,8 @@ pub mod repin_storage_history;
 pub mod repin_storage_listener_membership;
 #[path = "repin_storage_mailbox_acceptance.rs"]
 pub mod repin_storage_mailbox_acceptance;
+#[path = "repin_storage_mailbox_notify.rs"]
+pub mod repin_storage_mailbox_notify;
 #[path = "repin_storage_retention.rs"]
 pub mod repin_storage_retention;
 #[path = "repin_storage_store_callbacks.rs"]

@@ -58,13 +58,7 @@ pub fn enqueue_runtime_mailbox_message(
 ) -> Result<i64, ControlDbError> {
     let control_db_path = control_db_path.into();
     let result = with_control_db(&control_db_path, |db| route_runtime_mailbox_message(db, input))?;
-    if input
-        .recipient_host
-        .as_ref()
-        .is_none_or(|host| host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref()))
-    {
-        notify_runtime_mailbox_listener(result.listener.as_ref());
-    }
+    notify_local_runtime_mailbox_listener(input.recipient_host.as_ref(), result.listener.as_ref());
     Ok(result.id)
 }
 
@@ -187,13 +181,7 @@ pub fn enqueue_stored_runtime_mailbox_message(
         }
         with_immediate_transaction(db, |db| persist_stored_runtime_mailbox_message(db, input, &prepared))
     })?;
-    if input
-        .recipient_host
-        .as_ref()
-        .is_none_or(|host| host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref()))
-    {
-        notify_runtime_mailbox_listener(result.listener.as_ref());
-    }
+    notify_local_runtime_mailbox_listener(input.recipient_host.as_ref(), result.listener.as_ref());
     Ok(result.id)
 }
 
@@ -1417,6 +1405,17 @@ pub fn list_runtime_mailbox_listeners(
             )
             .collect())
     })
+}
+
+fn notify_local_runtime_mailbox_listener(
+    recipient_host: Option<&JsString>,
+    listener: Option<&RuntimeMailboxListenerRow>,
+) {
+    if recipient_host.is_none_or(|host| {
+        host.is_empty() || host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref())
+    }) {
+        notify_runtime_mailbox_listener(listener);
+    }
 }
 
 fn notify_runtime_mailbox_listener(listener: Option<&RuntimeMailboxListenerRow>) {

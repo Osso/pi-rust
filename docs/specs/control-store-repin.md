@@ -62,7 +62,8 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Recover superseded live-PID incarnations and replay cleared-owner lost_runtime terminal state without duplicate outbox publication.
 - [x] Preserve distinct new-output/existing-reference JSON order in detached finalization and accept reciprocal TS/native replay for completed/failed/aborted outcomes.
 - [x] Preserve eligibility predicate rejection/call order and leave every mailbox message unclaimed if candidate collection fails.
-- [ ] Preserve runtime-registration process-probe rejection before listener/health replacement.
+- [x] Preserve runtime-registration process-probe rejection before listener/health replacement.
+- [x] Wake a verified local mailbox listener for an explicitly empty recipient host through both stored-message and existing-row enqueue APIs.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.

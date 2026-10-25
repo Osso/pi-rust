@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Empty-host mailbox wake (2026-10-25)
+
+Actual-source process-boundary RED `/tmp/storage3-mailbox-notify-valid-red.log` receives the frozen SIGUSR2 wake but times out waiting for native enqueue with recipientHost:"". Both enqueue APIs now share the frozen absent/empty/local notification guard. The owned Node child installs its signal handler before registration and carries a recognized entrypoint argument; no provider or external process is used. GREEN `/tmp/storage3-mailbox-notify-green.log` observes real source, native stored-enqueue and native existing-row routing wakes. Retry identity remains under the existing approved empty-host delta.
+
 ## Runtime-registration probe rejection (2026-10-25)
 
 Actual frozen baseline `/tmp/storage3-control-registration-source.log` preserves a coded TypeError from the injected live-process probe before replacement. Native API RED `/tmp/storage3-control-registration-api-red.log` accepted only bool. The existing registration option now returns Result<bool,CallbackError>; the existing ControlDbError source preserves it and aborts before listener/health mutation. The test compares full original error/call count and unchanged listener/health records. Default process probing is unchanged; no new carrier or callback family.
