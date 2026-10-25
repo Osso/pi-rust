@@ -158,11 +158,15 @@ pub struct PiRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PyrunRunnerOptions {
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub args: Option<Vec<JsString>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<JsString>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub detached: Option<bool>,
-    #[serde(default, with = "runner_environment")]
+    #[serde(default, with = "runner_environment", skip_serializing_if = "Option::is_none")]
     pub env: Option<indexmap::IndexMap<JsString, JsString>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub inherit_env: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub inherited_process_group_id: Option<u32>,

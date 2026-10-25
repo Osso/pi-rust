@@ -514,3 +514,21 @@ fn pyrun_empty_optional_text_renders_like_frozen() {
     assert_eq!(expected["ok"], json!(true), "{expected:?}");
     assert_eq!(json!({"call":call,"result":output}), expected["output"]);
 }
+
+#[test]
+fn pyrun_resolved_runner_options_persist_without_unset_properties_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::PyrunRunnerOptions;
+    let options = PyrunRunnerOptions {
+        args: Some(Vec::new()),
+        command: Some("pyrun-jsonl".into()),
+        env: Some(Default::default()),
+        ..Default::default()
+    };
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-runner-queue-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"operation":"resolved-options"}));
+    assert_eq!(expected["ok"], json!(true));
+    assert_eq!(json::to_value(&options).unwrap(), expected["output"]);
+}
