@@ -292,8 +292,8 @@ fn serializes_session_state_in_ts_field_order_and_omits_undefined_fields() {
         session_id: "session-1".into(),
         session_name: Some(JsString::from("Name")),
         auto_compaction_enabled: true,
-        message_count: 3,
-        pending_message_count: 2,
+        message_count: 3.0,
+        pending_message_count: 2.0,
     };
     let value: Value = serde_json::to_value(&full).expect("state must serialize");
     let keys: Vec<&str> = value
@@ -410,7 +410,7 @@ fn parses_response_lines() {
 fn serializes_every_extension_ui_request_in_ts_field_order() {
     let request = |payload| RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
-        id: "ui-1".to_owned(),
+        id: "ui-1".into(),
         payload,
     };
 
@@ -488,6 +488,39 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
         .expect("request must serialize"),
         r#"{"type":"extension_ui_request","id":"ui-1","method":"set_editor_text","text":"text"}"#
     );
+}
+
+#[test]
+fn declared_ui_strings_preserve_every_utf16_unit_when_decoded() {
+    // Frozen rpc-types.ts:231-266 declares strings for every UI text/id field.
+    for line in [
+        r#"{"type":"extension_ui_request","id":"ui-\ud800","method":"select","title":"\udfff","options":["\ud800"],"timeout":1.5}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"confirm","title":"\ud800","message":"\udfff"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"input","title":"\ud800","placeholder":"\udfff"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"editor","title":"\ud800","prefill":"\udfff"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"notify","message":"\ud800","notifyType":"error"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"setStatus","statusKey":"\ud800","statusText":"\udfff"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"setWidget","widgetKey":"\ud800","widgetLines":["\udfff"],"widgetPlacement":"belowEditor"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"setTitle","title":"\ud800"}"#,
+        r#"{"type":"extension_ui_request","id":"ui","method":"set_editor_text","text":"\udfff"}"#,
+    ] {
+        let wire = pi_js_compat::js_json::parse_lossless(line).unwrap();
+        let request: RpcExtensionUiRequest = pi_js_compat::js_json::from_value(&wire).unwrap();
+        assert_eq!(pi_js_compat::js_json::to_value(&request).unwrap(), wire);
+    }
+    let wire =
+        pi_js_compat::js_json::parse_lossless(r#"{"type":"extension_ui_response","id":"\udfff","value":"\ud800"}"#)
+            .unwrap();
+    let response: RpcExtensionUiResponse = pi_js_compat::js_json::from_value(&wire).unwrap();
+    assert_eq!(pi_js_compat::js_json::to_value(&response).unwrap(), wire);
+}
+
+#[test]
+fn session_count_numbers_follow_the_declared_number_type() {
+    // Frozen rpc-types.ts:115-116 declares number, not integer counts.
+    let wire = pi_js_compat::js_json::parse_lossless(r#"{"thinkingLevel":"off","isStreaming":false,"isCompacting":false,"steeringMode":"all","followUpMode":"all","sessionId":"s","autoCompactionEnabled":true,"messageCount":1.5,"pendingMessageCount":-2}"#).unwrap();
+    let state: RpcSessionState = pi_js_compat::js_json::from_value(&wire).unwrap();
+    assert_eq!(pi_js_compat::js_json::to_value(&state).unwrap(), wire);
 }
 
 #[test]

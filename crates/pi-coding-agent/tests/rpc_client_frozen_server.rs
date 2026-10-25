@@ -117,10 +117,12 @@ async fn every_typed_getter_decodes_actual_frozen_server_responses_without_loss(
         None,
         client.export_html(Some(root.path().join("out.html").to_str().unwrap().into()))
     );
+    client.set_auto_compaction(true).await.unwrap();
     check!("compact", None, client.compact(None));
     let state = client.send(RpcCommandBody::GetState).await.unwrap();
     let session_path = state["data"]["sessionFile"].as_string().unwrap().clone();
     check!("switch_session", None, client.switch_session(session_path));
+    check!("clone", None, client.clone_session());
     let entries = client.send(RpcCommandBody::GetEntries { since: None }).await.unwrap();
     let user_id = entries["data"]["entries"]
         .as_array()
@@ -132,7 +134,6 @@ async fn every_typed_getter_decodes_actual_frozen_server_responses_without_loss(
         .unwrap()
         .clone();
     check!("fork", None, client.fork(user_id));
-    check!("clone", None, client.clone_session());
     client.stop().await.unwrap();
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }

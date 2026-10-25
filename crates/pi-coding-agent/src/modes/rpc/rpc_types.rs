@@ -316,8 +316,10 @@ pub struct RpcSessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_name: Option<JsString>,
     pub auto_compaction_enabled: bool,
-    pub message_count: u64,
-    pub pending_message_count: u64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub message_count: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub pending_message_count: f64,
 }
 
 /// `type` discriminator of an RPC response line.
@@ -444,7 +446,7 @@ pub enum ExtensionUiRequestTag {
 }
 
 /// Extension UI request payload, tagged by `method`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RpcExtensionUiRequestPayload {
     Select {
@@ -510,14 +512,78 @@ pub enum RpcExtensionUiRequestPayload {
 }
 
 /// An extension UI request line (`RpcExtensionUIRequest`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcExtensionUiRequest {
     #[serde(rename = "type")]
     pub kind: ExtensionUiRequestTag,
-    pub id: String,
+    pub id: JsString,
     #[serde(flatten)]
     pub payload: RpcExtensionUiRequestPayload,
+}
+
+impl<'de> Deserialize<'de> for RpcExtensionUiRequestPayload {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        decode_ui_request_payload(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for RpcExtensionUiRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        Ok(Self {
+            kind: command_field(&value, "type").map_err(serde::de::Error::custom)?,
+            id: command_field(&value, "id").map_err(serde::de::Error::custom)?,
+            payload: decode_ui_request_payload(&value).map_err(serde::de::Error::custom)?,
+        })
+    }
+}
+
+fn decode_ui_request_payload(value: &JsValue) -> Result<RpcExtensionUiRequestPayload, String> {
+    use RpcExtensionUiRequestPayload as Payload;
+    let method: String = command_field(value, "method")?;
+    Ok(match method.as_str() {
+        "select" => Payload::Select {
+            title: command_field(value, "title")?,
+            options: command_field(value, "options")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "confirm" => Payload::Confirm {
+            title: command_field(value, "title")?,
+            message: command_field(value, "message")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "input" => Payload::Input {
+            title: command_field(value, "title")?,
+            placeholder: optional_command_field(value, "placeholder")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "editor" => Payload::Editor {
+            title: command_field(value, "title")?,
+            prefill: optional_command_field(value, "prefill")?,
+        },
+        "notify" => Payload::Notify {
+            message: command_field(value, "message")?,
+            notify_type: optional_command_field(value, "notifyType")?,
+        },
+        "setStatus" => Payload::SetStatus {
+            status_key: command_field(value, "statusKey")?,
+            status_text: optional_command_field(value, "statusText")?,
+        },
+        "setWidget" => Payload::SetWidget {
+            widget_key: command_field(value, "widgetKey")?,
+            widget_lines: optional_command_field(value, "widgetLines")?,
+            widget_placement: optional_command_field(value, "widgetPlacement")?,
+        },
+        "setTitle" => Payload::SetTitle {
+            title: command_field(value, "title")?,
+        },
+        "set_editor_text" => Payload::SetEditorText {
+            text: command_field(value, "text")?,
+        },
+        _ => return Err(format!("unknown UI request method `{method}`")),
+    })
 }
 
 /// `type` discriminator of an extension UI response line.
@@ -543,7 +609,7 @@ pub enum RpcExtensionUiResponsePayload {
 pub struct RpcExtensionUiResponse {
     #[serde(rename = "type")]
     pub kind: ExtensionUiResponseTag,
-    pub id: String,
+    pub id: JsString,
     #[serde(flatten)]
     pub payload: RpcExtensionUiResponsePayload,
 }
