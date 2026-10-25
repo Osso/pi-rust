@@ -51,7 +51,9 @@ fn stat_fields(pid: u32) -> Result<Vec<String>, ProcessIdentityError> {
     if !cfg!(target_os = "linux") {
         return Err(error("Exact process identity requires Linux /proc".to_owned()));
     }
-    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).map_err(|source| error(source.to_string()))?;
+    let path = format!("/proc/{pid}/stat");
+    let stat = std::fs::read_to_string(&path)
+        .map_err(|source| error(pi_js_compat::node_fs::node_fs_error(&source, "open", &path.into())))?;
     let command_end = stat
         .rfind(')')
         .ok_or_else(|| error(format!("Invalid /proc stat for process {pid}")))?;
@@ -96,6 +98,15 @@ pub fn is_process_identity_alive(identity: &ProcessIdentity) -> bool {
         }
         Err(_) => false,
     }
+}
+
+pub fn is_superseded_runtime_identity(current: &ProcessIdentity, replacement: &ProcessIdentity) -> bool {
+    let same_process = current.pid == replacement.pid && current.start_time_ticks == replacement.start_time_ticks;
+    let different_incarnations = match (&current.incarnation, &replacement.incarnation) {
+        (Some(current), Some(replacement)) => current != replacement,
+        _ => false,
+    };
+    same_process && different_incarnations
 }
 
 pub fn is_pi_runtime_process_alive(pid: u32) -> bool {
@@ -150,6 +161,9 @@ pub fn command_line_is_pi_runtime(command_line: &[String]) -> bool {
     let Some(executable) = command_line.first() else {
         return false;
     };
+    if executable.is_empty() {
+        return false;
+    }
     let executable_name = Path::new(executable)
         .file_name()
         .map(|name| name.to_string_lossy().to_lowercase())
