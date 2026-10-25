@@ -1,4 +1,8 @@
-# self-restart traceability
+# Self-restart traceability
+
+Core source: `coding-agent/src/core/self-restart.ts` (303 lines); native: `crates/pi-coding-agent-storage/src/core/self_restart.rs`. Current status: [whole-module audit closure](#whole-module-audit-closure-2026-10-25). The bundled extension inventory below is a separate historical caller proof.
+
+## Historical bundled-extension inventory
 
 Source: `packages/coding-agent/extensions/self-restart/src/index.ts` (32 lines).
 Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/self_restart.rs`.
@@ -31,6 +35,14 @@ Frozen defaultIsProcessAlive:74-81 catches all signal0 errors, including EPERM. 
 Explicit zero oldPid is falsy in frozen wait/notice paths. Actual source differentials reproduce native's extra now/alive calls and incorrect `PID 0 -> current` text (`restart-zero-{wait,notice}-red.log`); native now skips wait and uses current-PID notice like frozen. GREEN at036330fe (`restart-final-{notice,wait}-green.log`); actual CLI handoff is GREEN in `restart-final-cli-green.log`.
 
 Consume:118-123 compares parsed Number against supplied current/parent PIDs before integer conversion. Actual source PID-override differential RED (`restart-pid-overflow-red.log`) exposed native saturating4294967296 to4294967295 and treating it as its own restart; native now compares binary64 values first. GREEN at0ce42f49 (`restart-pid-overflow-green.log`).
+
+## Whole-module audit closure (2026-10-25)
+
+All 303 common-pin source lines were re-read against the current implementation: env consumption/validation/deletion; parent wait; Args handoff; pending-result first-match/order; truthy notices/PID formatting; exec-versus-spawn selection; Bun argv filtering; ordered environment overlay; target callbacks and spawn/unref/exit behavior. The existing source/runtime/process proofs below cover these realistic branches and actual persistence/OS boundaries. This closes **self-restart.ts only**, not agent-session-runtime or interactive-mode.
+
+Proof reuse is deliberate: current `self_restart.rs` differs from tested `7fd6dd94` only in the relocated test-oracle include. `native_execve.rs` differs only in removal of a needless borrow at `validate_string_argument`; shared validator/error-label changes preserve these static argument labels. Current actual constructor/default-exec integration also passes in `import-runtime-integration.log` at `6cbc0bafa`. No source behavior or missing realistic branch justified another numeric/OS-fault matrix run. Implementation SHA256s at audit: `342bceb07f553debbbfca4545fbe83f7209973f1797ec9baa81fc21a797fb3bb` (`self_restart.rs`), `3bb6f7683aa7550dc8d25d11143c0f070d48ddc6aed1c819b5bd2dbcdc6f0817` (`native_execve.rs`).
+
+Gap: pathological inputs, OS/runtime fault shapes, numeric extremes and Node scheduling oddities follow the project user-observable exclusions; existing native UTF-16/value carriers and already recorded process/environment/bootstrap deviations remain unchanged. The historical stronger tests below remain evidence, not new requirements or new proof matrices.
 
 ## Process dependency carrier checkpoint (2026-10-23)
 
@@ -85,7 +97,7 @@ This closes the bounded process-dependency slice, not whole-runtime/interactive 
 | pending results + notices | direct DB-backed resolver and actual persisted restart separately differential; actual CLI resolves before notice; reopen same/spawn/zero/Unicode/empty/absent prompt | wider pending-batch reductions reuse agent-core helper; no exhaustive syscall failures claimed |
 | exec/spawn/environment/argv | one carrier;40+56 callback cases,30 number cases,15 actual default-exit processes; real constructor/default exec and default spawn, raw/native unobserved events, ordered UTF-16 env, NUL/OS fields, stdio preservation/restore/fcntl and retained regressions | approved replacement-bootstrap FD flag gap; historical table is not whole-runtime acceptance |
 
-At98953083 (parent8b15a5c7), `self_restart`21/21, `self_restart_state`4/4, focused default-kill classifier and actual CLI handoff all GREEN (`4d-final-{self-restart,state,kill,cli}.log`). [Shared checkpoint gates](agent-session-runtime.md#bounded4d-checkpoint): workspace0/0, scoped changed-hunk clippy0, TS/Biome/fmt. No whole self-restart/runtime acceptance yet; remaining callback/dependency audit is work, not an approved deviation.
+At98953083 (parent8b15a5c7), `self_restart`21/21, `self_restart_state`4/4, focused default-kill classifier and actual CLI handoff all GREEN (`4d-final-{self-restart,state,kill,cli}.log`). [Shared checkpoint gates](agent-session-runtime.md#bounded4d-checkpoint): workspace0/0, scoped changed-hunk clippy0, TS/Biome/fmt. That historical checkpoint did not close the whole module; the later whole-module audit above closes self-restart only. Runtime remains separate.
 
 ## Historical core self-restart inventory (`packages/coding-agent/src/core/self-restart.ts`)
 

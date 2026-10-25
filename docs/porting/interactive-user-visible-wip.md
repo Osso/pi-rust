@@ -64,4 +64,4 @@ Diagnostic incident: an early oracle waited at the real confirmation dialog beca
 
 ## Next work
 
-Continue realistic interactive command/event slices. The whole self-restart audit can reuse unchanged `7fd6dd94` process evidence (only include-path and a needless-borrow cleanup differ); do not rerun numeric/OS-fault matrices. Runtime callback setup still needs a final realistic API review before whole-module closure. No whole-mode/runtime acceptance is claimed.
+Continue realistic interactive command/event slices. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Runtime callback setup still needs a final realistic API review before whole-module closure. No whole-mode/runtime acceptance is claimed.
