@@ -1152,5 +1152,41 @@ async fn cancelled_background_compaction_still_emits_the_final_end_event() {
     );
 }
 
+#[tokio::test]
+async fn disabled_background_generation_without_extension_result_never_calls_provider_like_frozen() {
+    let env = env_with(json!({"enabled": false, "reserveTokens": 0}), None, None).await;
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let actual = json!({"events": env.captured.lock().unwrap().background,
+        "providerCalls": env.faux.state().lock().unwrap().call_count.checked_sub(1).expect("foreground provider call")});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-disabled", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"events": ["background_compaction_start", "background_compaction_end"], "providerCalls": 0}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
 #[path = "support/scripted_registry.rs"]
 mod scripted_registry;

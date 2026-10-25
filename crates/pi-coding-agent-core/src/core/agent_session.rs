@@ -3890,6 +3890,7 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
+            None if !cache.settings.enabled => return,
             None => match self.get_compaction_request_auth(&model).await {
                 Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
                 Err(error) => Err(error),
