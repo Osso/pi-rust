@@ -36,7 +36,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
-use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::multi_agent_store::{AgentLifecycle, SteeringCheckpoint};
@@ -49,7 +48,7 @@ use crate::core::runtime_message_markers::{
 };
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, SettingsScope, lock_settings_manager};
+use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, lock_settings_manager};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
@@ -57,7 +56,6 @@ use crate::core::tool_detach_registry::ToolDetachRegistry;
 use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
 use crate::core::tools::read::ReadToolOptions;
 use crate::core::tools::{ToolsOptions, create_tool_definitions_for_available_executables};
-use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =

@@ -147,20 +147,56 @@ async fn approval_controls_matches_typescript() {
     );
     let steps = response["output"]["steps"].as_array().unwrap();
 
-    let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
+    use pi_coding_agent::core::{
+        auth_storage::AuthStorage,
+        extensions::{ExtensionRunner, create_extension_runtime},
+        model_registry::ModelRegistry,
+        session_manager::SessionManager,
+        settings_manager::SettingsManager,
+    };
+    use std::sync::Mutex;
+    let ui = Arc::new(RecordingUi::default());
+    let mut harness = Harness::load("/tmp", ui.clone(), |api| {
         pi_coding_agent::bundled_extensions::approval_controls::approval_controls_extension(api)
     })
     .await;
-
     assert_eq!(harness.registrations(), steps[0]["result"]);
-    for (index, arg) in args.iter().enumerate() {
-        harness.run_command("sandbox", arg).await.unwrap();
+    let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
+        Default::default(),
+        Default::default(),
+    )));
+    harness.runner = ExtensionRunner::new(
+        vec![harness.extension.clone()],
+        create_extension_runtime(),
+        "/tmp",
+        Arc::new(Mutex::new(
+            SessionManager::in_memory(Some(&"/tmp".into()), None).unwrap(),
+        )),
+        Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
+        Some(settings.clone()),
+    );
+    harness
+        .runner
+        .set_ui_context(Some(ui), pi_coding_agent::core::extensions::types::ExtensionMode::Tui);
+    let actions = args
+        .iter()
+        .map(|arg| json!({"name":"sandbox","args":arg}))
+        .chain(std::iter::once(json!({"name":"approvals","args":""})))
+        .collect::<Vec<_>>();
+    let mut actual_runner_source = oracle::TsOracle::spawn(
+        "extensions-boundary-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    );
+    let expected = actual_runner_source.request(&json!({"id":3,"operation":"approval_commands","actions":actions}));
+    for (index, action) in actions.iter().enumerate() {
+        let name = action["name"].as_string().unwrap().to_utf8().unwrap();
+        let args = action["args"].as_string().unwrap().to_utf8().unwrap();
+        let error = harness.run_command(&name, &args).await.err().map(|error| error.message);
+        let calls = harness.take_calls();
         assert_eq!(
-            calls_json(&harness.take_calls()),
-            steps[index + 1]["calls"],
-            "sandbox {arg:?}"
+            json!({"error":error,"notify":calls.notify,"status":calls.set_status,"profile":settings.lock().unwrap().get_explicit_sandbox_profile()}),
+            expected["output"][index],
+            "{name} {args}"
         );
     }
-    harness.run_command("approvals", "").await.unwrap();
-    assert_eq!(calls_json(&harness.take_calls()), steps[args.len() + 1]["calls"]);
 }

@@ -104,7 +104,7 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
 
 Frozen runner.ts:949–973 owns the sandbox setter independently of command-action binding. Native had incorrectly put the algorithm on AgentSession behind a native-only command-action callback. Moved the existing persistence/status algorithm into the runner/context authority; AgentSession delegates there. Removed the native-only callback field and its mechanical host/fixture initializers. Uses the current UI theme, source scope errors and unsupported-platform status; resets of command bindings do not remove settings capability. Runner instance identity and background-event variants are untouched.
 
-Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/ext-api2-sandbox-red.log`: all native calls incorrectly reported missing settings. GREEN pending. [Contract](../../specs/extension-sandbox-profile.md).
+Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/ext-api2-sandbox-red.log`: all native calls incorrectly reported missing settings. GREEN `/tmp/ext-api2-sandbox-green2.log`. [Contract](../../specs/extension-sandbox-profile.md). The approval-controls command matrix retains every original argument/registration assertion but now compares actual frozen runner settings, errors and UI status/notifications instead of a mock setSandboxProfile logger that bypassed all persistence/validation. This is fixture fallout from removing the native-only callback seam; no frozen command case is dropped.
 
 ## Frozen context/error audit (2026-10-25)
 

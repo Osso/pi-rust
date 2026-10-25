@@ -16,11 +16,28 @@ async function main(): Promise<void> {
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const runtime = createExtensionRuntime();
-		const extensions = request.values ? await Promise.all(request.values.map((value: unknown, index: number) => loadExtensionFromFactory((api: { on: (event: string, handler: () => never) => void }) => api.on("session_start", () => { throw value; }), "/tmp", createEventBus(), runtime, `<inline:${index}>`))) : [];
-		const settings = request.operation === "sandbox" ? SettingsManager.inMemory() : undefined;
+		let extensions = request.values ? await Promise.all(request.values.map((value: unknown, index: number) => loadExtensionFromFactory((api: { on: (event: string, handler: () => never) => void }) => api.on("session_start", () => { throw value; }), "/tmp", createEventBus(), runtime, `<inline:${index}>`))) : [];
+		if (request.operation === "approval_commands") {
+			const module = await load("../../extensions/approval-controls/src/index.ts");
+			extensions = [await loadExtensionFromFactory(module.default, "/tmp", createEventBus(), runtime, "<inline>")];
+		}
+		const settings = ["sandbox", "approval_commands"].includes(request.operation) ? SettingsManager.inMemory() : undefined;
 		const runner = new ExtensionRunner(extensions, runtime, "/tmp", SessionManager.inMemory("/tmp"), ModelRegistry.inMemory(AuthStorage.inMemory()), settings);
 		let output: unknown;
-		if (request.operation === "sandbox") {
+		if (request.operation === "approval_commands") {
+			initTheme("dark", false);
+			const { theme } = await load("../modes/interactive/theme/theme.ts");
+			let notify: unknown[] = [], status: unknown[] = [];
+			runner.setUIContext({ theme, notify: (message: string, type?: string) => notify.push([message, type ?? null]), setStatus: (key: string, text?: string) => status.push([key, text ?? null]) }, "tui");
+			const steps: unknown[] = [];
+			for (const action of request.actions) {
+				let error: string | null = null;
+				try { await runner.getCommand(action.name).handler(action.args, runner.createCommandContext()); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
+				steps.push({ error, notify, status, profile: settings.getExplicitSandboxProfile() ?? null });
+				notify = []; status = [];
+			}
+			output = steps;
+		} else if (request.operation === "sandbox") {
 			initTheme("dark", false);
 			const results: unknown[] = [];
 			for (const action of request.actions) {
