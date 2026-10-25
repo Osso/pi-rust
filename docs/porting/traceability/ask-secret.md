@@ -74,3 +74,8 @@ RED: success/failure wire matches, but abort native used kill-on-drop SIGKILL
 and did not reach the fake process's SIGTERM handler. Native now explicitly
 sends SIGTERM and waits for closure before returning the frozen cancellation.
 This fixes the real subprocess lifecycle instead of weakening the assertion.
+
+Default-process proof additionally covers an absent executable with PATH
+restricted to a private node-only directory (cannot invoke a live authsudo),
+and a pre-aborted signal that must never spawn the fake provisioner. Both
+source error messages and absence of any captured process input are asserted.

@@ -66,11 +66,49 @@ fn environment(path: &OsString, capture: &Path, mode: &str, result: &Path) -> Ve
     ]
 }
 
+fn read_provision_wire(capture: &Path, mode: &str) -> Option<String> {
+    if mode == "missing" || mode == "preaborted" {
+        assert!(!capture.exists(), "{mode} must not start the provisioner");
+        return None;
+    }
+    let raw = std::fs::read_to_string(capture).unwrap();
+    let wire = pi_js_compat::js_json::parse_lossless(&raw).unwrap();
+    assert_eq!(
+        wire["argv"],
+        json!([
+            "-u",
+            "secrets-broker",
+            "/usr/bin/secrets-broker-admin",
+            "provision-browser",
+            "--record",
+            "browser/private-fixture",
+            "--fields-json",
+            pi_js_compat::js_json::stringify_lossless(&params()["fields"])
+        ])
+    );
+    assert_eq!(
+        wire["stdin"],
+        json!(pi_js_compat::js_json::stringify_lossless(&json!(inputs())))
+    );
+    if mode == "abort" {
+        assert_eq!(
+            std::fs::read_to_string(capture.with_extension("term")).unwrap(),
+            "SIGTERM"
+        );
+    }
+    Some(raw)
+}
+
 #[test]
 fn default_secret_process_protocol_failure_and_abort_match_frozen() {
-    for mode in ["success", "failure", "abort"] {
+    for mode in ["success", "failure", "abort", "missing", "preaborted"] {
         let directory = tempfile::tempdir().unwrap();
-        let path = write_fake_authsudo(directory.path());
+        let mut path = write_fake_authsudo(directory.path());
+        if mode == "missing" {
+            std::fs::remove_file(directory.path().join("authsudo")).unwrap();
+            std::os::unix::fs::symlink("/usr/bin/node", directory.path().join("node")).unwrap();
+            path = directory.path().as_os_str().to_owned();
+        }
         let capture = directory.path().join("source.json");
         let result = directory.path().join("result.json");
         let env = environment(&path, &capture, mode, &result);
@@ -84,34 +122,19 @@ fn default_secret_process_protocol_failure_and_abort_match_frozen() {
         if mode == "abort" {
             step["abortOnReady"] = json!(capture.with_extension("ready").to_str().unwrap());
         }
+        if mode == "preaborted" {
+            step["aborted"] = json!(true);
+        }
         let response = oracle.request(&json!({"id":mode,"extension":"ask-secret","useDefaultProvision":true,"steps":[{"op":"registrations"},step]}));
         assert_eq!(response["ok"], json!(true));
         let expected = &response["output"]["steps"][1];
-        let frozen_wire = std::fs::read_to_string(&capture).unwrap();
-        let wire = pi_js_compat::js_json::parse_lossless(&frozen_wire).unwrap();
-        assert_eq!(
-            wire["argv"],
-            json!([
-                "-u",
-                "secrets-broker",
-                "/usr/bin/secrets-broker-admin",
-                "provision-browser",
-                "--record",
-                "browser/private-fixture",
-                "--fields-json",
-                pi_js_compat::js_json::stringify_lossless(&params()["fields"])
-            ])
-        );
-        assert_eq!(
-            wire["stdin"],
-            json!(pi_js_compat::js_json::stringify_lossless(&json!(inputs())))
-        );
-        if mode == "abort" {
-            assert_eq!(
-                std::fs::read_to_string(capture.with_extension("term")).unwrap(),
-                "SIGTERM"
-            );
-        }
+        let expected_error = match mode {
+            "success" => json!(null),
+            "abort" | "preaborted" => json!({"name":"Error","message":"ask_secret cancelled"}),
+            _ => json!({"name":"Error","message":"Secrets Broker provisioning failed"}),
+        };
+        assert_eq!(expected["error"], expected_error, "source {mode}");
+        let frozen_wire = read_provision_wire(&capture, mode);
 
         let native_capture = directory.path().join("native.json");
         env_probe::run_probe(
@@ -123,17 +146,7 @@ fn default_secret_process_protocol_failure_and_abort_match_frozen() {
         assert_eq!(native["error"], expected["error"], "{mode} error");
         assert_eq!(native["calls"], expected["calls"], "{mode} calls");
         assert_eq!(native["registrations"], response["output"]["steps"][0]["result"]);
-        assert_eq!(
-            std::fs::read_to_string(&native_capture).unwrap(),
-            frozen_wire,
-            "{mode} wire"
-        );
-        if mode == "abort" {
-            assert_eq!(
-                std::fs::read_to_string(native_capture.with_extension("term")).unwrap(),
-                "SIGTERM"
-            );
-        }
+        assert_eq!(read_provision_wire(&native_capture, mode), frozen_wire, "{mode} wire");
     }
 }
 
@@ -149,13 +162,17 @@ async fn ask_secret_default_process_probe() {
         pi_coding_agent::bundled_extensions::ask_secret::ask_secret_extension(api)
     })
     .await;
-    let abort = if std::env::var("PI_SECRET_MODE").unwrap() == "abort" {
+    let mode = std::env::var("PI_SECRET_MODE").unwrap();
+    let abort = if mode == "abort" || mode == "preaborted" {
         Some(pi_js_compat::abort::AbortController::new())
     } else {
         None
     };
+    if mode == "preaborted" {
+        abort.as_ref().unwrap().abort(None);
+    }
     let signal = abort.as_ref().map(|controller| controller.signal());
-    let watch = abort.map(|controller| {
+    let watch = abort.filter(|_| mode == "abort").map(|controller| {
         tokio::spawn(async move {
             let ready = PathBuf::from(std::env::var("PI_SECRET_CAPTURE").unwrap()).with_extension("ready");
             let deadline = Instant::now() + Duration::from_secs(10);
