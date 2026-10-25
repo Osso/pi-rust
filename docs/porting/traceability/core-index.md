@@ -14,6 +14,6 @@ Frozen `4f9e6f8a4`, 101 lines. Rust `crates/pi-coding-agent-core/src/core/mod.rs
 | agent activity/lifecycle/mailbox/node/snapshot/result/spawn/steering types and MultiAgentStore | direct native store forwards | existing store consumers |
 | createSyntheticSourceInfo | direct source_info forward | owning source-info proof |
 
-RED `/tmp/ext-api2-core-sdk-barrel-red.log`: source-facing core/SDK imports missing or private. GREEN pending.
+RED `/tmp/ext-api2-core-sdk-barrel-red.log`: source-facing core/SDK imports missing or private. GREEN in the current `extension_session_read_view::core_and_sdk_barrels_forward_frozen_public_contracts` test; see [closure proof](../ext-api-repin-proof.md).
 
 Gap: erased AgentCommandResult union has no exact standalone native type; native store commands expose their existing native result enums. No unused carrier is added merely for this type-only export. No runtime export is missing for this gap.
