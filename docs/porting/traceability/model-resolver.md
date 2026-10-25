@@ -1,26 +1,21 @@
-# Model resolver — Q15 re-port in progress
+# Model resolver
 
-Frozen: `packages/coding-agent/src/core/model-resolver.ts` at [the common pin](../source-lock.json).
-Rust: `crates/pi-coding-agent-models/src/core/model_resolver.rs`.
+Frozen: `packages/coding-agent/src/core/model-resolver.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`; all705 lines audited against `pi-coding-agent-models/src/core/model_resolver.rs`.
 
-| Frozen exports/branches | Current proof |
-|---|---|
-| defaultModelPerProvider | Actual frozen RED → GREEN: exact frozen 36-entry record, including Team and absence of six old-only providers. |
-| findExactModelReferenceMatch, parseModelPattern | Actual frozen exact/parse matrices GREEN; proof scope is the deterministic fixture lists, not arbitrary malformed runtime inputs. |
-| resolveModelScopeWithDiagnostics/resolveModelScope | Actual frozen RED → GREEN: warning diagnostic shape and direct glob matching (including bracket classes); no old-only exact-ID shortcut. |
-| resolveCliModel | First-exact/catalog/auth/provider/fuzzy matrix GREEN. New actual frozen REDs: empty model/provider use JS falsiness, and case-folded provider collisions keep the last value. Corrected using native JS lowercasing and an insertion-ordered map; edge GREEN pending. |
-| findInitialModel, restoreModelFromSession | Initial matrix GREEN. Restore Rust behavior tests GREEN; a frozen restore differential is still pending. No old runtime snapshots remain in production. |
+| Exports / branches | Proof |
+| --- | --- |
+| `defaultModelPerProvider`: ordered36-entry table | Actual-source defaults comparison, no old-only providers |
+| `findExactModelReferenceMatch`: trim/casefold, canonical then split provider/id then bare id; ambiguity rejected | Actual-source exact matrix |
+| `parseModelPattern`, isAlias, tryMatchModel: exact/fuzzy human name/id, alias/date locale order, recursive colon suffix, strict rejection/warning precedence | Actual-source parse matrix plus native concrete fixtures |
+| `resolveModelScopeWithDiagnostics`, `resolveModelScope`: glob detection/minimatch, optional valid suffix, id/canonical matching, duplicate suppression, warning records/printing | Actual-source scope matrix; native helpers and shared default-Chalk stdout styling for console.warn |
+| `resolveCliModel`, buildFallbackModel: all-model registry, provider last-wins casefold map, provider inference/raw-id/auth alternatives, suffix/default fallback and reasoning override | Actual-source CLI matrix, empty/blank model/provider and provider-collision cases; native full-registry auth/default control |
+| `findInitialModel`: truthy CLI pair, scoped unless continuing, configured saved default, ordered provider defaults then first available/none | Actual-source initial matrix; added RED for empty CLI provider wrongly overriding scoped selection; native priority/default fixtures |
+| `restoreModelFromSession`: restored+auth; missing/unauth warning; current fallback; preferred/first available; no available; print toggle | Actual-source full-model/fallback/stdout/stderr comparison across6 scenarios ×2 print settings ×2 color modes in private native processes |
 
-## Rust implementation mechanism
+`ModelResolverRegistry` borrows the four frozen-used methods; ModelRegistry is its sole production implementation. Parent accepted this structural test seam on2026-10-23. The oracle uses real frozen in-memory ModelRegistry/AuthStorage, fills its exposed backing model array, and overrides only getAvailable to select deterministic fixtures. No live provider calls.
 
-`ModelResolverRegistry` borrows exactly four frozen-used methods: get_all, get_available,
-find and has_configured_auth(&Model). It has no state, defaults or fallback; ModelRegistry
-is its sole production implementation. Parent accepted this structural test seam on 2026-10-23.
+RED `/tmp/settings-models-resolver-red.log`: restore success went to stderr instead of stdout; empty CLI provider selected gpt-4o instead of the scoped gpt-5.5. Native restore now uses stdout/dim, warnings stderr/yellow, with the default Chalk stdout color authority as frozen does. Source full-model values and fallback text are not stripped in the new restore proof. Console fixtures are standalone because they self-spawn.
 
-`oracle/model-resolver-oracle.ts` uses real ModelRegistry.inMemory and AuthStorage.inMemory.
-Fixture setup fills the backing model array through frozen getAll; only getAvailable is overridden
-to provide the exact deterministic available-model list. find and configured-auth checks stay frozen.
-Rust fixture lists mirror those inputs. The full_registry_resolves_authenticated_default_and_unconfigured_explicit_cli_model
-control uses an unmodified full ModelRegistry and is GREEN. Six primary differential categories plus four CLI boundary tests expose REDs independently. Rust behavior target: 41 GREEN at c4c3ca99; later CLI-boundary changes require focused revalidation.
+`findInitialModel` returns a native Error instead of directly terminating the embedding process; the CLI owns error reporting/termination. Owned model returns and opaque scalar provider/id boundaries retain the common approvals. Pathological input/runtime/stack-format oddities are outside the parity bar; no new carrier or fallback behavior is introduced.
 
-No whole-module parity claim. Logs and revision-specific proof remain in the Q15 artifact ledger.
+Focused GREEN and warning-mode clippy are recorded after the implementation commit in `/tmp/settings-models-proof-ledger.md`.

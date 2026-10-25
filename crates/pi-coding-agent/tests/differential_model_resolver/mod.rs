@@ -1,3 +1,5 @@
+#[path = "../support/env_probe.rs"]
+mod env_probe;
 #[path = "../support/oracle.rs"]
 mod oracle;
 
@@ -341,6 +343,12 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
     type InitialCase = (Value, Vec<Model>, Vec<Model>, Vec<String>);
     let cases: Vec<InitialCase> = vec![
         (
+            json!({"cliProvider": "", "cliModel": "gpt-4o", "scopedModels": [{"model": serde_json::to_value(&openai).unwrap()}], "isContinuing": false}),
+            models.to_vec(),
+            models.to_vec(),
+            vec![],
+        ),
+        (
             json!({"scopedModels": [], "isContinuing": false}),
             vec![openai.clone(), codex.clone()],
             vec![openai.clone(), codex.clone()],
@@ -453,6 +461,78 @@ async fn compare_initial(oracle: &mut oracle::TsOracle, models: &[Model]) {
     }
 }
 
+fn compare_restore() {
+    use std::ffi::OsString;
+    let models = fixture_models();
+    for color in [false, true] {
+        let color_env = [("FORCE_COLOR", OsString::from(if color { "1" } else { "0" }))];
+        let mut source = oracle::TsOracle::spawn_with_environment(
+            "model-resolver-oracle.ts",
+            "packages/coding-agent/src/core/model-resolver.ts",
+            &color_env,
+        );
+        for (provider, id, current, available, authenticated) in [
+            ("openai", "gpt-4o", None, models.clone(), vec!["openai"]),
+            ("missing", "gone", Some(models[0].clone()), models.clone(), vec![]),
+            ("openai", "gpt-4o", Some(models[0].clone()), models.clone(), vec![]),
+            (
+                "missing",
+                "gone",
+                None,
+                vec![model("openai", "gpt-5.5", "Default", true), models[0].clone()],
+                vec![],
+            ),
+            ("openai", "gpt-4o", None, vec![models[0].clone()], vec![]),
+            ("missing", "gone", None, vec![], vec![]),
+        ] {
+            for print in [false, true] {
+                let request = json!({
+                    "id": 1, "operation": "restore", "models": models_json(&models),
+                    "savedProvider": provider, "savedModelId": id, "currentModel": current,
+                    "available": models_json(&available), "authenticated": authenticated, "print": print,
+                });
+                let expected = source.request(&request);
+                assert_eq!(expected["ok"], true, "{expected}");
+                let mut environment = color_env.to_vec();
+                environment.push(("PI_RESTORE_CASE", OsString::from(request.to_string())));
+                let child = env_probe::run_probe("resolver_restore_probe_child", &environment);
+                let stdout = String::from_utf8(child.stdout).unwrap();
+                let (_, captured) = stdout.split_once("RESTORE_BEGIN\n").unwrap();
+                let (messages, result) = captured.split_once("RESTORE_END:").unwrap();
+                let mut actual: Value = serde_json::from_str(result.lines().next().unwrap()).unwrap();
+                actual["stdout"] = json!(messages);
+                actual["stderr"] = json!(String::from_utf8(child.stderr).unwrap());
+                assert_eq!(actual, expected["output"], "restore={request}, color={color}");
+            }
+        }
+    }
+}
+
+pub(crate) fn restore_child() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    let request: Value = serde_json::from_str(&std::env::var("PI_RESTORE_CASE").unwrap()).unwrap();
+    let registry = StubRuntime {
+        models: serde_json::from_value(request["models"].clone()).unwrap(),
+        available: serde_json::from_value(request["available"].clone()).unwrap(),
+        authenticated: serde_json::from_value(request["authenticated"].clone()).unwrap(),
+    };
+    let current: Option<Model> = serde_json::from_value(request["currentModel"].clone()).unwrap();
+    let runtime = tokio::runtime::Builder::new_current_thread().build().unwrap();
+    println!("RESTORE_BEGIN");
+    let (model, fallback) = runtime
+        .block_on(pi_coding_agent::core::model_resolver::restore_model_from_session(
+            request["savedProvider"].as_str().unwrap(),
+            request["savedModelId"].as_str().unwrap(),
+            current.as_ref(),
+            request["print"].as_bool().unwrap(),
+            &registry,
+        ))
+        .unwrap();
+    println!("RESTORE_END:{}", json!({"model": model, "fallbackMessage": fallback}));
+}
+
 pub(crate) fn run(operation: &str) {
     let mut oracle = oracle::TsOracle::spawn(
         "model-resolver-oracle.ts",
@@ -460,6 +540,7 @@ pub(crate) fn run(operation: &str) {
     );
     let models = fixture_models();
     match operation {
+        "restore" => compare_restore(),
         "parse" => compare_parse(&mut oracle, &models),
         "scope" => compare_scope(&mut oracle, &models),
         "cli" => compare_cli(&mut oracle, &models, cli_cases()),

@@ -38,6 +38,17 @@ fn resolver_default_record_matches_frozen() {
     model_resolver_oracle::run("defaults");
 }
 #[test]
+fn resolver_restore_console_and_models_match_frozen() {
+    model_resolver_oracle::run("restore");
+}
+
+#[test]
+#[ignore = "child process probe"]
+fn resolver_restore_probe_child() {
+    model_resolver_oracle::restore_child();
+}
+
+#[test]
 fn resolver_initial_selection_matches_frozen() {
     model_resolver_oracle::run("initial");
 }
