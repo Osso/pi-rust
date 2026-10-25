@@ -120,3 +120,5 @@ Added ten actual-frozen numeric percentage validation/enabled combinations (0/-1
 Focused helper batch after the source changes:36/37 passed; the sole failure was the old budget unit fixture, whose keepRecentTokens1/2 expectations contradicted frozen protected-suffix behavior. It now asserts exact index1/start0/splittrue for both budgets plus full-result equality. Generation batch15/15 passed. An initial branch filter selected zero tests in suite_session_1 and is not evidence; native branch tests belong to suite_core_1.
 
 Materialization now has an actual-frozen injected-stream differential for full checkpoint/request/result, aborted result, whitespace-only rejection and missing checkpoint, in addition to the existing native materialization tests.
+
+The split generation matrix also covers no prior history and an ordinary nonsplit history-only request; each compares every captured request and the complete result.

@@ -94,15 +94,19 @@ fn compare(oracle: &mut oracle::TsOracle, request: Value, result: Value, request
 async fn branch_generation_matches_frozen_result_and_instruction_truthiness() {
     let mut oracle = oracle();
     let model = model();
-    for (instructions, replace) in [
-        (None, false),
-        (Some(""), true),
-        (Some(""), false),
-        (Some("focus"), true),
-        (Some("focus"), false),
+    for (instructions, replace, reason, text) in [
+        (None, false, StopReason::Stop, "summary"),
+        (Some(""), true, StopReason::Stop, "summary"),
+        (Some(""), false, StopReason::Stop, "summary"),
+        (Some("focus"), true, StopReason::Stop, "summary"),
+        (Some("focus"), false, StopReason::Stop, "summary"),
+        (None, false, StopReason::Stop, " \u{feff} "),
+        (None, false, StopReason::Aborted, ""),
+        (None, false, StopReason::Error, ""),
     ] {
         let entries = vec![entry()];
-        let response = response("summary");
+        let mut response = response(text);
+        response.stop_reason = reason;
         let requests = Arc::new(Mutex::new(Vec::new()));
         let stream = stream(vec![response.clone()], requests.clone());
         let instructions = instructions.map(JsString::from);
@@ -226,12 +230,17 @@ async fn materialization_matches_frozen_checkpoints_requests_and_outcomes() {
 async fn split_compaction_matches_frozen_request_and_result_shapes() {
     let mut oracle = oracle();
     let model = model();
-    for text in ["summary", " \u{feff} "] {
+    for (history, prefix, text) in [
+        (true, true, "summary"),
+        (false, true, "summary"),
+        (true, false, "summary"),
+        (true, true, " \u{feff} "),
+    ] {
         let preparation = CompactionPreparation {
             first_kept_entry_id: "kept".into(),
-            messages_to_summarize: vec![user()],
-            turn_prefix_messages: vec![user()],
-            is_split_turn: true,
+            messages_to_summarize: if history { vec![user()] } else { Vec::new() },
+            turn_prefix_messages: if prefix { vec![user()] } else { Vec::new() },
+            is_split_turn: prefix,
             tokens_before: 10000.0,
             previous_summary: None,
             file_ops: create_file_ops(),
@@ -240,7 +249,13 @@ async fn split_compaction_matches_frozen_request_and_result_shapes() {
                 ..DEFAULT_COMPACTION_SETTINGS
             },
         };
-        let responses = vec![response("history summary"), response(text)];
+        let mut responses = Vec::new();
+        if history {
+            responses.push(response("history summary"));
+        }
+        if prefix {
+            responses.push(response(text));
+        }
         let requests = Arc::new(Mutex::new(Vec::new()));
         let stream = stream(responses.clone(), requests.clone());
         let instructions = JsString::from("  preserve pending questions  ");
