@@ -300,12 +300,30 @@ struct SyncState {
     exit: Option<ExitInfo>,
     exit_error: Option<RpcClientError>,
     active_generation: Option<u64>,
-    stopping: bool,
+    stop_run: Option<Arc<StopCompletion>>,
     stop_error: Option<RpcClientError>,
     next_request_id: u64,
     pending: HashMap<String, oneshot::Sender<Result<JsValue, RpcClientError>>>,
     listeners: Vec<Listener>,
     next_listener_id: u64,
+}
+
+#[derive(Default)]
+struct StopCompletion {
+    result: Mutex<Option<Result<(), RpcClientError>>>,
+    ready: tokio::sync::Notify,
+}
+
+impl StopCompletion {
+    async fn wait(&self) -> Result<(), RpcClientError> {
+        loop {
+            let ready = self.ready.notified();
+            if let Some(result) = self.result.lock().expect("stop result poisoned").clone() {
+                return result;
+            }
+            ready.await;
+        }
+    }
 }
 
 struct ProcessHandle {
@@ -396,7 +414,6 @@ fn reject_pending(state: &mut SyncState, error: RpcClientError) {
 /// RPC client driving one `pi --mode rpc` child process.
 pub struct RpcClient {
     inner: Arc<ClientInner>,
-    stop_gate: tokio::sync::Mutex<()>,
 }
 
 impl Default for RpcClient {
@@ -419,7 +436,7 @@ impl RpcClient {
                     exit: None,
                     exit_error: None,
                     active_generation: None,
-                    stopping: false,
+                    stop_run: None,
                     stop_error: None,
                     next_request_id: 0,
                     pending: HashMap::new(),
@@ -430,7 +447,6 @@ impl RpcClient {
                 kill,
                 next_generation: AtomicU64::new(0),
             }),
-            stop_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -463,7 +479,7 @@ impl RpcClient {
 
     fn begin_start(&self, process: &ProcessState) -> Result<u64, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.active_generation.is_some() || process.child.is_some() || sync.stopping {
+        if sync.active_generation.is_some() || process.child.is_some() || sync.stop_run.is_some() {
             return Err(RpcClientError::AlreadyStartedOrStopping);
         }
         sync.exit = None;
@@ -473,7 +489,7 @@ impl RpcClient {
 
     fn verify_started(&self, generation: u64) -> Result<(), RpcClientError> {
         let sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.stopping || sync.active_generation != Some(generation) {
+        if sync.stop_run.is_some() || sync.active_generation != Some(generation) {
             return Err(RpcClientError::StoppedDuringStartup {
                 stderr: sync.stderr.clone(),
             });
@@ -489,24 +505,49 @@ impl RpcClient {
 
     /// Stops the RPC agent process.
     pub async fn stop(&self) -> Result<(), RpcClientError> {
-        let _gate = self.stop_gate.lock().await;
+        let (completion, owner) = {
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            if let Some(completion) = &sync.stop_run {
+                (Arc::clone(completion), false)
+            } else {
+                if sync.active_generation.is_none() {
+                    return Ok(());
+                }
+                let completion = Arc::new(StopCompletion::default());
+                sync.stop_run = Some(Arc::clone(&completion));
+                (completion, true)
+            }
+        };
+        if owner {
+            let client = Self {
+                inner: Arc::clone(&self.inner),
+            };
+            let run = Arc::clone(&completion);
+            tokio::spawn(async move {
+                let result = client.stop_process().await;
+                client.publish_stop_result(&run, result);
+            });
+        }
+        completion.wait().await
+    }
+
+    fn publish_stop_result(&self, completion: &Arc<StopCompletion>, result: Result<(), RpcClientError>) {
         {
             let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-            if sync.active_generation.is_none() {
-                return Ok(());
-            }
-            sync.stopping = true;
+            sync.stop_error = result.as_ref().err().cloned();
+            *completion.result.lock().expect("stop result poisoned") = Some(result.clone());
+            sync.stop_run = None;
         }
-
-        let result = self.stop_process().await;
-
-        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        sync.stopping = false;
-        match &result {
-            Ok(()) => sync.stop_error = None,
-            Err(error) => sync.stop_error = Some(error.clone()),
+        completion.ready.notify_waiters();
+        if Arc::strong_count(completion) == 1
+            && let Err(error) = result
+        {
+            let callback = match error {
+                RpcClientError::Native(error) => pi_ai::request::CallbackError::from(*error),
+                error => pi_ai::request::CallbackError::from_error(error.to_string(), error),
+            };
+            crate::utils::uncaught::throw_callback_uncaught(callback);
         }
-        result
     }
 
     async fn stop_process(&self) -> Result<(), RpcClientError> {
@@ -590,7 +631,7 @@ impl RpcClient {
 
     fn begin_request(&self, body: RpcCommandBody) -> Result<PendingRequest, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.stopping {
+        if sync.stop_run.is_some() {
             return Err(RpcClientError::Stopping {
                 stderr: sync.stderr.clone(),
             });
@@ -1268,6 +1309,44 @@ mod tests {
         let path = dir.path().join(name);
         std::fs::write(&path, contents).expect("child script must be written");
         (dir, path)
+    }
+
+    mod source_oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    #[tokio::test]
+    async fn concurrent_stops_share_the_same_failure_and_termination_attempt() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"stop_fail","reply":{}}));
+        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+        let blocked = Arc::new(AtomicBool::new(true));
+        let calls = Arc::new(AtomicUsize::new(0));
+        let kill_blocked = blocked.clone();
+        let kill_calls = calls.clone();
+        let client = RpcClient::with_kill(
+            RpcClientOptions {
+                cli_path: Some(script.to_str().unwrap().into()),
+                ..Default::default()
+            },
+            Arc::new(move |pid, signal| {
+                if kill_blocked.load(Ordering::SeqCst) {
+                    kill_calls.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                } else {
+                    kill_process(pid, signal)
+                }
+            }),
+        );
+        client.start().await.unwrap();
+        let (first, second) = tokio::join!(client.stop(), client.stop());
+        let actual = pi_js_compat::js_json!({"ok":true,"value":{"calls":calls.load(Ordering::SeqCst),"errors":[first.err().map(|error|error.to_string()),second.err().map(|error|error.to_string())]}});
+        blocked.store(false, Ordering::SeqCst);
+        client.stop().await.unwrap();
+        assert_eq!(actual, expected);
     }
 
     #[tokio::test]

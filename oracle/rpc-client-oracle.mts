@@ -37,7 +37,8 @@ type Request = {
 		| "typed"
 		| "collector_skip"
 		| "timeout"
-		| "spawn_error";
+		| "spawn_error"
+		| "stop_fail";
 	reply: unknown;
 	executable?: string;
 	cliPath?: string;
@@ -108,6 +109,26 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			return { ok: true, value: [first, second, await startOutcome(client)] };
 		}
 		await client.start();
+		if (request.operation === "stop_fail") {
+			const child = Reflect.get(client, "process") as {
+				kill(signal: string): boolean;
+			};
+			const kill = child.kill.bind(child);
+			let calls = 0;
+			child.kill = () => {
+				calls++;
+				return true;
+			};
+			const results = await Promise.allSettled([client.stop(), client.stop()]);
+			child.kill = kill;
+			const errors = results.map((result) =>
+				result.status === "rejected" && result.reason instanceof Error
+					? result.reason.message
+					: null,
+			);
+			await client.stop();
+			return { ok: true, value: { calls, errors } };
+		}
 		if (request.operation === "timeout") {
 			const delay =
 				typeof request.delay === "string"
