@@ -1,5 +1,19 @@
 //! Behavioral tests for `packages/ai/src/compat.ts`.
 
+#[test]
+fn compatibility_entrypoint_forwards_the_public_root() {
+    let models = pi_ai::compat::create_models(Default::default());
+    assert!(pi_ai::compat::Models::get_providers(&models).is_empty());
+    let message = pi_ai::compat::AssistantMessage::empty("api", "provider", "model", 0.0);
+    assert_eq!(message.model, "model");
+    let _: pi_ai::compat::StreamOptions = Default::default();
+    let _: pi_ai::compat::OAuthPrompt = pi_ai::compat::OAuthPrompt {
+        message: "Code".into(),
+        placeholder: None,
+        allow_empty: None,
+    };
+}
+
 use std::sync::{Arc, Mutex};
 
 use pi_ai::compat::{
