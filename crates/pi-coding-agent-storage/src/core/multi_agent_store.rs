@@ -29,6 +29,43 @@ pub type MailboxMessageStatus = MailboxMessageStatusValue;
 pub type AgentSnapshot = AgentNode;
 pub type SpawnAgentInput = SpawnAgent;
 
+const DIRECT_MESSAGE_FIELDS: &[&str] = &[
+    "id",
+    "threadId",
+    "fromAgentId",
+    "toAgentId",
+    "kind",
+    "status",
+    "createdAt",
+    "updatedAt",
+    "body",
+    "fileRefs",
+];
+const OUTBOUND_MESSAGE_FIELDS: &[&str] = &[
+    "fileRefs",
+    "body",
+    "createdAt",
+    "fromAgentId",
+    "id",
+    "kind",
+    "status",
+    "threadId",
+    "toAgentId",
+    "updatedAt",
+];
+const LIFECYCLE_MESSAGE_FIELDS: &[&str] = &[
+    "body",
+    "createdAt",
+    "fromAgentId",
+    "id",
+    "kind",
+    "status",
+    "threadId",
+    "toAgentId",
+    "updatedAt",
+    "fileRefs",
+];
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentLifecycle {
@@ -443,69 +480,54 @@ pub struct AgentMailboxMessage {
 
 impl Serialize for AgentMailboxMessage {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let JsValue::Object(mut fields) = pi_js_compat::js_json!({
+            "body": self.body,
+            "createdAt": self.created_at,
+            "error": self.error,
+            "fileRefs": self.file_refs,
+            "fromAgentId": self.from_agent_id,
+            "id": self.id,
+            "kind": self.kind,
+            "status": self.status,
+            "targetCheckpoint": self.target_checkpoint,
+            "threadId": self.thread_id,
+            "toAgentId": self.to_agent_id,
+            "updatedAt": self.updated_at,
+        }) else {
+            unreachable!("mailbox fields are an object")
+        };
+        for (key, present) in [
+            ("body", self.body.is_some()),
+            ("error", self.error.is_some()),
+            ("fileRefs", self.file_refs.is_some()),
+            ("targetCheckpoint", self.target_checkpoint.is_some()),
+            ("threadId", self.thread_id.is_some()),
+            ("updatedAt", self.updated_at.is_some()),
+        ] {
+            if !present {
+                fields.shift_remove(key);
+            }
+        }
         let mut object = self.extra.clone();
-        object.insert(
-            "id".into(),
-            js_json::to_value(&self.id).map_err(serde::ser::Error::custom)?,
-        );
-        if let Some(value) = &self.thread_id {
-            object.insert(
-                "threadId".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
-        object.insert(
-            "fromAgentId".into(),
-            js_json::to_value(&self.from_agent_id).map_err(serde::ser::Error::custom)?,
-        );
-        object.insert(
-            "toAgentId".into(),
-            js_json::to_value(&self.to_agent_id).map_err(serde::ser::Error::custom)?,
-        );
-        object.insert(
-            "kind".into(),
-            js_json::to_value(&self.kind).map_err(serde::ser::Error::custom)?,
-        );
-        object.insert(
-            "status".into(),
-            js_json::to_value(&self.status).map_err(serde::ser::Error::custom)?,
-        );
-        object.insert(
-            "createdAt".into(),
-            js_json::to_value(&self.created_at).map_err(serde::ser::Error::custom)?,
-        );
-        if let Some(value) = &self.updated_at {
-            object.insert(
-                "updatedAt".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
-        if let Some(value) = &self.body {
-            object.insert(
-                "body".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
-        if let Some(value) = &self.file_refs {
-            object.insert(
-                "fileRefs".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
-        if let Some(value) = &self.target_checkpoint {
-            object.insert(
-                "targetCheckpoint".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
-        if let Some(value) = &self.error {
-            object.insert(
-                "error".into(),
-                js_json::to_value(value).map_err(serde::ser::Error::custom)?,
-            );
-        }
+        object.extend(fields);
         JsValue::Object(object).serialize(serializer)
     }
+}
+
+fn encode_mailbox_constructor(message: &AgentMailboxMessage, fields: &[&str]) -> Result<JsValue, MultiAgentStoreError> {
+    let JsValue::Object(mut object) =
+        js_json::to_value(message).map_err(|error| MultiAgentStoreError::new(error.to_string()))?
+    else {
+        unreachable!("mailbox serializer emits an object")
+    };
+    let mut ordered = JsObject::new();
+    for field in fields {
+        if let Some(value) = object.shift_remove(*field) {
+            ordered.insert((*field).into(), value);
+        }
+    }
+    ordered.extend(object);
+    Ok(JsValue::Object(ordered))
 }
 
 impl<'de> Deserialize<'de> for AgentMailboxMessage {
@@ -1735,7 +1757,7 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        self.put_mailbox_message(message.clone())?;
+        self.put_mailbox_message(message.clone(), DIRECT_MESSAGE_FIELDS)?;
         let updated = self.update_agent_metadata(
             &current,
             MetadataUpdate {
@@ -1787,7 +1809,7 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        self.put_mailbox_message(message.clone())?;
+        self.put_mailbox_message(message.clone(), DIRECT_MESSAGE_FIELDS)?;
         let updated = self.update_agent_metadata(
             &target,
             MetadataUpdate {
@@ -1849,7 +1871,7 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        self.put_mailbox_message(message.clone())?;
+        self.put_mailbox_message(message.clone(), DIRECT_MESSAGE_FIELDS)?;
         let updated = self.update_agent_metadata(
             &current,
             MetadataUpdate {
@@ -1888,7 +1910,7 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        self.put_mailbox_message(message.clone())?;
+        self.put_mailbox_message(message.clone(), OUTBOUND_MESSAGE_FIELDS)?;
         Ok(copy_message(&message))
     }
 
@@ -1971,7 +1993,7 @@ impl MultiAgentStore {
         Ok(())
     }
 
-    fn put_mailbox_message(&self, message: AgentMailboxMessage) -> Result<(), MultiAgentStoreError> {
+    fn put_mailbox_message(&self, message: AgentMailboxMessage, fields: &[&str]) -> Result<(), MultiAgentStoreError> {
         if self.mailbox_message_is_expired(&message) {
             return Ok(());
         }
@@ -1984,7 +2006,7 @@ impl MultiAgentStore {
             state.persistence.clone()
         };
         if let Some(target) = persistence {
-            let value = js_json::to_value(&message).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+            let value = encode_mailbox_constructor(&message, fields)?;
             upsert_multi_agent_mailbox_message(&target.control_db_path, &target.session_path, &message.id, &value)?;
         }
         Ok(())
@@ -2282,7 +2304,7 @@ impl MultiAgentStore {
             target_checkpoint: None,
             error: None,
         };
-        self.put_mailbox_message(message.clone())?;
+        self.put_mailbox_message(message.clone(), LIFECYCLE_MESSAGE_FIELDS)?;
         self.notify_lifecycle_notification_listeners(&message);
         Ok(())
     }
