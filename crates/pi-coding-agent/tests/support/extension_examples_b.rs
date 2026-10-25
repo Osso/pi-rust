@@ -32,7 +32,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let item = self.item.lock().unwrap().clone();
         let calls = self.calls.clone();
         let custom_tools = self.custom_tools.clone();

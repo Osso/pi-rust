@@ -172,8 +172,7 @@ async fn environment_value_validation_retains_native_property_labels() {
 #[path = "support/executable_script.rs"]
 mod executable_script;
 #[tokio::test]
-#[ignore = "Open shared-spawn item: std Command sorts child envp; parent deferred ordered spawning to final-gate decision"]
-async fn explicit_environment_child_envp_order_matches_node_own_keys() {
+async fn native_child_envp_is_sorted_and_frozen_own_key_order_is_preserved_as_evidence() {
     let root = tempfile::tempdir().unwrap();
     let shell = root.path().join("env-probe");
     executable_script::write_executable_script(
@@ -226,7 +225,38 @@ async fn explicit_environment_child_envp_order_matches_node_own_keys() {
         *bytes.lock().unwrap(),
         "stdlib explicit .env insertion must show the same sort without our IndexMap"
     );
-    assert_eq!(json!(bytes.lock().unwrap().clone()), expected["output"]);
+    let frozen_bytes: Vec<u8> = pi_js_compat::js_json::from_value(&expected["output"]).unwrap();
+    let decode_entries = |bytes: &[u8]| {
+        bytes
+            .split(|byte| *byte == 0)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| String::from_utf8(entry.to_vec()).expect("fixture environment is UTF8"))
+            .collect::<Vec<_>>()
+    };
+    let select_fixture_entries = |entries: &[String]| {
+        entries
+            .iter()
+            .filter(|entry| ["2=two", "10=ten", "Z_FIRST=one", "A_SECOND=two"].contains(&entry.as_str()))
+            .cloned()
+            .collect::<Vec<_>>()
+    };
+    let mut frozen_entries = decode_entries(&frozen_bytes);
+    let mut native_entries = decode_entries(&bytes.lock().unwrap());
+    assert_eq!(
+        select_fixture_entries(&frozen_entries),
+        ["2=two", "10=ten", "Z_FIRST=one", "A_SECOND=two"]
+    );
+    // Accepted runtime gap, user decision 2026-10-24: keep std Command's native sort.
+    assert_eq!(
+        select_fixture_entries(&native_entries),
+        ["10=ten", "2=two", "A_SECOND=two", "Z_FIRST=one"]
+    );
+    frozen_entries.sort();
+    native_entries.sort();
+    assert_eq!(
+        native_entries, frozen_entries,
+        "all names and values must remain identical"
+    );
 }
 
 fn source_order_failures(cwd: &JsString) -> Vec<JsValue> {

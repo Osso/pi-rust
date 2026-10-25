@@ -1,10 +1,12 @@
 # coding-agent child-process traceability
 
-## Open shared-spawn item
+## Accepted runtime gap: child envp order
 
 | Boundary | Evidence and disposition |
 |---|---|
-| Child envp order is sorted by std Command; frozen uses JS own-key order — open shared-spawn item | `/tmp/pi-rust-repin-core-tools/bash-envp-order-red-2.log`: actual frozen `/proc/self/environ` yields `2,10,Z_FIRST,A_SECOND`; native and a direct std Command control (no native map involved) both yield `10,2,A_SECOND,Z_FIRST`. Replacing input maps alone cannot fix std's sorting. Parent explicitly deferred ordered-envp posix_spawn/fork-exec authority replacement to the final gate/user decision; `differential_bash_environment::explicit_environment_child_envp_order_matches_node_own_keys` retains unchanged assertions as an explicitly ignored regression. This affects all std-based child spawns, not only bash. |
+| Child envp order is sorted by std Command; frozen uses JS own-key order — accepted runtime gap, user decision 2026-10-24 (AGENTS.md; parent2d1d3eba) | Frozen `/proc/self/environ` yields `2,10,Z_FIRST,A_SECOND`; native and direct std Command (without a native input map) yield `10,2,A_SECOND,Z_FIRST`. Original behavioral RED remains `/tmp/pi-rust-repin-core-tools/bash-envp-order-red-2.log`. Active `differential_bash_environment::native_child_envp_is_sorted_and_frozen_own_key_order_is_preserved_as_evidence` asserts both actual orders, identical complete names/values, and the direct std control. No order-preserving backend is added. This applies to std-based child spawns, not just bash; pre-spawn validation still follows JS own-key order. |
+
+Accepted-gap checkpoint `b448fe01`: `cargo test -j4 -p pi-coding-agent --test differential_bash_environment` passes 6/6 with no ignored tests (`envp-gap-runtime.log`). Target warning Clippy has 0 findings in the test; workspace all-target keep-going check has 0 errors/warnings; inventory remains PASS 686/186679, 454 done / 19 gap / 46 partial / 167 todo. Logs are under `/tmp/pi-rust-repin-core-tools/`. Production spawn and pre-spawn validation code are unchanged.
 
 ## Shared live-child SIGTERM
 

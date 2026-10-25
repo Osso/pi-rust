@@ -65,7 +65,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async move {
             self.0.lock().unwrap().push(json!(["custom"]));
             let value = Arc::new(Mutex::new(None));

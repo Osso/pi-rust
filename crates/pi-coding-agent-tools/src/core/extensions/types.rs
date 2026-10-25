@@ -605,7 +605,7 @@ pub trait ExtensionUiContext: Send + Sync {
         &'a self,
         _factory: ExtensionUiCustomFactory,
         _options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 

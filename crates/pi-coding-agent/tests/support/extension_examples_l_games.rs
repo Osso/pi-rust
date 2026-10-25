@@ -131,7 +131,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let trace = self.trace.clone();
         let item = self.item.clone();
         let theme = self.theme();

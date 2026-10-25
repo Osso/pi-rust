@@ -49,12 +49,16 @@ impl ExtensionUiContext for Ui {
         &'a self,
         _: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async move {
             let (sender, receiver) = oneshot::channel();
             self.pending.lock().unwrap().push(Some(sender));
             self.entered.notify_one();
-            receiver.await.expect("panel reply").map(Some)
+            receiver.await.expect("panel reply").map(Some).map_err(|reason| {
+                pi_js_compat::callback_error::CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                    JsValue::String(reason),
+                ))
+            })
         })
     }
     fn notify(

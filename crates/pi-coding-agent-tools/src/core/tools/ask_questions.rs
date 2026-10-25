@@ -21,6 +21,7 @@ use pi_agent_core::{
 };
 use pi_ai::request::BoxFuture;
 use pi_js_compat::abort::AbortSignal;
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
@@ -198,7 +199,7 @@ struct QuestionJob {
     // A pending panel owns its serialization boundary even if its caller is aborted.
     _queue: Arc<QuestionQueue>,
     questions: Vec<Question>,
-    result: oneshot::Sender<Result<PanelResult, JsString>>,
+    result: oneshot::Sender<Result<PanelResult, CallbackError>>,
 }
 struct QuestionQueue {
     sender: mpsc::UnboundedSender<QuestionJob>,
@@ -207,7 +208,10 @@ type Queues = Mutex<HashMap<usize, Weak<QuestionQueue>>>;
 fn queue_questions(
     ui: Arc<dyn ExtensionUiContext>,
     questions: Vec<Question>,
-) -> (Arc<QuestionQueue>, oneshot::Receiver<Result<PanelResult, JsString>>) {
+) -> (
+    Arc<QuestionQueue>,
+    oneshot::Receiver<Result<PanelResult, CallbackError>>,
+) {
     static QUEUES: OnceLock<Queues> = OnceLock::new();
     let mut queues = QUEUES.get_or_init(Mutex::default).lock().expect("question queues");
     queues.retain(|_, queue| queue.strong_count() > 0);
@@ -229,7 +233,7 @@ fn queue_questions(
                     .await
                     .and_then(|value| {
                         pi_js_compat::js_json::from_value(&value.unwrap_or(Value::Null))
-                            .map_err(|error| JsString::from(error.to_string()))
+                            .map_err(|error| CallbackError::new(error.to_string()))
                     });
                 close_ask_questions_notification(notification);
                 let _ = job.result.send(result);
@@ -296,17 +300,21 @@ async fn deliver_queued(
     ui: Arc<dyn ExtensionUiContext>,
     target: InboxTarget,
     request: JsString,
-    pending: oneshot::Receiver<Result<PanelResult, JsString>>,
+    pending: oneshot::Receiver<Result<PanelResult, CallbackError>>,
     _queue: Arc<QuestionQueue>,
 ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
     let body = match pending
         .await
-        .map_err(|error| JsString::from(error.to_string()))
+        .map_err(|error| CallbackError::new(error.to_string()))
         .and_then(|result| result)
     {
         Ok(result) => format_queued_result(&request, &result),
         Err(error) => {
-            let body = js_format!("Questions failed (request {}): {}", request, error);
+            let body = js_format!(
+                "Questions failed (request {}): {}",
+                request,
+                error.error_or_string_message()?
+            );
             ui.notify(&body, Some(NotifyType::Error))?;
             body.into()
         }
@@ -371,68 +379,81 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
-            let parsed = parse_params(&params)?;
-            let context =
-                context.ok_or_else(|| ToolError::new("Cannot read properties of undefined (reading 'hasUI')"))?;
-            let has_ui = context.has_ui().map_err(|error| ToolError::new(error.message))?;
-            if !has_ui || context.mode().map_err(|error| ToolError::new(error.message))? != ExtensionMode::Tui {
-                let result = question_result(
-                    &params,
-                    "Error: ask_questions requires an interactive TUI session",
-                    json!({}),
-                    true,
-                );
-                return Ok(error_text_result(
-                    "Error: ask_questions requires an interactive TUI session",
-                    result.details.unwrap(),
-                ));
-            }
-            validate_questions(&parsed.questions)?;
-            let ui = context.ui().map_err(|error| ToolError::new(error.message))?;
-            let target = if parsed.blocking {
-                None
-            } else {
-                Some(capture_inbox(&context)?)
-            };
-            let (queue, pending) = queue_questions(ui.clone(), parsed.questions);
-            if let Some(target) = target {
-                let request: JsString = tool_call_id.clone().into();
-                tokio::spawn(async move {
-                    // Frozen ask-questions.ts:314-316 owns the outer delivery-handler catch.
-                    if let Err(error) = deliver_queued(ui, target, request.clone(), pending, queue).await {
-                        crate::core::desktop_notification::report_callback_error(
-                            js_format!("Failed question delivery handler (request {}):", request),
-                            &error,
-                        );
-                    }
-                });
-                let mut result = question_result(
-                    &params,
-                    format!(
-                        "Questions queued (request {tool_call_id}). Continue independent work; answers will arrive in your inbox."
-                    ),
-                    json!({}),
-                    false,
-                );
-                let details = result.details.as_mut().unwrap();
-                details["queued"] = json!(true).into();
-                details["requestId"] = json!(tool_call_id).into();
-                return Ok(result);
-            }
-            let result = pending
+            execute_questions(tool_call_id, params, context)
                 .await
-                .map_err(|error| ToolError::new(error.to_string()))?
-                .map_err(ToolError::new)?;
-            drop(queue);
-            let text = if result.cancelled {
-                JsString::from("Questions cancelled")
-            } else {
-                JsString::from("User answered questions:\n") + format_answers(&result.answers)
-            };
-            Ok(question_result(&params, text, result.answers, result.cancelled))
+                .map_err(super::tool_definition_wrapper::project_callback_tool_error)
         })
     }
 }
+fn execute_questions(
+    tool_call_id: String,
+    params: JsValue,
+    context: Option<ExtensionContext>,
+) -> BoxFuture<'static, Result<AgentToolResult, CallbackError>> {
+    Box::pin(async move {
+        let parsed = parse_params(&params).map_err(|error| CallbackError::new(error.message))?;
+        let context = context.ok_or_else(|| {
+            CallbackError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "Cannot read properties of undefined (reading 'hasUI')",
+            ))
+        })?;
+        let has_ui = context.has_ui().map_err(|error| CallbackError::new(error.message))?;
+        if !has_ui || context.mode().map_err(|error| CallbackError::new(error.message))? != ExtensionMode::Tui {
+            let result = question_result(
+                &params,
+                "Error: ask_questions requires an interactive TUI session",
+                json!({}),
+                true,
+            );
+            return Ok(error_text_result(
+                "Error: ask_questions requires an interactive TUI session",
+                result.details.unwrap(),
+            ));
+        }
+        validate_questions(&parsed.questions).map_err(|error| CallbackError::new(error.message))?;
+        let ui = context.ui().map_err(|error| CallbackError::new(error.message))?;
+        let target = if parsed.blocking {
+            None
+        } else {
+            Some(capture_inbox(&context).map_err(|error| CallbackError::new(error.message))?)
+        };
+        let (queue, pending) = queue_questions(ui.clone(), parsed.questions);
+        if let Some(target) = target {
+            let request: JsString = tool_call_id.clone().into();
+            tokio::spawn(async move {
+                // Frozen ask-questions.ts:314-316 owns the outer delivery-handler catch.
+                if let Err(error) = deliver_queued(ui, target, request.clone(), pending, queue).await {
+                    crate::core::desktop_notification::report_callback_error(
+                        js_format!("Failed question delivery handler (request {}):", request),
+                        &error,
+                    );
+                }
+            });
+            let mut result = question_result(
+                &params,
+                format!(
+                    "Questions queued (request {tool_call_id}). Continue independent work; answers will arrive in your inbox."
+                ),
+                json!({}),
+                false,
+            );
+            let details = result.details.as_mut().unwrap();
+            details["queued"] = json!(true);
+            details["requestId"] = json!(tool_call_id);
+            return Ok(result);
+        }
+        let result = pending.await.map_err(|error| CallbackError::new(error.to_string()))??;
+        drop(queue);
+        let text = if result.cancelled {
+            JsString::from("Questions cancelled")
+        } else {
+            JsString::from("User answered questions:\n") + format_answers(&result.answers)
+        };
+        Ok(question_result(&params, text, result.answers, result.cancelled))
+    })
+}
+
 struct SystemDesktopNotifier;
 impl DesktopNotifier for SystemDesktopNotifier {
     fn notify(
@@ -550,6 +571,9 @@ pub fn render_result(
 }
 pub fn create_ask_questions_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(AskQuestionsTool::new()));
+    definition.execute = Arc::new(|id, params, _signal, _update, context| {
+        Box::pin(async move { execute_questions(id, params, context).await.map_err(HandlerError::from) })
+    });
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.approval_required = Some(false);
