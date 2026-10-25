@@ -7,9 +7,9 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 | --- | --- |
 | handleIpcRequest list/status/stop/rpc + unknown instance branches | frozen full child lifecycle differential; unknown status/stop/rpc/rpc_stream fixtures: supervisor |
 | toInstanceSummary; openRpcStream | optional session fields, response/event/UI forwarding, no response leakage into event subscribers: supervisor |
-| spawn success / successful rpc_stream ready dispatch | implemented using tested supervisor/summary code; explicit combined handler-success fixture not yet added |
+| spawn success / successful rpc_stream ready dispatch | Frozen full child-lifecycle oracle now dispatches spawn and rpc_stream through actual handleIpcRequest and compares spawn_result/rpc_ready summaries, including ignored provider/model fields. Execution pending at commit. |
 
 ## Explicit proof gaps
-- Direct successful handleIpcRequest spawn and rpc_stream-ready dispatch branches lack dedicated frozen assertions.
+- New combined success fixture pending execution; no unapproved behavioral change.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
