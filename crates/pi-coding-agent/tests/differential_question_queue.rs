@@ -69,6 +69,65 @@ impl ExtensionUiContext for Ui {
     }
 }
 
+async fn wait_notifications(ui: &Ui) -> Vec<JsValue> {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let messages = ui.notifications.lock().unwrap().clone();
+            if !messages.is_empty() {
+                return messages;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("question error notification")
+}
+
+#[tokio::test]
+async fn durable_enqueue_failure_keeps_the_queued_result_and_notifies_with_the_frozen_error() {
+    let root = tempfile::tempdir().unwrap();
+    let session = root.path().join("session.jsonl");
+    std::fs::write(&session, "{\"type\":\"session\",\"version\":3,\"id\":\"initial-session\",\"timestamp\":\"2026-10-24T00:00:00.000Z\",\"cwd\":\"/repo\"}\n").unwrap();
+    let session = pi_js_compat::node_fs::decode_node_path(session.as_os_str());
+    let db_path = root.path().join("unopenable-database");
+    std::fs::create_dir(&db_path).unwrap();
+    let db = pi_js_compat::node_fs::decode_node_path(db_path.as_os_str());
+    let answer = json!({"answers":{"Question?":"answer"},"cancelled":false});
+    let mut oracle = oracle::TsOracle::spawn(
+        "question-queue-oracle.ts",
+        "packages/coding-agent/src/core/tools/ask-questions.ts",
+    );
+    let expected=oracle.request(&json!({"id":1,"operation":"delivery-error","db":db,"sessionFile":session,"nextSessionFile":session,"question":"Question?","answer":answer}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let manager = Arc::new(Mutex::new(
+        SessionManager::open(&session, None, Some(&JsString::from("/repo"))).unwrap(),
+    ));
+    let ui = Arc::new(Ui::default());
+    let context = tool_context::TestContextBuilder::new("/repo", manager)
+        .mode(ExtensionMode::Tui)
+        .ui(ui.clone())
+        .control_db_path(db)
+        .build()
+        .await
+        .1;
+    let result = AskQuestionsTool::new()
+        .execute(
+            "failure".into(),
+            json!({"blocking":false,"questions":[{"question":"Question?"}]}),
+            None,
+            None,
+            Some(context),
+            None,
+        )
+        .await
+        .unwrap();
+    ui.wait_panels(1).await;
+    ui.settle(0, Ok(answer));
+    let notifications = wait_notifications(&ui).await;
+    let actual = json!({"queued":[result],"notifications":notifications,"entered":ui.pending.lock().unwrap().len()});
+    assert_eq!(actual, expected["output"]);
+}
+
 async fn wait_messages(db: &JsString, count: usize) -> Vec<RuntimeMailboxMessage> {
     tokio::time::timeout(Duration::from_secs(5), async {
         loop {

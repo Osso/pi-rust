@@ -66,7 +66,8 @@ void runOracle(async (module, request) => {
 		dirname(request.sessionFile),
 		"/repo",
 	);
-	db.listRuntimeMailboxMessages(request.db);
+	const deliveryError = request.operation === "delivery-error";
+	if (!deliveryError) db.listRuntimeMailboxMessages(request.db);
 	const pending: Pending[] = [];
 	const notifications: unknown[] = [];
 	const context = {
@@ -95,11 +96,16 @@ void runOracle(async (module, request) => {
 		metadata: request.metadata,
 	};
 	const queued = [];
-	for (const id of ["one", "two"])
+	for (const id of deliveryError ? ["failure"] : ["one", "two"])
 		queued.push(
 			await definition.execute(id, params, undefined, undefined, context),
 		);
 	await waitUntil(() => pending.length === 1);
+	if (deliveryError) {
+		pending[0].resolve(request.answer);
+		await waitUntil(() => notifications.length === 1);
+		return { queued, notifications, entered: pending.length };
+	}
 	manager.setSessionFile(request.nextSessionFile);
 	pending[0].reject(request.reason);
 	await waitUntil(
