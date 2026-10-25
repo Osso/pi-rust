@@ -2155,6 +2155,72 @@ async fn attach_session_agent_attaches_a_saved_session() {
 }
 
 #[tokio::test]
+async fn attach_resume_propagates_runtime_reservation_failure() {
+    use pi_coding_agent::bundled_extensions::agents_core::shared::AttachedSessionFactory;
+    use pi_coding_agent::core::session_control_db::{
+        RuntimeMailboxAddress, RuntimeMailboxRegistrationOptions, register_runtime_mailbox_listener,
+        serialize_process_identity,
+    };
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let mut saved = SessionManager::create(&JsString::from(&test.cwd), None, None).unwrap();
+    saved.persist_for_recovery().unwrap();
+    let saved_path = saved.get_session_file().unwrap().clone();
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let identity = pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity();
+    register_runtime_mailbox_listener(
+        &test.control_db_path,
+        &RuntimeMailboxAddress {
+            session_id: ctx.session_manager().unwrap().get_session_id().clone(),
+            agent_id: None,
+        },
+        identity.pid,
+        Some(&test.session_path),
+        RuntimeMailboxRegistrationOptions {
+            runtime_instance_id: Some(serialize_process_identity(identity)),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let db = pi_coding_agent::core::sqlite::create_sqlite_database(&test.control_db_path).unwrap();
+    db.execute_batch(
+        "CREATE TRIGGER reject_attachment_reservation BEFORE INSERT ON multi_agent_runtime_owners
+         BEGIN SELECT RAISE(ABORT, 'attachment runtime reservation failed'); END;",
+    )
+    .unwrap();
+    let handles = create_multi_agent_runtime_handles();
+    let factory_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let observed = Arc::clone(&factory_called);
+    let result = pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::attach_session_agent(
+        &pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::AttachSessionAgentRuntimeInput {
+            create_attached_session: Some(AttachedSessionFactory::new(move |_| {
+                observed.store(true, std::sync::atomic::Ordering::SeqCst);
+                Box::pin(async { Err("factory must not run before runtime reservation".into()) })
+            })),
+            ctx,
+            desktop_notifier: Arc::new(RecordingNotifier::default()),
+            dispatches: Arc::clone(&handles.dispatches),
+            handles: Some(Arc::clone(&handles.sessions)),
+            params: pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::AttachSessionAgentParams {
+                path: Some(saved_path),
+                prompt: Some("resume saved work".into()),
+                ..Default::default()
+            },
+            ownerships: Arc::clone(&handles.ownerships),
+            store: Arc::clone(&store),
+            waiting_desktop_notifications: Default::default(),
+        },
+    )
+    .await;
+    let error = result.expect_err("failed runtime admission must not return a successful attachment");
+    assert!(error.message.contains("attachment runtime reservation failed"));
+    assert!(!factory_called.load(std::sync::atomic::Ordering::SeqCst));
+    assert!(handles.dispatches.lock().unwrap().is_empty());
+    assert_eq!(store.list_agents().len(), 1);
+    assert_eq!(store.list_agents()[0].lifecycle, AgentLifecycle::WaitingForInput);
+}
+
+#[tokio::test]
 async fn wait_agent_consumes_pending_terminal_notification() {
     let test = test_dir();
     let store = store_with_persistence(&test);

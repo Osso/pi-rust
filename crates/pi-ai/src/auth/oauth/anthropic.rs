@@ -128,7 +128,7 @@ async fn start_anthropic_callback_server(
             if request.path != CALLBACK_PATH {
                 return CallbackReply::html(404, oauth_error_html("Callback route not found.", None));
             }
-            if let Some(error) = request.query_param("error") {
+            if let Some(error) = request.query_param("error").filter(|error| !error.is_empty()) {
                 return CallbackReply::html(
                     400,
                     oauth_error_html(
@@ -137,10 +137,10 @@ async fn start_anthropic_callback_server(
                     ),
                 );
             }
-            let Some(code) = request.query_param("code") else {
+            let Some(code) = request.query_param("code").filter(|code| !code.is_empty()) else {
                 return CallbackReply::html(400, oauth_error_html("Missing code or state parameter.", None));
             };
-            let Some(state) = request.query_param("state") else {
+            let Some(state) = request.query_param("state").filter(|state| !state.is_empty()) else {
                 return CallbackReply::html(400, oauth_error_html("Missing code or state parameter.", None));
             };
             if state != expected_state {
@@ -155,7 +155,7 @@ async fn start_anthropic_callback_server(
     });
     let server = start_callback_server(host, CALLBACK_PORT, handler)
         .await
-        .map_err(|error| CallbackError::new(error.to_string()))?;
+        .map_err(|error| crate::auth::oauth::support::callback_listen_error(&error, host, CALLBACK_PORT))?;
     Ok((server, CallbackWait { receiver, settle }))
 }
 
@@ -197,7 +197,7 @@ fn format_error_details(error: &CallbackError) -> Result<JsString, CallbackError
         "",
     )];
     let value = error.value();
-    for key in ["code", "errno", "cause"] {
+    for key in ["code", "errno"] {
         if let Some(property) = value.get(key)
             && (key != "code" || is_truthy(property))
         {
@@ -206,6 +206,10 @@ fn format_error_details(error: &CallbackError) -> Result<JsString, CallbackError
                 "",
             ));
         }
+    }
+    if let Some(cause) = error.cause() {
+        let cause = format_error_details(&CallbackError::from_rejection(cause.clone()))?;
+        details.push(pi_js_compat::js_format!("cause={}", cause));
     }
     Ok(JsString::join(details, "; "))
 }
@@ -308,17 +312,22 @@ async fn login_anthropic(
         return Err(AuthError::from(error));
     }
 
-    let mut prompt = Box::pin(
-        interaction.prompt(AuthPrompt {
-            signal: Some(manual_abort.signal()),
-            kind: AuthPromptKind::ManualCode {
-                message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
-                    .to_owned())
-                .into(),
-                placeholder: Some((REDIRECT_URI.to_owned()).into()),
-            },
-        }),
-    );
+    let manual_prompt = interaction.manual_code_input(AuthPrompt {
+        signal: Some(manual_abort.signal()),
+        kind: AuthPromptKind::ManualCode {
+            message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
+                .to_owned())
+            .into(),
+            placeholder: Some((REDIRECT_URI.to_owned()).into()),
+        },
+    });
+    let has_manual_input = manual_prompt.is_some();
+    let mut prompt = Box::pin(async move {
+        match manual_prompt {
+            Some(prompt) => prompt.await,
+            None => std::future::pending().await,
+        }
+    });
     let mut manual: Option<Result<JsString, CallbackError>> = None;
     let CallbackWait {
         receiver,
@@ -339,7 +348,7 @@ async fn login_anthropic(
         }
     };
 
-    if result.is_none() && manual.is_none() {
+    if result.is_none() && manual.is_none() && has_manual_input {
         manual = Some(
             prompt
                 .await
@@ -408,8 +417,9 @@ async fn login_anthropic(
         manual_abort.abort(None);
         return Err(AuthError::from(error));
     }
-    let credential = exchange_authorization_code(runtime, &code, &state, &pkce.verifier, REDIRECT_URI).await;
+    // Frozen returns the exchange promise without awaiting it inside the server-close finally.
     server.close();
+    let credential = exchange_authorization_code(runtime, &code, &state, &pkce.verifier, REDIRECT_URI).await;
     manual_abort.abort(None);
     credential.map_err(AuthError::from)
 }

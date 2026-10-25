@@ -2,6 +2,30 @@ use super::*;
 use std::sync::Mutex;
 
 #[tokio::test]
+async fn reload_preserves_flag_values_and_insertion_order_across_fresh_runtimes() {
+    use pi_coding_agent::core::extensions::types::FlagValue;
+    let fixture = fixture().await;
+    let runner = fixture.session.extension_runner();
+    runner.set_flag_value("z-enabled", FlagValue::Boolean(true));
+    runner.set_flag_value("a-label", FlagValue::String("saved value".to_owned()));
+    fixture.session.reload(None).await.unwrap();
+    let values = fixture
+        .session
+        .extension_runner()
+        .get_flag_values()
+        .into_iter()
+        .collect::<Vec<_>>();
+    fixture.session.dispose();
+    assert_eq!(
+        values,
+        vec![
+            ("z-enabled".to_owned(), FlagValue::Boolean(true)),
+            ("a-label".to_owned(), FlagValue::String("saved value".to_owned()))
+        ]
+    );
+}
+
+#[tokio::test]
 async fn name_and_clear_extension_effects_start_before_the_setter_returns() {
     use pi_coding_agent::core::extensions::types::{ExtensionContext, SessionInfoChangedEvent};
     use pi_coding_agent::core::extensions::{ExtensionFactory, HandlerError};

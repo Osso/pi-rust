@@ -2,7 +2,7 @@
 
 ## Storage-owned terminal drain integration2026-10-25
 
-Bounded [terminal-outbox slice](terminal-outbox-delivery.md#stage2-numericclock-and-caller-slice2026-10-25): synchronous drain now returns CallbackError Result, coordination retains the literal frozen catch/log at3492-3495, and old-only prompt-entry draining is removed (frozen direct callers only1892/3493). A real public-session/source regression uses registered commands, faux turns and persisted outbox attempts; RED native command/start/final1/2/4 versus source0/0/2, then GREEN0/0/2. Source `prompt:3014-3025` handles commands before any prompted-turn/post-prompt coordination. Whole session remains unaccepted; the parent-designated reserved-finalize bool/error sink must close with the stage4 Result listener migration, using the store-local catch/log at multi-agent-store.ts:1202-1211. No uncaught workaround or new semantic deviation is claimed.
+Bounded [terminal-outbox slice](terminal-outbox-delivery.md#stage2-numericclock-and-caller-slice2026-10-25): synchronous drain now returns CallbackError Result, coordination retains the literal frozen catch/log at3492-3495, and old-only prompt-entry draining is removed (frozen direct callers only1892/3493). A real public-session/source regression uses registered commands, faux turns and persisted outbox attempts; RED native command/start/final1/2/4 versus source0/0/2, then GREEN0/0/2. Source `prompt:3014-3025` handles commands before any prompted-turn/post-prompt coordination. Stage4 dependency closed: reserved-finalize now returns Result and the store catches/logs subscriber failures at frozen multi-agent-store.ts:1202–1211. Frozen AgentSession._emit also catches subscriber exceptions; it does not expose an escaping terminal-finalize listener rejection. No additional AgentSession Result-listener migration is reserved. See the terminal-outbox trace for the actual-source durable-finalize/claim-failure and store-local catch/log proof. No uncaught workaround or new semantic deviation is claimed.
 
 Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; common-pin packages have no counterpart. This removes the session emission/variant, extension event/registration/dispatch, mode consumers and exports. RPC test waits now observe actual agent_end/command responses. Process RED exposed an extra native JSON line and a frozen RPC wait that could never settle; common-pin RPC differential is now6/6 after context persistence and the source fork/clone error boundary were restored.
 
@@ -202,7 +202,7 @@ Actual first RED `compact-callback-success-red.log` proves the prior TODO droppe
 
 ## Gaps (explicit)
 
-- None.
+Adversarial/pathological inputs, exceptional OS/runtime fault shapes, numeric extremes and Node/V8/libuv scheduling oddities retain the repository exclusions; existing lossless carriers and realistic user-visible behavior remain required.
 
 ## Deviations
 
@@ -377,7 +377,7 @@ Frozen :5044–5071 checks the auto-compaction signal before persistence and use
 
 ## Re-pin idle scheduling audit (2026-10-25)
 
-Frozen :4736–4772 maps to native schedule/find/run idle-compaction helpers: prior timer cancellation; current provider/model and latest assistant selection; disposal/observer/settings/error exclusions; entry-identity/order boundary; deadline normalization; turn-start lock and queue/busy/reference recheck. No additional discrepancy found on realistic paths. Native proof at1b498d9f1: `cargo test -j3 -p pi-coding-agent --test agent_session idle_compaction_ -- --nocapture` passes6, covering once-at-deadline, changed references/eligibility, queue/model/disposal/manual boundary, replacement timestamp, busy-tool completion and restored/startup/reload/observer/error contexts. `/tmp/repin-agent-session-idle-audit.log`. This is source audit plus native scheduler/lifetime proof, not a new whole-mode TS differential.
+Frozen :4736–4772 maps to native schedule/find/run idle-compaction helpers: prior timer cancellation; current provider/model and latest assistant selection; disposal/observer/settings/error exclusions; entry-identity/order boundary; deadline normalization; turn-start lock and queue/busy/reference recheck. The later reload call-site audit below found an additional native-only scheduling call; its RED/GREEN supersedes the old reload expectation in this paragraph. Native helper proof at1b498d9f1: `cargo test -j3 -p pi-coding-agent --test agent_session idle_compaction_ -- --nocapture` passes6, covering once-at-deadline, changed references/eligibility, queue/model/disposal/manual boundary, replacement timestamp, busy-tool completion and restored/startup/reload/observer/error contexts. `/tmp/repin-agent-session-idle-audit.log`. This is source audit plus native scheduler/lifetime proof, not a new whole-mode TS differential.
 
 ## Re-pin prompt steering finalization boundary (2026-10-25)
 
@@ -393,9 +393,9 @@ Core image-presence GREEN at11b31b220: both actual-frozen input/ before-agent-st
 
 RPC input-presence process differential passes1 at488941fa0 (`/tmp/repin-agent-session-images-rpc-green.log`). The before-agent-start differential is extended with a populated image that continues into user-message content, alongside omitted/empty and transformed-empty cases; it now compares exact user content as well as extension-visible values. This guards against accidentally preserving metadata while dropping image content. Workspace all-targets compilation passes for that extension before commit.
 
-## Remaining audit scope
+## Audit scope status
 
-The whole-file coverage row remains partial. Constructor/hooks, prompt/queues, runtime coordination, events/continuations, model/thinking, compaction/retry and binding/build/reload require closure, as do frozen :5807–6444 (bash, naming, summary materialization, navigateTree, fork extraction, stats and export).
+Whole-file audit is closed by the final closure below. Earlier partial/GREEN-pending notes are historical checkpoints, not remaining work. Constructor/hooks, prompt/queues/coordination, events/continuations, model/thinking, compaction/retry, binding/build/reload and :5807–6444 have been audited against the common pin.
 
 ## Re-pin saved-compaction event and finalizer state
 
@@ -434,3 +434,27 @@ Frozen :5457–5505/:6322–6342 retains original definitions in its registry an
 ## Await tool-result relocation, 2026-10-25
 
 Frozen :1550–1593/:1640–1680 awaits deliverToolResultRelocation after persistence. Native captured the original ID but discarded it. The actual message-end handler now awaits the existing runner API after persistence and preserves callback-error identity. A real tool schedules relocation; its yielding prepare callback sees the stored result, then the public relocation end event precedes activation, with no second provider call. Native RED/GREEN1; [spec](../../specs/agent-session-tool-result-relocation.md). The old direct-runner binding test alone did not cross this missing session boundary. No JSONL codec changed.
+
+## Headless startup and runtime flags, 2026-10-25
+
+Frozen :280–298/:980–986/:5192–5197/:5584–5588/:5617–5629 maps to the [headless/reload spec](../../specs/agent-session-headless-and-reload.md). Native omitted both headless environment controls and ignored its reload flag argument. The existing detach registry now receives the parsed delay; binding writes exact ready bytes and awaits release before session_start; the new runtime receives the existing ordered FlagValue map before runner construction. Three native RED/GREEN cases cover actual child-process controls and fresh-runtime flag preservation. Two private child probes are exercised by their parent tests. No new public API/carrier/dependency or persistence codec changed.
+
+## Reload idle-compaction call site, 2026-10-25
+
+Frozen :5617–5646 emits reload startup/resources but does not call _scheduleIdleCompaction. Native added that call and compacted restored history on reload even when startup had no history/timer. Removed only the extra call; existing armed timers are not cancelled. The existing lifetime test now asserts the exact source result for reload (zero compactions), retains its startup/observer/error/aborted cases, and advances time after yielding so an added timer actually fires in RED. Native RED1/GREEN1; the earlier native-only reload-positive assertion was not source parity evidence.
+
+## Extension send dispatch and failures, 2026-10-25
+
+Frozen :5334–5353/:3907–3952 starts custom/user sends inline and reports rejected sends through the captured runner's runtime error event. Native deferred custom commits in an unpolled spawn and discarded both send results. The adapters now reuse the existing inline poll and report errors with exact runtime path/event/message fields. Native registered-extension RED/GREEN2 covers immediate agent+storage effects and a real before-run callback rejection. The first unknown-slash fixture was invalid because source sendUserMessage disables command handling; it is not rejection evidence. [Spec](../../specs/agent-session-extension-sends.md).
+
+## Whole-module audit closure, 2026-10-25
+
+Status: **DONE for user-observable parity at 4f9e6f8a4**, under the parent lighter-proof directive. The exported-symbol and behavior maps above cover the module; the final call-site pass closes the earlier partial reservation.
+
+- Construction, role/tool/permission hooks, model/provider callbacks and runtime binding/reload: existing permission/discovery/runtime/context tests plus the new headless, ordered-flag, reload-timer and extension-send cases. Callback errors retain the existing carriers; terminal-finalize store catch/log is closed, not a pending listener migration.
+- Prompt/commands/input/images/steering/follow-up, coordination and continuations: existing prompt/queue/runtime-mailbox/restriction proofs, optional-image reciprocal events/RPC proof, and actual tool-result persistence→awaited prepare→end→activation. No legacy terminal drain at command entry.
+- Model/thinking/retry and manual/auto/background/idle compaction: prior complete source audits and bounded frozen/native tests; thinking missing-index and sync/pending/real-effort observations are GREEN. Saved compaction event payload/persistence proofs remain reciprocal. Reload's old native-only timer assertion is corrected, not retained as parity evidence.
+- Bash, names, summary editing/materialization and tree navigation: exact normal prefix/abort/finalizer/commit behavior; immediate naming listener effects; auth-failure cleanup; retained no-op/summary/auth/empty-label/tree persistence proof. The overlapping-bash clearing and duplicate-summary lookup source bugs are classified and preserved.
+- Fork selector, current-state statistics/context usage, HTML/JSONL export and last-assistant text: audited against :6198–6444 and retained baseline tests. The selector uses all stored user entries, joins text blocks without separators and omits empty/image-only text; runtime fork itself belongs to AgentSessionRuntime. Statistics use current messages, post-compaction context fallback and source token/cost sums. JSONL re-chains the current branch with the existing lossless codecs; HTML now retains original custom renderers. No remaining realistic discrepancy is recorded in this module scope.
+
+Final code revision `f4f7eac80` includes parent `de0bc84c7`. `cargo test -j3 -p pi-coding-agent --test agent_session --test differential_agent_session -- --nocapture` passes99 native +1 actual-frozen multi-turn tests;2 top-level ignored probes are invoked by passing headless tests. The differential retains exact session/export bytes and semantic event/model/usage assertions, alongside earlier reciprocal compaction/RPC/metadata proofs. Workspace all-targets compilation and warning-mode focused Clippy pass;484 inherited diagnostics, zero primary warnings on added session lines since e380ab815. Manual changed-Rust/TS readability audit found no added suppression, deep production nesting, new public API/carrier/dependency or silent send-error path. [Command/revision ledger](../agent-session-repin-proof.md).

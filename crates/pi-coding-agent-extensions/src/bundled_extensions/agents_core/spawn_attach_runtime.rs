@@ -571,19 +571,19 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
             ));
         }
     };
-    Ok(dispatch_attached_agent(input, agent, prompt.as_ref()))
+    dispatch_attached_agent(input, agent, prompt.as_ref())
 }
 
 fn dispatch_attached_agent(
     input: &AttachSessionAgentRuntimeInput,
     agent: AgentSnapshot,
     prompt: Option<&JsString>,
-) -> AgentToolResult {
+) -> Result<AgentToolResult, HandlerError> {
     let Some(prompt) = prompt else {
-        return tool_result(
+        return Ok(tool_result(
             JsString::from("Attached ") + &agent.display_name + " (" + &agent.id + ")",
             json!({"agent": agent, "dispatched": false}),
-        );
+        ));
     };
     let dispatched = dispatch_attached_session_agent(&super::dispatch_runtime::AttachSessionDispatchInput {
         create_attached_session: input.create_attached_session.clone(),
@@ -596,9 +596,8 @@ fn dispatch_attached_agent(
         store: Arc::clone(&input.store),
         target: agent.clone(),
         waiting_desktop_notifications: Arc::clone(&input.waiting_desktop_notifications),
-    })
-    .unwrap_or(None);
-    match dispatched {
+    })?;
+    Ok(match dispatched {
         Some(dispatched) => tool_result(
             JsString::from("Attached and resumed ") + &dispatched.display_name + " (" + &dispatched.id + ")",
             json!({"agent": dispatched, "dispatched": true, "prompt": prompt}),
@@ -607,7 +606,7 @@ fn dispatch_attached_agent(
             JsString::from("Attached ") + &agent.display_name + " (" + &agent.id + ")",
             json!({"agent": agent, "dispatched": false}),
         ),
-    }
+    })
 }
 
 fn create_attached_agent(

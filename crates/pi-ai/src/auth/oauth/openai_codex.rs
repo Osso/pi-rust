@@ -426,7 +426,7 @@ pub(crate) async fn login_device_code(
         .await
         .map_err(AuthError::from)?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: (device.user_code.clone()).into(),
+        user_code: device.user_code.clone(),
         verification_uri: (DEVICE_VERIFICATION_URI.to_owned()).into(),
         interval_seconds: Some(device.interval_seconds),
         expires_in_seconds: Some(DEVICE_CODE_TIMEOUT_SECONDS),
@@ -471,7 +471,7 @@ async fn start_local_server(host: &JsString, state: String) -> LocalServer {
             if request.query_param("state").as_deref() != Some(state.as_str()) {
                 return CallbackReply::html(400, oauth_error_html("State mismatch.", None));
             }
-            let Some(code) = request.query_param("code") else {
+            let Some(code) = request.query_param("code").filter(|code| !code.is_empty()) else {
                 return CallbackReply::html(400, oauth_error_html("Missing authorization code.", None));
             };
             settle_local(&settle, Some(code));
@@ -536,17 +536,22 @@ pub(crate) async fn login_browser(
         return Err(AuthError::from(error));
     }
 
-    let mut prompt = Box::pin(
-        interaction.prompt(AuthPrompt {
-            signal: Some(manual_abort.signal()),
-            kind: AuthPromptKind::ManualCode {
-                message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
-                    .to_owned())
-                .into(),
-                placeholder: Some((REDIRECT_URI.to_owned()).into()),
-            },
-        }),
-    );
+    let manual_prompt = interaction.manual_code_input(AuthPrompt {
+        signal: Some(manual_abort.signal()),
+        kind: AuthPromptKind::ManualCode {
+            message: ("Complete login in your browser, or paste the authorization code / redirect URL here:"
+                .to_owned())
+            .into(),
+            placeholder: Some((REDIRECT_URI.to_owned()).into()),
+        },
+    });
+    let has_manual_input = manual_prompt.is_some();
+    let mut prompt = Box::pin(async move {
+        match manual_prompt {
+            Some(prompt) => prompt.await,
+            None => std::future::pending().await,
+        }
+    });
     let LocalServer {
         server: callback_server,
         receiver,
@@ -566,7 +571,7 @@ pub(crate) async fn login_browser(
         }
     };
 
-    if result.is_none() && manual.is_none() {
+    if result.is_none() && manual.is_none() && has_manual_input {
         manual = Some(
             prompt
                 .await
@@ -625,9 +630,10 @@ pub(crate) async fn login_browser(
         return Err(AuthError::failed("Missing authorization code"));
     };
 
+    // Frozen returns the exchange promise without awaiting it inside the server-close finally.
+    close_server(callback_server);
     let credential =
         exchange_authorization_code(runtime, &code, &pkce.verifier.clone().into(), REDIRECT_URI, None).await;
-    close_server(callback_server);
     manual_abort.abort(None);
     credential.map_err(AuthError::from)
 }

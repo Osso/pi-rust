@@ -8,7 +8,7 @@ Frozen reference: `4f9e6f8a4`, unchanged. Branch: `repin/agent-session`. All Car
 | --- | --- |
 | agent-session-services.ts | Whole-module audit complete; defaults, construction/reload/registration/flags and session forwarding mapped |
 | coding-agent compaction.ts / branch-summarization.ts / index.ts | Whole-module audit complete; threshold, protected cut, preparation, generation, materialization and result formats mapped |
-| agent-session.ts | Partial: committed model/queue/retry/tree/export/compaction fixes below; constructor/tool hooks, runtime coordination, background/idle compaction and remaining lifecycle branches still require complete audit |
+| agent-session.ts | Whole-module user-observable audit complete at 4f9e6f8a4; final99 native tests,2 invoked subprocess probes and retained frozen multi-turn/persistence/event proofs; current closure below supersedes earlier partial checkpoints |
 
 ## Commands and evidence
 
@@ -115,3 +115,30 @@ Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command start
 ## Tool-result relocation checkpoint, 2026-10-25
 
 `agent_session / tool_relocation::` genuine RED1 is `/tmp/repin-agent-session-tool-relocation-red2.log`: only `agent-end:relocation=false`, instead of prepare/persisted → relocation end → activation. Earlier red.log is a fixture compiler error, not parity evidence. GREEN1 is `/tmp/repin-agent-session-tool-relocation-green.log`; the prepare callback yields, observes the persisted actual tool result, and the complete public flow uses exactly one provider call. The fix invokes the already-existing relocation API; serialization is unchanged.
+
+## Headless/reload checkpoint, 2026-10-25
+
+`/tmp/repin-agent-session-headless-flags-red.log` has three genuine native failures: ready/start before release was `(false,true)` instead of `(true,false)`; flag values became empty; configured 20ms auto-detach still used the 600000ms default. `/tmp/repin-agent-session-headless-flags-green2.log` passes3 with2 child probes ignored at top level but explicitly executed. The first green.log is a compile/import failure, not runtime evidence. The handshake probe was then strengthened to mark actual session_start rather than completion of bind; final integration runs cover that exact probe. No new non-persistence frozen matrix.
+
+## Reload scheduling correction, 2026-10-25
+
+`agent_session / idle_compaction_arms_restored_context` RED1 (`/tmp/repin-agent-session-reload-idle-red.log`) produces one unexpected compaction during reload versus source's zero. GREEN1 (`/tmp/repin-agent-session-reload-idle-green.log`) retains five scenarios, with reload/observer/error negative and startup/aborted positive. This corrects the earlier idle-audit test's native-only reload expectation; it does not weaken or remove coverage. Production change is deletion of the extra scheduling call after reload resources.
+
+## Extension send checkpoint, 2026-10-25
+
+Genuine RED2: `/tmp/repin-agent-session-extension-sends-red3.log` against the actual pre-fix HEAD source (the saved fix patch was restored afterward). Native immediate agent/storage counts are0/0 instead of1/1; an actual before-run failure never reaches onError. GREEN2: `/tmp/repin-agent-session-extension-sends-green2.log`. Earlier red.log is fixture compilation; red2/green.log's unknown-slash rejection expectation was invalid because source disables command handling in sendUserMessage. No source assertion was weakened: the final test uses the supported before-run rejection boundary and checks exact runtime error fields. The shared helper handles both existing send futures and the existing error carrier.
+
+## Final whole-module gate, 2026-10-25
+
+Code `f4f7eac8013360be9895864ebec4034e3df47146`; includes parent `de0bc84c7` (merge-train refresh). Later closure edits are documentation only and do not invalidate this scope.
+
+| Command/scope | Exact result | Evidence |
+| --- | --- | --- |
+| cargo test -j3 -p pi-coding-agent --test agent_session --test differential_agent_session -- --nocapture |99/99 native +1/1 frozen multi-turn PASS;2 ignored probes invoked by passing child-process tests | /tmp/repin-agent-session-closed-final-tests.log |
+| cargo check -j3 --workspace --all-targets | exit0 on final Rust scope | /tmp/repin-agent-session-extension-sends-workspace.log |
+| cargo clippy -j3 -p pi-coding-agent-core -p pi-coding-agent --lib --test agent_session --message-format=json | exit0;484 inherited diagnostics; zero primary diagnostics on added session Rust lines since e380ab815 | /tmp/repin-agent-session-closed-final-clippy.{jsonl,stderr}; -added-lines.json |
+| Manual changed Rust/TS readability review | no new suppression, deep production nesting, carrier/dependency/public API or silent send-error path | final source/tests and pre-existing thinking oracle helpers |
+
+The full target was repeated only after parent dependency changes and then the final send-dispatch source fix intersected its proof scope. Prior saved-event27, manual-tool continuation1, services4, compaction/preparation/generation and RPC/metadata reciprocal proofs remain recorded above; they were not rerun merely for a milestone. Expected deliberate persistence-panic/activity/outbox diagnostics remain visible in passing fixture output. No new subagent or deployment was authorized. The parent owns independent integration verification.
+
+Final fmt and source inventory pass (`/tmp/repin-agent-session-closed-final-{fmt,inventory}.log`):686 rows/186679 lines, statuses643 done/25 gap/11 partial/7 todo. Only the agent-session row changed status; the locked source inventory is unchanged.
