@@ -2510,17 +2510,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pi-telemetry"
-version = "0.0.0"
-dependencies = [
- "futures",
- "indexmap",
- "rustix 1.1.5",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "pi-tui"
 version = "0.0.0"
 dependencies = [

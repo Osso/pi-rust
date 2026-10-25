@@ -53,3 +53,12 @@ ported reader observes it (`ZAI_API_KEY` → `get_env_api_key`, `TMUX`/`TERM` �
 `AltScreenEnvironment::detect`, `HOME` → `NativeFileSystem::absolute_path`,
 `PI_SHARE_VIEWER_URL` → `config::get_share_viewer_url`). Existing differential
 suites for those modules still pass.
+
+## Baseline test isolation (2026-10-25)
+
+The standalone `process_env` binary ran two tests that mutate the shared
+override map concurrently. Reproduced: `overrides_follow_node_process_env_semantics`
+observed the other case's `PI_PROCESS_ENV_NO_ALIAS=prefix-value`. Both mutating
+cases now hold one test-local mutex for their entire transaction; assertions
+and runtime behavior are unchanged. The child-only decoding probe does not
+change that map. Readability: one named mutex, one guard per mutating test.

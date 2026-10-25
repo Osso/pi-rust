@@ -102,3 +102,10 @@ follow-up's verification scope.
 ## UUID carrier follow-up: titlebar spinner (2026-10-25)
 
 `uuid_source_boundaries` loads the actual frozen titlebar-spinner.ts and injects a setTitle crypto failure on the first interval frame (second setTitle overall). The process uncaughtException hook receives the original Error/message/code, proving :37–43 has no catch. The native timer therefore uses only the shared throw_callback_uncaught authority for this proven boundary; synchronous start/stop handlers return Result. Native process-hook test asserts the original payload and callcount2, with a bounded child. No ad-hoc panic implementation or catch_unwind is added. The initial native fixture could not compile with the old infallible match; this was a type-boundary RED, not a native process-result claim.
+
+## Removed old-only Kimi example (2026-10-25)
+
+`kimi-deferred-tools.ts` is absent from frozen `4f9e6f8a4` (tracked source
+inventory and module-import RED). The opt-in Rust factory and its one
+differential test were removed, rather than treating an absent source as
+passing or borrowing a newer source. No frozen example behavior changed.
