@@ -1373,7 +1373,11 @@ async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin
                     .expect("sync state poisoned")
                     .stderr
                     .push_str(&String::from_utf8_lossy(chunk));
-                let _ = std::io::stderr().write_all(chunk);
+                if let Err(error) = std::io::stderr().write_all(chunk) {
+                    crate::utils::uncaught::throw_native_uncaught(
+                        pi_js_compat::node_fs::node_pipe_write_error_record(&error).into(),
+                    );
+                }
             }
         }
     }
@@ -1464,6 +1468,99 @@ mod tests {
                 rustix::io::Errno::IO.raw_os_error(),
             )))
         }
+    }
+
+    fn broken_stderr() -> Stdio {
+        let (reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(reader);
+        Stdio::from(std::os::fd::OwnedFd::from(writer))
+    }
+
+    fn wait_and_clean_private_child(child: std::process::Child) -> std::process::Output {
+        let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        match rustix::process::kill_process_group(group, Signal::KILL) {
+            Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+            Err(error) => panic!("clean private probe group: {error}"),
+        }
+        output
+    }
+
+    #[test]
+    fn stderr_mirror_write_failure_reaches_native_uncaught_authority() {
+        use std::os::unix::process::CommandExt;
+        if let Ok(output) = std::env::var("PI_RPC_MIRROR_PROBE") {
+            rustix::process::setrlimit(
+                rustix::process::Resource::Core,
+                rustix::process::Rlimit {
+                    current: Some(0),
+                    maximum: Some(0),
+                },
+            )
+            .unwrap();
+            crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+                let error = payload
+                    .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                    .unwrap();
+                std::fs::write(&output, js_json::stringify_lossless(&error.value())).unwrap();
+            })));
+            crate::utils::uncaught::install_uncaught_handler();
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(async {
+                    let client = RpcClient::new(RpcClientOptions {
+                        cli_path: Some(std::env::var("PI_RPC_MIRROR_SCRIPT").unwrap().into()),
+                        ..Default::default()
+                    });
+                    client.start().await.unwrap();
+                    let _ = tokio::time::timeout(Duration::from_millis(200), client.get_state()).await;
+                    std::process::exit(7);
+                });
+            return;
+        }
+        let (root, script) = temp_script(
+            "mirror.mjs",
+            "import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',()=>process.stderr.write('mirror'));",
+        );
+        let lock = source_oracle::read_source_lock();
+        source_oracle::verify_source_head(&lock);
+        let source = source_oracle::spawn_oracle_process(
+            &lock,
+            "rpc-stderr-mirror-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+            &[("PI_RPC_MIRROR_SCRIPT", script.clone().into_os_string())],
+            broken_stderr(),
+        );
+        let source = wait_and_clean_private_child(source);
+        assert_eq!(source.status.code(), Some(1));
+        let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
+        assert_eq!(expected["code"], JsValue::String("EPIPE".into()));
+        let output_path = root.path().join("uncaught.json");
+        let native = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modes::rpc::rpc_client::tests::stderr_mirror_write_failure_reaches_native_uncaught_authority",
+                "--nocapture",
+            ])
+            .env("PI_RPC_MIRROR_PROBE", &output_path)
+            .env("PI_RPC_MIRROR_SCRIPT", &script)
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(broken_stderr())
+            .spawn()
+            .unwrap();
+        let native = wait_and_clean_private_child(native);
+        assert_eq!(
+            native.status.code(),
+            Some(1),
+            "native must report the unobserved write failure"
+        );
+        assert_eq!(
+            js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
+            expected
+        );
     }
 
     #[test]
@@ -1629,13 +1726,7 @@ mod tests {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
-        let output = child.wait_with_output().unwrap();
-        match rustix::process::kill_process_group(group, Signal::KILL) {
-            Ok(()) | Err(rustix::io::Errno::SRCH) => {}
-            Err(error) => panic!("clean private probe group: {error}"),
-        }
-        output
+        wait_and_clean_private_child(child)
     }
 
     #[tokio::test]
