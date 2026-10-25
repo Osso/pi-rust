@@ -229,7 +229,7 @@ async fn native_lifecycle() -> JsValue {
 #[tokio::test]
 async fn raw_simple_dispatch_and_upsert_refresh_unregister_match_frozen() {
     let mut source = oracle::TsOracle::spawn(
-        "model-registry-lifecycle-oracle.ts",
+        "model-registry-lifecycle-oracle.mts",
         "packages/coding-agent/src/core/model-registry.ts",
     );
     let response = source.request(&js_json!({}));

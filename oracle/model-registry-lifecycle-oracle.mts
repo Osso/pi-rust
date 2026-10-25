@@ -1,5 +1,6 @@
 import { pathToFileURL } from "node:url";
 import type {
+	Api,
 	Context,
 	Model,
 	SimpleStreamOptions,
@@ -39,7 +40,7 @@ async function main(): Promise<void> {
 		});
 		const callback =
 			(label: string) =>
-			(model: Model, context: Context, options?: SimpleStreamOptions) => {
+			(model: Model<Api>, context: Context, options?: SimpleStreamOptions) => {
 				calls.push({
 					label,
 					model,
@@ -118,7 +119,7 @@ async function main(): Promise<void> {
 			phase,
 			models: registry
 				.getAll()
-				.filter((item: Model) => item.provider === provider),
+				.filter((item: Model<Api>) => item.provider === provider),
 			status: registry.getProviderAuthStatus(provider),
 			display: registry.getProviderDisplayName(provider),
 			key: (await registry.getApiKeyForProvider(provider)) ?? null,

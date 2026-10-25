@@ -3,7 +3,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
-import { runRegisteredAgentThrow } from "./model-registry-stream-agent.ts";
+import { runRegisteredAgentThrow } from "./model-registry-stream-agent.mts";
 import {
 	clearFetchScript,
 	installScriptedFetch,

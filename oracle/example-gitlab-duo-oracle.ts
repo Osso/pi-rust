@@ -1,12 +1,14 @@
 // Complete pinned module, import-boundary faux backends/transport/clock; real extension loader/runtime.
-import { throwBackendRejection } from "./gitlab-backend-rejection.ts";
+
+import { webcrypto } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { webcrypto } from "node:crypto";
-import vm from "node:vm";
 import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
+import vm from "node:vm";
+import { throwBackendRejection } from "./gitlab-backend-rejection.ts";
+
 const file = process.argv[2],
 	root = resolve(dirname(file), "../../../../.."),
 	require = createRequire(resolve(root, "package.json")),
@@ -17,6 +19,19 @@ const js = ts.transpileModule(readFileSync(file, "utf8"), {
 		module: ts.ModuleKind.CommonJS,
 	},
 }).outputText;
+type FixtureRequest = {
+	kind: string;
+	indices: number[];
+	status?: number;
+	body?: string;
+	fetchError?: string;
+	code?: string;
+	unknown?: boolean;
+	missingKey?: boolean;
+	backendThrow?: "error" | "value" | "conversion";
+	valueUnits?: number[];
+};
+
 async function main() {
 	const load = (p: string) =>
 		import(pathToFileURL(resolve(root, "packages/coding-agent/src", p)).href);
@@ -28,10 +43,10 @@ async function main() {
 		load("core/event-bus.ts"),
 	]);
 	for await (const line of createInterface({ input: process.stdin })) {
-		const r = JSON.parse(line),
-			calls: any[] = [],
-			events: any[][] = [];
-		let current: any[] = [],
+		const r = JSON.parse(line) as FixtureRequest;
+		const calls: unknown[] = [],
+			events: unknown[][] = [];
+		let current: unknown[] = [],
 			finish: () => void = () => {};
 		const event = {
 			type: "error",
@@ -56,7 +71,11 @@ async function main() {
 			},
 		};
 		const backend = (name: string) => ({
-			streamSimple: (model: any, context: any, o: any) => {
+			streamSimple: (
+				model: unknown,
+				context: unknown,
+				o: { apiKey?: unknown; headers?: unknown },
+			) => {
 				calls.push({
 					type: "backend",
 					backend: name,
@@ -71,8 +90,8 @@ async function main() {
 				})();
 			},
 		});
-		const sandbox: any = {
-			exports: {},
+		const sandbox = {
+			exports: {} as Record<string, unknown>,
 			Error,
 			URL,
 			URLSearchParams,
@@ -87,7 +106,7 @@ async function main() {
 				subtle: webcrypto.subtle,
 				randomUUID: () => "00000000-0000-4000-8000-000000000000",
 			},
-			fetch: async (url: string, o: any) => {
+			fetch: async (url: string, o: RequestInit) => {
 				calls.push({
 					type: "fetch",
 					url,
@@ -121,11 +140,11 @@ async function main() {
 						anthropicMessagesApi: () => backend("anthropic"),
 						openAIResponsesApi: () => backend("openai"),
 						createAssistantMessageEventStream: () => ({
-							push: (e: any) => current.push(e),
+							push: (event: unknown) => current.push(event),
 							end: () => finish(),
 						}),
 					};
-				throw Error("Unexpected import " + name);
+				throw Error(`Unexpected import ${name}`);
 			},
 		};
 		vm.runInNewContext(js, sandbox, { filename: file });
@@ -158,8 +177,9 @@ async function main() {
 				const credential =
 					r.kind === "login"
 						? await config.oauth.login({
-								onAuth: (v: any) => calls.push({ type: "auth", ...v }),
-								onPrompt: async (v: any) => {
+								onAuth: (v: Record<string, unknown>) =>
+									calls.push({ type: "auth", ...v }),
+								onPrompt: async (v: Record<string, unknown>) => {
 									calls.push({ type: "prompt", ...v });
 									return (
 										r.code ??
@@ -178,14 +198,17 @@ async function main() {
 						auth: config.oauth.getApiKey(credential),
 					}),
 				);
-			} catch (e: any) {
-				console.log(JSON.stringify({ calls, error: e.message }));
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				console.log(JSON.stringify({ calls, error: error.message }));
 			}
 			continue;
 		}
 		for (const index of r.indices) {
 			current = [];
-			const done = new Promise<void>((resolve) => (finish = resolve));
+			const done = new Promise<void>((resolve) => {
+				finish = resolve;
+			});
 			const model = {
 				...config.models[index],
 				api: config.api,
