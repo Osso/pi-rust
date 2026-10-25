@@ -46,3 +46,10 @@ F3: Container/TuiBase remove only the first Rc-identical child. F4: listener reg
 ## Width-error cleanup precedence
 
 [Contract](../../specs/tui-width-errors.md). Frozen :2193–2220 crash-log→stop→exact width Error now returns original `CallbackError` through renderer/commit/render queue/partial-region APIs. The application outer render loop invokes shared uncaught authority. Width panic removed. `raw_frame::width_error_preserves_cleanup_throw_precedence_and_crash_log` actual frozen/native source proof asserts both stop-success exact Error and stop-failure raw-surrogate precedence, file bytes (timestamp excluded), and log-before-stop event. Both genuine native REDs: `renderer-width-both-native-red.log`; targeted GREEN `renderer-width-green-2.log`. Final integration evidence: `editor-result-tui-regression.log` 87/87 (raw frame/terminal/render/differential/region/fixed-cell subsets); lifecycle1/1 and31 distinct coding-agent consumer tests GREEN. Workspace/all-targets0 errors/0 warnings; scoped package all-target clippy0 owned/1697 other warnings; pinned TS/Biome/fmt/inventoryPASS. Parent3175f4f8 merged before final gates, native revisionec373860. [Exact commands/proof boundaries](interactive-external-editor.md#result-api-checkpoint).
+
+## Width-error regression harness (2026-10-25)
+
+`verifier_regressions` still expected a Rust panic after render_now became
+fallible. It now reads the returned error and compares the same first line
+and terminal-stop bytes against the frozen throw/catch oracle. No panic
+catching, relaxed comparison or runtime change is introduced.

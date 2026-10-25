@@ -109,3 +109,10 @@ follow-up's verification scope.
 inventory and module-import RED). The opt-in Rust factory and its one
 differential test were removed, rather than treating an absent source as
 passing or borrowing a newer source. No frozen example behavior changed.
+
+## Re-pin reload description (2026-10-25)
+
+Frozen `reload-runtime.ts` describes both the command and tool as
+"Reload extensions, skills, prompts, and themes". Native registrations had
+added context files; both now match frozen. Both runtime differential tests
+were RED on those exact strings; no assertion or behavior was weakened.

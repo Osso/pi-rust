@@ -80,7 +80,18 @@ const handlers: Record<string, Handler> = {
 			const error = new ErrorClass(filePath as string);
 			return { name: error.name, message: error.message, filePath: error.filePath };
 		}),
-	piManifest: (api, request) => cases(request).map((path) => api.readPiManifest(path)),
+	manifestDiscovery: async (api, request) => {
+		const discover = api.discoverAndLoadExtensions as (
+			paths: string[], cwd: string, agentDir: string,
+		) => Promise<{ extensions: Array<{ path: string }>; errors: unknown[] }>;
+		const results: string[][] = [];
+		for (const directory of cases(request) as string[]) {
+			const loaded = await discover([directory], request.cwd as string, request.agentDir as string);
+			if (loaded.errors.length) throw new Error(JSON.stringify(loaded.errors));
+			results.push(loaded.extensions.map(extension => extension.path));
+		}
+		return results;
+	},
 	detachedJobRetention: (api, request) =>
 		cases(request).map((value) => {
 			const input = value as { candidates: unknown[]; policy: unknown };

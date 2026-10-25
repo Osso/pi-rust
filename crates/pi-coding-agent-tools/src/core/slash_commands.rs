@@ -58,7 +58,7 @@ pub fn builtin_slash_commands() -> Vec<BuiltinSlashCommand> {
     let app_name = &package_config().app_name;
     vec![
         BuiltinSlashCommand::new("settings", "Open settings menu", None),
-        BuiltinSlashCommand::new("model", "Select model (opens selector UI)", Some("<provider/model>")),
+        BuiltinSlashCommand::new("model", "Select model (opens selector UI)", None),
         BuiltinSlashCommand::new("scoped-models", "Enable/disable models for Ctrl+P cycling", None),
         BuiltinSlashCommand::new(
             "export",
@@ -80,7 +80,7 @@ pub fn builtin_slash_commands() -> Vec<BuiltinSlashCommand> {
         BuiltinSlashCommand::new("clone", "Duplicate the current session at the current position", None),
         BuiltinSlashCommand::new("tree", "Navigate session tree (switch branches)", None),
         BuiltinSlashCommand::new("trust", "Save project trust decision for future sessions", None),
-        BuiltinSlashCommand::new("login", "Configure provider authentication", Some("<provider>")),
+        BuiltinSlashCommand::new("login", "Configure provider authentication", None),
         BuiltinSlashCommand::new("logout", "Remove provider authentication", None),
         BuiltinSlashCommand::new("new", "Start a new session", None),
         BuiltinSlashCommand::new(
