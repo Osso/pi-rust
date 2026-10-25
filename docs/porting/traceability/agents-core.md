@@ -1,5 +1,16 @@
 # agents-core traceability
 
+## Runtime re-pin lane — 2026-10-25
+
+| Frozen runtime branch | Native/proof |
+| --- | --- |
+| Spawn without parent journal dependency or transcript requirement (`runtime.ts:1080–1198`) | Removed old-only journal admission/start/terminal writes and the native-only request-handler journal argument. Actual frozen spawn with no transcript returns dispatched=true/completed and zero custom entries; native RED returned journaling-unconfigured; GREEN checks dispatch, completion, SQLite state and no parent custom entry. `/tmp/agents-core-journal-{red,green2}.log`; all 25 runtime tests pass |
+| Current child assistant result/errors | [Whole child-response map](child-response.md), real dispatch RED/GREEN and nine frozen vectors |
+| Descendant settlement and direct detached terminal cleanup | [Settlement](descendant-settlement.md), [cancellation](detached-runtime-cancellation.md); real spawn/SQLite/mailbox boundary |
+| Remaining runtime audit | Recovery still has an old-only parent-journal admission filter; child shutdown is still synchronous and lacks the frozen bound-session shutdown event/finally; restricted browser tools and remaining runtime branch proofs remain open. These are not completion evidence |
+
+Mechanical fallout: `pi-coding-agent/src/main.rs` drops the retired request-handler argument; native fixtures use the updated signature. No source delta or storage algorithm change.
+
 ## Module HOME snapshot (2026-10-23)
 
 Frozen `runtime.ts:198` evaluates `join(homedir(), "AgentConfig")` during static imports (`cli.ts:11` → `main.ts:14` → agents-core runtime), before dispatch or the main action catch. Native `runtime::DEFAULT_BROWSER_AGENT_CONFIG_ROOT` stores that one-time native result; the pi executable initializes it before cli_entry and routes failure through shared `throw_native_uncaught`. The accessor returns the stored root, not a fresh HOME probe. `differential_cli_import_home` compares real frozen/native --version failures under forced NSS EIO (exit 1, exact SystemError prefix, no version output), and a child proves later HOME changes do not alter the snapshot. RED: `pi-cli-nss-frozen-red.log`; GREEN: `pi-cli-nss-green.log`.

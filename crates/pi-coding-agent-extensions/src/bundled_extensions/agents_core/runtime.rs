@@ -25,7 +25,6 @@ use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::WaitingDesktopNotificationHandles;
 use super::mailbox_runtime::{OnSessionMessageSent, RuntimeLifecycleMirror};
-use super::parent_agent_journal::JournalWriter;
 use super::shared::{
     AttachedSessionFactory, CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, ChildAgentSession, ChildAgentSessionFactory,
     WaitWakeListener, WaitWakeListeners,
@@ -281,7 +280,6 @@ pub struct MultiAgentPiRequestHandler {
 struct PiRequestRuntime {
     desktop_notifier: Arc<dyn DesktopNotifier>,
     options: MultiAgentExtensionOptions,
-    pi: Option<JournalWriter>,
     runtime_handles: MultiAgentRuntimeHandles,
     store: Arc<MultiAgentStore>,
     waiting_desktop_notifications: WaitingDesktopNotificationHandles,
@@ -357,7 +355,6 @@ impl MultiAgentPiRequestHandler {
                         handles: Some(Arc::clone(&self.runtime.runtime_handles.sessions)),
                         ownerships: Arc::clone(&self.runtime.runtime_handles.ownerships),
                         params,
-                        pi: self.runtime.pi.clone(),
                         store: Arc::clone(&self.runtime.store),
                         waiting_desktop_notifications: Arc::clone(&self.runtime.waiting_desktop_notifications),
                         _marker: std::marker::PhantomData,
@@ -428,10 +425,7 @@ impl MultiAgentPiRequestHandler {
     }
 }
 
-pub fn create_multi_agent_pi_request_handler(
-    options: &MultiAgentExtensionOptions,
-    pi: Option<JournalWriter>,
-) -> MultiAgentPiRequestHandler {
+pub fn create_multi_agent_pi_request_handler(options: &MultiAgentExtensionOptions) -> MultiAgentPiRequestHandler {
     let store = resolve_multi_agent_store(options);
     let runtime_handles = options
         .runtime_handles
@@ -445,7 +439,6 @@ pub fn create_multi_agent_pi_request_handler(
                 .clone()
                 .unwrap_or_else(|| Arc::new(NoopDesktopNotifier)),
             options: options.clone(),
-            pi,
             runtime_handles,
             store,
             waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),

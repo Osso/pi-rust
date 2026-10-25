@@ -15,7 +15,6 @@ use pi_coding_agent::bundled_extensions::agents_core::dispatch_runtime::WaitingD
 use pi_coding_agent::bundled_extensions::agents_core::mailbox_runtime::{
     ContactParentParams, SendAgentMessageParams, contact_parent, send_agent_message,
 };
-use pi_coding_agent::bundled_extensions::agents_core::parent_agent_journal::JournalWriter;
 use pi_coding_agent::bundled_extensions::agents_core::runtime::{
     MultiAgentExtensionOptions, create_multi_agent_pi_request_handler, create_multi_agent_runtime_handles,
     multi_agent_extension, wait_agents,
@@ -400,38 +399,33 @@ fn fake_factory(summary: &'static str, transcript: bool) -> ChildAgentSessionFac
     })
 }
 
-type JournalEntries = Arc<Mutex<Vec<(JsString, Option<Value>)>>>;
-
-fn recording_journal() -> (JournalWriter, JournalEntries) {
-    let entries = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&entries);
-    let writer = JournalWriter::from_handler(Arc::new(move |custom_type: &JsString, data: Option<Value>| {
-        sink.lock().expect("journal").push((custom_type.to_owned(), data));
-        Ok(())
-    }));
-    (writer, entries)
-}
-
 #[tokio::test]
-async fn spawn_agent_persists_running_child_and_journals_start() {
+async fn spawn_agent_persists_child_without_legacy_journal_or_transcript_requirement() {
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-drift-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src/runtime.ts",
+    );
+    let expected = ts.request(&json!({"kind":"spawnWithoutJournal"}));
+    assert_eq!(
+        expected,
+        json!({"dispatched":true,"lifecycle":"completed","hasTranscript":false,"customEntries":0})
+    );
     let test = test_dir();
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let handles = create_multi_agent_runtime_handles();
-    let (journal, entries) = recording_journal();
     let notifier: Arc<dyn DesktopNotifier> = Arc::new(RecordingNotifier::default());
     let waiting: WaitingDesktopNotificationHandles = Arc::new(Mutex::new(HashMap::new()));
 
     let result = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: Some("tool-1".to_owned()),
-        create_child_session: Some(fake_factory("child done", true)),
-        ctx,
+        create_child_session: Some(fake_factory("child done", false)),
+        ctx: ctx.clone(),
         desktop_notifier: notifier,
         dispatches: Arc::clone(&handles.dispatches),
         handles: Some(Arc::clone(&handles.sessions)),
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "do work", "agentType": "explore"}),
-        pi: Some(journal),
         store: Arc::clone(&store),
         waiting_desktop_notifications: waiting,
         _marker: std::marker::PhantomData,
@@ -455,12 +449,12 @@ async fn spawn_agent_persists_running_child_and_journals_start() {
     assert_eq!(details["dispatched"], json!(true));
     assert_eq!(details["prompt"], json!("do work"));
 
-    let journaled = entries.lock().expect("journal").clone();
-    assert_eq!(journaled.len(), 1);
-    assert_eq!(journaled[0].0, "agent_start");
-    assert_eq!(
-        journaled[0].1.as_ref().expect("data")["childSessionId"],
-        json!("child-session")
+    assert!(
+        ctx.session_manager()
+            .unwrap()
+            .get_branch(None)
+            .iter()
+            .all(|entry| entry.entry_type() != "custom")
     );
 
     let dispatch = handles
@@ -480,7 +474,7 @@ async fn spawn_agent_persists_running_child_and_journals_start() {
         .expect("read agent")
         .expect("persisted agent");
     assert_eq!(persisted.lifecycle, AgentLifecycle::Completed);
-    assert_eq!(persisted.transcript.expect("transcript").session_id, "child-session");
+    assert!(persisted.transcript.is_none());
 }
 
 #[tokio::test]
@@ -489,7 +483,6 @@ async fn spawn_agent_rejects_missing_runtime_and_invalid_prompts() {
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let handles = create_multi_agent_runtime_handles();
-    let (journal, _entries) = recording_journal();
     let notifier: Arc<dyn DesktopNotifier> = Arc::new(RecordingNotifier::default());
 
     let missing_runtime = spawn_agent(SpawnAgentRuntimeInput {
@@ -501,7 +494,6 @@ async fn spawn_agent_rejects_missing_runtime_and_invalid_prompts() {
         handles: None,
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work"}),
-        pi: Some(journal.clone()),
         store: Arc::clone(&store),
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -513,7 +505,7 @@ async fn spawn_agent_rejects_missing_runtime_and_invalid_prompts() {
         "spawn_agent is unavailable: no child session runtime is configured."
     );
 
-    let missing_journal = spawn_agent(SpawnAgentRuntimeInput {
+    let without_transcript = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
         create_child_session: Some(fake_factory("x", false)),
         ctx: ctx.clone(),
@@ -522,17 +514,13 @@ async fn spawn_agent_rejects_missing_runtime_and_invalid_prompts() {
         handles: None,
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work"}),
-        pi: None,
         store: Arc::clone(&store),
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
     })
     .await
     .expect("spawn");
-    assert_eq!(
-        text(&missing_journal),
-        "spawn_agent is unavailable: parent session journaling is not configured."
-    );
+    assert_eq!(without_transcript.details.unwrap()["dispatched"], json!(true));
 
     let invalid_context = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
@@ -543,7 +531,6 @@ async fn spawn_agent_rejects_missing_runtime_and_invalid_prompts() {
         handles: None,
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work", "context": "shared"}),
-        pi: Some(journal),
         store,
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -561,7 +548,6 @@ async fn child_runtime_rejects_orchestration_tools() {
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, Some("child-agent".to_owned()), true).await;
     let handles = create_multi_agent_runtime_handles();
-    let (journal, _entries) = recording_journal();
 
     let result = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
@@ -572,7 +558,6 @@ async fn child_runtime_rejects_orchestration_tools() {
         handles: None,
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work"}),
-        pi: Some(journal),
         store,
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -614,7 +599,6 @@ async fn child_response_ignores_inherited_text_and_fails_terminal_model_error() 
                 Ok(Arc::new(session) as Arc<dyn ChildAgentSession>)
             })
         });
-        let (journal, _) = recording_journal();
         let result = spawn_agent(SpawnAgentRuntimeInput {
             active_tool_call_id: None,
             create_child_session: Some(factory),
@@ -624,7 +608,6 @@ async fn child_response_ignores_inherited_text_and_fails_terminal_model_error() 
             handles: Some(Arc::clone(&handles.sessions)),
             ownerships: Arc::clone(&handles.ownerships),
             params: json!({"prompt":"work"}),
-            pi: Some(journal),
             store: Arc::clone(&store),
             waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
             _marker: std::marker::PhantomData,
@@ -830,7 +813,6 @@ async fn child_terminal_path_cancels_detached_runtime_before_settling() {
             Ok(Arc::new(session) as Arc<dyn ChildAgentSession>)
         })
     });
-    let (journal, _) = recording_journal();
     let result = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
         create_child_session: Some(factory),
@@ -840,7 +822,6 @@ async fn child_terminal_path_cancels_detached_runtime_before_settling() {
         handles: Some(Arc::clone(&handles.sessions)),
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt":"work"}),
-        pi: Some(journal),
         store: Arc::clone(&store),
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -970,7 +951,6 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let handles = create_multi_agent_runtime_handles();
-    let (journal, _entries) = recording_journal();
     let result = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
         create_child_session: Some(ChildAgentSessionFactory::new(|_input| {
@@ -984,7 +964,6 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
         handles: Some(Arc::clone(&handles.sessions)),
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work"}),
-        pi: Some(journal),
         store: Arc::clone(&store),
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -1157,7 +1136,7 @@ async fn request_handler_validates_wait_params_and_selects_main_thread() {
         ..Default::default()
     };
     options.runtime_handles = Some(create_multi_agent_runtime_handles());
-    let handler = create_multi_agent_pi_request_handler(&options, None);
+    let handler = create_multi_agent_pi_request_handler(&options);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
 
     let error = handler
@@ -1202,7 +1181,7 @@ async fn request_handler_returns_last_session_message_summary() {
         ..Default::default()
     };
     options.runtime_handles = Some(create_multi_agent_runtime_handles());
-    let handler = create_multi_agent_pi_request_handler(&options, None);
+    let handler = create_multi_agent_pi_request_handler(&options);
     let mut session_manager = SessionManager::in_memory(Some(&JsString::from(&test.cwd)), None).expect("session");
     let mut assistant = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 2.0);
     assistant
@@ -1507,7 +1486,6 @@ async fn wait_agent_consumes_pending_terminal_notification() {
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let handles = create_multi_agent_runtime_handles();
-    let (journal, _entries) = recording_journal();
     let result = spawn_agent(SpawnAgentRuntimeInput {
         active_tool_call_id: None,
         create_child_session: Some(fake_factory("finished", true)),
@@ -1517,7 +1495,6 @@ async fn wait_agent_consumes_pending_terminal_notification() {
         handles: Some(Arc::clone(&handles.sessions)),
         ownerships: Arc::clone(&handles.ownerships),
         params: json!({"prompt": "work"}),
-        pi: Some(journal),
         store: Arc::clone(&store),
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
         _marker: std::marker::PhantomData,
@@ -1564,7 +1541,7 @@ async fn request_handler_lists_agents_and_routes_select_callback() {
         ..Default::default()
     };
     options.runtime_handles = Some(create_multi_agent_runtime_handles());
-    let handler = create_multi_agent_pi_request_handler(&options, None);
+    let handler = create_multi_agent_pi_request_handler(&options);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
 
     let list = handler
