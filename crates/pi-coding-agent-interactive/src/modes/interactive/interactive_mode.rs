@@ -13779,7 +13779,7 @@ mod ui_tests {
                             Box::pin(async move {
                                 contexts.lock().unwrap().push(serde_json::json!({"cwd":ctx.cwd()?,"hasUI":ctx.has_ui()?,"idle":ctx.is_idle()?,"trusted":ctx.is_project_trusted()?}));
                                 if let Some(error) = error { return Err(HandlerError::new(error)); }
-                                ctx.ui()?.set_editor_text(&text);
+                                ctx.ui()?.set_editor_text(&text)?;
                                 Ok(())
                             })
                         })).unwrap();
@@ -17785,7 +17785,7 @@ mod ui_tests {
                     .unwrap();
                     tokio::task::yield_now().await;
                     let ui = mode.ui_context();
-                    ui.set_editor_text(&JsString::from("during"));
+                    ui.set_editor_text(&JsString::from("during")).unwrap();
                     mode.handle_ui_requests().await;
                     assert_eq!(mode.editor().borrow().get_text().unwrap(), "during");
                     terminal.borrow_mut().send_input("\r");
@@ -17868,7 +17868,7 @@ mod ui_tests {
                         tokio::task::yield_now().await;
                         assert!(!mode.ui.has_overlay_entries(), "pending factory must not mount");
                         assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
-                        ui.set_editor_text(&JsString::from("during"));
+                        ui.set_editor_text(&JsString::from("during")).unwrap();
                         mode.handle_ui_requests().await;
                         terminal.borrow_mut().writes.clear();
                         mode.ui.request_render_force();
@@ -19509,7 +19509,7 @@ mod lossless_ui_bridge_tests {
             }
             _ => panic!("status not delivered"),
         }
-        context.set_widget(&key, Some(&[text.clone()]), None);
+        context.set_widget(&key, Some(&[text.clone()]), None).unwrap();
         match receiver.recv().unwrap() {
             UiRequest::SetWidget {
                 key: actual,
@@ -19521,7 +19521,7 @@ mod lossless_ui_bridge_tests {
             }
             _ => panic!("widget not delivered"),
         }
-        context.set_title(&text);
+        context.set_title(&text).unwrap();
         match receiver.recv().unwrap() {
             UiRequest::SetTitle(value) => assert_eq!(value, text),
             _ => panic!("title not delivered"),
