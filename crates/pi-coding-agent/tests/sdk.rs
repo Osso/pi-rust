@@ -639,7 +639,7 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
                         base_url: Some(model.base_url.clone()),
                         api: Some(model.api.clone()),
                         api_key: Some(JsString::from("private-fixture-key")),
-                        models: Some(vec![model]),
+                        models: Some(vec![model.into()]),
                         stream_simple: Some(Arc::new(|model, _context, options| {
                             let (sender, stream) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
                             tokio::spawn(async move {

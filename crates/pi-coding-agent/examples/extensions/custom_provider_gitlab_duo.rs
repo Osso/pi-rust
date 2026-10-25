@@ -244,7 +244,7 @@ pub fn gitlab_duo_extension_with_backends(
             base_url: Some(GATEWAY.into()),
             api_key: Some("$GITLAB_TOKEN".into()),
             api: Some("gitlab-duo-api".into()),
-            models: Some(catalog()),
+            models: Some(catalog().into_iter().map(Into::into).collect()),
             stream_simple: Some(Arc::new(move |model, context, options| {
                 stream.stream_simple(model, context, options.unwrap_or_default())
             })),

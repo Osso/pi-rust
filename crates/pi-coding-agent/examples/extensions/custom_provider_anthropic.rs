@@ -38,7 +38,7 @@ pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAut
             base_url: Some("https://api.anthropic.com".into()),
             api_key: Some("$CUSTOM_ANTHROPIC_API_KEY".into()),
             api: Some(API.into()),
-            models: Some(catalog()),
+            models: Some(catalog().into_iter().map(Into::into).collect()),
             stream_simple: Some(Arc::new(move |model, context, options| {
                 stream::start(runtime.clone(), model, context, options.unwrap_or_default())
             })),

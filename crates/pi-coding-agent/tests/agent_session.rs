@@ -3955,7 +3955,7 @@ async fn restriction_execution_matches_frozen_session_scenarios() {
                         api: Some(model.api.clone()),
                         base_url: Some(model.base_url.clone()),
                         api_key: Some("faux-key".into()),
-                        models: Some(vec![model]),
+                        models: Some(vec![model.into()]),
                         ..Default::default()
                     },
                 )
