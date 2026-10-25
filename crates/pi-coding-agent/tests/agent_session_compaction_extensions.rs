@@ -1080,9 +1080,10 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
 
     let captured = env.captured.lock().expect("captured");
     assert_eq!(captured.compaction.len(), 1, "the cache must not regenerate");
-    assert!(
-        captured.before.is_empty(),
-        "background generation must skip foreground preflight"
+    assert_eq!(
+        captured.before.len(),
+        1,
+        "ready-cache installation runs foreground preflight once"
     );
     assert_eq!(
         captured.background,
