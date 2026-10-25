@@ -64,10 +64,14 @@ pub mod repin_control_sessions;
 pub mod repin_resident_session;
 #[path = "repin_runtime_mailbox_transcript.rs"]
 pub mod repin_runtime_mailbox_transcript;
+#[path = "repin_storage_archive.rs"]
+pub mod repin_storage_archive;
 #[path = "repin_storage_history.rs"]
 pub mod repin_storage_history;
 #[path = "repin_storage_retention.rs"]
 pub mod repin_storage_retention;
+#[path = "repin_storage_terminal_matrix.rs"]
+pub mod repin_storage_terminal_matrix;
 #[path = "repin_storage_terminal_outbox.rs"]
 pub mod repin_storage_terminal_outbox;
 #[path = "repin_storage_tool_output.rs"]

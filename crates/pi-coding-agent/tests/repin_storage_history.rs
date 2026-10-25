@@ -1,5 +1,5 @@
 #[path = "support/oracle.rs"]
-mod oracle;
+pub(super) mod oracle;
 
 use pi_coding_agent::core::session_history::read_session_history_reverse;
 use pi_coding_agent::core::session_manager::SessionManager;

@@ -11,8 +11,10 @@ use std::path::Path;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use super::session_control_db::{read_session_metadata, relocate_and_archive_session, relocate_and_unarchive_session};
-use super::session_manager::SessionManagerError;
-use super::session_transcript::{decode_session_zstd_bytes, read_session_transcript_path};
+use super::session_manager::{SessionManagerError, control_db_error};
+use super::session_transcript::{
+    decode_session_zstd_bytes, read_session_transcript_path, session_transcript_read_error,
+};
 
 pub const ARCHIVED_SESSION_SUFFIX: &str = ".zst";
 pub fn is_archived_session_file(path: &JsString) -> bool {
@@ -44,7 +46,7 @@ pub fn archive_persisted_session(db: &JsString, path: &JsString) -> Result<JsStr
     let archived = archive_session_file(path)?;
     if let Err(cause) = relocate_and_archive_session(db, path, &archived) {
         restore_archived_session_file(&archived)?;
-        return Err(error(cause));
+        return Err(control_db_error(cause));
     }
     Ok(archived)
 }
@@ -58,8 +60,11 @@ pub fn restore_archived_session(db: &JsString, path: &JsString) -> Result<JsStri
     };
     let restored = without_archive_suffix(&archived);
     if exists(&restored) {
-        if read_session_metadata(db, &archived).map_err(error)?.is_some() {
-            relocate_and_unarchive_session(db, &archived, &restored).map_err(error)?;
+        if read_session_metadata(db, &archived)
+            .map_err(control_db_error)?
+            .is_some()
+        {
+            relocate_and_unarchive_session(db, &archived, &restored).map_err(control_db_error)?;
         }
         remove_if_exists(&encode_node_utf8(&archived)).map_err(error)?;
         return Ok(restored);
@@ -67,13 +72,13 @@ pub fn restore_archived_session(db: &JsString, path: &JsString) -> Result<JsStri
     if !is_archived_session_file(&path) {
         return Ok(path);
     }
-    if !exists(&path) && read_session_metadata(db, &path).map_err(error)?.is_none() {
+    if !exists(&path) && read_session_metadata(db, &path).map_err(control_db_error)?.is_none() {
         return Ok(restored);
     }
     restore_archived_session_file(&path)?;
     if let Err(cause) = relocate_and_unarchive_session(db, &path, &restored) {
         archive_session_file(&restored)?;
-        return Err(error(cause));
+        return Err(control_db_error(cause));
     }
     Ok(restored)
 }
@@ -93,7 +98,7 @@ pub fn archive_session_file(path: &JsString) -> Result<JsString, SessionManagerE
             JsString::from("Archived session file already exists: ") + &archived,
         ));
     }
-    let original = fs::read(encode_node_utf8(path)).map_err(error)?;
+    let original = read_archive_file_bytes(path)?;
     let compressed = zstd::stream::encode_all(original.as_slice(), 0).map_err(error)?;
     if decode_session_zstd_bytes(compressed.as_slice()).map_err(error)? != original {
         return Err(SessionManagerError::new(
@@ -123,10 +128,21 @@ pub fn restore_archived_session_file(path: &JsString) -> Result<JsString, Sessio
             JsString::from("Restored session file already exists: ") + &restored,
         ));
     }
-    let content =
-        decode_session_zstd_bytes(fs::read(encode_node_utf8(path)).map_err(error)?.as_slice()).map_err(error)?;
+    let content = decode_session_zstd_bytes(&read_archive_file_bytes(path)?)
+        .map_err(|cause| SessionManagerError::from(session_transcript_read_error(path, cause)))?;
     replace_session_file(&encode_node_utf8(path), &encode_node_utf8(&restored), &content).map_err(archive_io_error)?;
     Ok(restored)
+}
+
+fn read_archive_file_bytes(path: &JsString) -> Result<Vec<u8>, SessionManagerError> {
+    fs::read(encode_node_utf8(path)).map_err(|cause| {
+        let record = pi_js_compat::node_fs::node_read_error_record(
+            &cause,
+            path,
+            pi_js_compat::node_fs::NodeReadApi::ReadFileSync,
+        );
+        SessionManagerError::from(Box::new(pi_js_compat::node_error::NativeNodeError::from(record)))
+    })
 }
 
 /// Filesystem boundary: paths arrive already encoded as Node would pass them to libuv.
