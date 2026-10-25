@@ -38,6 +38,7 @@ use pi_js_compat::js_json::JsValue as Value;
 
 #[derive(Default)]
 struct Records {
+    fail_notification: bool,
     user_messages: Vec<UserMessageContent>,
     messages: Vec<CustomMessagePayload>,
     entries: Vec<(JsString, Option<Value>)>,
@@ -56,11 +57,11 @@ impl ExtensionUiContext for TestUi {
         message: &JsString,
         notify_type: Option<NotifyType>,
     ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
-        self.records
-            .lock()
-            .unwrap()
-            .notifications
-            .push((message.to_owned(), notify_type));
+        let mut records = self.records.lock().unwrap();
+        if records.fail_notification {
+            return Err(pi_js_compat::callback_error::CallbackError::new("notification failed"));
+        }
+        records.notifications.push((message.to_owned(), notify_type));
         Ok(())
     }
 
@@ -941,4 +942,60 @@ async fn does_not_continue_when_session_continuation_is_set() {
     harness.runner.emit(&mut event).await;
     assert!(harness.records.lock().unwrap().messages.is_empty());
     assert_eq!(harness.stored_goal().unwrap().continuation_turns, Some(0.0));
+}
+
+#[tokio::test]
+async fn goal_commands_propagate_notification_errors() {
+    for args in ["", "pause", "resume", "clear", "set Ship it", "--invalid"] {
+        let harness = harness(
+            "command-errors",
+            GoalSupervisorResponse::Complete {
+                reason: "ok".into(),
+                display_id: None,
+            },
+        )
+        .await;
+        harness.records.lock().unwrap().fail_notification = true;
+        let command = harness.runner.get_command("goal").unwrap();
+        let error = (command.handler)(args.into(), harness.runner.create_command_context())
+            .await
+            .expect_err(args);
+        assert_eq!(error.message, "notification failed");
+    }
+}
+
+#[path = "support/oracle.rs"]
+mod management_oracle;
+
+#[tokio::test]
+async fn goal_management_outputs_match_frozen_without_extra_notifications() {
+    let cases = json!([
+        {"params":{"action":"status"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"pause"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"pause","reason":"blocked"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"resume"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"clear"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"continue","reason":"more work","instructions":"check logs","displayId":"group"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"pause","reason":"blocked","displayId":"group"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"error","reason":"unavailable","displayId":"group"}},
+        {"params":{"action":"set","objective":"Ship it"}, "decision":{"kind":"error","reason":"unavailable"}},
+        {"params":{"action":"set","objective":"Ship it"}, "decision":{"kind":"set","objective":"Ship it","reason":"approved"}}
+    ]);
+    let mut oracle = management_oracle::TsOracle::spawn(
+        "goal-management-oracle.ts",
+        "packages/coding-agent/extensions/goal/src/index.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"cases":cases}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    for (index, case) in cases.as_array().unwrap().iter().enumerate() {
+        let decision = pi_js_compat::js_json::from_value(&case["decision"]).unwrap();
+        let harness = harness("management-matrix", decision).await;
+        harness.run_command("set Ship it").await;
+        *harness.records.lock().unwrap() = Records::default();
+        let result = harness.run_tool(case["params"].clone()).await;
+        let records = harness.records.lock().unwrap();
+        let actual = json!({"result":{"content":result.content,"details":result.details},"notifications":records.notifications.iter().map(|(message, _)|json!([message,"info"])).collect::<Vec<_>>(),"entries":records.entries.iter().filter_map(|(_, data)| data.as_ref().map(|data|data["message"].clone())).collect::<Vec<_>>()});
+        assert_eq!(actual, expected["output"][index], "case {index}");
+    }
 }

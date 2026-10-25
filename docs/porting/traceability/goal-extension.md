@@ -60,3 +60,24 @@ Frozen `4f9e6f8a4` synchronous settings errors now propagate through the native 
   `supervisor::client`/`project_resolver` modules.
 - Rendering uses `pi_tui` components; component-factory overloads are not part
   of the goal source and were not added.
+
+## Re-pin management audit (2026-10-25)
+
+The complete frozen index module was compared to the native registration,
+management and event paths. `goal_management_outputs_match_frozen_without_extra_notifications`
+runs eleven concrete tool cases through both installed extensions: status, pause
+validation/success, resume without paused state, clear, completion accept/continue/
+pause/error, and goal-set accept/reject. It compares complete tool content/details,
+notifications and persisted status messages. RED: native status emitted an extra
+notification; GREEN after removing all old tool-only notifications and including
+continue instructions in the persisted rejection status. Idle and command notifications
+remain as frozen specifies. `goal_commands_propagate_notification_errors` proves
+all six command paths return the original UI failure rather than silently succeed.
+Existing behavior tests cover command validation/dispatch, running-goal injection,
+review evidence, continuation suppression, startup, idle decisions and footer state.
+
+| Excluded branch | Classification |
+| --- | --- |
+| Node process/stdio fault shapes, pathological JSON and scheduler interleavings | gap: repository parity policy; not pursued |
+
+Proof: `/tmp/bundled3-goal-index-green2.log`, 31 focused tests passed.

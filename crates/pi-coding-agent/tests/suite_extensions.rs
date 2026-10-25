@@ -73,6 +73,8 @@ pub mod goal_supervisor_review;
 pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]
 pub mod lossless_extension_loader;
+#[path = "pyrun_artifacts.rs"]
+pub mod pyrun_artifacts;
 #[path = "pyrun_extension.rs"]
 pub mod pyrun_extension;
 #[path = "raw_extension_dialogs.rs"]
