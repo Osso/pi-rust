@@ -147,6 +147,103 @@ async fn queued_command_survives_disconnect_like_frozen() {
     assert_eq!(actual, expected);
 }
 #[tokio::test]
+async fn all_queued_commands_finish_in_order_after_disconnect_like_frozen() {
+    use std::sync::Mutex;
+    struct OrderedHandler(Arc<Mutex<Vec<Value>>>);
+    struct OrderedStream(OnMessage, Arc<Mutex<Vec<Value>>>);
+    impl IpcRequestHandler for OrderedHandler {
+        fn handle(&self, _: Value) -> BoxFuture<'_, Result<Value, JsString>> {
+            Box::pin(async { Ok(json!({"type":"rpc_ready","ok":true,"instance":{"id":"i"}})) })
+        }
+        fn open_rpc_stream(&self, _: &JsString, message: OnMessage) -> Option<Arc<dyn RpcStream>> {
+            Some(Arc::new(OrderedStream(message, self.0.clone())))
+        }
+    }
+    impl RpcStream for OrderedStream {
+        fn handle_request(&self, request: Value) -> BoxFuture<'_, Result<(), JsString>> {
+            Box::pin(async move {
+                (self.0)(json!({"type":"started"}));
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                self.1.lock().unwrap().push(request["id"].clone());
+                Ok(())
+            })
+        }
+        fn close(&self) {}
+    }
+    async fn send_and_disconnect(path: &std::path::Path) {
+        let socket = tokio::net::UnixStream::connect(path).await.unwrap();
+        let mut reader = BufReader::new(socket);
+        reader
+            .get_mut()
+            .write_all(b"{\"type\":\"rpc_stream\",\"instanceId\":\"i\"}\n")
+            .await
+            .unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        reader
+            .get_mut()
+            .write_all(b"{\"id\":\"one\"}\n{\"id\":\"two\"}\n{\"id\":\"three\"}\n")
+            .await
+            .unwrap();
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        assert!(line.contains("started"));
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("orchestrator.sock");
+    let done = directory.path().join("done.json");
+    let script = directory.path().join("queued.mjs");
+    let source = r#"
+import { writeFileSync } from 'node:fs';
+import { startIpcServer } from 'SOURCE/packages/orchestrator/src/ipc/server.ts';
+const completed = [];
+const handler = async () => ({ type: 'rpc_ready', ok: true, instance: { id: 'i' } });
+handler.openRpcStream = (_id, _response, event) => ({
+    async handleRequest(request) {
+        event({ type: 'started' });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        completed.push(request.id);
+        writeFileSync(DONE, JSON.stringify(completed));
+    },
+    close() {},
+});
+await startIpcServer(handler);
+console.log('ready');
+"#
+    .replace("SOURCE", SOURCE)
+    .replace("DONE", &serde_json::to_string(&done).unwrap());
+    std::fs::write(&script, source).unwrap();
+    let mut child = ts(&script)
+        .env("PI_ORCHESTRATOR_DIR", directory.path())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut ready = String::new();
+    BufReader::new(child.stdout.take().unwrap())
+        .read_line(&mut ready)
+        .await
+        .unwrap();
+    assert_eq!(ready, "ready\n");
+    send_and_disconnect(&path).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let expected = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&done).unwrap()).unwrap();
+    assert_eq!(expected, json!(["one", "two", "three"]));
+    child.kill().await.unwrap();
+    child.wait().await.unwrap();
+    let completed = Arc::new(Mutex::new(Vec::new()));
+    let server = start_ipc_server(
+        &path.to_str().unwrap().into(),
+        Arc::new(OrderedHandler(completed.clone())),
+    )
+    .await
+    .unwrap();
+    send_and_disconnect(&path).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(Value::Array(completed.lock().unwrap().clone()), expected);
+    server.close().await;
+}
+
+#[tokio::test]
 async fn child_exit_is_not_delayed_until_inherited_pipes_close() {
     let d = dir("exit");
     let fake = d.join("fake.mjs");

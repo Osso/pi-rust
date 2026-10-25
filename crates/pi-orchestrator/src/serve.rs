@@ -39,7 +39,8 @@ impl RunningOrchestrator {
         supervisor: Arc<OrchestratorSupervisor>,
         radius: Arc<RadiusPresence>,
     ) -> Result<Self, JsString> {
-        std::fs::create_dir_all(encode_node_utf8(&config.dir)).map_err(|e| JsString::from(e.to_string()))?;
+        std::fs::create_dir_all(encode_node_utf8(&config.dir))
+            .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "mkdir", &config.dir))?;
         let server = start_ipc_server(&config.socket_path(), Arc::new(OrchestratorHandler(supervisor.clone()))).await?;
         let logs = initialize_presence(&config, &supervisor, &radius).await;
         let logs = match logs {

@@ -8,8 +8,9 @@ const {RpcProcessInstance}=await load("rpc-process");
 RpcProcessInstance.prototype.getSpawnCommand=()=>({command:process.execPath,args:[fake]});
 const {supervisor}=await load("supervisor");
 const {handleIpcRequest,openRpcStream}=await load("handler");
-const instance=await supervisor.spawnInstance({cwd,label:"work"});
-const id=instance.id;
+const spawnResult = await handleIpcRequest({ type: "spawn", cwd, label: "work", provider: "ignored", model: "ignored" });
+const id = spawnResult.instance.id;
+const instance = supervisor.getInstance(id);
 if(process.argv[5]==="listener_identity"){
  let events=0,ui=0;const event=()=>events++,onUi=()=>ui++;
  const first=supervisor.openRpcStream(id,event,onUi),second=supervisor.openRpcStream(id,event,onUi);
@@ -17,6 +18,7 @@ if(process.argv[5]==="listener_identity"){
  await second.handleRpc({type:"get_state",id:"two"});second.close();await supervisor.stopInstance(id);
  process.stdout.write(`${JSON.stringify({before,after:{events,ui}})}\n`);process.exit(0);
 }
+const ready = await handleIpcRequest({ type: "rpc_stream", instanceId: id });
 const list=await handleIpcRequest({type:"list"});
 const status=await handleIpcRequest({type:"status",instanceId:id});
 const response=await handleIpcRequest({type:"rpc",instanceId:id,command:{type:"get_state",id:"rpc"}});
@@ -28,4 +30,4 @@ stream.close();
 const stop=await handleIpcRequest({type:"stop",instanceId:id});
 const unknown=await handleIpcRequest({type:"status",instanceId:"missing"});
 const final=supervisor.listInstances();
-process.stdout.write(`${JSON.stringify({instance,list,status,response,messages,stop,unknown,final}).replaceAll(id,"instance")}\n`);
+process.stdout.write(`${JSON.stringify({spawnResult,ready,instance,list,status,response,messages,stop,unknown,final}).replaceAll(id,"instance")}\n`);
