@@ -1823,12 +1823,14 @@ mod tests {
     }
 
     #[test]
-    fn tool_call_ids_preserve_item_uniqueness() {
+    fn tool_call_ids_extract_call_prefix_like_frozen() {
         let model = model("openai", "gpt-5");
-        assert_eq!(normalize_tool_call_id("call_1|item_1", &model), "call_1_item_1");
+        assert_eq!(normalize_tool_call_id("call_1|item_1", &model), "call_1");
+        assert_eq!(normalize_tool_call_id("call_1|item_2", &model), "call_1");
         assert_eq!(normalize_tool_call_id("short", &model), "short");
         let long = format!("call_{}|item_{}", "x".repeat(40), "y".repeat(40));
         let normalized = normalize_tool_call_id(&long, &model);
+        assert_eq!(normalized, format!("call_{}", "x".repeat(35)));
         assert!(normalized.len() <= 40);
     }
 
