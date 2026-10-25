@@ -105,7 +105,7 @@ fn store_message_serialization_preserves_raw_addresses_file_refs_and_unknown_key
     let message: AgentMailboxMessage = js_json::from_value(&raw).unwrap();
     let serialized = js_json::to_value(&message).unwrap();
     assert_eq!(serialized, raw);
-    let copied = js_json::to_value(&copy_message(&message)).unwrap();
+    let copied = js_json::to_value(&copy_message(&message).unwrap()).unwrap();
     for key in ["id", "threadId", "fromAgentId", "toAgentId", "body", "fileRefs"] {
         assert_eq!(copied.get(key), raw.get(key));
     }

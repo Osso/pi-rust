@@ -86,7 +86,10 @@ fn fixture() -> Fixture {
 }
 
 fn terminal_job(fixture: &Fixture, job_id: &str) {
-    let root = fixture.directory.path().to_str().expect("utf-8 test path").to_owned();
+    terminal_job_in_root(fixture, job_id, fixture.directory.path().to_str().unwrap());
+}
+
+fn terminal_job_in_root(fixture: &Fixture, job_id: &str, root: &str) {
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: fixture.control_db_path.clone().into(),
         create_agent_id: Arc::new(|| Ok("unused".to_owned().into())),
@@ -181,6 +184,43 @@ fn delivers_a_terminal_projection_and_acknowledges_the_outbox_row() {
     assert_eq!(
         deliver_terminal_outbox_projections(&options(&fixture)).expect("second deliver"),
         0.0
+    );
+}
+
+#[test]
+fn agents_core_factory_root_controls_terminal_artifact_cleanup() {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::deliver_terminal_outbox_for_store;
+    use pi_coding_agent::bundled_extensions::agents_core::session_factories::{
+        ProductionAttachedSessionFactoryOptions, create_production_attached_session_factory,
+    };
+    let fixture = fixture();
+    let artifact_root = tempfile::tempdir().unwrap();
+    terminal_job_in_root(&fixture, "old_job", artifact_root.path().to_str().unwrap());
+    // Age an existing terminal artifact without generating an expired mailbox birth.
+    let db = pi_coding_agent::core::sqlite::create_sqlite_database(&fixture.control_db_path).unwrap();
+    db.execute("UPDATE multi_agent_agents SET data = json_set(data, '$.updatedAt', '2026-01-01T00:00:00.000Z'), updated_at = '2026-01-01T00:00:00.000Z' WHERE agent_id = 'old_job'", []).unwrap();
+    drop(db);
+    let persisted = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, "old_job")
+        .unwrap()
+        .unwrap();
+    let output = &persisted.result.as_ref().unwrap().file_refs.as_ref().unwrap()[0].path;
+    let directory = std::path::Path::new(&encode_node_utf8(output))
+        .parent()
+        .unwrap()
+        .to_path_buf();
+    assert!(directory.exists());
+    let _factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        agent_dir: Some(artifact_root.path().to_str().unwrap().into()),
+        browser_agent_config_root: None,
+        create_session: Arc::new(|_| Box::pin(async { Err("unused".into()) })),
+        extension_factories: None,
+        multi_agent_store: Some(Arc::clone(&fixture.store)),
+        session_dir: None,
+    });
+    assert_eq!(deliver_terminal_outbox_for_store(&fixture.store).unwrap(), 1.0);
+    assert!(
+        !directory.exists(),
+        "cleanup must use factory agentDir, not process default root"
     );
 }
 

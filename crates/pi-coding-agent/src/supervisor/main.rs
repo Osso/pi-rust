@@ -648,8 +648,8 @@ async fn evaluate_supervisor_prompt_inner(
         && let Some(compact) = session.compact(&SUPERVISOR_COMPACTION_INSTRUCTIONS.into())
     {
         compact.await?;
-        if let Some(session_id) = session.session_id() {
-            cleanup_supervisor_provider_context(&session_id);
+        if let Some(session_id) = session.session_id().filter(|id| !id.is_empty()) {
+            cleanup_supervisor_provider_context(&session_id)?;
         }
     }
     if signal.aborted() {
@@ -764,8 +764,8 @@ async fn apply_supervisor_review_decision(
 }
 
 /// `cleanupSupervisorProviderContext`.
-pub fn cleanup_supervisor_provider_context(session_id: &JsString) {
-    let _ = cleanup_session_resources(Some(session_id));
+pub fn cleanup_supervisor_provider_context(session_id: &JsString) -> Result<(), JsString> {
+    cleanup_session_resources(Some(session_id)).map_err(|error| error.to_string().into())
 }
 
 /// `readCurrentSupervisorResponse` over the current session branch.

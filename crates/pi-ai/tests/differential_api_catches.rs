@@ -60,6 +60,11 @@ async fn provider_payload_catches_keep_raw_values_and_branded_error_fields() {
             js_json!("callback rejected"),
             js_json!({"statusCode":422,"body":" validation body "}),
         ),
+        (
+            "error",
+            js_json!("callback rejected"),
+            js_json!({"error":{"metadata":{"raw":JsString::from("raw-\nprovider") + JsString::from_utf16(vec![0xd801])}}}),
+        ),
     ];
     let mut mismatches = Vec::new();
     let apis = apis

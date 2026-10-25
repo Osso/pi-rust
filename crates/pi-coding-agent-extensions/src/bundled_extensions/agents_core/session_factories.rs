@@ -17,15 +17,12 @@ use crate::core::extensions::types::{
     ViewedSessionMutationTarget,
 };
 use crate::core::multi_agent_store::{AgentSnapshot, AgentTranscriptMetadata, MultiAgentStore};
-use crate::core::permissions::policy::normalize_approval_policy;
-use crate::core::permissions::presets::approval_preset_for_policy;
 use crate::core::resource_loader::InlineExtension;
 use crate::core::sdk::CreateAgentSessionOptions;
 use crate::core::session_manager::{
     ForkEntrySelection, KnownSessionEntry, NewSessionOptions, SessionEntry, SessionManager, SharedSessionManager,
     lock_session_manager,
 };
-use crate::core::settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions};
 use crate::core::tool_capabilities::{CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES};
 
 use super::shared::{
@@ -95,7 +92,7 @@ pub fn is_production_child_session_factory(factory: &ChildAgentSessionFactory) -
 }
 
 const GOAL_EXTENSION_PATH: &str = "<first-party:goal>";
-const CHILD_AGENT_CONTROL_TOOL_NAMES: [&str; 3] = ["contact_parent", "send_agent_message", "end_turn"];
+const CHILD_AGENT_CONTROL_TOOL_NAMES: [&str; 4] = ["ask_questions", "contact_parent", "send_agent_message", "end_turn"];
 
 /// `extensionFactories?: ExtensionFactory[] | (() => ExtensionFactory[])`.
 #[derive(Clone)]
@@ -294,6 +291,7 @@ pub type CreateChildSessionManager =
 #[derive(Clone)]
 pub struct ProductionChildAgentSessionFactoryOptions {
     pub agent_dir: Option<JsString>,
+    pub browser_agent_config_root: Option<JsString>,
     pub create_session: CreateChildSession,
     pub create_session_manager: CreateChildSessionManager,
     pub extension_factories: Option<ChildExtensionFactories>,
@@ -305,6 +303,7 @@ pub struct ProductionChildAgentSessionFactoryOptions {
 pub fn create_production_child_agent_session_factory(
     options: ProductionChildAgentSessionFactoryOptions,
 ) -> ChildAgentSessionFactory {
+    super::runtime::remember_store_artifact_root(options.multi_agent_store.as_ref(), options.agent_dir.as_ref());
     ChildAgentSessionFactory::production(move |input| {
         let options = options.clone();
         Box::pin(async move { create_production_child_session(input, &options).await })
@@ -314,6 +313,7 @@ pub fn create_production_child_agent_session_factory(
 #[derive(Clone)]
 pub struct SharedProductionSessionOptions {
     pub agent_dir: Option<JsString>,
+    pub browser_agent_config_root: Option<JsString>,
     pub create_session: CreateChildSession,
     pub extension_factories: Option<ChildExtensionFactories>,
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
@@ -324,6 +324,7 @@ pub struct SharedProductionSessionOptions {
 #[derive(Clone)]
 pub struct ProductionAttachedSessionFactoryOptions {
     pub agent_dir: Option<JsString>,
+    pub browser_agent_config_root: Option<JsString>,
     pub create_session: CreateChildSession,
     pub extension_factories: Option<ChildExtensionFactories>,
     pub multi_agent_store: Option<Arc<MultiAgentStore>>,
@@ -334,6 +335,7 @@ impl From<&ProductionAttachedSessionFactoryOptions> for SharedProductionSessionO
     fn from(options: &ProductionAttachedSessionFactoryOptions) -> Self {
         Self {
             agent_dir: options.agent_dir.clone(),
+            browser_agent_config_root: options.browser_agent_config_root.clone(),
             create_session: Arc::clone(&options.create_session),
             extension_factories: options.extension_factories.clone(),
             multi_agent_store: options.multi_agent_store.clone(),
@@ -351,6 +353,7 @@ fn path_exists(path: &JsString) -> bool {
 pub fn create_production_attached_session_factory(
     options: ProductionAttachedSessionFactoryOptions,
 ) -> AttachedSessionFactory {
+    super::runtime::remember_store_artifact_root(options.multi_agent_store.as_ref(), options.agent_dir.as_ref());
     AttachedSessionFactory::new(move |input| {
         let options = options.clone();
         Box::pin(async move { create_production_attached_session(input, &options).await })
@@ -592,18 +595,35 @@ fn provider_tool_name(name: &JsString) -> Result<String, JsString> {
     })
 }
 
-fn resolve_child_agent_tools(tools: Option<Vec<String>>) -> Option<Vec<String>> {
+fn resolve_child_agent_tools(agent_type: &JsString, tools: Option<Vec<String>>) -> Option<Vec<String>> {
     let tools = tools?;
     let mut resolved: Vec<String> = Vec::new();
     for name in tools
         .into_iter()
         .chain(CHILD_AGENT_CONTROL_TOOL_NAMES.iter().map(|name| (*name).to_owned()))
+        .chain((agent_type == "browser").then(|| "read".to_owned()))
     {
         if !resolved.contains(&name) {
             resolved.push(name);
         }
     }
     Some(resolved)
+}
+
+fn create_browser_read_tools(
+    agent: &AgentSnapshot,
+    options: &SharedProductionSessionOptions,
+) -> Result<Vec<crate::core::extensions::types::ToolDefinition>, JsString> {
+    if agent.agent_type != "browser" {
+        return Ok(Vec::new());
+    }
+    let root = match options.browser_agent_config_root.as_ref() {
+        Some(root) => root,
+        None => super::runtime::default_browser_agent_config_root().map_err(|error| error.message)?,
+    };
+    Ok(vec![
+        crate::core::tools::read::create_agent_config_read_tool_definition(agent.cwd.clone(), root.clone()),
+    ])
 }
 
 fn create_session_start_event(
@@ -623,7 +643,6 @@ struct CreateBoundChildSessionInput {
     persist_for_recovery: bool,
     session_manager: SessionManager,
     session_start_event: SessionStartEvent,
-    settings_manager: Option<Arc<std::sync::Mutex<SettingsManager>>>,
 }
 
 fn create_child_agent_session_options(
@@ -639,12 +658,18 @@ fn create_child_agent_session_options(
             CHILD_DISABLED_AGENT_TOOL_NAMES
                 .iter()
                 .chain(SUPERVISOR_ONLY_TOOL_NAMES.iter())
+                .chain(std::iter::once(&"change_working_directory"))
                 .map(|name| (*name).to_owned())
                 .collect(),
         ),
         extension_factories: resolve_child_extension_factories(input.options.extension_factories.as_ref()),
-        model: profile.model.or_else(|| input.ctx.model().ok().flatten()),
-        tools: resolve_child_agent_tools(profile.tools),
+        model: match profile.model {
+            Some(model) => Some(model),
+            None => input.ctx.model().map_err(|error| error.message)?,
+        },
+        model_registry: Some((*input.ctx.model_registry().map_err(|error| error.message)?).clone()),
+        custom_tool_definitions: create_browser_read_tools(&input.agent, &input.options)?,
+        tools: resolve_child_agent_tools(&input.agent.agent_type, profile.tools),
         multi_agent_agent_id: Some(input.agent.id.clone()),
         multi_agent_parent_session_id: Some(parent_session_id),
         multi_agent_requires_agent_id: true,
@@ -652,7 +677,6 @@ fn create_child_agent_session_options(
         multi_agent_store: input.options.multi_agent_store.clone(),
         session_manager: Some(input.session_manager.clone()),
         session_start_event: Some(input.session_start_event.clone()),
-        settings_manager: input.settings_manager.clone(),
         thinking_level: profile.thinking_level,
         ..Default::default()
     })
@@ -760,6 +784,7 @@ async fn create_production_child_session(
         ctx: input.ctx,
         options: SharedProductionSessionOptions {
             agent_dir: options.agent_dir.clone(),
+            browser_agent_config_root: options.browser_agent_config_root.clone(),
             create_session: Arc::clone(&options.create_session),
             extension_factories: options.extension_factories.clone(),
             multi_agent_store: options.multi_agent_store.clone(),
@@ -768,7 +793,6 @@ async fn create_production_child_session(
         persist_for_recovery: true,
         session_manager,
         session_start_event: create_session_start_event(SessionStartReason::Fork, parent_session_file),
-        settings_manager: None,
     })
     .await
 }
@@ -798,11 +822,14 @@ fn open_attached_session_manager(
     if input.session_path.is_empty() {
         return Err("Cannot resume attached session without a session path".into());
     }
-    if !path_exists(&input.session_path) {
-        return Err(js_format!(
-            "Child agent transcript does not exist: {}",
-            input.session_path
-        ));
+    let control_db_path = input.ctx.control_db_path().map_err(|error| error.message)?;
+    let session_path = match control_db_path.as_ref() {
+        Some(db) => crate::core::session_archive_storage::restore_archived_session(db, &input.session_path)
+            .map_err(|error| error.message().clone())?,
+        None => input.session_path.clone(),
+    };
+    if !path_exists(&session_path) {
+        return Err(js_format!("Child agent transcript does not exist: {}", session_path));
     }
     let ctx_cwd = input.ctx.cwd().map_err(|error| error.message)?;
     if input.agent.cwd != ctx_cwd && !path_exists(&input.agent.cwd) {
@@ -815,40 +842,13 @@ fn open_attached_session_manager(
     let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
     let parent_session_dir = session_manager.get_session_dir().clone();
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent_session_dir));
-    let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_ref(), Some(&input.agent.cwd))
+    let mut session_manager = SessionManager::open(&session_path, session_dir.as_ref(), Some(&input.agent.cwd))
         .map_err(|error| error.message().clone())?;
     validate_attached_session_identity(&input.agent, &session_manager)?;
-    let control_db_path = input.ctx.control_db_path().map_err(|error| error.message)?;
     session_manager
         .set_metadata_control_db_path(control_db_path.as_ref(), Default::default())
         .map_err(|error| error.message().clone())?;
     Ok(session_manager)
-}
-
-fn create_attached_settings_manager(
-    agent: &AgentSnapshot,
-    agent_dir: Option<&JsString>,
-) -> Result<SettingsManager, JsString> {
-    let mut settings_manager = SettingsManager::create(
-        &agent.cwd,
-        agent_dir,
-        SettingsManagerCreateOptions {
-            project_trusted: Some(false),
-        },
-    )
-    .map_err(|error| error.message().to_owned())?;
-    let approval_policy = normalize_approval_policy(agent.permission.policy.to_utf8().ok().as_deref());
-    let mut overrides = Settings::new();
-    overrides.insert(
-        "approvalPolicy".into(),
-        JsValue::String(approval_policy.as_str().into()),
-    );
-    overrides.insert(
-        "approvalPreset".into(),
-        JsValue::String(approval_preset_for_policy(approval_policy).as_str().into()),
-    );
-    settings_manager.apply_overrides(&overrides);
-    Ok(settings_manager)
 }
 
 async fn create_production_attached_session(
@@ -861,7 +861,6 @@ async fn create_production_attached_session(
         let parent_manager = input.ctx.session_manager().map_err(|error| error.message)?;
         parent_manager.get_session_file()
     };
-    let settings_manager = create_attached_settings_manager(&input.agent, options.agent_dir.as_ref())?;
     create_bound_child_session(CreateBoundChildSessionInput {
         agent: input.agent,
         ctx: input.ctx,
@@ -869,7 +868,6 @@ async fn create_production_attached_session(
         persist_for_recovery: false,
         session_manager,
         session_start_event: create_session_start_event(SessionStartReason::Resume, parent_session_file),
-        settings_manager: Some(Arc::new(std::sync::Mutex::new(settings_manager))),
     })
     .await
 }

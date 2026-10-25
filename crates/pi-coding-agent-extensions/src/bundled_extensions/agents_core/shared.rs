@@ -118,6 +118,7 @@ pub fn empty_agent(agent_id: impl Into<JsString>) -> AgentSnapshot {
     let agent_id = agent_id.into();
     let timestamp = "1970-01-01T00:00:00.000Z".to_owned();
     AgentSnapshot {
+        key_order: Vec::new(),
         id: agent_id.clone(),
         parent_id: None,
         display_name: agent_id,

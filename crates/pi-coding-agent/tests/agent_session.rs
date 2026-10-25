@@ -1269,6 +1269,7 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
 fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
     use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSnapshot};
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::from(id.to_owned()),
         parent_id: None,
         display_name: JsString::from("Child"),
