@@ -428,12 +428,10 @@ async fn scripted_sessions_keep_their_responses_across_other_registry_refreshes(
     // Shared API names and refreshes must not change a test session's scripted transport.
     let first = idle_fixture("openai-codex-responses", json!({"retry":{"enabled":false}})).await;
     let second = idle_fixture("openai-codex-responses", json!({"retry":{"enabled":false}})).await;
-    first
-        .faux
-        .set_responses(vec![completed_timeout_response("first answer")]);
+    first.faux.set_responses(vec![completed_text_response("first answer")]);
     second
         .faux
-        .set_responses(vec![completed_timeout_response("second answer")]);
+        .set_responses(vec![completed_text_response("second answer")]);
     first.session.model_registry().refresh();
     let (first_result, second_result) = tokio::join!(
         first.session.prompt("first request", PromptOptions::default()),
@@ -885,7 +883,22 @@ async fn navigate_tree_moves_leaf_and_returns_editor_text() {
         .await
         .expect("prompt");
     let entries = fixture.session.session_manager().get_entries();
-    assert_eq!(entries.len(), 3, "restriction context + user + assistant");
+    assert_eq!(
+        entries.len(),
+        4,
+        "restriction context + user + assistant + end_turn result"
+    );
+    assert_eq!(entries[0].parent_id(), None);
+    for (index, role) in [(1, "user"), (2, "assistant"), (3, "toolResult")] {
+        let known = entries[index].known().expect("known message");
+        let pi_coding_agent::core::session_manager::KnownSessionEntry::Message(message) = known.as_ref() else {
+            panic!("expected message at index {index}");
+        };
+        assert_eq!(message.message.role(), role);
+    }
+    for pair in entries.windows(2) {
+        assert_eq!(pair[1].parent_id(), pair[0].id());
+    }
     assert_restriction_context(&entries[0], "first");
     let user_entry = entries[1].known().expect("known user entry");
     let pi_coding_agent::core::session_manager::KnownSessionEntry::Message(user) = user_entry.as_ref() else {
@@ -926,10 +939,22 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
         .await
         .expect("second prompt");
     let entries = fixture.session.session_manager().get_entries();
-    assert_eq!(entries.len(), 6, "two restriction contexts and two message pairs");
+    assert_eq!(
+        entries.len(),
+        8,
+        "two restriction contexts and two user/assistant/end_turn triples"
+    );
+    assert_eq!(entries[0].parent_id(), None);
     assert_restriction_context(&entries[0], "first");
-    assert_restriction_context(&entries[3], "second");
-    for (index, role) in [(1, "user"), (2, "assistant"), (4, "user"), (5, "assistant")] {
+    assert_restriction_context(&entries[4], "second");
+    for (index, role) in [
+        (1, "user"),
+        (2, "assistant"),
+        (3, "toolResult"),
+        (5, "user"),
+        (6, "assistant"),
+        (7, "toolResult"),
+    ] {
         let known = entries[index].known().expect("known message");
         let KnownSessionEntry::Message(message) = known.as_ref() else {
             panic!("expected message at index {index}");
@@ -2850,6 +2875,21 @@ async fn wait_for_faux_calls(fixture: &Fixture, count: u64) {
         tokio::task::yield_now().await;
     }
     panic!("expected {count} provider calls");
+}
+
+fn completed_text_response(text: &str) -> pi_ai::providers::faux::FauxResponseStep {
+    faux_assistant_message(
+        vec![
+            pi_ai::providers::faux::faux_text(text),
+            pi_ai::providers::faux::faux_tool_call(
+                "end_turn",
+                pi_js_compat::js_json::JsObject::from_iter([("reason".into(), JsValue::String(text.into()))]),
+                Some(format!("end-{text}")),
+            ),
+        ],
+        FauxAssistantMessageOptions::default(),
+    )
+    .into()
 }
 
 fn completed_timeout_response(text: &str) -> pi_ai::providers::faux::FauxResponseStep {
