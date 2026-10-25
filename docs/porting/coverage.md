@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 545, `gap` 21, `partial` 41, `todo` 79.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 546, `gap` 21, `partial` 41, `todo` 78.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -304,7 +304,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/examples/sdk/13-session-runtime.ts` | 67 | — | done | `crates/pi-coding-agent/examples/sdk/13_session_runtime.rs` | Native SDK program and pinned-program differential ([traceability](traceability/sdk-examples.md)). Test: `example_sdk_session_runtime`; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/agent-viewer/src/index.ts` | 6 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs` | Whole factory forwarding audit and exact frozen registration metadata differential; [traceability](traceability/agent-viewer.md). |
 | `coding-agent/extensions/agent-viewer/src/runtime.ts` | 255 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/viewer.rs` | Whole module audit; selector truthiness RED/GREEN; exact frozen text/details/metadata, memory and persisted behavioral branches plus seven same-DB/files historical trace cases; [traceability](traceability/agent-viewer.md). |
-| `coding-agent/extensions/agents-core/src/agent-model-tool.ts` | 154 | — | todo | — | new on master |
+| `coding-agent/extensions/agents-core/src/agent-model-tool.ts` | 154 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/agent_model_tool.rs` | Whole source audit; nine current frozen/native model-tool tests, effective model/effort and current/next request behavior, bidirectional process-owned SQLite state; production bound live-surface RED/GREEN; [traceability](traceability/agent-model-tool.md). |
 | `coding-agent/extensions/agents-core/src/child-response.ts` | 22 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/child_response.rs` | Whole module with current-turn Arc identity filtering, terminal errors and UTF-16; actual dispatch RED/GREEN and nine frozen differential vectors; [traceability](traceability/child-response.md). |
 | `coding-agent/extensions/agents-core/src/child-session.ts` | 56 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/session_factories.rs` | Whole bound session surface; async shutdown/finally disposal and four actual frozen success/failure vectors; production live-model forwarding and inherited message identity RED/GREEN; [traceability](traceability/child-session.md). |
 | `coding-agent/extensions/agents-core/src/descendant-settlement.ts` | 80 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/descendant_settlement.rs` | Whole module: persisted 250ms poll, missing/stale/deep/unrelated descendant cases, cancelling-abort RED/GREEN and frozen abort differential; [traceability](traceability/descendant-settlement.md). |
