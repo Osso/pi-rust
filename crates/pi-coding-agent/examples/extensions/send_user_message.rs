@@ -37,7 +37,7 @@ async fn deliver(
         ui.notify(
             &JsString::from(format!("Usage: /{name} <message>")),
             Some(NotifyType::Warning),
-        );
+        )?;
         return Ok(());
     }
     let idle = ctx.is_idle()?;
@@ -47,7 +47,7 @@ async fn deliver(
         } else {
             "Agent is busy"
         };
-        ui.notify(&JsString::from(message), Some(NotifyType::Warning));
+        ui.notify(&JsString::from(message), Some(NotifyType::Warning))?;
         return Ok(());
     }
     let content = if name == "askwith" {
@@ -72,7 +72,7 @@ async fn deliver(
     };
     api.send_user_message(content, options)?;
     if !idle && name == "followup" {
-        ui.notify(&JsString::from("Follow-up queued"), Some(NotifyType::Info));
+        ui.notify(&JsString::from("Follow-up queued"), Some(NotifyType::Info))?;
     }
     Ok(())
 }

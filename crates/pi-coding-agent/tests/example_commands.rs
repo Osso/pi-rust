@@ -52,11 +52,16 @@ impl ExtensionUiContext for CapturedUi {
         Box::pin(async move { Ok(confirmed) })
     }
 
-    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.actions
             .lock()
             .unwrap()
             .push(json!({"type":"notify", "message":message, "level":level}));
+        Ok(())
     }
 }
 

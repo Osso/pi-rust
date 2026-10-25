@@ -106,7 +106,7 @@ pub fn git_merge_and_resolve_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                     ctx.ui()?.notify(
                         &JsString::from(format!("git-merge-and-resolve: fetching {remote}, merging {reference}")),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     let fetch = git(&api, &["fetch", remote]).await?;
                     if fetch.code != 0 {
                         ctx.ui()?.notify(
@@ -115,7 +115,7 @@ pub fn git_merge_and_resolve_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                                 js_trim(&fetch.stderr)
                             )),
                             Some(NotifyType::Warning),
-                        );
+                        )?;
                         return Ok(None);
                     }
                     if git(&api, &["merge", "--no-ff", &reference]).await?.code == 0 {

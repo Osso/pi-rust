@@ -7,8 +7,8 @@ use crate::core::desktop_notification::{
 };
 use crate::core::extensions::types::ContextTool;
 use crate::core::extensions::types::{
-    ExtensionContext, ExtensionMode, ExtensionUiContext, NotifyType, ToolDefinition, ToolRenderContext,
-    ToolRenderResultOptions, infallible_render_call, infallible_render_result,
+    ExtensionContext, ExtensionMode, ExtensionUiContext, HandlerError, NotifyType, ToolDefinition, ToolRenderContext,
+    ToolRenderResultOptions,
 };
 use crate::core::session_control_db::{
     EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind, RuntimeMailboxStoreRef,
@@ -264,7 +264,10 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
         .session_manager()
         .map_err(|error| ToolError::new(error.message))?;
     let manager = lock_session_manager(&session);
-    let (Some(db), Some(path)) = (db, manager.get_session_file()) else {
+    let (Some(db), Some(path)) = (
+        db.filter(|path| !path.is_empty()),
+        manager.get_session_file().filter(|path| !path.is_empty()),
+    ) else {
         return Err(ToolError::new(
             "Nonblocking ask_questions requires a persisted session and control database",
         ));
@@ -295,7 +298,7 @@ async fn deliver_queued(
     request: JsString,
     pending: oneshot::Receiver<Result<PanelResult, JsString>>,
     _queue: Arc<QuestionQueue>,
-) {
+) -> Result<(), pi_js_compat::callback_error::CallbackError> {
     let body = match pending
         .await
         .map_err(|error| JsString::from(error.to_string()))
@@ -304,7 +307,7 @@ async fn deliver_queued(
         Ok(result) => format_queued_result(&request, &result),
         Err(error) => {
             let body = js_format!("Questions failed (request {}): {}", request, error);
-            ui.notify(&body, Some(NotifyType::Error));
+            ui.notify(&body, Some(NotifyType::Error))?;
             body.into()
         }
     };
@@ -331,8 +334,9 @@ async fn deliver_queued(
             error.message()
         );
         eprintln!("{}", encode_node_utf8(&message));
-        ui.notify(&message, Some(NotifyType::Error));
+        ui.notify(&message, Some(NotifyType::Error))?;
     }
+    Ok(())
 }
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AskQuestionsTool;
@@ -367,12 +371,11 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
         _execution: Option<AgentToolExecutionContext>,
     ) -> BoxFuture<'static, Result<AgentToolResult, ToolError>> {
         Box::pin(async move {
+            let parsed = parse_params(&params)?;
             let context =
                 context.ok_or_else(|| ToolError::new("Cannot read properties of undefined (reading 'hasUI')"))?;
-            let parsed = parse_params(&params)?;
             let has_ui = context.has_ui().map_err(|error| ToolError::new(error.message))?;
-            let mode = context.mode().map_err(|error| ToolError::new(error.message))?;
-            if !has_ui || mode != ExtensionMode::Tui {
+            if !has_ui || context.mode().map_err(|error| ToolError::new(error.message))? != ExtensionMode::Tui {
                 let result = question_result(
                     &params,
                     "Error: ask_questions requires an interactive TUI session",
@@ -393,7 +396,16 @@ impl ContextTool<Option<ExtensionContext>> for AskQuestionsTool {
             };
             let (queue, pending) = queue_questions(ui.clone(), parsed.questions);
             if let Some(target) = target {
-                tokio::spawn(deliver_queued(ui, target, tool_call_id.clone().into(), pending, queue));
+                let request: JsString = tool_call_id.clone().into();
+                tokio::spawn(async move {
+                    // Frozen ask-questions.ts:314-316 owns the outer delivery-handler catch.
+                    if let Err(error) = deliver_queued(ui, target, request.clone(), pending, queue).await {
+                        crate::core::desktop_notification::report_callback_error(
+                            js_format!("Failed question delivery handler (request {}):", request),
+                            &error,
+                        );
+                    }
+                });
                 let mut result = question_result(
                     &params,
                     format!(
@@ -449,7 +461,7 @@ pub fn notify_ask_questions_waiting(
     match notifier.notify(&notification) {
         Ok(handle) => handle,
         Err(error) => {
-            crate::core::desktop_notification::report_desktop_notification_error(
+            crate::core::desktop_notification::report_callback_error(
                 "Failed to send ask_questions desktop notification:",
                 &error,
             );
@@ -462,7 +474,7 @@ pub fn close_ask_questions_notification(notification: Option<Box<dyn DesktopNoti
     if let Some(notification) = notification
         && let Err(error) = notification.close()
     {
-        crate::core::desktop_notification::report_desktop_notification_error(
+        crate::core::desktop_notification::report_callback_error(
             "Failed to close ask_questions desktop notification:",
             &error,
         );
@@ -506,34 +518,42 @@ fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> JsString {
     }
     JsString::join(&lines, "\n")
 }
-pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> ComponentRef {
-    super::render_text_component(context, call_text(args, &context.state.get()["details"], theme))
+pub fn render_call(args: &JsValue, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
+    super::render_utils::set_text_component(call_text(args, &context.state.get()["details"], theme), context)
 }
 pub fn render_result(
     result: &AgentToolResult,
     _options: &ToolRenderResultOptions,
     theme: &Theme,
     context: &ToolRenderContext,
-) -> ComponentRef {
+) -> Result<ComponentRef, HandlerError> {
     context
         .state
         .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null.into()));
-    if let Some(component) = &context.call_component
-        && let Some(text) = component
-            .borrow_mut()
+    if let Some(component) = &context.call_component {
+        let mut component = component.borrow_mut();
+        let text = component
             .as_any_mut()
             .and_then(|component| component.downcast_mut::<pi_tui::Text>())
-    {
+            .ok_or_else(|| {
+                HandlerError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                    pi_js_compat::node_error::NativeErrorClass::TypeError,
+                    "state.callText?.setText is not a function",
+                ))
+            })?;
         text.set_text(call_text(&context.args, &context.state.get()["details"], theme));
     }
-    super::render_text_component(context, JsString::default())
+    if let Some(component) = &context.last_component {
+        return Ok(component.clone());
+    }
+    super::render_utils::set_text_component(JsString::default(), context)
 }
 pub fn create_ask_questions_tool_definition() -> ToolDefinition {
     let mut definition = crate::core::extensions::wrapper::context_tool_definition(Arc::new(AskQuestionsTool::new()));
     definition.prompt_snippet = Some(PROMPT_SNIPPET.into());
     definition.prompt_guidelines = Some(PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect());
     definition.approval_required = Some(false);
-    definition.render_call = Some(infallible_render_call(render_call));
-    definition.render_result = Some(infallible_render_result(render_result));
+    definition.render_call = Some(Arc::new(render_call));
+    definition.render_result = Some(Arc::new(render_result));
     definition
 }

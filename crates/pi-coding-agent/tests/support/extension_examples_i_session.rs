@@ -119,8 +119,13 @@ impl ExtensionUiContext for Ui {
     fn theme(&self) -> Arc<Theme> {
         self.theme.clone()
     }
-    fn notify(&self, s: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        s: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.trace.lock().unwrap().push(json!(["notify", s, level]));
+        Ok(())
     }
     fn editor<'a>(
         &'a self,

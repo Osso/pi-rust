@@ -41,7 +41,7 @@ pub fn rpc_demo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let ui = ctx.ui()?;
                 ui.set_editor_text(&"This text was set by the rpc-demo extension.".into());
-                ui.notify(&"Editor prefilled".into(), Some(NotifyType::Info));
+                ui.notify(&"Editor prefilled".into(), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),
@@ -116,7 +116,7 @@ async fn confirm_clear(
     {
         return Ok(None);
     }
-    ui.notify(&"Clear cancelled".into(), Some(NotifyType::Info));
+    ui.notify(&"Clear cancelled".into(), Some(NotifyType::Info))?;
     Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) }))
 }
 async fn prompt_input(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
@@ -128,7 +128,7 @@ async fn prompt_input(ctx: ExtensionCommandContext) -> Result<(), HandlerError> 
         .filter(|v| !v.is_empty())
         .map(|v| js_format!("You entered: {}", v))
         .unwrap_or_else(|| "Input cancelled".into());
-    ui.notify(&message, Some(NotifyType::Info));
+    ui.notify(&message, Some(NotifyType::Info))?;
     Ok(())
 }
 async fn prompt_editor(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
@@ -140,7 +140,7 @@ async fn prompt_editor(ctx: ExtensionCommandContext) -> Result<(), HandlerError>
         .filter(|t| !t.is_empty())
         .map(|t| js_format!("Editor submitted ({} lines)", t.split('\n').count()))
         .unwrap_or_else(|| "Editor cancelled".into());
-    ui.notify(&message, Some(NotifyType::Info));
+    ui.notify(&message, Some(NotifyType::Info))?;
     Ok(())
 }
 async fn confirm_dangerous(
@@ -171,10 +171,10 @@ async fn confirm_dangerous(
         )
         .await?;
     if choice.as_ref().is_none_or(|choice| *choice != "Allow") {
-        ui.notify(&"Command blocked by user".into(), Some(NotifyType::Warning));
+        ui.notify(&"Command blocked by user".into(), Some(NotifyType::Warning))?;
         return Ok(Some(block("Blocked by user")));
     }
-    ui.notify(&"Command allowed".into(), Some(NotifyType::Info));
+    ui.notify(&"Command allowed".into(), Some(NotifyType::Info))?;
     Ok(None)
 }
 fn block(reason: &str) -> ToolCallEventResult {

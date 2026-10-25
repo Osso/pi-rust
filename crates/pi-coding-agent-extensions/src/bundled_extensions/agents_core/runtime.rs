@@ -255,7 +255,7 @@ pub fn jobs_command(store: &MultiAgentStore, ctx: &ExtensionCommandContext) -> R
         .collect();
     let ui = ctx.ui()?;
     if agents.is_empty() {
-        ui.notify(&"No background jobs.".into(), Some(NotifyType::Info));
+        ui.notify(&"No background jobs.".into(), Some(NotifyType::Info))?;
         return Ok(());
     }
     ui.notify(
@@ -267,7 +267,7 @@ pub fn jobs_command(store: &MultiAgentStore, ctx: &ExtensionCommandContext) -> R
             "\n",
         ),
         Some(NotifyType::Info),
-    );
+    )?;
     Ok(())
 }
 

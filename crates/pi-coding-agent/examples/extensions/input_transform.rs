@@ -26,7 +26,7 @@ pub(crate) fn register_with_clock(
                     let query = query.trim();
                     if query.is_empty() {
                         ctx.ui()?
-                            .notify(&JsString::from("Usage: ?quick <question>"), Some(NotifyType::Warning));
+                            .notify(&JsString::from("Usage: ?quick <question>"), Some(NotifyType::Warning))?;
                         return Ok(Some(InputEventResult::Handled));
                     }
                     return Ok(Some(InputEventResult::Transform {
@@ -36,12 +36,12 @@ pub(crate) fn register_with_clock(
                 }
                 // Only ASCII input can lowercase to either ASCII keyword in JS.
                 if event.text.to_lowercase() == "ping" {
-                    ctx.ui()?.notify(&JsString::from("pong"), Some(NotifyType::Info));
+                    ctx.ui()?.notify(&JsString::from("pong"), Some(NotifyType::Info))?;
                     return Ok(Some(InputEventResult::Handled));
                 }
                 if event.text.to_lowercase() == "time" {
                     let time = date::to_locale_string(now() as f64, date::LocaleDateFormat::DateTimeEnUs);
-                    ctx.ui()?.notify(&JsString::from(&time), Some(NotifyType::Info));
+                    ctx.ui()?.notify(&JsString::from(&time), Some(NotifyType::Info))?;
                     return Ok(Some(InputEventResult::Handled));
                 }
                 Ok(Some(InputEventResult::Continue))

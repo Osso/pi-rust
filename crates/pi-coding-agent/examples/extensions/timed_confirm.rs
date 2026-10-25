@@ -30,7 +30,7 @@ pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         "Cancelled or timed out"
                     }),
                     Some(NotifyType::Info),
-                );
+                )?;
                 Ok(())
             })
         }),
@@ -57,7 +57,7 @@ pub fn timed_confirm_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     Some(choice) => js_format!("Selected: {}", choice),
                     None => "Selection cancelled or timed out".into(),
                 };
-                ui.notify(&JsString::from(&message), Some(NotifyType::Info));
+                ui.notify(&JsString::from(&message), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),
@@ -84,7 +84,7 @@ async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), Handler
     ui.notify(
         &JsString::from("Dialog will auto-cancel in 5 seconds..."),
         Some(NotifyType::Info),
-    );
+    )?;
     let options = ExtensionUiDialogOptions {
         signal: Some(signal.clone()),
         ..Default::default()
@@ -104,6 +104,6 @@ async fn confirm_with_signal(ctx: ExtensionCommandContext) -> Result<(), Handler
     } else {
         ("Cancelled by user", NotifyType::Info)
     };
-    ui.notify(&JsString::from(message), Some(level));
+    ui.notify(&JsString::from(message), Some(level))?;
     Ok(())
 }

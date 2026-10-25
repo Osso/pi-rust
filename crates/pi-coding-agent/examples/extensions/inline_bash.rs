@@ -89,7 +89,7 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             JsString::join(summaries, "\n")
                         ),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 }
                 Ok(Some(InputEventResult::Transform {
                     text: result,

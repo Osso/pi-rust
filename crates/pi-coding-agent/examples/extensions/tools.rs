@@ -51,7 +51,7 @@ pub fn tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 if ctx.mode()? != ExtensionMode::Tui {
                     ctx.ui()?
-                        .notify(&JsString::from("/tools requires TUI mode"), Some(NotifyType::Error));
+                        .notify(&JsString::from("/tools requires TUI mode"), Some(NotifyType::Error))?;
                     return Ok(());
                 }
                 let names = api.get_all_tools()?.into_iter().map(|t| t.name).collect::<Vec<_>>();

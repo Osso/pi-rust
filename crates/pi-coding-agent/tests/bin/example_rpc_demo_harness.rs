@@ -59,7 +59,7 @@ async fn main() {
                     ui.notify(
                         &js_format!("fixture result: {}", js_json::stringify_lossless(&result)),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     Ok(())
                 })
             }),
