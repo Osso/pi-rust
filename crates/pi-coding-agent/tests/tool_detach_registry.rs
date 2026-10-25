@@ -106,7 +106,7 @@ fn detach_running_without_handles_is_false() {
 
 #[tokio::test]
 async fn auto_detaches_still_registered_handles_after_the_timeout() {
-    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20));
+    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20.0));
     let log = Arc::new(Mutex::new(Vec::new()));
     let handle = RecordingHandle::new("timed", true, &log);
     let _subscription = registry.register(handle.clone());
@@ -119,7 +119,7 @@ async fn auto_detaches_still_registered_handles_after_the_timeout() {
 
 #[tokio::test]
 async fn auto_detach_skips_handles_unregistered_before_the_timeout() {
-    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20));
+    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20.0));
     let log = Arc::new(Mutex::new(Vec::new()));
     let handle = RecordingHandle::new("released", true, &log);
     let subscription = registry.register(handle.clone());
@@ -133,7 +133,7 @@ async fn auto_detach_skips_handles_unregistered_before_the_timeout() {
 
 #[tokio::test]
 async fn every_registration_gets_its_own_timer() {
-    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20));
+    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(20.0));
     let log = Arc::new(Mutex::new(Vec::new()));
     let first = RecordingHandle::new("first", true, &log);
     let second = RecordingHandle::new("second", true, &log);

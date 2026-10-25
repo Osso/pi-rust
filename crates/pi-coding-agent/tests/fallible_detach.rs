@@ -147,7 +147,7 @@ fn automatic_detach_throw_probe() {
         .unwrap();
         output.flush().unwrap();
     })));
-    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(1));
+    let registry = Arc::new(ToolDetachRegistry::with_auto_detach_after_ms(1.0));
     let _subscription = registry.register(Arc::new(ThrowingHandle {
         reason: fixture_error(&input),
         calls: Arc::new(Mutex::new(Vec::new())),
