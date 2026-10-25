@@ -279,7 +279,7 @@ fn capture_inbox(context: &ExtensionContext) -> Result<InboxTarget, ToolError> {
         db,
         path: path.to_owned(),
         recipient: RuntimeMailboxAddress {
-            session_id: manager.get_session_id().into(),
+            session_id: manager.get_session_id(),
             agent_id: context
                 .multi_agent_agent_id()
                 .map_err(|error| ToolError::new(error.message))?,
@@ -315,7 +315,7 @@ async fn deliver_queued(
                 error.error_or_string_message()?
             );
             ui.notify(&body, Some(NotifyType::Error))?;
-            body.into()
+            body
         }
     };
     let message_id = js_format!("ask_questions:{}", request);
@@ -328,8 +328,8 @@ async fn deliver_queued(
         },
         kind: RuntimeMailboxMessageKind::Reply,
         store_ref: RuntimeMailboxStoreRef {
-            message_id: message_id.clone().into(),
-            session_path: target.path.into(),
+            message_id: message_id.clone(),
+            session_path: target.path,
         },
         updated_at: None,
         message: json!({"body":body,"id":message_id,"kind":"reply","status":"pending","fromAgentId":"main","toAgentId":target.recipient.agent_id.as_ref().cloned().unwrap_or_else(|| "main".into())}),
@@ -509,7 +509,7 @@ fn call_text(args: &JsValue, details: &Value, theme: &Theme) -> JsString {
     };
     let mut lines = vec![js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_questions")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("ask_questions")),
         theme.fg(ThemeColor::Accent, &label)
     )];
     for question in questions {
@@ -549,7 +549,7 @@ pub fn render_result(
 ) -> Result<ComponentRef, HandlerError> {
     context
         .state
-        .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null.into()));
+        .update(|state| state["details"] = result.details.clone().unwrap_or(Value::Null));
     if let Some(component) = &context.call_component {
         let mut component = component.borrow_mut();
         let text = component

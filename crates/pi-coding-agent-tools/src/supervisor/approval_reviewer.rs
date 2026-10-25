@@ -48,7 +48,7 @@ fn block(reason: JsString) -> ToolCallEventResult {
     ToolCallEventResult {
         block: Some(true),
         input: None,
-        reason: Some(reason.into()),
+        reason: Some(reason),
         terminate: None,
     }
 }

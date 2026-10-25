@@ -1198,7 +1198,7 @@ impl DefaultResourceLoader {
                 .errors
                 .push(crate::core::extensions::types::ExtensionLoadError {
                     path: conflict.path,
-                    error: conflict.message.into(),
+                    error: conflict.message,
                 });
         }
     }

@@ -911,7 +911,7 @@ impl ExtensionRunner {
         let name = name.into();
         self.resolve_registered_commands()
             .into_iter()
-            .find(|command| JsString::from(&command.invocation_name) == name)
+            .find(|command| name == command.invocation_name)
     }
 
     pub fn get_prompt_command(&self, name: impl Into<JsString>) -> Option<ResolvedCommand> {
@@ -919,10 +919,7 @@ impl ExtensionRunner {
         if let Some(command) = self.get_command(&name) {
             return Some(command);
         }
-        let (name, handler) = self
-            .internal_commands
-            .iter()
-            .find(|(key, _)| JsString::from(*key) == name)?;
+        let (name, handler) = self.internal_commands.iter().find(|(key, _)| name == **key)?;
         Some(ResolvedCommand {
             name: name.into(),
             source_info: SourceInfo {

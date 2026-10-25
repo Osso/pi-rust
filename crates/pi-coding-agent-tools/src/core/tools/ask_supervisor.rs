@@ -179,7 +179,7 @@ fn require_control_db_path(context: &ExtensionContext, tool_name: &str) -> Resul
 }
 
 fn format_call(theme: &Theme) -> JsString {
-    theme.fg(ThemeColor::ToolTitle, &theme.bold("ask_supervisor"))
+    theme.fg(ThemeColor::ToolTitle, theme.bold("ask_supervisor"))
 }
 
 /// `renderCall` for the ask_supervisor tool.

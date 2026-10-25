@@ -167,16 +167,16 @@ fn rgb_color_pattern() -> &'static JsRegex {
 fn parse_color(color: &JsString) -> Option<Rgb> {
     if let Some(captures) = hex_color_pattern().captures(color) {
         return Some(Rgb {
-            r: parse_int(&captures.get(1).expect("red capture").text().units().to_vec(), 16),
-            g: parse_int(&captures.get(2).expect("green capture").text().units().to_vec(), 16),
-            b: parse_int(&captures.get(3).expect("blue capture").text().units().to_vec(), 16),
+            r: parse_int(captures.get(1).expect("red capture").text().units(), 16),
+            g: parse_int(captures.get(2).expect("green capture").text().units(), 16),
+            b: parse_int(captures.get(3).expect("blue capture").text().units(), 16),
         });
     }
     let captures = rgb_color_pattern().captures(color)?;
     Some(Rgb {
-        r: parse_int(&captures.get(1).expect("red capture").text().units().to_vec(), 10),
-        g: parse_int(&captures.get(2).expect("green capture").text().units().to_vec(), 10),
-        b: parse_int(&captures.get(3).expect("blue capture").text().units().to_vec(), 10),
+        r: parse_int(captures.get(1).expect("red capture").text().units(), 10),
+        g: parse_int(captures.get(2).expect("green capture").text().units(), 10),
+        b: parse_int(captures.get(3).expect("blue capture").text().units(), 10),
     })
 }
 
@@ -483,14 +483,14 @@ pub async fn export_session_to_html(
         header: sm.get_header().cloned(),
         entries,
         leaf_id: sm.get_leaf_id().cloned(),
-        system_prompt: state.map(|state| state.system_prompt.clone().into()),
+        system_prompt: state.map(|state| state.system_prompt.clone()),
         tools: state.map(|state| {
             state
                 .tools
                 .iter()
                 .map(|tool| ToolSummary {
                     name: tool.name().to_owned(),
-                    description: tool.description().to_owned().into(),
+                    description: tool.description().to_owned(),
                     parameters: tool.parameters().clone().into(),
                 })
                 .collect()

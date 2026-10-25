@@ -281,11 +281,11 @@ impl ContextTool<Option<ExtensionContext>> for ChangeWorkingDirectoryTool {
                 .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
                 .map_err(|error| ToolError::new(error.message))?;
             let mut details = Map::new();
-            details.insert("previousCwd".into(), Value::String(previous_cwd.into()));
-            details.insert("cwd".into(), Value::String(resolved.cwd.clone().into()));
+            details.insert("previousCwd".into(), Value::String(previous_cwd));
+            details.insert("cwd".into(), Value::String(resolved.cwd.clone()));
             details.insert("source".into(), Value::String(resolved.source.to_owned().into()));
             if let Some(session_id) = resolved.session_id {
-                details.insert("sessionId".into(), Value::String(session_id.into()));
+                details.insert("sessionId".into(), Value::String(session_id));
             }
             Ok(terminating_text_result(
                 js_format!("Changed working directory to {}", resolved.cwd),
@@ -310,7 +310,7 @@ fn format_call(args: &JsValue, theme: &Theme) -> JsString {
         .unwrap_or_else(|| "target".into());
     js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("change_working_directory")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("change_working_directory")),
         theme.fg(ThemeColor::Accent, &target)
     )
 }

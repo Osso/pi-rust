@@ -196,10 +196,7 @@ fn execute_code_index(
         let mut text = truncation.content.clone();
         let mut details = Map::new();
         if truncation.truncated {
-            text.push_str(&format!(
-                "\n\n[{} limit reached]",
-                format_size(DEFAULT_MAX_BYTES as f64)
-            ));
+            text.push_str(format!("\n\n[{} limit reached]", format_size(DEFAULT_MAX_BYTES as f64)));
             details.insert(
                 "truncation".into(),
                 pi_js_compat::js_json::to_value(&truncation).expect("truncation metadata must serialize"),
@@ -459,14 +456,14 @@ fn format_code_index_call(
     let invalid_arg = invalid_arg_text(theme);
     let mut text = js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold(tool_name)),
+        theme.fg(ThemeColor::ToolTitle, theme.bold(tool_name)),
         match target {
             None => invalid_arg,
             Some(target) => theme.fg(ThemeColor::Accent, &shorten_path(&target)?),
         }
     );
     if let Some(suffix) = suffix.filter(|suffix| !suffix.is_empty()) {
-        text.push_str(&theme.fg(ThemeColor::ToolOutput, js_format!(" {}", suffix)));
+        text.push_str(theme.fg(ThemeColor::ToolOutput, js_format!(" {}", suffix)));
     }
     Ok(text)
 }
@@ -494,7 +491,7 @@ fn format_code_index_result(
         if remaining > 0 {
             text.push_str(js_format!(
                 "{}{}{}",
-                theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")),
+                theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")),
                 key_hint("app.tools.expand", "to expand"),
                 theme.fg(ThemeColor::Muted, ")")
             ));
@@ -511,7 +508,7 @@ fn format_code_index_result(
             "\n{}",
             theme.fg(
                 ThemeColor::Warning,
-                &format!("[Truncated: {} limit]", format_size(truncation.max_bytes))
+                format!("[Truncated: {} limit]", format_size(truncation.max_bytes))
             )
         ));
     }
