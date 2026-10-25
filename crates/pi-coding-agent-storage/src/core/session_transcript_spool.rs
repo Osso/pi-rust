@@ -6,7 +6,7 @@ use super::session_transcript::{
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8, parse_lossless, stringify_lossless};
 use pi_js_compat::node_error::NativeNodeError;
-use pi_js_compat::node_fs::{node_file_write_error_record, node_fs_error_record};
+use pi_js_compat::node_fs::{node_file_write_error_record, node_fs_error_record, node_rm_recursive_error_record};
 use std::fs::{self, OpenOptions};
 use std::io::{self, Read, Write};
 use std::path::Path;
@@ -165,14 +165,16 @@ pub fn with_seekable_session_transcript<T>(
         Path::new(&encode_node_utf8(&errors)),
     )
     .and_then(|()| read(&plain));
-    match fs::remove_dir_all(encode_node_utf8(&directory)) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => {}
-        Err(error) => {
-            return Err(CallbackError::from(NativeNodeError::from(node_fs_error_record(
-                &error, "rmdir", &directory,
-            ))));
-        }
-    }
+    remove_spool_directory(&directory)?;
     result
+}
+
+fn remove_spool_directory(directory: &JsString) -> Result<(), CallbackError> {
+    match fs::remove_dir_all(encode_node_utf8(directory)) {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(CallbackError::from(NativeNodeError::from(
+            node_rm_recursive_error_record(&error, directory),
+        ))),
+    }
 }
