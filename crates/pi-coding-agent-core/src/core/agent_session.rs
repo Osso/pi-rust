@@ -6570,8 +6570,7 @@ impl AgentSession {
         }
 
         let direct_context_tokens = crate::core::compaction::calculate_context_tokens(&assistant_message.usage);
-        let mut context_tokens = direct_context_tokens;
-        if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
+        let context_tokens = if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
             let messages = self.inner.agent.messages();
             let estimate = crate::core::compaction::estimate_context_tokens(&messages);
             let Some(last_usage_index) = estimate.last_usage_index else {
@@ -6585,11 +6584,10 @@ impl AgentSession {
             {
                 return Ok(false);
             }
-            context_tokens = estimate.tokens;
+            estimate.tokens
         } else {
-            context_tokens =
-                self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent);
-        }
+            self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent)
+        };
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
