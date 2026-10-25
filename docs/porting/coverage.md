@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 607, `gap` 25, `partial` 28, `todo` 26.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 611, `gap` 25, `partial` 27, `todo` 23.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -196,7 +196,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/retry.ts` | 125 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Whole frozen two-export classifier audit;508requests/1016booleans direct-source GREEN. Source-absent policy/callback/loop and obsolete tests removed after consumer retirement. [Traceability](traceability/retry.md). |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)).; re-run vs 4f9e6f8a4 pending |
-| `ai/src/utils/validation.ts` | 324 | 2 | todo | `crates/pi-ai/src/utils/validation.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/utils/validation.rs`; Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
+| `ai/src/utils/validation.ts` | 324 | 2 | done | `crates/pi-ai/src/utils/validation.rs` | Whole frozen clone/convert/coercion/check/error audit;6source differential+28native tests and six actual built-in history-tool Integer cases GREEN. Synthetic Unsafe-kind gap classified; no new carrier. [Trace](traceability/validation.md). |
 | `ai/vitest.config.ts` | 9 | — | gap | — | Test-only Vitest configuration is not ported; explicit user waiver revalidated 2026-10-25. [Trace](traceability/ai-vitest-config.md). |
 
 ## coding-agent (458 files, 123087 lines)

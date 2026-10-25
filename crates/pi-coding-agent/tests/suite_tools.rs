@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "validation_history_tool.rs"]
+pub mod validation_history_tool;
+
 #[path = "ask_questions_tool.rs"]
 pub mod ask_questions_tool;
 #[path = "bash_executor.rs"]

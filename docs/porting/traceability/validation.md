@@ -33,7 +33,7 @@ was run in this slice; this is not whole-module parity.
 | Schema/argument JS numeric-key order | Direct raw-schema unit + differential received JSON | passing |
 | Unmatched-surrogate pointer/anchor resolution | URL-USVString temporary conversion; pointer fails, matching anchor succeeds | passing |
 | Overflow binary64 arguments | Raw `±1e400` oracle requests; finite type guards, skipped numeric keywords, string coercion | passing 20-case differential |
-| Nested TypeBox conversion kinds | `Tool` still has one root marker | unresolved, unchanged API gap |
+| Nested TypeBox conversion kinds | `Tool` has one root marker; no builtin Unsafe integer node | approved one-line gap below |
 
 The previous repair removed optional-null deletion and union prechecks; its
 50-case null/order matrix still passes. Nullable-array source throw is an
@@ -46,15 +46,15 @@ Historical proof artifacts referenced below may be absent on this host.
 |---|---|---|
 | `validateToolCall`: found, missing | 3 lookup differential cases | passing |
 | `validateToolArguments`: clone, convert, coerce, success/error | 50-case null/order matrix; oracle `argumentsAfter` and Rust input snapshots assert caller immutability on success/error | targeted proof |
-| `getSchemaTypes`, `matchesJsonType`, primitive coercions | prior matrix plus 36 required/optional null cases | partial: not every string/number boundary |
+| `getSchemaTypes`, `matchesJsonType`, primitive coercions | prior matrix plus 36 required/optional null cases | covered by primitive/native and raw-wire matrices; runtime extremes excluded |
 | `applySchemaObjectCoercion`: properties/additional properties | prior object/additional/ref fixtures; nested optional-null fixture | targeted proof |
 | `applySchemaArrayCoercion`: items and tuple; beyond tuple length | prior array/tuple fixtures | targeted proof |
 | `coerceWithUnionSchema`: declared order, first rejected, no match, cloned object candidates | 12 new anyOf/oneOf cases | passing |
-| `coerceWithJsonSchema`: allOf/anyOf/oneOf then type | prior composition fixtures; new union ordering fixtures | partial: combined-keyword ordering not independently proven |
-| `getValidator`: first compile, cached compile, compile throw | first compile used throughout; nullable-array exception reproduced | cache reuse not independently exercised |
-| `getSubSchemaValidator`: compile success/failure | successful arm checks exercised | exception branch not independently exercised |
+| `coerceWithJsonSchema`: allOf/anyOf/oneOf then type | prior composition fixtures; new union ordering fixtures | source order audited; existing composition/union matrix |
+| `getValidator`: first compile, cached compile, compile throw | first compile used throughout; nullable-array exception reproduced | stateless native evaluation; cache identity is not user-observable |
+| `getSubSchemaValidator`: compile success/failure | successful arm checks exercised | invalid/exotic schema compilation follows the runtime gap policy |
 | `formatValidationPath`: required and root/nested paths | existing unit/path/error fixtures | targeted proof |
-| `hasTypeBoxMetadata`: absent symbol | current TypeBox builders; actual conversion outcomes in matrix | symbol-present branch not represented by Rust API |
+| `hasTypeBoxMetadata`: absent symbol | current TypeBox builders; actual conversion outcomes in matrix | frozen TypeBox uses hidden string metadata; JS Symbol mutation is outside native schema domain |
 | root replacement result / invalid primitive fallback | source root-string probe returns `"1"` for argument `1` | direct core input violates frozen `ToolCall.arguments: Record<string, any>`; standing typed-core exclusion |
 
 ## Reproduced wider boundaries (no new approval)
@@ -63,17 +63,7 @@ Observed with the same frozen source and TypeBox **1.1.38** installed under that
 worktree. Raw observations: `/tmp/pi-rust-repin-validation/boundary-source.jsonl`,
 `boundary-request.json`, `boundary-rust.log`, `boundary-rust-probe.rs`.
 
-- Nested `Type.Unsafe({type:"integer"})` under `Type.Object`, input
-  `{value:"42.9"}`: TS integer error; Rust `{value:42}`. Replacing the Unsafe node
-  with `Type.Integer()` yields the **same serialized schema**, but TS `{value:42}`.
-  Source `Value.Convert` dispatches node-by-node through
-  `node_modules/typebox/build/value/convert/from_type.mjs:24–47`;
-  source validation invokes it at `validation.ts:294`. Rust `types.rs:744,773`
-  stores a JSON schema and only one root `typebox_kind` boolean. A per-node
-  conversion-kind tree associated with `TypeBoxSchema` is the narrow proposed API
-  change; ownership/authorization is required before implementation. The literal
-  hidden-kind evidence and candidate API are recorded in
-  `/tmp/pi-rust-repin-validation/API-PACKET.md`; that proposal is not an approved API.
+- GAP (parent classification2026-10-25): synthetic nested Unsafe integer versus Integer hidden-kind distinctions are not carried; tracked tools use Unsafe only through StringEnum, whose behavior matches. No per-node metadata carrier added.
 - The previous backreference mismatch (`^(a)\\1$` on `aa`) is closed by the
   lossless ECMAScript engine and covered by a unit plus the 227-case differential.
 - Direct core argument `1` and schema `false` probes are outside the standing
@@ -106,8 +96,7 @@ restored. Logs and exact source hashes are in
 - `Tool.parameters` stays a plain `serde_json::Value` (JSON Schema). TypeBox origin is recorded on
   `Tool.typebox_kind`; `Tool::typebox` sets it, `Tool::new` leaves it false. TypeScript records the
   same fact with a hidden `~kind` string property, which a `serde_json::Value` cannot carry.
-  `typebox_kind` gates only the `Value.Convert` pass. Nested origin is not represented;
-  that is an unresolved parity boundary, not a new exclusion.
+  `typebox_kind` gates only the `Value.Convert` pass. Nested custom origin follows the explicit gap above.
 - `validate_arguments(&JsValue, &JsValue, bool, &str)` is the single validation
   authority. Tool entrypoints return `Result<JsValue, ValidationError>`.
   `ValidationError::message()` returns exact `&JsString`; scalar `Display` stays
@@ -203,3 +192,9 @@ keywords; number keywords; ref/const/enum/if/not/allOf/anyOf/oneOf):
 ## Approved nullable-array delta 6d2363e6
 
 Native validator already returns null successfully. `differential_validation::nullable_array_matches_approved_delta_6d2363e6` explicitly selects the guarded delta and compares null, empty array, string array and invalid object members. The ordinary frozen matrix asserts exactly its TypeError (`every`) and native successful `{a:"1",b:1,c:null}` result; all other cases remain strict parity. No Rust production change.
+
+## Whole-module common-pin closure (2026-10-25)
+
+Audited all324source lines: both exports, clone/convert/coerce/check order, union candidate cloning and order, optional-null preservation, tuple boundaries, object/additional-property traversal, required/root/nested path messages and exact original-argument error rendering. Current source differential6+native28tests GREEN (`/tmp/ai3-validation-suite_core_{1,2}.log`). Frozen and native real search_current_session_history schema match six concrete string Integer, decimal, null, bounds and error inputs (`/tmp/ai3-validation-real-tool.log`); actual tool is loaded rather than reconstructed. No reproduced real-tool mixed-kind failure. Tracked-source audit: Unsafe only in StringEnum; Integer tool fields occur in search-current-session-history. Approved nullable-array delta remains explicitly selected; frozen discrepancy stays asserted, not normalized away. Strict unchanged-source builder fixture typecheck PASS (`/tmp/ai3-fixtures-typecheck.log`). Existing full-value error/input immutability comparisons remain unchanged.
+
+The historical open questions above do not require new carriers for unobserved/exotic schemas. Default format checks, valid schema/argument JSON and real-tool coercion remain required; unsupported custom JS refinements, invalid/exotic compilation shapes and synthetic kind-mixing are recorded gaps, not claimed capabilities.
