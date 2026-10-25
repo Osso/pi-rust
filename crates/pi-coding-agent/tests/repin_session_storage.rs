@@ -5,9 +5,6 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::{Value, json};
-#[path = "support/transcript_worker.rs"]
-mod transcript_worker;
-use transcript_worker::configure_worker;
 
 fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
     request["id"] = json!(1);
@@ -17,7 +14,6 @@ fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
 }
 #[test]
 fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -39,7 +35,6 @@ fn frozen_archive_stale_path_never_allocates_identity_or_masks_history() {
 
 #[test]
 fn frozen_archived_fork_preserves_message_receipts() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -66,7 +61,6 @@ fn frozen_archived_fork_preserves_message_receipts() {
 #[test]
 fn rust_archive_restores_with_frozen_ts_and_exact_bytes() {
     use pi_coding_agent::core::session_archive_storage::{archive_persisted_session, restore_archived_session};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -88,7 +82,6 @@ fn rust_archive_restores_with_frozen_ts_and_exact_bytes() {
 
 #[test]
 fn frozen_compacted_archive_history_follows_only_active_ancestors() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -114,7 +107,6 @@ fn frozen_compacted_archive_history_follows_only_active_ancestors() {
 #[tokio::test]
 async fn export_uses_read_only_stale_archive_and_legacy_source() {
     use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -155,7 +147,6 @@ async fn persisted_history_tool_recovers_source_compacted_ancestor() {
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::tools::search_current_session_history::SearchCurrentSessionHistoryTool;
     use std::sync::{Arc, Mutex};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -184,7 +175,6 @@ async fn persisted_history_tool_recovers_source_compacted_ancestor() {
 
 #[test]
 fn source_receipts_survive_retained_rewrite_with_omission_null_empty_and_raw_values() {
-    configure_worker();
     for raw in [
         None,
         Some(Value::Null),
@@ -226,7 +216,6 @@ fn source_receipts_survive_retained_rewrite_with_omission_null_empty_and_raw_val
 #[test]
 fn rust_append_receipt_is_read_by_frozen_complete_record_acceptance_scan() {
     use pi_coding_agent::core::session_control_db::RuntimeMailboxStoreRef;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut manager = SessionManager::create(&JsString::from(&dir), Some(&JsString::from(&dir)), None).unwrap();
@@ -264,7 +253,6 @@ fn storage_memory_probe_child() {
     let Some(path) = std::env::var_os("PI_STORAGE_MEMORY_PROBE") else {
         return;
     };
-    configure_worker();
     let before = peak_rss_kib();
     let manager = SessionManager::open_read_only(&JsString::from(path.to_str().unwrap()), None).unwrap();
     assert_eq!(manager.get_entries().len(), 3);
@@ -276,7 +264,6 @@ fn storage_memory_probe_child() {
 }
 #[test]
 fn compacted_reverse_loading_does_not_retain_large_inactive_payloads() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -299,7 +286,6 @@ fn compacted_reverse_loading_does_not_retain_large_inactive_payloads() {
 
 #[test]
 fn late_truncated_archive_header_does_not_hide_decode_failure() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -357,7 +343,6 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
     use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
     use pi_js_compat::callback_error::CallbackError;
     use std::os::unix::fs::PermissionsExt;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -392,9 +377,8 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
 }
 
 #[test]
-fn storage_worker_hard90second_timeout_kills_and_reaps_before_cleanup() {
+fn storage_thread_90second_timeout_cleans_spool() {
     use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let fifo = tmp.path().join("blocked.jsonl.zst");
     assert!(
@@ -407,27 +391,20 @@ fn storage_worker_hard90second_timeout_kills_and_reaps_before_cleanup() {
     let before = transcript_temporaries();
     let start = std::time::Instant::now();
     let result = with_seekable_session_transcript(&fifo.to_str().unwrap().into(), |_| Ok(()));
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .starts_with("Timed out decompressing session transcript:")
+    assert_eq!(
+        result.unwrap_err().to_string(),
+        format!("Timed out decompressing session transcript: {}", fifo.display())
     );
     assert!(start.elapsed() >= std::time::Duration::from_secs(90));
     assert!(start.elapsed() < std::time::Duration::from_secs(100));
     assert!(transcript_temporaries().is_subset(&before));
-    let children = std::fs::read_to_string(format!("/proc/self/task/{}/children", std::process::id())).unwrap();
-    for pid in children.split_whitespace() {
-        if let Ok(cmdline) = std::fs::read(format!("/proc/{pid}/cmdline")) {
-            assert!(!String::from_utf8_lossy(&cmdline).contains("--internal-session-transcript-spool"));
-        }
-    }
+    // Release the injected blocked open; no test-owned syscall remains blocked.
+    drop(std::fs::OpenOptions::new().write(true).open(&fifo).unwrap());
 }
 
 #[test]
 fn fallible_full_loader_and_context_match_frozen_archive_preconditions() {
     use pi_coding_agent::core::session_manager::load_session_context_entries;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -458,7 +435,6 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
     use pi_coding_agent::core::session_control_db::read_session_metadata;
     use pi_coding_agent::core::session_transcript::read_session_transcript_bytes;
     use std::os::unix::fs::PermissionsExt;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -517,7 +493,6 @@ fn archive_restore_modes_metadata_rollback_and_surviving_plain_precedence() {
 
 #[test]
 fn unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -548,7 +523,6 @@ fn unknown_legacy_summary_usage_survives_without_a_typed_accounting_contract() {
 
 #[test]
 fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -596,7 +570,6 @@ fn source_escaped_surrogate_receipt_remains_a_persisted_message() {
 
 #[test]
 fn mutable_open_rejects_all_archived_suffixes_before_allocating_missing_identity() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("arbitrary.zst");
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -608,7 +581,6 @@ fn mutable_open_rejects_all_archived_suffixes_before_allocating_missing_identity
 
 #[test]
 fn uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -644,7 +616,6 @@ fn uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent() 
 
 #[test]
 fn unknown_summary_unpaired_keys_and_values_survive_rewrite_and_fork() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -680,7 +651,6 @@ fn unknown_summary_unpaired_keys_and_values_survive_rewrite_and_fork() {
 #[tokio::test]
 async fn escaped_receipt_html_export_retains_source_raw_utf16_tokens() {
     use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -730,7 +700,6 @@ fn large_unicode_compacted_history_streaming_and_early_drop_cleanup() {
         );
         return;
     }
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -787,7 +756,6 @@ fn large_unicode_compacted_history_streaming_and_early_drop_cleanup() {
 fn frozen_transcript_exports_match_stream_frame_and_utf8_error_boundaries() {
     use pi_coding_agent::core::session_transcript::*;
     use std::io::Read;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -868,7 +836,6 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
     use pi_coding_agent::core::session_archive_storage::*;
     use pi_coding_agent::core::session_control_db::read_session_metadata;
     use pi_coding_agent::core::session_transcript::*;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let db = tmp.path().join("control.sqlite").display().to_string();
@@ -931,7 +898,6 @@ fn frozen_storage_suffix_noops_missing_and_metadata_surviving_plain_branches() {
 
 #[test]
 fn metadata_filtered_empty_does_not_fall_back_or_cache_unindexed_files() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("control.sqlite").display().to_string();
     let known = tmp.path().join("known").display().to_string();
@@ -961,7 +927,6 @@ fn metadata_filtered_empty_does_not_fall_back_or_cache_unindexed_files() {
 }
 #[test]
 fn resident_sessions_are_excluded_from_ordinary_filesystem_listing() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
     for (index, (id, segment, resident)) in [
@@ -1007,7 +972,6 @@ fn resident_sessions_are_excluded_from_ordinary_filesystem_listing() {
 
 #[test]
 fn source_tool_result_raw_receipt_survives_storage_truncation_boundary() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -1047,7 +1011,6 @@ fn source_tool_result_raw_receipt_survives_storage_truncation_boundary() {
 
 #[test]
 fn source_legacy_v1_read_only_migrates_context_without_mutating_original() {
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -1067,7 +1030,6 @@ fn source_legacy_v1_read_only_migrates_context_without_mutating_original() {
 #[tokio::test]
 async fn legacy_v1_raw_receipt_survives_in_memory_migration_and_export() {
     use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
@@ -1092,7 +1054,6 @@ async fn legacy_v1_raw_receipt_survives_in_memory_migration_and_export() {
 #[test]
 fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications() {
     use pi_coding_agent::core::session_tool_output::migrate_tool_result_session_files;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let rust_dir = tmp.path().join("rust");
     let source_dir = tmp.path().join("source");
@@ -1148,7 +1109,6 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
 fn tool_migration_classifies_empty_ids_js_blank_lines_and_read_errors_like_source() {
     use pi_coding_agent::core::session_tool_output::migrate_tool_result_session_files;
     use std::os::unix::fs::PermissionsExt;
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let rust_dir = tmp.path().join("rust");
     let source_dir = tmp.path().join("source");
@@ -1203,7 +1163,6 @@ fn tool_migration_classifies_empty_ids_js_blank_lines_and_read_errors_like_sourc
 #[tokio::test]
 async fn legacy_v1_raw_summary_extras_survive_migration_and_export() {
     use pi_coding_agent::core::export_html::{ExportOptions, export_from_file};
-    configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let dir = tmp.path().display().to_string();
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");

@@ -1,5 +1,7 @@
 use pi_js_compat::process_env;
 
+static ENV_OVERRIDES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 const CHILD_ENV: &str = "PI_PROCESS_ENV_NON_UNICODE_CHILD";
 const PROBE_PREFIX: &str = "PI_PROCESS_ENV_PROBE_";
 const PROBE_OUTPUT: &str = "PI_PROCESS_ENV_PROBE_OUTPUT:";
@@ -73,6 +75,7 @@ fn decodes_non_unicode_environment_entries_like_node() {
 
 #[test]
 fn invalid_environment_names_do_not_alias_valid_prefixes() {
+    let _guard = ENV_OVERRIDES.lock().expect("exclusive process-env overrides");
     let prefix = "PI_PROCESS_ENV_NO_ALIAS";
     let key = "PI_PROCESS_ENV_NO_ALIAS\0tail";
     process_env::set(prefix, "prefix-value");
@@ -88,6 +91,7 @@ fn invalid_environment_names_do_not_alias_valid_prefixes() {
 
 #[test]
 fn overrides_follow_node_process_env_semantics() {
+    let _guard = ENV_OVERRIDES.lock().expect("exclusive process-env overrides");
     process_env::clear();
     let existing = std::env::vars().next().expect("a process environment variable").0;
     let original = std::env::var(&existing).ok();

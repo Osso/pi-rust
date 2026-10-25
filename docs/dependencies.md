@@ -6,7 +6,7 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ## Test infrastructure
 
-- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-js-compat`, `pi-telemetry`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
+- `rustix = 1.1.5` (`process`; development dependency of `pi-ai`, `pi-js-compat`, and `pi-tui`) — `process::kill_process_group` tears down the tsx oracle process group in `tests/support/oracle.rs`; oracle children are spawned with `process_group(0)` so a dead test process cannot leave Node/esbuild descendants behind. Crates that already depend on `rustix` at runtime reuse the same pinned release.
 
 ## Runtime
 
@@ -119,7 +119,6 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 - Skill loader ignore matching reuses native `pi-js-compat::node_ignore::Ignore` (npm ignore 7.0.5), preserving UTF16 paths and thrown errors. The former direct `ignore = 0.4.23` dependency is removed from pi-agent-core; coding package-manager use remains separate.
 - `indexmap = 2.14.2` (`serde`) — `IndexSet` for `AgentState.pending_tool_calls` and `FileOperations`, whose TypeScript `Set` iteration order is insertion order.
 - `serde_yaml_ng = 0.10.0` (exact) — parses skill and prompt-template YAML frontmatter in `harness::frontmatter`.
-- `pi-telemetry = { path = "../pi-telemetry", version = "=0.0.0" }` — temporarily retained only for the old scaffold `AgentHarnessOptions.context`; old-only telemetry schema module/root exports were removed in Q9. Remove this dependency with the scaffold replacement.
 - `tempfile = 3.27.0` (dev, exact) — creates isolated fixture trees for the node-env, tool, shell-capture, loader, and differential tests, and isolated JSONL session roots.
 - Session storage/search adds no runtime dependency: `serde`/`serde_json` (`preserve_order`) carry the durable JSONL records and search projections, `tokio` (`sync`) supplies the state/write mutexes, `tokio-util` supplies search cancellation, and `pi-ai` supplies `BoxFuture`; agent-core owns UUIDv7. JSONL file naming formats ISO timestamps with std only.
 
@@ -140,19 +139,11 @@ The harness events, messages, reducer, and orchestration-type slices add no runt
 - `src/unicode_tables.rs` is generated data, not a dependency: Unicode 17.0 emoji sequences, character-property ranges, and `get-east-asian-width` 1.6.0 width ranges (see `docs/porting/traceability/utils.md`).
 - The editor adds no dependency: it reuses `unicode-segmentation`, `regex`, `tokio`, and `tokio-util`.
 
-### `pi-telemetry`
-
-- `indexmap = 2.14.2` (`serde`) — `TelemetryMap`, the insertion-ordered map behind schema span/attribute/event maps and `SpanAttributes`, matching TypeScript object key order (already in the lock via `serde_json` `preserve_order`). Also backs extension handler/tool/command/flag/shortcut registries, whose iteration order is the TypeScript `Map` load order.
-- `serde = 1.0.229` — derives the camelCase wire shape for schema definitions and recorded spans/events, including the internally tagged status and parent definitions.
-
 ### `pi-agent-core`
 
 - `indexmap = 2.14.2` (`serde`) — `AgentHarnessStreamOptions` headers and the per-request header/metadata patches preserve TypeScript object key order when merged into provider requests.
 
 ## Development
-
-- `futures = 0.3.31` — provides `block_on` and a oneshot channel for the async telemetry behavioral tests.
-- `serde_json = 1.0.151` — serializes recorded spans and schema definitions for the TypeScript differential oracle and attribute wire-shape tests.
 
 - `serde = 1.0.229` — derives typed JSON-lines request and response structures for differential tests.
 - `serde_json = 1.0.151` — differential-oracle transport (including `pi-tui`) and typed protocol/RPC/truncation/harness-error/metadata/resource/auth/config-value messages. Public-index type proofs use the pinned TypeScript toolchain without adding a Rust dependency.

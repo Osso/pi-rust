@@ -6,6 +6,15 @@ from `src/core/export_html/templates/`). Tests: `tests/export_html.rs`,
 
 Historical export proof: commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); frozen4f9 storage-edge evidence below does not renew this entire historical export matrix.
 
+## Baseline triage (2026-10-25)
+
+The package fixture now reads templates from `pi-coding-agent-tools`, their current
+crate location, rather than the retired coding-agent path. RED: file export
+failed copying `template.html` (ENOENT). GREEN: `export_html` (4 parent tests)
+and `differential_export_html` (2 parent tests; exact HTML for all 3 themes and
+missing-file message) pass against frozen `4f9e6f8a4`. Child probes remain
+parent-invoked. This repairs fixture setup; it does not renew unrelated rows.
+
 ## Exported surface
 
 | TypeScript | Rust | Tests |

@@ -641,10 +641,6 @@ name = "example_interactive_shell"
 path = "tests/example_interactive_shell.rs"
 
 [[test]]
-name = "example_kimi_deferred_tools"
-path = "tests/example_kimi_deferred_tools.rs"
-
-[[test]]
 name = "example_message_renderer"
 path = "tests/example_message_renderer.rs"
 
@@ -875,6 +871,10 @@ path = "tests/repin_session_storage.rs"
 [[test]]
 name = "repin_storage_spool"
 path = "tests/repin_storage_spool.rs"
+
+[[test]]
+name = "repin_store_listener_failure"
+path = "tests/repin_store_listener_failure.rs"
 
 [[test]]
 name = "resource_loader_constructor_errors"

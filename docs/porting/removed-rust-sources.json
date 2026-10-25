@@ -36,5 +36,9 @@
   "evals/",
   "protocol/",
   "server/",
-  "session-backends/sqlite-node/"
+  "session-backends/sqlite-node/",
+  "telemetry/",
+  "coding-agent/examples/extensions/kimi-deferred-tools.ts",
+  "coding-agent/src/cli/experimental/",
+  "coding-agent/src/utils/tool-result-images.ts"
 ]

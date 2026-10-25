@@ -53,9 +53,6 @@ type Modules = {
 	imageProcess: {
 		processImage(bytes: Uint8Array, mimeType: string, options?: unknown): Promise<unknown>;
 	};
-	toolResultImages: {
-		normalizeToolResultImages(content: unknown[], options?: unknown): Promise<unknown[]>;
-	};
 };
 
 async function importSibling(directory: string, name: string): Promise<Record<string, unknown>> {
@@ -73,7 +70,6 @@ async function loadModules(sourcePath: string): Promise<Modules> {
 		core: (await importSibling(directory, "image-resize-core.ts")) as unknown as Modules["core"],
 		resize: (await importSibling(directory, "image-resize.ts")) as unknown as Modules["resize"],
 		imageProcess: (await importSibling(directory, "image-process.ts")) as unknown as Modules["imageProcess"],
-		toolResultImages: (await importSibling(directory, "tool-result-images.ts")) as unknown as Modules["toolResultImages"],
 	};
 }
 
@@ -162,17 +158,6 @@ async function executeProcessImage(modules: Modules, cases: Case[]): Promise<unk
 	return { results };
 }
 
-async function executeNormalizeToolResultImages(modules: Modules, cases: Case[]): Promise<unknown> {
-	const results = [];
-	for (const imageCase of cases) {
-		const content = imageCase.content as unknown[];
-		const options = imageCase.options ?? undefined;
-		const normalized = await modules.toolResultImages.normalizeToolResultImages(content, options);
-		results.push({ name: imageCase.name, changed: normalized !== content, content: normalized });
-	}
-	return { results };
-}
-
 async function execute(modules: Modules, request: Request): Promise<unknown> {
 	const cases = (request.cases ?? []) as Case[];
 	switch (request.operation) {
@@ -190,8 +175,6 @@ async function execute(modules: Modules, request: Request): Promise<unknown> {
 			return executeDimensionNotes(modules, cases);
 		case "process_image":
 			return executeProcessImage(modules, cases);
-		case "normalize_tool_result_images":
-			return executeNormalizeToolResultImages(modules, cases);
 		default:
 			throw new Error(`unknown image pipeline operation: ${request.operation}`);
 	}

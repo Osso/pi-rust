@@ -20,7 +20,6 @@ use pi_coding_agent::utils::image_process::{ProcessImageOptions, ProcessImageRes
 use pi_coding_agent::utils::image_resize::{format_dimension_note, resize_image};
 use pi_coding_agent::utils::image_resize_core::{ImageResizeOptions, ResizedImage, resize_image_in_process};
 use pi_coding_agent::utils::photon::decode_image;
-use pi_coding_agent::utils::tool_result_images::{NormalizeToolResultImagesOptions, normalize_tool_result_images};
 use pi_js_compat::base64::{buffer_from_base64, buffer_to_base64};
 use serde_json::{Value, json};
 
@@ -42,7 +41,6 @@ fn image_pipeline_matches_the_pinned_typescript_source() {
     compare_resize_in_worker(&mut oracle);
     compare_dimension_notes(&mut oracle);
     compare_process_image(&mut oracle);
-    compare_normalize_tool_result_images(&mut oracle);
 }
 
 fn request(cases: &Cases) -> Value {
@@ -298,56 +296,6 @@ fn compare_process_image(oracle: &mut oracle::TsOracle) {
         .collect::<Vec<_>>();
 
     assert_matches("process image", results, &expected);
-}
-
-fn compare_normalize_tool_result_images(oracle: &mut oracle::TsOracle) {
-    let fixtures = normalize_fixtures();
-    let cases = Cases {
-        request_id: 27_107,
-        operation: "normalize_tool_result_images",
-        cases: fixtures
-            .iter()
-            .map(|fixture| {
-                json!({
-                    "name": fixture.name,
-                    "content": fixture.content,
-                    "options": fixture.options,
-                })
-            })
-            .collect(),
-    };
-
-    let expected = oracle.request(&request(&cases));
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .expect("runtime");
-    let results = fixtures
-        .iter()
-        .map(|fixture| {
-            let content = fixture
-                .content
-                .iter()
-                .map(|block| serde_json::from_value::<TextOrImageContent>(block.clone()).expect("content block"))
-                .collect::<Vec<_>>();
-            let options = fixture
-                .options
-                .get("autoResizeImages")
-                .and_then(Value::as_bool)
-                .map(|auto_resize_images| NormalizeToolResultImagesOptions {
-                    auto_resize_images: Some(auto_resize_images),
-                });
-            let normalized = runtime.block_on(normalize_tool_result_images(&content, options));
-            let changed = matches!(normalized, std::borrow::Cow::Owned(_));
-            json!({
-                "name": fixture.name,
-                "changed": changed,
-                "content": normalized.as_ref(),
-            })
-        })
-        .collect::<Vec<_>>();
-
-    assert_matches("normalize tool result images", results, &expected);
 }
 
 /// Compares per case so a failure names the fixture instead of dumping both payloads.
@@ -617,65 +565,6 @@ fn process_fixtures() -> Vec<Fixture> {
             bytes: png(40, 30),
             mime_type: "image/png",
             options: json!({"resizeOptions": {"maxWidth": 2000, "maxHeight": 2000, "maxBytes": 1}}),
-        },
-    ]
-}
-
-struct NormalizeFixture {
-    name: &'static str,
-    content: Vec<Value>,
-    options: Value,
-}
-
-fn normalize_fixtures() -> Vec<NormalizeFixture> {
-    let text = |value: &str| json!({"type": "text", "text": value});
-    let image = |bytes: &[u8], mime_type: &str| json!({"type": "image", "data": buffer_to_base64(bytes), "mimeType": mime_type});
-
-    vec![
-        NormalizeFixture {
-            name: "no-images",
-            content: vec![text("no images here")],
-            options: Value::Null,
-        },
-        NormalizeFixture {
-            name: "within-limits",
-            content: vec![
-                text("screenshot"),
-                image(&buffer_from_base64(image_fixtures::TINY_PNG_1X1), "image/png"),
-            ],
-            options: Value::Null,
-        },
-        NormalizeFixture {
-            name: "oversized",
-            content: vec![image(&image_fixtures::checker_png(2200, 2600), "image/png")],
-            options: Value::Null,
-        },
-        NormalizeFixture {
-            name: "oversized-without-resize",
-            content: vec![image(&image_fixtures::checker_png(2200, 2600), "image/png")],
-            options: json!({"autoResizeImages": false}),
-        },
-        NormalizeFixture {
-            name: "bmp-conversion",
-            content: vec![image(
-                &encode(&image_fixtures::checker_png(4, 3), image::ImageOutputFormat::Bmp),
-                "image/bmp",
-            )],
-            options: json!({"autoResizeImages": false}),
-        },
-        NormalizeFixture {
-            name: "undecodable",
-            content: vec![json!({"type": "image", "data": "bm90LWFuLWltYWdl", "mimeType": "image/png"})],
-            options: Value::Null,
-        },
-        NormalizeFixture {
-            name: "mixed-order",
-            content: vec![
-                text("before"),
-                image(&image_fixtures::checker_png(2100, 100), "image/png"),
-                text("after"),
-            ],
-            options: Value::Null,
         },
     ]
 }

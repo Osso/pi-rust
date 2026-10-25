@@ -106,6 +106,10 @@ A bounded retry with `--no-fail-fast` completed successfully and listed all
 6,364 entries. Both attempt logs are retained. This is separate from the nine
 full-suite outcome differences above; no harness assertion was changed.
 
+## Interactive successor repair (2026-10-25)
+
+The interactive lane repaired the shared fixture stream collision, JavaScript/serde numeric snapshot mismatch and missing live header/resource/chat expansion. The two formerly stalled cases, four baseline assertions, fork flake, deterministic ownership regression and actual-source header expansion differential now pass together: 9/9 parallel, no ignored tests or timeout fixes. Source/cause details and exact revision-scoped proof are in [the active lane ledger](interactive-user-visible-wip.md#baseline-repair-checkpoint-2026-10-25). This supersedes the interactive blocker below only; other baseline failures remain open.
+
 ## Interactive timeout
 
 The unchanged `pi-coding-agent-interactive --lib` binary stalled with these two tests still active:

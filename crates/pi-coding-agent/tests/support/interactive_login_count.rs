@@ -33,7 +33,7 @@ async fn authentication_completion_refreshes_registry_and_counts_unique_scoped_p
             let expected=source.request(&serde_json::json!({"operation":"complete","modelsPath":path,"credentials":{},"provider":"count-a","name":name.units(),"authType":kind.as_str(),"previous":previous,"scopedModels":wire_scoped}));
             assert_eq!(expected["ok"],true,"{expected}");
             mode.complete_provider_authentication("count-a",&name,kind,previous).await.unwrap();
-            assert_eq!(authentication_ui_snapshot(&mode),expected["output"],"case={case}");
+            assert_eq!(authentication_ui_snapshot(&mode),JsValue::from(&expected["output"]),"case={case}");
             assert!(registry.find("count-b","count-model").is_some());
             mode.stop().unwrap();
         }

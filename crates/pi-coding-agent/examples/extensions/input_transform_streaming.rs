@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 pub fn input_transform_streaming_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     let api = pi.clone();
-    let trigger = Arc::new(Regex::new(r"(?i-u:\b(changes?|diff|modified)\b)").expect("constant JS ASCII pattern"));
+    let trigger = Arc::new(Regex::with_flags(r"\b(changes?|diff|modified)\b", "i").expect("constant JS pattern"));
     pi.on_input(
         move |event: InputEvent,
               _ctx: ExtensionContext|

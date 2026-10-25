@@ -338,10 +338,15 @@ async fn answers_status_requests_while_the_evaluation_runs() {
     let runner_command = write_runner(
         fixture.directory.path(),
         r#"
-import json, sys, time
+import json, pathlib, sys, time
 request = json.loads(sys.stdin.readline())
 print(json.dumps({"type": "progress", "message": "working"}), flush=True)
-time.sleep(0.5)
+release = pathlib.Path(__file__).with_name("status-requests-finished")
+deadline = time.monotonic() + 30
+while not release.exists():
+    if time.monotonic() >= deadline:
+        raise TimeoutError("test did not release the running evaluation")
+    time.sleep(0.01)
 print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}), flush=True)
 "#,
     );
@@ -407,6 +412,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
         assert_eq!(response["outputPath"], json!(data.artifacts.output_path));
         assert_eq!(response["pendingRequestCount"], json!(0));
     }
+    fs::write(fixture.directory.path().join("status-requests-finished"), "done").expect("release evaluation");
     let revision = runner.await.expect("join").expect("run");
     assert_eq!(revision, Some(2));
 }

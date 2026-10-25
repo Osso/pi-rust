@@ -34,7 +34,10 @@ fn write_script(dir: &std::path::Path, name: &str, output: &JsString) -> PathBuf
     let path = dir.join(name);
     executable_script::write_executable_script(
         &path,
-        &encode_node_utf8(&pi_js_compat::js_format!("#!/bin/sh\nprintf '%s' '{}'\n", output)),
+        &encode_node_utf8(&pi_js_compat::js_format!(
+            "#!/bin/sh\ncat > /dev/null\nprintf '%s' '{}'\n",
+            output
+        )),
     );
     path
 }
@@ -42,6 +45,7 @@ fn write_script(dir: &std::path::Path, name: &str, output: &JsString) -> PathBuf
 #[tokio::test]
 async fn differential_claude_bash_hook() {
     let cases = vec![
+        json!({"name": "allow-large-input", "toolName": "pyrun_eval", "input": {"code": "print(1)\n".repeat(16_384)}, "output": r#"{"hookSpecificOutput":{"permissionDecision":"allow"}}"#}),
         json!({"name": "allow", "toolName": "pyrun_eval", "input": {"code": "print(1 + 1)"}, "output": r#"{"hookSpecificOutput":{"permissionDecision":"allow","permissionDecisionReason":"ok"}}"#}),
         json!({"name": "allow-updated", "toolName": "bash", "input": {"command": "ls"}, "output": r#"{"hookSpecificOutput":{"permissionDecision":"allow","updatedInput":{"command":"ls -la"}}}"#}),
         json!({"name": "deny", "toolName": "bash", "input": {"command": "rm -rf /"}, "output": r#"{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"nope"}}"#}),

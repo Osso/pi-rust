@@ -6,7 +6,7 @@ Whole storage group remains pending whole-module acceptance; focused integration
 
 Archives validate decompression before publication, preserve mode, create exclusive temporary sibling, rename then remove original; cleanup on failure. Metadata relocation and archive flag update use the control DB atomic operation. DB failure invokes reverse file operation; reverse failure replaces original error as in frozen TS. Restore prefers surviving plain file over stale archive.
 
-Seekable archive inspection must provide private0600 temporary plaintext and remove temporary state after callback/error. The current native subprocess/package-executable dependency is unapproved and leaves this module partial: SDK users must not need an external pi executable. Parent2026-10-25 requires a frozen90-second FIFO timeout/exit/residue probe before designing an in-process thread or its cancellation. [Open boundary](../porting/traceability/session-transcript-spool.md#open-worker-parity-boundary--partial).
+Seekable archive inspection provides private0600 temporary plaintext and removes temporary state after callback/error. SDK users require no external pi executable or package setup. Off-thread decoding has a90-second synchronous deadline and preserves frozen error text. The approved blocked-OS-call cancellation/process-liveness gap and actual frozen timeout probe are recorded in the [spool trace](../porting/traceability/session-transcript-spool.md#in-process-worker-boundary-2026-10-25).
 
 Persisted message mailboxStoreRefs are optional raw JSON: preserve explicit null/empty/malformed values and omission. This serialization alone does not implement durable delivery.
 

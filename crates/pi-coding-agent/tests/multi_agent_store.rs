@@ -151,6 +151,7 @@ fn record_updates(store: &MultiAgentStore) -> (RecordedUpdates, AgentSubscriptio
                 .as_ref()
                 .and_then(|transcript| transcript.path.clone()),
         ));
+        Ok(())
     });
     (updates, subscription)
 }
@@ -760,6 +761,7 @@ fn listeners_registered_on_restored_sessions_are_dropped_by_restore() {
     let captured = notified.clone();
     let _subscription = store.subscribe_agent_updates(move |_, _| {
         *captured.lock().expect("notified") += 1;
+        Ok(())
     });
     store.invalidate_in_flight_dispatches();
     let transcript = pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {

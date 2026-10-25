@@ -341,6 +341,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
         if current.id == "child" {
             published_for_listener.lock().unwrap().push(current.model.clone());
         }
+        Ok(())
     });
     let result = (definition.execute)(
         "change".into(),

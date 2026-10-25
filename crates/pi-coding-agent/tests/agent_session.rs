@@ -1096,6 +1096,7 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
     let recorded = Arc::clone(&activities);
     let _subscription = store.subscribe_agent_updates(move |_previous, current| {
         recorded.lock().unwrap().push(current.current_activity.clone());
+        Ok(())
     });
 
     let fixture = fixture_with_multi_agent(
@@ -1597,7 +1598,7 @@ async fn duplicate_turn_guard_marks_events_and_skips_persistence() {
 }
 
 #[tokio::test]
-async fn normalizes_oversized_tool_result_images() {
+async fn passes_through_oversized_tool_result_images_unchanged() {
     let fixture = fixture_with(
         Default::default(),
         vec![Arc::new(ScreenshotTool)],
@@ -1630,11 +1631,7 @@ async fn normalizes_oversized_tool_result_images() {
         .await
         .expect("prompt");
 
-    let image = tool_result_image(&fixture.session);
-    let bytes = pi_js_compat::base64::atob(&image.into()).expect("base64 image");
-    use image::GenericImageView;
-    let (width, height) = image::load_from_memory(&bytes).expect("decodable image").dimensions();
-    assert!(width <= 2000 && height <= 2000, "{width}x{height}");
+    assert_eq!(tool_result_image(&fixture.session), oversized_png_base64());
 }
 
 #[tokio::test]

@@ -37,3 +37,13 @@ Actual sandboxed Cargo RED at `4fe83515`: `hook_process_preserves_native_input_k
 from several parallel test threads; a concurrent fork can inherit the write fd
 and the spawn fails with `Text file busy (os error 26)`. Reproduced 1 in 3 serial
 runs of that binary; owned by the `ca-errno` spawn-race slice.
+
+## Baseline pipe lifecycle (2026-10-25)
+
+The hook test scripts printed and exited without reading their JSON stdin.
+A 147456-byte evaluation deterministically reproduces EPIPE in the frozen
+Node oracle itself (unhandled stdin error), before any result. Fixture hooks
+now drain stdin to EOF before responding, on both sides; capture fixtures
+already did this. The differential retains that large request and exact result
+assertions. Runtime hook code is unchanged. Early-close/EPIPE is an OS/runtime
+fault gap, not a new recovery policy. Readability: one explicit `cat` per script.
