@@ -1026,7 +1026,7 @@ struct Inner {
     compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
     branch_summary_abort_controller: Mutex<Option<AbortController>>,
     pending_bash_messages: Mutex<Vec<BashExecutionMessage>>,
-    bash_abort_controllers: Mutex<Vec<AbortController>>,
+    bash_abort_controller: Mutex<Option<AbortController>>,
     disposed: AtomicBool,
     extension_runner: Mutex<ExtensionRunner>,
     extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
@@ -1452,7 +1452,7 @@ impl AgentSession {
             compaction_summary_materialization_abort_controller: Mutex::new(None),
             branch_summary_abort_controller: Mutex::new(None),
             pending_bash_messages: Mutex::new(Vec::new()),
-            bash_abort_controllers: Mutex::new(Vec::new()),
+            bash_abort_controller: Mutex::new(None),
             disposed: AtomicBool::new(false),
             extension_runner: Mutex::new(placeholder_runner),
             extension_runner_ref,
@@ -5321,7 +5321,8 @@ impl AgentSession {
                 event_type: "thinking_level_changed",
                 level: effective,
             }));
-            self.start_thinking_level_select(effective, previous)?;
+            let session = self.clone();
+            Self::start_extension_event(async move { session.emit_thinking_level_select(effective, previous).await })?;
         }
         Ok(())
     }
@@ -6885,12 +6886,12 @@ impl AgentSession {
 
         let controller_abort = AbortController::new();
         let abort = controller_abort.signal();
-        lock(&self.inner.bash_abort_controllers).push(controller_abort.clone());
+        *lock(&self.inner.bash_abort_controller) = Some(controller_abort);
         let (prefix, shell_path) = {
             let settings = lock(&self.inner.settings_manager);
             (settings.get_shell_command_prefix().cloned(), settings.get_shell_path())
         };
-        let resolved_command = match prefix {
+        let resolved_command = match prefix.filter(|prefix| !prefix.is_empty()) {
             Some(prefix) => JsString::from(prefix) + "\n" + command,
             None => command.clone(),
         };
@@ -6910,10 +6911,15 @@ impl AgentSession {
             },
         )
         .await;
-        lock(&self.inner.bash_abort_controllers).retain(|token| token != &controller_abort);
-        let result = result.map_err(|bash_error| error(bash_error.message))?;
-        self.record_bash_result(command, &result, options.exclude_from_context);
-        Ok(result)
+        let result = match result {
+            Ok(result) => {
+                self.record_bash_result(command, &result, options.exclude_from_context);
+                Ok(result)
+            }
+            Err(cause) => Err(error(cause.message)),
+        };
+        *lock(&self.inner.bash_abort_controller) = None;
+        result
     }
 
     /// Records a bash execution result in session history.
@@ -6956,14 +6962,14 @@ impl AgentSession {
 
     /// Cancels a running bash command.
     pub fn abort_bash(&self) {
-        let tokens: Vec<AbortController> = lock(&self.inner.bash_abort_controllers).clone();
-        for token in tokens {
-            token.abort(None);
+        let controller = lock(&self.inner.bash_abort_controller).clone();
+        if let Some(controller) = controller {
+            controller.abort(None);
         }
     }
 
     pub fn is_bash_running(&self) -> bool {
-        !lock(&self.inner.bash_abort_controllers).is_empty()
+        lock(&self.inner.bash_abort_controller).is_some()
     }
 
     // Frozen agent-session.ts:5875-5884 forwards detach throws without a catch.
@@ -7041,12 +7047,7 @@ impl AgentSession {
             name: name.clone(),
         }));
         let session = self.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                session.emit_session_info_changed(name).await;
-            });
-        }
-        Ok(())
+        Self::start_extension_event(async move { session.emit_session_info_changed(name).await })
     }
 
     pub fn clear_session_name(&self) -> Result<(), AgentSessionError> {
@@ -7058,12 +7059,7 @@ impl AgentSession {
             name: None,
         }));
         let session = self.clone();
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            handle.spawn(async move {
-                session.emit_session_info_changed(None).await;
-            });
-        }
-        Ok(())
+        Self::start_extension_event(async move { session.emit_session_info_changed(None).await })
     }
 
     pub fn update_compaction_summary(&self, entry_id: &JsString, summary: &JsString) -> Result<(), AgentSessionError> {
@@ -7092,23 +7088,26 @@ impl AgentSession {
         let controller_abort = AbortController::new();
         let abort = controller_abort.signal();
         *lock(&self.inner.compaction_summary_materialization_abort_controller) = Some(controller_abort.clone());
-        let auth = self.get_required_request_auth(&model).await?;
-        let settings = compaction_settings(&self.inner.settings_manager)?;
-        let stream_fn = self.inner.agent.stream_fn();
-        let result = crate::core::compaction::materialize_compaction_summary(
-            &entry,
-            &model,
-            &crate::core::compaction::MaterializeCompactionSummaryOptions {
-                reserve_tokens: settings.reserve_tokens,
-                api_key: auth.api_key,
-                headers: auth.headers,
-                env: auth.env,
-                signal: Some(abort),
-                stream_fn: Some(&stream_fn),
-            },
-        )
-        .await
-        .map_err(|compaction_error| error(compaction_error.message()));
+        let result = async {
+            let auth = self.get_required_request_auth(&model).await?;
+            let settings = compaction_settings(&self.inner.settings_manager)?;
+            let stream_fn = self.inner.agent.stream_fn();
+            crate::core::compaction::materialize_compaction_summary(
+                &entry,
+                &model,
+                &crate::core::compaction::MaterializeCompactionSummaryOptions {
+                    reserve_tokens: settings.reserve_tokens,
+                    api_key: auth.api_key,
+                    headers: auth.headers,
+                    env: auth.env,
+                    signal: Some(abort),
+                    stream_fn: Some(&stream_fn),
+                },
+            )
+            .await
+            .map_err(|compaction_error| error(compaction_error.message()))
+        }
+        .await;
         *lock(&self.inner.compaction_summary_materialization_abort_controller) = None;
         result
     }
@@ -8136,19 +8135,15 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
     }
 
-    fn start_thinking_level_select(
-        &self,
-        level: ThinkingLevel,
-        previous: ThinkingLevel,
+    fn start_extension_event(
+        event: impl std::future::Future<Output = ()> + Send + 'static,
     ) -> Result<(), AgentSessionError> {
-        use std::future::Future;
-        let session = self.clone();
-        let mut event = Box::pin(async move { session.emit_thinking_level_select(level, previous).await });
+        let mut event = Box::pin(event);
         let mut context = std::task::Context::from_waker(std::task::Waker::noop());
         if event.as_mut().poll(&mut context).is_pending() {
             let handle = tokio::runtime::Handle::try_current().map_err(|cause| {
                 error(format!(
-                    "Cannot continue thinking-level event without a Tokio runtime: {cause}"
+                    "Cannot continue extension event without a Tokio runtime: {cause}"
                 ))
             })?;
             handle.spawn(event);

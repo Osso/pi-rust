@@ -4,9 +4,9 @@ Thinking-level selection preserves the synchronous prefix of frozen `setThinking
 
 ## What it must do
 
-- [ ] Start a thinking-level listener inline before the setter returns.
-- [ ] Retain and execute an asynchronous listener remainder after its first pending await.
-- [ ] Activating ultra must let the actual effort extension persist proactive mode, restore delegation tools and update status before the setter returns.
+- [x] Start a thinking-level listener inline before the setter returns.
+- [x] Retain and execute an asynchronous listener remainder after its first pending await.
+- [x] Activating ultra must let the actual effort extension persist proactive mode, restore delegation tools and update status before the setter returns.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Thinking-level selection preserves the synchronous prefix of frozen `setThinking
 
 ## Known gaps (current cycle)
 
-- [ ] Synchronous listener and actual effort observations have RED proof; runtime GREEN is pending.
+No known gap in the synchronous-prefix scope. Generic sync/pending and actual effort observations pass against frozen; see the proof ledger.
 
 ## Out of scope
 
