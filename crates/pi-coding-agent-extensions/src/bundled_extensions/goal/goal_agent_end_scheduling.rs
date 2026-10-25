@@ -41,17 +41,13 @@ pub async fn run_scheduled_goal_agent_end(options: ScheduledGoalAgentEndOptions)
         review_goal: options.review_goal,
         select_goal: options.select_goal,
         is_same_goal: options.is_same_goal,
-        is_review_current: Arc::new(move || {
-            scheduler_for_current
-                .is_epoch_current(&ctx_for_current, review_epoch)
-                .unwrap_or(false)
-        }),
+        is_review_current: Arc::new(move || scheduler_for_current.is_epoch_current(&ctx_for_current, review_epoch)),
         apply_decision,
         defer_decision: Arc::new(move |decision, goal, ctx, terminal_turn| {
-            scheduler_for_defer_decision.defer_decision(decision, goal, ctx, terminal_turn);
+            scheduler_for_defer_decision.defer_decision(decision, goal, ctx, terminal_turn)
         }),
         defer_review: Arc::new(move |goal, ctx, terminal_turn| {
-            scheduler_for_defer_review.defer_review(goal, ctx, terminal_turn);
+            scheduler_for_defer_review.defer_review(goal, ctx, terminal_turn)
         }),
     })
     .await

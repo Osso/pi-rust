@@ -65,6 +65,8 @@ pub mod goal_idle_selection;
 pub mod goal_rendering;
 #[path = "goal_review_evidence.rs"]
 pub mod goal_review_evidence;
+#[path = "goal_scheduling.rs"]
+pub mod goal_scheduling;
 #[path = "goal_supervisor_review.rs"]
 pub mod goal_supervisor_review;
 #[path = "loop_runtime.rs"]
