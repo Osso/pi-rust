@@ -17,16 +17,42 @@ async function main(): Promise<void> {
 		const request = JSON.parse(line);
 		const cwd = request.root;
 		if (request.operation === "legacy_model") {
-			const { createFauxCore } = await load("../../../ai/src/providers/faux.ts");
-			const faux = createFauxCore({ models: [{ id: "preferred" }, { id: "historical" }] });
+			const { createFauxCore } = await load(
+				"../../../ai/src/providers/faux.ts",
+			);
+			const faux = createFauxCore({
+				models: [{ id: "preferred" }, { id: "historical" }],
+			});
 			const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
-			registry.registerProvider("faux", { api: faux.api, apiKey: "fixture", baseUrl: "https://faux.invalid", streamSimple: faux.streamSimple, models: faux.models });
-			const settings = SettingsManager.inMemory({ defaultProvider: "faux", defaultModel: "preferred" });
+			registry.registerProvider("faux", {
+				api: faux.api,
+				apiKey: "fixture",
+				baseUrl: "https://faux.invalid",
+				streamSimple: faux.streamSimple,
+				models: faux.models,
+			});
+			const settings = SettingsManager.inMemory({
+				defaultProvider: "faux",
+				defaultModel: "preferred",
+			});
 			const manager = SessionManager.inMemory(cwd);
 			manager.appendModelChange("faux", "historical");
-			const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: cwd, settingsManager: settings });
-			const { session, modelFallbackMessage } = await createAgentSession({ cwd, agentDir: cwd, modelRegistry: registry, sessionManager: manager, settingsManager: settings, resourceLoader });
-			process.stdout.write(`${JSON.stringify({ id: request.id, model: session.model.id, fallback: modelFallbackMessage ?? null })}\n`);
+			const resourceLoader = new DefaultResourceLoader({
+				cwd,
+				agentDir: cwd,
+				settingsManager: settings,
+			});
+			const { session, modelFallbackMessage } = await createAgentSession({
+				cwd,
+				agentDir: cwd,
+				modelRegistry: registry,
+				sessionManager: manager,
+				settingsManager: settings,
+				resourceLoader,
+			});
+			process.stdout.write(
+				`${JSON.stringify({ id: request.id, model: session.model.id, fallback: modelFallbackMessage ?? null })}\n`,
+			);
 			await session.dispose();
 			continue;
 		}
@@ -35,25 +61,84 @@ async function main(): Promise<void> {
 			settings.setSessionSandboxProfile("full-access");
 			const seen: unknown[] = [];
 			const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
-			const { session } = await createAgentSession({ cwd, agentDir: cwd, modelRegistry: registry, sessionManager: SessionManager.inMemory(cwd), settingsManager: settings, extensionFactories: [() => { seen.push(settings.getSessionSandboxProfile() ?? null); }] });
-			process.stdout.write(`${JSON.stringify({ id: request.id, seen, final: settings.getSessionSandboxProfile() ?? null })}\n`);
+			const { session } = await createAgentSession({
+				cwd,
+				agentDir: cwd,
+				modelRegistry: registry,
+				sessionManager: SessionManager.inMemory(cwd),
+				settingsManager: settings,
+				extensionFactories: [
+					() => {
+						seen.push(settings.getSessionSandboxProfile() ?? null);
+					},
+				],
+			});
+			process.stdout.write(
+				`${JSON.stringify({ id: request.id, seen, final: settings.getSessionSandboxProfile() ?? null })}\n`,
+			);
 			await session.dispose();
 			continue;
 		}
 		const authStorage = AuthStorage.inMemory();
 		const modelRegistry = ModelRegistry.inMemory(authStorage);
 		const settingsManager = SettingsManager.inMemory();
-		const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: cwd, settingsManager, noExtensions: true });
+		const resourceLoader = new DefaultResourceLoader({
+			cwd,
+			agentDir: cwd,
+			settingsManager,
+			noExtensions: true,
+		});
 		const manager = SessionManager.create(cwd, join(cwd, "sessions"));
 		manager.setMetadataControlDbPath(join(cwd, "control.db"));
-		const { session, modelFallbackMessage } = await createAgentSession({ cwd, agentDir: cwd, authStorage, modelRegistry, settingsManager, sessionManager: manager, resourceLoader });
-		const startup = { model: session.model ? { provider: session.model.provider, id: session.model.id } : null, message: modelFallbackMessage?.replaceAll(getPackageDir(), "<package>"), entries: manager.getEntries().map((entry: { type: string }) => entry.type) };
-		const runtime = new AgentSessionRuntime(session, { cwd, agentDir: cwd, authStorage, modelRegistry, settingsManager, resourceLoader, diagnostics: [] }, async () => { throw new Error("factory must not run"); });
-		runtime.setBeforeProcessRestart(() => { throw new Error("stop after persistence"); });
+		const { session, modelFallbackMessage } = await createAgentSession({
+			cwd,
+			agentDir: cwd,
+			authStorage,
+			modelRegistry,
+			settingsManager,
+			sessionManager: manager,
+			resourceLoader,
+		});
+		const startup = {
+			model: session.model
+				? { provider: session.model.provider, id: session.model.id }
+				: null,
+			message: modelFallbackMessage?.replaceAll(getPackageDir(), "<package>"),
+			entries: manager
+				.getEntries()
+				.map((entry: { type: string }) => entry.type),
+		};
+		const runtime = new AgentSessionRuntime(
+			session,
+			{
+				cwd,
+				agentDir: cwd,
+				authStorage,
+				modelRegistry,
+				settingsManager,
+				resourceLoader,
+				diagnostics: [],
+			},
+			async () => {
+				throw new Error("factory must not run");
+			},
+		);
+		runtime.setBeforeProcessRestart(() => {
+			throw new Error("stop after persistence");
+		});
 		let error: string | null = null;
-		try { await runtime.restart({ process: true }); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
-		process.stdout.write(`${JSON.stringify({ id: request.id, startup, persisted: { model: manager.readPersistedSessionSettings()?.model ?? null, thinkingLevel: manager.readPersistedSessionSettings()?.thinkingLevel ?? null }, entries: manager.getEntries().map((entry: { type: string }) => entry.type), error })}\n`);
+		try {
+			await runtime.restart({ process: true });
+		} catch (failure) {
+			error = failure instanceof Error ? failure.message : String(failure);
+		}
+		process.stdout.write(
+			`${JSON.stringify({ id: request.id, startup, persisted: { model: manager.readPersistedSessionSettings()?.model ?? null, thinkingLevel: manager.readPersistedSessionSettings()?.thinkingLevel ?? null }, entries: manager.getEntries().map((entry: { type: string }) => entry.type), error })}\n`,
+		);
 		await runtime.dispose();
 	}
 }
-void main().catch((error: unknown) => { console.error(error); process.exit(1); });
+void main().catch((error: unknown) => {
+	console.error(error);
+	process.exit(1);
+});
