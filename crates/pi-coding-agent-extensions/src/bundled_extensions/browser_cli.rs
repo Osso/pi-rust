@@ -206,7 +206,7 @@ mod lossless_tests {
         let dir = tempfile::tempdir().unwrap();
         let ready = dir.path().join("ready");
         let terminated = dir.path().join("terminated");
-        let script = "import signal,time,sys,pathlib\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path(sys.argv[2]).write_text('term'), sys.exit(0)))\npathlib.Path(sys.argv[1]).write_text('ready')\ntime.sleep(2)\n";
+        let script = "import signal,time,sys,pathlib,os\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path(sys.argv[2]).write_text('term'), sys.exit(0)))\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(2)\n";
         let controller = pi_js_compat::abort::AbortController::new();
         let signal = controller.signal();
         let args = vec![
@@ -242,6 +242,15 @@ mod lossless_tests {
             "the real child must receive SIGTERM, not SIGKILL or a dropped future"
         );
         assert_eq!(std::fs::read_to_string(terminated).unwrap(), "term");
+        let pid = std::fs::read_to_string(ready).unwrap();
+        let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while proc.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("aborted child must be reaped");
     }
 
     #[test]

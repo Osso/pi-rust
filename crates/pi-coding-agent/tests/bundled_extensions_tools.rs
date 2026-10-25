@@ -248,10 +248,7 @@ async fn browser_cli_matches_typescript() {
     let steps = response["output"]["steps"].as_array().unwrap();
 
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
-        pi_coding_agent::bundled_extensions::browser_cli::browser_cli_extension(
-            api,
-            BrowserCliExtensionOptions::default(),
-        )
+        api.register_tool(create_browser_cli_tool_definition(BrowserCliExtensionOptions::default()))
     })
     .await;
     assert_eq!(harness.registrations(), steps[0]["result"]);
@@ -393,10 +390,7 @@ async fn browser_cli_rejects_an_aborted_command() {
         run_command: Some(runner),
     });
     let harness = Harness::load("/tmp", Arc::new(RecordingUi::default()), |api| {
-        pi_coding_agent::bundled_extensions::browser_cli::browser_cli_extension(
-            api,
-            BrowserCliExtensionOptions::default(),
-        )
+        api.register_tool(create_browser_cli_tool_definition(BrowserCliExtensionOptions::default()))
     })
     .await;
     let execution = tokio::spawn({
