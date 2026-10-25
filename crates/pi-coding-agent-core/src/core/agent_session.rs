@@ -6741,11 +6741,13 @@ impl AgentSession {
             }
         }
         let result = match extension_compaction {
+            Some(_) if abort.aborted() => Err(error("Compaction cancelled")),
             Some(compaction) => {
                 let duration_ms = cached
                     .as_ref()
-                    .map(|cache| cache.generation_duration_ms.unwrap_or_default() as f64)
-                    .unwrap_or_default();
+                    .and_then(|cache| cache.generation_duration_ms)
+                    .map(|duration| duration as f64)
+                    .unwrap_or_else(|| (now_millis() - started_at) as f64);
                 self.append_compaction_result(compaction, Some(from_extension), duration_ms)
                     .map(|result| (result, false))
             }
