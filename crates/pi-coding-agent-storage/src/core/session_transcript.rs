@@ -4,6 +4,8 @@ use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_fs::{node_fs_error_record, node_path_argument_error};
 
 pub fn is_session_transcript_file(path: impl Into<JsString>) -> bool {
     let path = path.into();
@@ -27,24 +29,43 @@ fn path_exists(path: &JsString) -> bool {
 }
 
 /// Byte stream; callers decode UTF-8 across read boundaries, never per chunk.
-pub fn create_session_transcript_read_stream(path: impl Into<JsString>) -> io::Result<Box<dyn Read + Send>> {
+pub fn create_session_transcript_read_stream(
+    path: impl Into<JsString>,
+) -> Result<Box<dyn Read + Send>, Box<NativeNodeError>> {
     let source = read_session_transcript_path(path);
-    let file = File::open(encode_node_utf8(&source))?;
+    if let Some(error) = node_path_argument_error(&source) {
+        return Err(Box::new(error.into()));
+    }
+    let file = File::open(encode_node_utf8(&source))
+        .map_err(|error| Box::new(node_fs_error_record(&error, "open", &source).into()))?;
     if source.ends_with(".jsonl.zst") {
-        Ok(Box::new(SessionZstdDecoder::new(file)?))
+        let decoder = SessionZstdDecoder::new(file).map_err(|error| session_transcript_read_error(&source, error))?;
+        Ok(Box::new(decoder))
     } else {
         Ok(Box::new(file))
     }
 }
 
-pub fn read_session_transcript_bytes(path: impl Into<JsString>) -> io::Result<Vec<u8>> {
+/// Convert the required std::io::Read boundary once, retaining Node error data.
+pub fn session_transcript_read_error(path: &JsString, error: io::Error) -> Box<NativeNodeError> {
+    if error.raw_os_error().is_some() {
+        Box::new(node_fs_error_record(&error, "read", path).into())
+    } else {
+        Box::new(NativeNodeError::new("Error", error.to_string()))
+    }
+}
+
+pub fn read_session_transcript_bytes(path: impl Into<JsString>) -> Result<Vec<u8>, Box<NativeNodeError>> {
+    let path = path.into();
     let mut bytes = Vec::new();
-    create_session_transcript_read_stream(path)?.read_to_end(&mut bytes)?;
+    create_session_transcript_read_stream(&path)?
+        .read_to_end(&mut bytes)
+        .map_err(|error| session_transcript_read_error(&path, error))?;
     Ok(bytes)
 }
 
 /// `Buffer.toString("utf8")` decodes file bytes; that result is always scalar text.
-pub fn read_session_transcript_text(path: impl Into<JsString>) -> io::Result<String> {
+pub fn read_session_transcript_text(path: impl Into<JsString>) -> Result<String, Box<NativeNodeError>> {
     Ok(String::from_utf8_lossy(&read_session_transcript_bytes(path)?).into_owned())
 }
 
