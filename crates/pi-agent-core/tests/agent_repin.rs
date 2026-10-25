@@ -1,4 +1,4 @@
-pub mod support;
+pub use crate::shared_agent_support as support;
 
 use pi_agent_core::agent::*;
 use pi_agent_core::harness::{BeforeToolCallResult, ThinkingLevel};

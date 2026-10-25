@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::harness::compaction::{find_cut_point, find_turn_start_index};
 use pi_agent_core::harness::session::SessionTreeEntry;
 use pi_js_compat::{

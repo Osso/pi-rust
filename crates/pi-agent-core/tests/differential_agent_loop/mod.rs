@@ -1,7 +1,5 @@
-#[path = "support.rs"]
-mod oracle;
-#[path = "../support/mod.rs"]
-mod support;
+use crate::shared_agent_support as support;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
