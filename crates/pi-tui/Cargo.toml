@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "pi-tui"
 version = "0.0.0"
 description = "Rust port of Pi's terminal UI library"
@@ -39,3 +40,51 @@ workspace = true
 [[test]]
 name = "terminal_stream"
 harness = false
+
+[[test]]
+name = "suite_core"
+path = "tests/suite_core.rs"
+
+[[test]]
+name = "suite_interactive"
+path = "tests/suite_interactive.rs"
+
+[[test]]
+name = "suite_tools"
+path = "tests/suite_tools.rs"
+
+[[test]]
+name = "autocomplete"
+path = "tests/autocomplete.rs"
+
+[[test]]
+name = "differential_autocomplete"
+path = "tests/differential_autocomplete.rs"
+
+[[test]]
+name = "differential_terminal_write_log"
+path = "tests/differential_terminal_write_log.rs"
+
+[[test]]
+name = "differential_tui_debug"
+path = "tests/differential_tui_debug.rs"
+
+[[test]]
+name = "differential_tui_debug_failures"
+path = "tests/differential_tui_debug_failures.rs"
+
+[[test]]
+name = "editor_wide_wrap"
+path = "tests/editor_wide_wrap.rs"
+
+[[test]]
+name = "raw_frame"
+path = "tests/raw_frame.rs"
+
+[[test]]
+name = "terminal_image"
+path = "tests/terminal_image.rs"
+
+[[test]]
+name = "verifier_regressions"
+path = "tests/verifier_regressions.rs"

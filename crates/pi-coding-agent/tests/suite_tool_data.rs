@@ -1,4 +1,4 @@
-// Process-local tool data tests; isolation-sensitive tests retain standalone targets.
+// Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
 #[path = "agent_core_applied_edits_result.rs"]
 mod agent_core_applied_edits_result;

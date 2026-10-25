@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "pi-ai"
 version = "0.0.0"
 description = "Rust port of Pi's LLM provider abstraction"
@@ -38,3 +39,47 @@ tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt-multi
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite_core_1"
+path = "tests/suite_core_1.rs"
+
+[[test]]
+name = "suite_core_2"
+path = "tests/suite_core_2.rs"
+
+[[test]]
+name = "suite_modes"
+path = "tests/suite_modes.rs"
+
+[[test]]
+name = "suite_session"
+path = "tests/suite_session.rs"
+
+[[test]]
+name = "suite_tools"
+path = "tests/suite_tools.rs"
+
+[[test]]
+name = "auth_types_contract"
+path = "tests/auth_types_contract.rs"
+
+[[test]]
+name = "compat"
+path = "tests/compat.rs"
+
+[[test]]
+name = "differential_compat"
+path = "tests/differential_compat.rs"
+
+[[test]]
+name = "oracle_process_lifetime"
+path = "tests/oracle_process_lifetime.rs"
+
+[[test]]
+name = "process_env_reads"
+path = "tests/process_env_reads.rs"
+
+[[test]]
+name = "public_index"
+path = "tests/public_index.rs"

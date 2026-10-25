@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "pi-coding-agent"
 version = "0.0.0"
 description = "Rust port of Pi's coding-agent runtime"
@@ -9,7 +10,6 @@ publish = false
 # `src/main.rs` is the ported `main.ts` library module; the executable target is
 # declared explicitly as `pi`.
 autobins = false
-autotests = false
 default-run = "pi"
 
 [dependencies]
@@ -185,172 +185,68 @@ bench = false
 doc = false
 
 [[test]]
+name = "suite_core_1"
+path = "tests/suite_core_1.rs"
+
+[[test]]
+name = "suite_core_2"
+path = "tests/suite_core_2.rs"
+
+[[test]]
+name = "suite_core_3"
+path = "tests/suite_core_3.rs"
+
+[[test]]
+name = "suite_core_4"
+path = "tests/suite_core_4.rs"
+
+[[test]]
+name = "suite_core_5"
+path = "tests/suite_core_5.rs"
+
+[[test]]
+name = "suite_extensions"
+path = "tests/suite_extensions.rs"
+
+[[test]]
+name = "suite_interactive"
+path = "tests/suite_interactive.rs"
+
+[[test]]
+name = "suite_modes"
+path = "tests/suite_modes.rs"
+
+[[test]]
+name = "suite_session_1"
+path = "tests/suite_session_1.rs"
+
+[[test]]
+name = "suite_session_2"
+path = "tests/suite_session_2.rs"
+
+[[test]]
 name = "suite_tool_data"
 path = "tests/suite_tool_data.rs"
 
 [[test]]
-name = "abort"
-path = "tests/abort.rs"
-
-[[test]]
-name = "agent_core_differential_unicode_normalize"
-path = "tests/agent_core_differential_unicode_normalize.rs"
-
-[[test]]
-name = "agent_core_fuzzy_match_result"
-path = "tests/agent_core_fuzzy_match_result.rs"
-
-[[test]]
-name = "agent_identity_paths"
-path = "tests/agent_identity_paths.rs"
-
-[[test]]
-name = "agent_session"
-path = "tests/agent_session.rs"
+name = "suite_tools"
+path = "tests/suite_tools.rs"
 
 [[test]]
 name = "agent_session_compaction_extensions"
 path = "tests/agent_session_compaction_extensions.rs"
 
 [[test]]
-name = "agent_session_mutation_target"
-path = "tests/agent_session_mutation_target.rs"
-
-[[test]]
 name = "agent_session_runtime"
 path = "tests/agent_session_runtime.rs"
-
-[[test]]
-name = "agent_session_runtime_mailbox"
-path = "tests/agent_session_runtime_mailbox.rs"
-
-[[test]]
-name = "agent_session_services"
-path = "tests/agent_session_services.rs"
-
-[[test]]
-name = "agent_session_signal_wake"
-path = "tests/agent_session_signal_wake.rs"
 
 [[test]]
 name = "agents_core_drift"
 path = "tests/agents_core_drift.rs"
 
 [[test]]
-name = "agents_core_end_to_end"
-path = "tests/agents_core_end_to_end.rs"
-
-[[test]]
-name = "agents_core_runtime"
-path = "tests/agents_core_runtime.rs"
-
-[[test]]
-name = "agents_core_session_factories"
-path = "tests/agents_core_session_factories.rs"
-
-[[test]]
-name = "agents_core_shared_viewer"
-path = "tests/agents_core_shared_viewer.rs"
-
-[[test]]
-name = "ansi"
-path = "tests/ansi.rs"
-
-[[test]]
-name = "ansi_to_html"
-path = "tests/ansi_to_html.rs"
-
-[[test]]
-name = "approval_reviewer"
-path = "tests/approval_reviewer.rs"
-
-[[test]]
-name = "approved_mailbox_deltas"
-path = "tests/approved_mailbox_deltas.rs"
-
-[[test]]
-name = "approved_transcript_delta"
-path = "tests/approved_transcript_delta.rs"
-
-[[test]]
-name = "architect"
-path = "tests/architect.rs"
-
-[[test]]
-name = "args"
-path = "tests/args.rs"
-
-[[test]]
-name = "ask_questions_tool"
-path = "tests/ask_questions_tool.rs"
-
-[[test]]
-name = "auth_phase1"
-path = "tests/auth_phase1.rs"
-
-[[test]]
-name = "auth_phase1_errors"
-path = "tests/auth_phase1_errors.rs"
-
-[[test]]
-name = "auth_phase1_lossless"
-path = "tests/auth_phase1_lossless.rs"
-
-[[test]]
-name = "auth_phase1_modes"
-path = "tests/auth_phase1_modes.rs"
-
-[[test]]
 name = "auth_phase1_process"
 path = "tests/auth_phase1_process.rs"
-
-[[test]]
-name = "auth_phase1_public"
-path = "tests/auth_phase1_public.rs"
-
-[[test]]
-name = "auth_phase1_rotation"
-path = "tests/auth_phase1_rotation.rs"
-
-[[test]]
-name = "auth_source_discrepancy"
-path = "tests/auth_source_discrepancy.rs"
-
-[[test]]
-name = "auth_storage"
-path = "tests/auth_storage.rs"
-
-[[test]]
-name = "auth_storage_cross_process"
-path = "tests/auth_storage_cross_process.rs"
-
-[[test]]
-name = "bash_executor"
-path = "tests/bash_executor.rs"
-
-[[test]]
-name = "bash_stdin"
-path = "tests/bash_stdin.rs"
-
-[[test]]
-name = "bash_tool"
-path = "tests/bash_tool.rs"
-
-[[test]]
-name = "bash_tool_detach"
-path = "tests/bash_tool_detach.rs"
-
-[[test]]
-name = "branch_summarization"
-path = "tests/branch_summarization.rs"
-
-[[test]]
-name = "bun_entry"
-path = "tests/bun_entry.rs"
-
-[[test]]
-name = "bundled_commands"
-path = "tests/bundled_commands.rs"
 
 [[test]]
 name = "bundled_extensions_commands"
@@ -361,44 +257,16 @@ name = "bundled_extensions_context"
 path = "tests/bundled_extensions_context.rs"
 
 [[test]]
-name = "bundled_extensions_gates"
-path = "tests/bundled_extensions_gates.rs"
-
-[[test]]
 name = "bundled_extensions_run_plan"
 path = "tests/bundled_extensions_run_plan.rs"
-
-[[test]]
-name = "bundled_extensions_tools"
-path = "tests/bundled_extensions_tools.rs"
-
-[[test]]
-name = "chalk"
-path = "tests/chalk.rs"
 
 [[test]]
 name = "change_working_directory_tool"
 path = "tests/change_working_directory_tool.rs"
 
 [[test]]
-name = "child_process"
-path = "tests/child_process.rs"
-
-[[test]]
-name = "child_process_kill_signal"
-path = "tests/child_process_kill_signal.rs"
-
-[[test]]
-name = "claude_bash_hook_extension"
-path = "tests/claude_bash_hook_extension.rs"
-
-[[test]]
 name = "cli_entry"
 path = "tests/cli_entry.rs"
-
-[[test]]
-name = "cli_mode"
-path = "tests/cli_mode.rs"
 
 [[test]]
 name = "clipboard"
@@ -409,54 +277,6 @@ name = "clipboard_image"
 path = "tests/clipboard_image.rs"
 
 [[test]]
-name = "clipboard_native"
-path = "tests/clipboard_native.rs"
-
-[[test]]
-name = "clipboard_temp_files"
-path = "tests/clipboard_temp_files.rs"
-
-[[test]]
-name = "code_index_tools"
-path = "tests/code_index_tools.rs"
-
-[[test]]
-name = "codex_hosted_tools"
-path = "tests/codex_hosted_tools.rs"
-
-[[test]]
-name = "codex_restriction_context"
-path = "tests/codex_restriction_context.rs"
-
-[[test]]
-name = "codex_usage_extension"
-path = "tests/codex_usage_extension.rs"
-
-[[test]]
-name = "command"
-path = "tests/command.rs"
-
-[[test]]
-name = "compaction"
-path = "tests/compaction.rs"
-
-[[test]]
-name = "compaction_generation"
-path = "tests/compaction_generation.rs"
-
-[[test]]
-name = "compaction_utils"
-path = "tests/compaction_utils.rs"
-
-[[test]]
-name = "components"
-path = "tests/components.rs"
-
-[[test]]
-name = "config_install"
-path = "tests/config_install.rs"
-
-[[test]]
 name = "config_paths"
 path = "tests/config_paths.rs"
 
@@ -465,76 +285,20 @@ name = "config_runtime_error_carriers"
 path = "tests/config_runtime_error_carriers.rs"
 
 [[test]]
-name = "config_selector"
-path = "tests/config_selector.rs"
-
-[[test]]
 name = "config_selector_cli"
 path = "tests/config_selector_cli.rs"
-
-[[test]]
-name = "config_value_references"
-path = "tests/config_value_references.rs"
 
 [[test]]
 name = "config_value_status"
 path = "tests/config_value_status.rs"
 
 [[test]]
-name = "context_tool"
-path = "tests/context_tool.rs"
-
-[[test]]
-name = "control_command"
-path = "tests/control_command.rs"
-
-[[test]]
-name = "control_db_public_api"
-path = "tests/control_db_public_api.rs"
-
-[[test]]
-name = "coordination_message"
-path = "tests/coordination_message.rs"
-
-[[test]]
-name = "coordination_visibility"
-path = "tests/coordination_visibility.rs"
-
-[[test]]
-name = "core_constants"
-path = "tests/core_constants.rs"
-
-[[test]]
-name = "cross_implementation_control_db"
-path = "tests/cross_implementation_control_db.rs"
-
-[[test]]
-name = "current_session_version"
-path = "tests/current_session_version.rs"
-
-[[test]]
 name = "custom_message_renderer_process"
 path = "tests/custom_message_renderer_process.rs"
 
 [[test]]
-name = "custom_operation_errors"
-path = "tests/custom_operation_errors.rs"
-
-[[test]]
-name = "debug_command"
-path = "tests/debug_command.rs"
-
-[[test]]
 name = "default_footer_extension"
 path = "tests/default_footer_extension.rs"
-
-[[test]]
-name = "defaults"
-path = "tests/defaults.rs"
-
-[[test]]
-name = "deprecation"
-path = "tests/deprecation.rs"
 
 [[test]]
 name = "desktop_notification"
@@ -549,34 +313,6 @@ name = "detached_job_bootstrap"
 path = "tests/detached_job_bootstrap.rs"
 
 [[test]]
-name = "detached_job_cleanup"
-path = "tests/detached_job_cleanup.rs"
-
-[[test]]
-name = "detached_job_control"
-path = "tests/detached_job_control.rs"
-
-[[test]]
-name = "detached_job_retention"
-path = "tests/detached_job_retention.rs"
-
-[[test]]
-name = "detached_job_runner"
-path = "tests/detached_job_runner.rs"
-
-[[test]]
-name = "detached_pyrun"
-path = "tests/detached_pyrun.rs"
-
-[[test]]
-name = "detached_pyrun_bridge"
-path = "tests/detached_pyrun_bridge.rs"
-
-[[test]]
-name = "detached_pyrun_evaluation"
-path = "tests/detached_pyrun_evaluation.rs"
-
-[[test]]
 name = "detached_pyrun_runner_process"
 path = "tests/detached_pyrun_runner_process.rs"
 
@@ -585,64 +321,8 @@ name = "differential_accumulator_open_errors"
 path = "tests/differential_accumulator_open_errors.rs"
 
 [[test]]
-name = "differential_accumulator_path_error"
-path = "tests/differential_accumulator_path_error.rs"
-
-[[test]]
-name = "differential_accumulator_sequences"
-path = "tests/differential_accumulator_sequences.rs"
-
-[[test]]
-name = "differential_agent_lifecycle_trace"
-path = "tests/differential_agent_lifecycle_trace.rs"
-
-[[test]]
-name = "differential_agent_session"
-path = "tests/differential_agent_session.rs"
-
-[[test]]
-name = "differential_agents_core_deterministic"
-path = "tests/differential_agents_core_deterministic.rs"
-
-[[test]]
-name = "differential_ansi"
-path = "tests/differential_ansi.rs"
-
-[[test]]
-name = "differential_ansi_to_html"
-path = "tests/differential_ansi_to_html.rs"
-
-[[test]]
-name = "differential_architect_prompt"
-path = "tests/differential_architect_prompt.rs"
-
-[[test]]
-name = "differential_architect_request_loop"
-path = "tests/differential_architect_request_loop.rs"
-
-[[test]]
-name = "differential_args"
-path = "tests/differential_args.rs"
-
-[[test]]
 name = "differential_ask_supervisor"
 path = "tests/differential_ask_supervisor.rs"
-
-[[test]]
-name = "differential_assistant_message"
-path = "tests/differential_assistant_message.rs"
-
-[[test]]
-name = "differential_auth_key_value"
-path = "tests/differential_auth_key_value.rs"
-
-[[test]]
-name = "differential_auto_theme"
-path = "tests/differential_auto_theme.rs"
-
-[[test]]
-name = "differential_bash_adopt"
-path = "tests/differential_bash_adopt.rs"
 
 [[test]]
 name = "differential_bash_atomic_writer"
@@ -669,108 +349,20 @@ name = "differential_bash_executor_spill"
 path = "tests/differential_bash_executor_spill.rs"
 
 [[test]]
-name = "differential_bash_executor_stream"
-path = "tests/differential_bash_executor_stream.rs"
-
-[[test]]
-name = "differential_bash_hook_chunk_errors"
-path = "tests/differential_bash_hook_chunk_errors.rs"
-
-[[test]]
-name = "differential_bash_local"
-path = "tests/differential_bash_local.rs"
-
-[[test]]
-name = "differential_bash_manifest_numbers"
-path = "tests/differential_bash_manifest_numbers.rs"
-
-[[test]]
-name = "differential_bash_render_sequence"
-path = "tests/differential_bash_render_sequence.rs"
-
-[[test]]
-name = "differential_bash_render_state"
-path = "tests/differential_bash_render_state.rs"
-
-[[test]]
-name = "differential_bash_render_timer"
-path = "tests/differential_bash_render_timer.rs"
-
-[[test]]
-name = "differential_bash_restored"
-path = "tests/differential_bash_restored.rs"
-
-[[test]]
 name = "differential_bash_stdin_lifetime"
 path = "tests/differential_bash_stdin_lifetime.rs"
-
-[[test]]
-name = "differential_bash_tool"
-path = "tests/differential_bash_tool.rs"
 
 [[test]]
 name = "differential_bash_uncaught"
 path = "tests/differential_bash_uncaught.rs"
 
 [[test]]
-name = "differential_bordered_loader"
-path = "tests/differential_bordered_loader.rs"
-
-[[test]]
-name = "differential_bundled_extensions"
-path = "tests/differential_bundled_extensions.rs"
-
-[[test]]
-name = "differential_bwrap"
-path = "tests/differential_bwrap.rs"
-
-[[test]]
-name = "differential_catalog_clock"
-path = "tests/differential_catalog_clock.rs"
-
-[[test]]
-name = "differential_catalog_deadline"
-path = "tests/differential_catalog_deadline.rs"
-
-[[test]]
 name = "differential_catalog_lifetime"
 path = "tests/differential_catalog_lifetime.rs"
 
 [[test]]
-name = "differential_catalog_retry_causes"
-path = "tests/differential_catalog_retry_causes.rs"
-
-[[test]]
-name = "differential_catalog_startup"
-path = "tests/differential_catalog_startup.rs"
-
-[[test]]
-name = "differential_chalk"
-path = "tests/differential_chalk.rs"
-
-[[test]]
-name = "differential_change_cwd_renderers"
-path = "tests/differential_change_cwd_renderers.rs"
-
-[[test]]
-name = "differential_change_cwd_stat"
-path = "tests/differential_change_cwd_stat.rs"
-
-[[test]]
-name = "differential_changelog"
-path = "tests/differential_changelog.rs"
-
-[[test]]
-name = "differential_claude_bash_hook"
-path = "tests/differential_claude_bash_hook.rs"
-
-[[test]]
 name = "differential_cli_import_home"
 path = "tests/differential_cli_import_home.rs"
-
-[[test]]
-name = "differential_cli_mode"
-path = "tests/differential_cli_mode.rs"
 
 [[test]]
 name = "differential_clipboard_image"
@@ -779,30 +371,6 @@ path = "tests/differential_clipboard_image.rs"
 [[test]]
 name = "differential_clipboard_text"
 path = "tests/differential_clipboard_text.rs"
-
-[[test]]
-name = "differential_code_index_tools"
-path = "tests/differential_code_index_tools.rs"
-
-[[test]]
-name = "differential_codex_hosted_abort"
-path = "tests/differential_codex_hosted_abort.rs"
-
-[[test]]
-name = "differential_codex_hosted_tools"
-path = "tests/differential_codex_hosted_tools.rs"
-
-[[test]]
-name = "differential_codex_quota"
-path = "tests/differential_codex_quota.rs"
-
-[[test]]
-name = "differential_codex_usage"
-path = "tests/differential_codex_usage.rs"
-
-[[test]]
-name = "differential_compaction"
-path = "tests/differential_compaction.rs"
 
 [[test]]
 name = "differential_components"
@@ -821,10 +389,6 @@ name = "differential_config_error_boundaries"
 path = "tests/differential_config_error_boundaries.rs"
 
 [[test]]
-name = "differential_config_error_sources"
-path = "tests/differential_config_error_sources.rs"
-
-[[test]]
 name = "differential_config_install_paths"
 path = "tests/differential_config_install_paths.rs"
 
@@ -837,48 +401,12 @@ name = "differential_config_selector_home"
 path = "tests/differential_config_selector_home.rs"
 
 [[test]]
-name = "differential_config_spawn_validation"
-path = "tests/differential_config_spawn_validation.rs"
-
-[[test]]
 name = "differential_config_value_references"
 path = "tests/differential_config_value_references.rs"
 
 [[test]]
-name = "differential_control_db"
-path = "tests/differential_control_db.rs"
-
-[[test]]
-name = "differential_core_leaves"
-path = "tests/differential_core_leaves.rs"
-
-[[test]]
-name = "differential_countdown_numbers"
-path = "tests/differential_countdown_numbers.rs"
-
-[[test]]
-name = "differential_current_session_version"
-path = "tests/differential_current_session_version.rs"
-
-[[test]]
-name = "differential_custom_entry"
-path = "tests/differential_custom_entry.rs"
-
-[[test]]
-name = "differential_default_footer"
-path = "tests/differential_default_footer.rs"
-
-[[test]]
-name = "differential_default_thinking_level"
-path = "tests/differential_default_thinking_level.rs"
-
-[[test]]
 name = "differential_edit_preview_rejection"
 path = "tests/differential_edit_preview_rejection.rs"
-
-[[test]]
-name = "differential_event_bus_errors"
-path = "tests/differential_event_bus_errors.rs"
 
 [[test]]
 name = "differential_executable"
@@ -893,14 +421,6 @@ name = "differential_extension_editor_process"
 path = "tests/differential_extension_editor_process.rs"
 
 [[test]]
-name = "differential_file_processor_mime_errors"
-path = "tests/differential_file_processor_mime_errors.rs"
-
-[[test]]
-name = "differential_find_abort"
-path = "tests/differential_find_abort.rs"
-
-[[test]]
 name = "differential_find_child_abort"
 path = "tests/differential_find_child_abort.rs"
 
@@ -909,24 +429,8 @@ name = "differential_find_failures"
 path = "tests/differential_find_failures.rs"
 
 [[test]]
-name = "differential_find_numbers"
-path = "tests/differential_find_numbers.rs"
-
-[[test]]
-name = "differential_find_paths"
-path = "tests/differential_find_paths.rs"
-
-[[test]]
 name = "differential_find_process"
 path = "tests/differential_find_process.rs"
-
-[[test]]
-name = "differential_find_render_sequence"
-path = "tests/differential_find_render_sequence.rs"
-
-[[test]]
-name = "differential_find_tool"
-path = "tests/differential_find_tool.rs"
 
 [[test]]
 name = "differential_footer"
@@ -935,26 +439,6 @@ path = "tests/differential_footer.rs"
 [[test]]
 name = "differential_footer_provider"
 path = "tests/differential_footer_provider.rs"
-
-[[test]]
-name = "differential_footer_status"
-path = "tests/differential_footer_status.rs"
-
-[[test]]
-name = "differential_frontmatter"
-path = "tests/differential_frontmatter.rs"
-
-[[test]]
-name = "differential_git"
-path = "tests/differential_git.rs"
-
-[[test]]
-name = "differential_git_worktree"
-path = "tests/differential_git_worktree.rs"
-
-[[test]]
-name = "differential_goal_extension"
-path = "tests/differential_goal_extension.rs"
 
 [[test]]
 name = "differential_grep_abort_windows"
@@ -985,292 +469,52 @@ name = "differential_grep_protocol"
 path = "tests/differential_grep_protocol.rs"
 
 [[test]]
-name = "differential_grep_render_sequence"
-path = "tests/differential_grep_render_sequence.rs"
-
-[[test]]
-name = "differential_grep_tool"
-path = "tests/differential_grep_tool.rs"
-
-[[test]]
-name = "differential_html"
-path = "tests/differential_html.rs"
-
-[[test]]
-name = "differential_idle_compaction"
-path = "tests/differential_idle_compaction.rs"
-
-[[test]]
-name = "differential_image_pipeline"
-path = "tests/differential_image_pipeline.rs"
-
-[[test]]
 name = "differential_interactive_components"
 path = "tests/differential_interactive_components.rs"
-
-[[test]]
-name = "differential_interactive_root"
-path = "tests/differential_interactive_root.rs"
-
-[[test]]
-name = "differential_js_json"
-path = "tests/differential_js_json.rs"
-
-[[test]]
-name = "differential_js_value_pyrun"
-path = "tests/differential_js_value_pyrun.rs"
-
-[[test]]
-name = "differential_json"
-path = "tests/differential_json.rs"
-
-[[test]]
-name = "differential_json_event"
-path = "tests/differential_json_event.rs"
-
-[[test]]
-name = "differential_keybindings"
-path = "tests/differential_keybindings.rs"
-
-[[test]]
-name = "differential_libuv_errors"
-path = "tests/differential_libuv_errors.rs"
-
-[[test]]
-name = "differential_list_extensions"
-path = "tests/differential_list_extensions.rs"
-
-[[test]]
-name = "differential_list_models"
-path = "tests/differential_list_models.rs"
-
-[[test]]
-name = "differential_list_tools"
-path = "tests/differential_list_tools.rs"
 
 [[test]]
 name = "differential_login_lifecycle"
 path = "tests/differential_login_lifecycle.rs"
 
 [[test]]
-name = "differential_ls_abort"
-path = "tests/differential_ls_abort.rs"
-
-[[test]]
-name = "differential_ls_filesystem"
-path = "tests/differential_ls_filesystem.rs"
-
-[[test]]
 name = "differential_ls_numbers"
 path = "tests/differential_ls_numbers.rs"
-
-[[test]]
-name = "differential_ls_render_sequence"
-path = "tests/differential_ls_render_sequence.rs"
 
 [[test]]
 name = "differential_ls_rtk_io"
 path = "tests/differential_ls_rtk_io.rs"
 
 [[test]]
-name = "differential_ls_tool"
-path = "tests/differential_ls_tool.rs"
-
-[[test]]
-name = "differential_migrations"
-path = "tests/differential_migrations.rs"
-
-[[test]]
-name = "differential_mime"
-path = "tests/differential_mime.rs"
-
-[[test]]
-name = "differential_mime_file_errors"
-path = "tests/differential_mime_file_errors.rs"
-
-[[test]]
-name = "differential_model_catalog_cache"
-path = "tests/differential_model_catalog_cache.rs"
-
-[[test]]
-name = "differential_model_resolver"
-path = "tests/differential_model_resolver.rs"
-
-[[test]]
-name = "differential_model_selector"
-path = "tests/differential_model_selector.rs"
-
-[[test]]
 name = "differential_model_selector_nss"
 path = "tests/differential_model_selector_nss.rs"
-
-[[test]]
-name = "differential_multi_agent_store"
-path = "tests/differential_multi_agent_store.rs"
-
-[[test]]
-name = "differential_node_error_strings"
-path = "tests/differential_node_error_strings.rs"
-
-[[test]]
-name = "differential_openai_remote_compact"
-path = "tests/differential_openai_remote_compact.rs"
-
-[[test]]
-name = "differential_output_accumulator"
-path = "tests/differential_output_accumulator.rs"
-
-[[test]]
-name = "differential_package_manager"
-path = "tests/differential_package_manager.rs"
-
-[[test]]
-name = "differential_package_manager_cli"
-path = "tests/differential_package_manager_cli.rs"
 
 [[test]]
 name = "differential_package_manager_home"
 path = "tests/differential_package_manager_home.rs"
 
 [[test]]
-name = "differential_package_manager_versions"
-path = "tests/differential_package_manager_versions.rs"
-
-[[test]]
-name = "differential_path_utils"
-path = "tests/differential_path_utils.rs"
-
-[[test]]
-name = "differential_paths"
-path = "tests/differential_paths.rs"
-
-[[test]]
 name = "differential_paths_boundaries"
 path = "tests/differential_paths_boundaries.rs"
-
-[[test]]
-name = "differential_pi_user_agent"
-path = "tests/differential_pi_user_agent.rs"
-
-[[test]]
-name = "differential_print_mode"
-path = "tests/differential_print_mode.rs"
-
-[[test]]
-name = "differential_prompt_templates"
-path = "tests/differential_prompt_templates.rs"
-
-[[test]]
-name = "differential_provider_restriction_recovery"
-path = "tests/differential_provider_restriction_recovery.rs"
 
 [[test]]
 name = "differential_pyrun"
 path = "tests/differential_pyrun.rs"
 
 [[test]]
-name = "differential_pyrun_detached"
-path = "tests/differential_pyrun_detached.rs"
-
-[[test]]
-name = "differential_question_guards"
-path = "tests/differential_question_guards.rs"
-
-[[test]]
 name = "differential_question_queue"
 path = "tests/differential_question_queue.rs"
-
-[[test]]
-name = "differential_question_rejections"
-path = "tests/differential_question_rejections.rs"
-
-[[test]]
-name = "differential_question_render_history"
-path = "tests/differential_question_render_history.rs"
-
-[[test]]
-name = "differential_read_abort"
-path = "tests/differential_read_abort.rs"
 
 [[test]]
 name = "differential_read_classification"
 path = "tests/differential_read_classification.rs"
 
 [[test]]
-name = "differential_read_config_root"
-path = "tests/differential_read_config_root.rs"
-
-[[test]]
-name = "differential_read_filesystem"
-path = "tests/differential_read_filesystem.rs"
-
-[[test]]
-name = "differential_read_model_note"
-path = "tests/differential_read_model_note.rs"
-
-[[test]]
-name = "differential_read_numbers"
-path = "tests/differential_read_numbers.rs"
-
-[[test]]
-name = "differential_read_tool"
-path = "tests/differential_read_tool.rs"
-
-[[test]]
 name = "differential_render_home"
 path = "tests/differential_render_home.rs"
 
 [[test]]
-name = "differential_render_utils"
-path = "tests/differential_render_utils.rs"
-
-[[test]]
-name = "differential_resident_console"
-path = "tests/differential_resident_console.rs"
-
-[[test]]
-name = "differential_resource_loader"
-path = "tests/differential_resource_loader.rs"
-
-[[test]]
-name = "differential_rpc_client"
-path = "tests/differential_rpc_client.rs"
-
-[[test]]
-name = "differential_rpc_jsonl"
-path = "tests/differential_rpc_jsonl.rs"
-
-[[test]]
-name = "differential_rpc_mode"
-path = "tests/differential_rpc_mode.rs"
-
-[[test]]
-name = "differential_runtime_coordination_format"
-path = "tests/differential_runtime_coordination_format.rs"
-
-[[test]]
-name = "differential_sandbox_selector"
-path = "tests/differential_sandbox_selector.rs"
-
-[[test]]
 name = "differential_scoped_models_selector"
 path = "tests/differential_scoped_models_selector.rs"
-
-[[test]]
-name = "differential_session_info_dates"
-path = "tests/differential_session_info_dates.rs"
-
-[[test]]
-name = "differential_session_manager"
-path = "tests/differential_session_manager.rs"
-
-[[test]]
-name = "differential_session_search"
-path = "tests/differential_session_search.rs"
-
-[[test]]
-name = "differential_session_search_surface"
-path = "tests/differential_session_search_surface.rs"
 
 [[test]]
 name = "differential_session_selector"
@@ -1281,84 +525,12 @@ name = "differential_session_tools"
 path = "tests/differential_session_tools.rs"
 
 [[test]]
-name = "differential_settings_manager"
-path = "tests/differential_settings_manager.rs"
-
-[[test]]
-name = "differential_settings_selector"
-path = "tests/differential_settings_selector.rs"
-
-[[test]]
-name = "differential_skill_block"
-path = "tests/differential_skill_block.rs"
-
-[[test]]
-name = "differential_skills"
-path = "tests/differential_skills.rs"
-
-[[test]]
-name = "differential_slash_commands"
-path = "tests/differential_slash_commands.rs"
-
-[[test]]
-name = "differential_source_info"
-path = "tests/differential_source_info.rs"
-
-[[test]]
-name = "differential_spawn_sync"
-path = "tests/differential_spawn_sync.rs"
-
-[[test]]
-name = "differential_sqlite_open_errors"
-path = "tests/differential_sqlite_open_errors.rs"
-
-[[test]]
-name = "differential_standalone_worker"
-path = "tests/differential_standalone_worker.rs"
-
-[[test]]
-name = "differential_supervisor_client"
-path = "tests/differential_supervisor_client.rs"
-
-[[test]]
-name = "differential_supervisor_request_loop"
-path = "tests/differential_supervisor_request_loop.rs"
-
-[[test]]
-name = "differential_supervisor_response"
-path = "tests/differential_supervisor_response.rs"
-
-[[test]]
-name = "differential_supervisor_service"
-path = "tests/differential_supervisor_service.rs"
-
-[[test]]
-name = "differential_syntax_highlight"
-path = "tests/differential_syntax_highlight.rs"
-
-[[test]]
-name = "differential_syntax_highlight_grammars"
-path = "tests/differential_syntax_highlight_grammars.rs"
-
-[[test]]
 name = "differential_system_prompt"
 path = "tests/differential_system_prompt.rs"
 
 [[test]]
-name = "differential_terminal_current_directory"
-path = "tests/differential_terminal_current_directory.rs"
-
-[[test]]
-name = "differential_theme"
-path = "tests/differential_theme.rs"
-
-[[test]]
 name = "differential_theme_api"
 path = "tests/differential_theme_api.rs"
-
-[[test]]
-name = "differential_theme_controller"
-path = "tests/differential_theme_controller.rs"
 
 [[test]]
 name = "differential_theme_discovery"
@@ -1369,14 +541,6 @@ name = "differential_theme_lifecycle"
 path = "tests/differential_theme_lifecycle.rs"
 
 [[test]]
-name = "differential_theme_rgb"
-path = "tests/differential_theme_rgb.rs"
-
-[[test]]
-name = "differential_thinking_level_validator"
-path = "tests/differential_thinking_level_validator.rs"
-
-[[test]]
 name = "differential_tmpdir_consumers"
 path = "tests/differential_tmpdir_consumers.rs"
 
@@ -1385,64 +549,12 @@ name = "differential_tool_definition_wrapper"
 path = "tests/differential_tool_definition_wrapper.rs"
 
 [[test]]
-name = "differential_tool_detach_registry"
-path = "tests/differential_tool_detach_registry.rs"
-
-[[test]]
-name = "differential_tool_execution"
-path = "tests/differential_tool_execution.rs"
-
-[[test]]
-name = "differential_tool_output_persistence_constants"
-path = "tests/differential_tool_output_persistence_constants.rs"
-
-[[test]]
-name = "differential_tool_renderers"
-path = "tests/differential_tool_renderers.rs"
-
-[[test]]
 name = "differential_tools_index"
 path = "tests/differential_tools_index.rs"
 
 [[test]]
 name = "differential_tree_selector"
 path = "tests/differential_tree_selector.rs"
-
-[[test]]
-name = "differential_version_check"
-path = "tests/differential_version_check.rs"
-
-[[test]]
-name = "differential_write_filesystem"
-path = "tests/differential_write_filesystem.rs"
-
-[[test]]
-name = "differential_write_queue"
-path = "tests/differential_write_queue.rs"
-
-[[test]]
-name = "differential_write_render_sequence"
-path = "tests/differential_write_render_sequence.rs"
-
-[[test]]
-name = "differential_write_result_boundary"
-path = "tests/differential_write_result_boundary.rs"
-
-[[test]]
-name = "empty_session_cleanup"
-path = "tests/empty_session_cleanup.rs"
-
-[[test]]
-name = "end_turn_tool"
-path = "tests/end_turn_tool.rs"
-
-[[test]]
-name = "errno_codes"
-path = "tests/errno_codes.rs"
-
-[[test]]
-name = "event_bus"
-path = "tests/event_bus.rs"
 
 [[test]]
 name = "example_auto_commit_on_exit"
@@ -1457,24 +569,8 @@ name = "example_bookmark"
 path = "tests/example_bookmark.rs"
 
 [[test]]
-name = "example_built_in_tool_renderer"
-path = "tests/example_built_in_tool_renderer.rs"
-
-[[test]]
-name = "example_claude_rules"
-path = "tests/example_claude_rules.rs"
-
-[[test]]
-name = "example_commands"
-path = "tests/example_commands.rs"
-
-[[test]]
 name = "example_confirm_destructive"
 path = "tests/example_confirm_destructive.rs"
-
-[[test]]
-name = "example_custom_anthropic"
-path = "tests/example_custom_anthropic.rs"
 
 [[test]]
 name = "example_custom_footer"
@@ -1487,22 +583,6 @@ path = "tests/example_custom_header.rs"
 [[test]]
 name = "example_dirty_repo_guard"
 path = "tests/example_dirty_repo_guard.rs"
-
-[[test]]
-name = "example_doom_engine_failures"
-path = "tests/example_doom_engine_failures.rs"
-
-[[test]]
-name = "example_doom_overlay"
-path = "tests/example_doom_overlay.rs"
-
-[[test]]
-name = "example_doom_overlay_helpers"
-path = "tests/example_doom_overlay_helpers.rs"
-
-[[test]]
-name = "example_dynamic_resources"
-path = "tests/example_dynamic_resources.rs"
 
 [[test]]
 name = "example_dynamic_tools"
@@ -1537,10 +617,6 @@ name = "example_gitlab_duo"
 path = "tests/example_gitlab_duo.rs"
 
 [[test]]
-name = "example_handoff"
-path = "tests/example_handoff.rs"
-
-[[test]]
 name = "example_hello"
 path = "tests/example_hello.rs"
 
@@ -1573,10 +649,6 @@ name = "example_message_renderer"
 path = "tests/example_message_renderer.rs"
 
 [[test]]
-name = "example_minimal_mode"
-path = "tests/example_minimal_mode.rs"
-
-[[test]]
 name = "example_model_status"
 path = "tests/example_model_status.rs"
 
@@ -1597,76 +669,20 @@ name = "example_pirate"
 path = "tests/example_pirate.rs"
 
 [[test]]
-name = "example_plan_mode"
-path = "tests/example_plan_mode.rs"
-
-[[test]]
-name = "example_plan_mode_utils"
-path = "tests/example_plan_mode_utils.rs"
-
-[[test]]
-name = "example_preset"
-path = "tests/example_preset.rs"
-
-[[test]]
-name = "example_project_trust"
-path = "tests/example_project_trust.rs"
-
-[[test]]
-name = "example_prompt_customizer"
-path = "tests/example_prompt_customizer.rs"
-
-[[test]]
 name = "example_protected_paths"
 path = "tests/example_protected_paths.rs"
-
-[[test]]
-name = "example_provider_payload"
-path = "tests/example_provider_payload.rs"
 
 [[test]]
 name = "example_qna"
 path = "tests/example_qna.rs"
 
 [[test]]
-name = "example_question"
-path = "tests/example_question.rs"
-
-[[test]]
-name = "example_questionnaire"
-path = "tests/example_questionnaire.rs"
-
-[[test]]
 name = "example_reload_runtime"
 path = "tests/example_reload_runtime.rs"
 
 [[test]]
-name = "example_rpc_demo"
-path = "tests/example_rpc_demo.rs"
-
-[[test]]
-name = "example_rpc_extension_ui"
-path = "tests/example_rpc_extension_ui.rs"
-
-[[test]]
-name = "example_sdk_api_keys_and_oauth"
-path = "tests/example_sdk_api_keys_and_oauth.rs"
-
-[[test]]
-name = "example_sdk_context_files"
-path = "tests/example_sdk_context_files.rs"
-
-[[test]]
-name = "example_sdk_custom_model"
-path = "tests/example_sdk_custom_model.rs"
-
-[[test]]
 name = "example_sdk_custom_prompt"
 path = "tests/example_sdk_custom_prompt.rs"
-
-[[test]]
-name = "example_sdk_extensions"
-path = "tests/example_sdk_extensions.rs"
 
 [[test]]
 name = "example_sdk_full_control"
@@ -1677,28 +693,8 @@ name = "example_sdk_minimal"
 path = "tests/example_sdk_minimal.rs"
 
 [[test]]
-name = "example_sdk_prompt_templates"
-path = "tests/example_sdk_prompt_templates.rs"
-
-[[test]]
 name = "example_sdk_session_runtime"
 path = "tests/example_sdk_session_runtime.rs"
-
-[[test]]
-name = "example_sdk_sessions"
-path = "tests/example_sdk_sessions.rs"
-
-[[test]]
-name = "example_sdk_settings"
-path = "tests/example_sdk_settings.rs"
-
-[[test]]
-name = "example_sdk_skills"
-path = "tests/example_sdk_skills.rs"
-
-[[test]]
-name = "example_sdk_tools"
-path = "tests/example_sdk_tools.rs"
 
 [[test]]
 name = "example_send_user_message"
@@ -1711,14 +707,6 @@ path = "tests/example_session_name.rs"
 [[test]]
 name = "example_shutdown_command"
 path = "tests/example_shutdown_command.rs"
-
-[[test]]
-name = "example_snake"
-path = "tests/example_snake.rs"
-
-[[test]]
-name = "example_space_invaders"
-path = "tests/example_space_invaders.rs"
 
 [[test]]
 name = "example_ssh"
@@ -1737,14 +725,6 @@ name = "example_subagent"
 path = "tests/example_subagent.rs"
 
 [[test]]
-name = "example_subagent_agents"
-path = "tests/example_subagent_agents.rs"
-
-[[test]]
-name = "example_summarize"
-path = "tests/example_summarize.rs"
-
-[[test]]
 name = "example_system_prompt_header"
 path = "tests/example_system_prompt_header.rs"
 
@@ -1761,20 +741,12 @@ name = "example_titlebar_spinner"
 path = "tests/example_titlebar_spinner.rs"
 
 [[test]]
-name = "example_todo"
-path = "tests/example_todo.rs"
-
-[[test]]
 name = "example_tool_override"
 path = "tests/example_tool_override.rs"
 
 [[test]]
 name = "example_tools"
 path = "tests/example_tools.rs"
-
-[[test]]
-name = "example_trigger_compact"
-path = "tests/example_trigger_compact.rs"
 
 [[test]]
 name = "example_truncated_tool"
@@ -1797,112 +769,24 @@ name = "example_working_message_test"
 path = "tests/example_working_message_test.rs"
 
 [[test]]
-name = "exec"
-path = "tests/exec.rs"
-
-[[test]]
-name = "executable_script_race"
-path = "tests/executable_script_race.rs"
-
-[[test]]
-name = "exif_orientation"
-path = "tests/exif_orientation.rs"
-
-[[test]]
 name = "experimental"
 path = "tests/experimental.rs"
-
-[[test]]
-name = "experimental_auth"
-path = "tests/experimental_auth.rs"
-
-[[test]]
-name = "experimental_cli"
-path = "tests/experimental_cli.rs"
 
 [[test]]
 name = "export_html"
 path = "tests/export_html.rs"
 
 [[test]]
-name = "extensions"
-path = "tests/extensions.rs"
-
-[[test]]
-name = "external_session_importer"
-path = "tests/external_session_importer.rs"
-
-[[test]]
 name = "fallible_detach"
 path = "tests/fallible_detach.rs"
-
-[[test]]
-name = "fallible_notifications"
-path = "tests/fallible_notifications.rs"
-
-[[test]]
-name = "file_mutation_queue"
-path = "tests/file_mutation_queue.rs"
-
-[[test]]
-name = "file_processor"
-path = "tests/file_processor.rs"
-
-[[test]]
-name = "find_tool"
-path = "tests/find_tool.rs"
 
 [[test]]
 name = "footer_callable_status"
 path = "tests/footer_callable_status.rs"
 
 [[test]]
-name = "footer_data_provider"
-path = "tests/footer_data_provider.rs"
-
-[[test]]
 name = "footer_git_process"
 path = "tests/footer_git_process.rs"
-
-[[test]]
-name = "footer_provider_numbers"
-path = "tests/footer_provider_numbers.rs"
-
-[[test]]
-name = "footer_status"
-path = "tests/footer_status.rs"
-
-[[test]]
-name = "footer_status_source_throw"
-path = "tests/footer_status_source_throw.rs"
-
-[[test]]
-name = "frontmatter"
-path = "tests/frontmatter.rs"
-
-[[test]]
-name = "frozen_theme_assets"
-path = "tests/frozen_theme_assets.rs"
-
-[[test]]
-name = "fs_watch"
-path = "tests/fs_watch.rs"
-
-[[test]]
-name = "git"
-path = "tests/git.rs"
-
-[[test]]
-name = "git_project"
-path = "tests/git_project.rs"
-
-[[test]]
-name = "git_worktree"
-path = "tests/git_worktree.rs"
-
-[[test]]
-name = "goal_extension"
-path = "tests/goal_extension.rs"
 
 [[test]]
 name = "grep_rg"
@@ -1913,212 +797,12 @@ name = "homedir_consumers"
 path = "tests/homedir_consumers.rs"
 
 [[test]]
-name = "host_relay"
-path = "tests/host_relay.rs"
-
-[[test]]
-name = "host_relay_protocol"
-path = "tests/host_relay_protocol.rs"
-
-[[test]]
-name = "host_relay_resident"
-path = "tests/host_relay_resident.rs"
-
-[[test]]
-name = "host_relay_store"
-path = "tests/host_relay_store.rs"
-
-[[test]]
-name = "html"
-path = "tests/html.rs"
-
-[[test]]
-name = "http_dispatcher"
-path = "tests/http_dispatcher.rs"
-
-[[test]]
 name = "idle_session_archive"
 path = "tests/idle_session_archive.rs"
 
 [[test]]
-name = "image_content_roundtrip"
-path = "tests/image_content_roundtrip.rs"
-
-[[test]]
-name = "image_convert"
-path = "tests/image_convert.rs"
-
-[[test]]
-name = "image_process"
-path = "tests/image_process.rs"
-
-[[test]]
-name = "image_resize"
-path = "tests/image_resize.rs"
-
-[[test]]
-name = "initial_message"
-path = "tests/initial_message.rs"
-
-[[test]]
-name = "interactive_child_view"
-path = "tests/interactive_child_view.rs"
-
-[[test]]
-name = "interactive_components"
-path = "tests/interactive_components.rs"
-
-[[test]]
-name = "interactive_components_c"
-path = "tests/interactive_components_c.rs"
-
-[[test]]
 name = "interactive_crash"
 path = "tests/interactive_crash.rs"
-
-[[test]]
-name = "interactive_tmux_keyboard"
-path = "tests/interactive_tmux_keyboard.rs"
-
-[[test]]
-name = "interactive_workflows"
-path = "tests/interactive_workflows.rs"
-
-[[test]]
-name = "iso_time"
-path = "tests/iso_time.rs"
-
-[[test]]
-name = "js_json"
-path = "tests/js_json.rs"
-
-[[test]]
-name = "js_value_artifacts"
-path = "tests/js_value_artifacts.rs"
-
-[[test]]
-name = "json_event"
-path = "tests/json_event.rs"
-
-[[test]]
-name = "json_utils"
-path = "tests/json_utils.rs"
-
-[[test]]
-name = "keybindings"
-path = "tests/keybindings.rs"
-
-[[test]]
-name = "lifecycle_coordinator"
-path = "tests/lifecycle_coordinator.rs"
-
-[[test]]
-name = "lockfile"
-path = "tests/lockfile.rs"
-
-[[test]]
-name = "lockfile_cross_process"
-path = "tests/lockfile_cross_process.rs"
-
-[[test]]
-name = "login_command"
-path = "tests/login_command.rs"
-
-[[test]]
-name = "lossless_agent_node"
-path = "tests/lossless_agent_node.rs"
-
-[[test]]
-name = "lossless_agent_session_paths"
-path = "tests/lossless_agent_session_paths.rs"
-
-[[test]]
-name = "lossless_architect"
-path = "tests/lossless_architect.rs"
-
-[[test]]
-name = "lossless_architect_input"
-path = "tests/lossless_architect_input.rs"
-
-[[test]]
-name = "lossless_argument_completions"
-path = "tests/lossless_argument_completions.rs"
-
-[[test]]
-name = "lossless_bash"
-path = "tests/lossless_bash.rs"
-
-[[test]]
-name = "lossless_bash_executor"
-path = "tests/lossless_bash_executor.rs"
-
-[[test]]
-name = "lossless_bash_request_id"
-path = "tests/lossless_bash_request_id.rs"
-
-[[test]]
-name = "lossless_code_index"
-path = "tests/lossless_code_index.rs"
-
-[[test]]
-name = "lossless_control_claim_order"
-path = "tests/lossless_control_claim_order.rs"
-
-[[test]]
-name = "lossless_control_json_authority"
-path = "tests/lossless_control_json_authority.rs"
-
-[[test]]
-name = "lossless_control_response_parsers"
-path = "tests/lossless_control_response_parsers.rs"
-
-[[test]]
-name = "lossless_coordination_format"
-path = "tests/lossless_coordination_format.rs"
-
-[[test]]
-name = "lossless_detached_paths"
-path = "tests/lossless_detached_paths.rs"
-
-[[test]]
-name = "lossless_extension_loader"
-path = "tests/lossless_extension_loader.rs"
-
-[[test]]
-name = "lossless_file_processor"
-path = "tests/lossless_file_processor.rs"
-
-[[test]]
-name = "lossless_git_source"
-path = "tests/lossless_git_source.rs"
-
-[[test]]
-name = "lossless_incoming_content"
-path = "tests/lossless_incoming_content.rs"
-
-[[test]]
-name = "lossless_incoming_error"
-path = "tests/lossless_incoming_error.rs"
-
-[[test]]
-name = "lossless_interactive_selectors"
-path = "tests/lossless_interactive_selectors.rs"
-
-[[test]]
-name = "lossless_local_path_validation"
-path = "tests/lossless_local_path_validation.rs"
-
-[[test]]
-name = "lossless_mcp_permission"
-path = "tests/lossless_mcp_permission.rs"
-
-[[test]]
-name = "lossless_migrations"
-path = "tests/lossless_migrations.rs"
-
-[[test]]
-name = "lossless_model_scope"
-path = "tests/lossless_model_scope.rs"
 
 [[test]]
 name = "lossless_modes"
@@ -2129,204 +813,16 @@ name = "lossless_output_accumulator"
 path = "tests/lossless_output_accumulator.rs"
 
 [[test]]
-name = "lossless_package_cli"
-path = "tests/lossless_package_cli.rs"
-
-[[test]]
-name = "lossless_package_contracts"
-path = "tests/lossless_package_contracts.rs"
-
-[[test]]
-name = "lossless_package_manager"
-path = "tests/lossless_package_manager.rs"
-
-[[test]]
-name = "lossless_paths"
-path = "tests/lossless_paths.rs"
-
-[[test]]
-name = "lossless_project_trust"
-path = "tests/lossless_project_trust.rs"
-
-[[test]]
-name = "lossless_provider_errors"
-path = "tests/lossless_provider_errors.rs"
-
-[[test]]
-name = "lossless_pyrun"
-path = "tests/lossless_pyrun.rs"
-
-[[test]]
-name = "lossless_resident_console"
-path = "tests/lossless_resident_console.rs"
-
-[[test]]
-name = "lossless_resource_loader"
-path = "tests/lossless_resource_loader.rs"
-
-[[test]]
-name = "lossless_resources"
-path = "tests/lossless_resources.rs"
-
-[[test]]
-name = "lossless_retention"
-path = "tests/lossless_retention.rs"
-
-[[test]]
-name = "lossless_rule_store"
-path = "tests/lossless_rule_store.rs"
-
-[[test]]
-name = "lossless_runtime_identity"
-path = "tests/lossless_runtime_identity.rs"
-
-[[test]]
-name = "lossless_runtime_mailbox"
-path = "tests/lossless_runtime_mailbox.rs"
-
-[[test]]
-name = "lossless_session"
-path = "tests/lossless_session.rs"
-
-[[test]]
 name = "lossless_session_manager_io"
 path = "tests/lossless_session_manager_io.rs"
-
-[[test]]
-name = "lossless_session_persistence"
-path = "tests/lossless_session_persistence.rs"
-
-[[test]]
-name = "lossless_session_projections"
-path = "tests/lossless_session_projections.rs"
-
-[[test]]
-name = "lossless_session_records"
-path = "tests/lossless_session_records.rs"
-
-[[test]]
-name = "lossless_settings"
-path = "tests/lossless_settings.rs"
-
-[[test]]
-name = "lossless_supervisor_main"
-path = "tests/lossless_supervisor_main.rs"
-
-[[test]]
-name = "lossless_supervisor_project"
-path = "tests/lossless_supervisor_project.rs"
-
-[[test]]
-name = "lossless_supervisor_wake"
-path = "tests/lossless_supervisor_wake.rs"
-
-[[test]]
-name = "lossless_syntax_highlight"
-path = "tests/lossless_syntax_highlight.rs"
-
-[[test]]
-name = "lossless_tool_output_spill"
-path = "tests/lossless_tool_output_spill.rs"
-
-[[test]]
-name = "lossless_tool_paths"
-path = "tests/lossless_tool_paths.rs"
-
-[[test]]
-name = "lossless_tools"
-path = "tests/lossless_tools.rs"
-
-[[test]]
-name = "lossless_version_check"
-path = "tests/lossless_version_check.rs"
 
 [[test]]
 name = "ls_rtk"
 path = "tests/ls_rtk.rs"
 
 [[test]]
-name = "ls_tool"
-path = "tests/ls_tool.rs"
-
-[[test]]
-name = "main"
-path = "tests/main.rs"
-
-[[test]]
-name = "main_interactive"
-path = "tests/main_interactive.rs"
-
-[[test]]
-name = "main_process"
-path = "tests/main_process.rs"
-
-[[test]]
-name = "management_http"
-path = "tests/management_http.rs"
-
-[[test]]
-name = "message_timestamp_consumers"
-path = "tests/message_timestamp_consumers.rs"
-
-[[test]]
-name = "messages"
-path = "tests/messages.rs"
-
-[[test]]
-name = "migrations"
-path = "tests/migrations.rs"
-
-[[test]]
-name = "mime"
-path = "tests/mime.rs"
-
-[[test]]
-name = "model_registry"
-path = "tests/model_registry.rs"
-
-[[test]]
-name = "model_registry_agent_stream_throw"
-path = "tests/model_registry_agent_stream_throw.rs"
-
-[[test]]
-name = "model_registry_auth_drift"
-path = "tests/model_registry_auth_drift.rs"
-
-[[test]]
-name = "model_registry_clear_cache_repin"
-path = "tests/model_registry_clear_cache_repin.rs"
-
-[[test]]
-name = "model_registry_compat_requests"
-path = "tests/model_registry_compat_requests.rs"
-
-[[test]]
 name = "model_registry_constructor_repin"
 path = "tests/model_registry_constructor_repin.rs"
-
-[[test]]
-name = "model_registry_custom_auth"
-path = "tests/model_registry_custom_auth.rs"
-
-[[test]]
-name = "model_registry_dispatch_lifecycle"
-path = "tests/model_registry_dispatch_lifecycle.rs"
-
-[[test]]
-name = "model_registry_frozen"
-path = "tests/model_registry_frozen.rs"
-
-[[test]]
-name = "model_registry_lossless_config"
-path = "tests/model_registry_lossless_config.rs"
-
-[[test]]
-name = "model_registry_modifier_throw_probe"
-path = "tests/model_registry_modifier_throw_probe.rs"
-
-[[test]]
-name = "model_registry_oauth_throw_probe"
-path = "tests/model_registry_oauth_throw_probe.rs"
 
 [[test]]
 name = "model_registry_provider_auth_repin"
@@ -2337,120 +833,20 @@ name = "model_registry_reentry"
 path = "tests/model_registry_reentry.rs"
 
 [[test]]
-name = "model_registry_registration_repin"
-path = "tests/model_registry_registration_repin.rs"
-
-[[test]]
-name = "model_registry_repin"
-path = "tests/model_registry_repin.rs"
-
-[[test]]
-name = "model_registry_stream_throw_probe"
-path = "tests/model_registry_stream_throw_probe.rs"
-
-[[test]]
-name = "model_resolver"
-path = "tests/model_resolver.rs"
-
-[[test]]
-name = "multi_agent_store"
-path = "tests/multi_agent_store.rs"
-
-[[test]]
-name = "native_error_uncaught"
-path = "tests/native_error_uncaught.rs"
-
-[[test]]
-name = "node_fs_errors"
-path = "tests/node_fs_errors.rs"
-
-[[test]]
-name = "node_realpath"
-path = "tests/node_realpath.rs"
-
-[[test]]
 name = "opaque_header_names"
 path = "tests/opaque_header_names.rs"
-
-[[test]]
-name = "open_browser"
-path = "tests/open_browser.rs"
-
-[[test]]
-name = "openai_remote_compact"
-path = "tests/openai_remote_compact.rs"
 
 [[test]]
 name = "oracle_lifecycle"
 path = "tests/oracle_lifecycle.rs"
 
 [[test]]
-name = "output_accumulator"
-path = "tests/output_accumulator.rs"
-
-[[test]]
 name = "output_guard"
 path = "tests/output_guard.rs"
 
 [[test]]
-name = "own_key_tables"
-path = "tests/own_key_tables.rs"
-
-[[test]]
-name = "package_command_execution"
-path = "tests/package_command_execution.rs"
-
-[[test]]
-name = "package_index"
-path = "tests/package_index.rs"
-
-[[test]]
-name = "package_manager"
-path = "tests/package_manager.rs"
-
-[[test]]
-name = "package_manager_cli"
-path = "tests/package_manager_cli.rs"
-
-[[test]]
 name = "package_manager_git"
 path = "tests/package_manager_git.rs"
-
-[[test]]
-name = "package_manager_progress"
-path = "tests/package_manager_progress.rs"
-
-[[test]]
-name = "path_utils"
-path = "tests/path_utils.rs"
-
-[[test]]
-name = "paths"
-path = "tests/paths.rs"
-
-[[test]]
-name = "permission_rule_store"
-path = "tests/permission_rule_store.rs"
-
-[[test]]
-name = "permissions"
-path = "tests/permissions.rs"
-
-[[test]]
-name = "permissions_prompt"
-path = "tests/permissions_prompt.rs"
-
-[[test]]
-name = "photon"
-path = "tests/photon.rs"
-
-[[test]]
-name = "pi_manifest"
-path = "tests/pi_manifest.rs"
-
-[[test]]
-name = "pi_user_agent"
-path = "tests/pi_user_agent.rs"
 
 [[test]]
 name = "process_cwd"
@@ -2461,280 +857,28 @@ name = "process_env_reads"
 path = "tests/process_env_reads.rs"
 
 [[test]]
-name = "project_resolver"
-path = "tests/project_resolver.rs"
-
-[[test]]
-name = "project_trust"
-path = "tests/project_trust.rs"
-
-[[test]]
-name = "prompt_templates"
-path = "tests/prompt_templates.rs"
-
-[[test]]
 name = "provider_lazy_acquisition"
 path = "tests/provider_lazy_acquisition.rs"
-
-[[test]]
-name = "pyrun_extension"
-path = "tests/pyrun_extension.rs"
-
-[[test]]
-name = "question_relay"
-path = "tests/question_relay.rs"
-
-[[test]]
-name = "raw_app_keybindings"
-path = "tests/raw_app_keybindings.rs"
-
-[[test]]
-name = "raw_error_consumer_components"
-path = "tests/raw_error_consumer_components.rs"
-
-[[test]]
-name = "raw_extension_dialogs"
-path = "tests/raw_extension_dialogs.rs"
-
-[[test]]
-name = "raw_extension_ui_types"
-path = "tests/raw_extension_ui_types.rs"
-
-[[test]]
-name = "raw_footer_statuses"
-path = "tests/raw_footer_statuses.rs"
-
-[[test]]
-name = "raw_leaf_components"
-path = "tests/raw_leaf_components.rs"
-
-[[test]]
-name = "raw_resource_diagnostics"
-path = "tests/raw_resource_diagnostics.rs"
-
-[[test]]
-name = "raw_status_indicator"
-path = "tests/raw_status_indicator.rs"
-
-[[test]]
-name = "raw_summary_components"
-path = "tests/raw_summary_components.rs"
-
-[[test]]
-name = "raw_theme_error"
-path = "tests/raw_theme_error.rs"
-
-[[test]]
-name = "raw_theme_native"
-path = "tests/raw_theme_native.rs"
 
 [[test]]
 name = "raw_uncaught"
 path = "tests/raw_uncaught.rs"
 
 [[test]]
-name = "read_tool"
-path = "tests/read_tool.rs"
-
-[[test]]
-name = "readonly_session_manager"
-path = "tests/readonly_session_manager.rs"
-
-[[test]]
-name = "render_region_container"
-path = "tests/render_region_container.rs"
-
-[[test]]
-name = "render_utils"
-path = "tests/render_utils.rs"
-
-[[test]]
-name = "repin_control_agents"
-path = "tests/repin_control_agents.rs"
-
-[[test]]
-name = "repin_control_channel"
-path = "tests/repin_control_channel.rs"
-
-[[test]]
-name = "repin_control_exports"
-path = "tests/repin_control_exports.rs"
-
-[[test]]
-name = "repin_control_lifecycle"
-path = "tests/repin_control_lifecycle.rs"
-
-[[test]]
-name = "repin_control_mailbox"
-path = "tests/repin_control_mailbox.rs"
-
-[[test]]
-name = "repin_control_migrations"
-path = "tests/repin_control_migrations.rs"
-
-[[test]]
-name = "repin_control_raw_json"
-path = "tests/repin_control_raw_json.rs"
-
-[[test]]
-name = "repin_control_reciprocal"
-path = "tests/repin_control_reciprocal.rs"
-
-[[test]]
-name = "repin_control_requests"
-path = "tests/repin_control_requests.rs"
-
-[[test]]
 name = "repin_control_retention_clock"
 path = "tests/repin_control_retention_clock.rs"
-
-[[test]]
-name = "repin_control_schema"
-path = "tests/repin_control_schema.rs"
-
-[[test]]
-name = "repin_control_schema_constraints"
-path = "tests/repin_control_schema_constraints.rs"
-
-[[test]]
-name = "repin_control_sessions"
-path = "tests/repin_control_sessions.rs"
-
-[[test]]
-name = "repin_control_validation"
-path = "tests/repin_control_validation.rs"
-
-[[test]]
-name = "repin_control_whitespace"
-path = "tests/repin_control_whitespace.rs"
-
-[[test]]
-name = "repin_multi_agent_store"
-path = "tests/repin_multi_agent_store.rs"
-
-[[test]]
-name = "repin_resident_session"
-path = "tests/repin_resident_session.rs"
-
-[[test]]
-name = "repin_runtime_mailbox_transcript"
-path = "tests/repin_runtime_mailbox_transcript.rs"
 
 [[test]]
 name = "repin_session_storage"
 path = "tests/repin_session_storage.rs"
 
 [[test]]
-name = "repin_storage_history"
-path = "tests/repin_storage_history.rs"
-
-[[test]]
-name = "repin_storage_retention"
-path = "tests/repin_storage_retention.rs"
-
-[[test]]
 name = "repin_storage_spool"
 path = "tests/repin_storage_spool.rs"
 
 [[test]]
-name = "repin_storage_terminal_outbox"
-path = "tests/repin_storage_terminal_outbox.rs"
-
-[[test]]
-name = "repin_storage_tool_output"
-path = "tests/repin_storage_tool_output.rs"
-
-[[test]]
-name = "repin_storage_transcript"
-path = "tests/repin_storage_transcript.rs"
-
-[[test]]
-name = "repin_store_persistence"
-path = "tests/repin_store_persistence.rs"
-
-[[test]]
-name = "request_wake"
-path = "tests/request_wake.rs"
-
-[[test]]
-name = "resident_console_command"
-path = "tests/resident_console_command.rs"
-
-[[test]]
-name = "resident_console_drift"
-path = "tests/resident_console_drift.rs"
-
-[[test]]
-name = "resident_console_transport"
-path = "tests/resident_console_transport.rs"
-
-[[test]]
-name = "resolve_config_value"
-path = "tests/resolve_config_value.rs"
-
-[[test]]
-name = "resource_loader"
-path = "tests/resource_loader.rs"
-
-[[test]]
 name = "resource_loader_constructor_errors"
 path = "tests/resource_loader_constructor_errors.rs"
-
-[[test]]
-name = "resume_session_tool"
-path = "tests/resume_session_tool.rs"
-
-[[test]]
-name = "retry_delay"
-path = "tests/retry_delay.rs"
-
-[[test]]
-name = "rpc_client"
-path = "tests/rpc_client.rs"
-
-[[test]]
-name = "rpc_client_frozen_server"
-path = "tests/rpc_client_frozen_server.rs"
-
-[[test]]
-name = "rpc_entry"
-path = "tests/rpc_entry.rs"
-
-[[test]]
-name = "rpc_jsonl"
-path = "tests/rpc_jsonl.rs"
-
-[[test]]
-name = "rpc_jsonl_errors"
-path = "tests/rpc_jsonl_errors.rs"
-
-[[test]]
-name = "rpc_jsonl_reader"
-path = "tests/rpc_jsonl_reader.rs"
-
-[[test]]
-name = "rpc_mode_session_name"
-path = "tests/rpc_mode_session_name.rs"
-
-[[test]]
-name = "rpc_types"
-path = "tests/rpc_types.rs"
-
-[[test]]
-name = "runtime_credentials"
-path = "tests/runtime_credentials.rs"
-
-[[test]]
-name = "runtime_process"
-path = "tests/runtime_process.rs"
-
-[[test]]
-name = "sdk"
-path = "tests/sdk.rs"
-
-[[test]]
-name = "search_current_session_history_tool"
-path = "tests/search_current_session_history_tool.rs"
 
 [[test]]
 name = "self_restart"
@@ -2749,56 +893,16 @@ name = "self_restart_process"
 path = "tests/self_restart_process.rs"
 
 [[test]]
-name = "self_restart_state"
-path = "tests/self_restart_state.rs"
-
-[[test]]
-name = "session_autoname"
-path = "tests/session_autoname.rs"
-
-[[test]]
-name = "session_continuation"
-path = "tests/session_continuation.rs"
-
-[[test]]
-name = "session_control_db"
-path = "tests/session_control_db.rs"
-
-[[test]]
-name = "session_coordination_tools"
-path = "tests/session_coordination_tools.rs"
-
-[[test]]
-name = "session_cwd"
-path = "tests/session_cwd.rs"
-
-[[test]]
 name = "session_delete"
 path = "tests/session_delete.rs"
-
-[[test]]
-name = "session_directory"
-path = "tests/session_directory.rs"
 
 [[test]]
 name = "session_executable_availability"
 path = "tests/session_executable_availability.rs"
 
 [[test]]
-name = "session_health"
-path = "tests/session_health.rs"
-
-[[test]]
-name = "session_manager"
-path = "tests/session_manager.rs"
-
-[[test]]
 name = "session_manager_truthiness"
 path = "tests/session_manager_truthiness.rs"
-
-[[test]]
-name = "session_picker"
-path = "tests/session_picker.rs"
 
 [[test]]
 name = "session_picker_concurrency"
@@ -2809,136 +913,12 @@ name = "session_selector_mutations"
 path = "tests/session_selector_mutations.rs"
 
 [[test]]
-name = "session_tool_output"
-path = "tests/session_tool_output.rs"
-
-[[test]]
-name = "session_tool_output_constants"
-path = "tests/session_tool_output_constants.rs"
-
-[[test]]
-name = "sessions_command"
-path = "tests/sessions_command.rs"
-
-[[test]]
-name = "set_agent_model"
-path = "tests/set_agent_model.rs"
-
-[[test]]
-name = "settings_manager"
-path = "tests/settings_manager.rs"
-
-[[test]]
-name = "settings_manager_drain"
-path = "tests/settings_manager_drain.rs"
-
-[[test]]
-name = "settings_selector"
-path = "tests/settings_selector.rs"
-
-[[test]]
-name = "shell"
-path = "tests/shell.rs"
-
-[[test]]
-name = "skill_block"
-path = "tests/skill_block.rs"
-
-[[test]]
-name = "skills"
-path = "tests/skills.rs"
-
-[[test]]
-name = "slash_commands"
-path = "tests/slash_commands.rs"
-
-[[test]]
-name = "sleep"
-path = "tests/sleep.rs"
-
-[[test]]
-name = "source_info"
-path = "tests/source_info.rs"
-
-[[test]]
-name = "standalone_worker_factories"
-path = "tests/standalone_worker_factories.rs"
-
-[[test]]
-name = "standalone_worker_main_process"
-path = "tests/standalone_worker_main_process.rs"
-
-[[test]]
-name = "standalone_worker_runtime"
-path = "tests/standalone_worker_runtime.rs"
-
-[[test]]
-name = "standalone_worker_sdk"
-path = "tests/standalone_worker_sdk.rs"
-
-[[test]]
-name = "startup_session_name"
-path = "tests/startup_session_name.rs"
-
-[[test]]
 name = "startup_ui"
 path = "tests/startup_ui.rs"
 
 [[test]]
-name = "status_indicator_api"
-path = "tests/status_indicator_api.rs"
-
-[[test]]
-name = "summary_stream_acquisition"
-path = "tests/summary_stream_acquisition.rs"
-
-[[test]]
-name = "supervisor"
-path = "tests/supervisor.rs"
-
-[[test]]
-name = "supervisor_client"
-path = "tests/supervisor_client.rs"
-
-[[test]]
-name = "supervisor_client_cancellation"
-path = "tests/supervisor_client_cancellation.rs"
-
-[[test]]
 name = "supervisor_ensure_running"
 path = "tests/supervisor_ensure_running.rs"
-
-[[test]]
-name = "supervisor_ensure_running_scenarios"
-path = "tests/supervisor_ensure_running_scenarios.rs"
-
-[[test]]
-name = "supervisor_startup_errors"
-path = "tests/supervisor_startup_errors.rs"
-
-[[test]]
-name = "syntax_highlight"
-path = "tests/syntax_highlight.rs"
-
-[[test]]
-name = "system_prompt"
-path = "tests/system_prompt.rs"
-
-[[test]]
-name = "telemetry_provider_attribution"
-path = "tests/telemetry_provider_attribution.rs"
-
-[[test]]
-name = "terminal_current_directory"
-path = "tests/terminal_current_directory.rs"
-
-[[test]]
-name = "terminal_outbox_delivery"
-path = "tests/terminal_outbox_delivery.rs"
-
-[[test]]
-name = "test_isolation"
-path = "tests/test_isolation.rs"
 
 [[test]]
 name = "theme"
@@ -2949,52 +929,16 @@ name = "theme_controller"
 path = "tests/theme_controller.rs"
 
 [[test]]
-name = "thinking_level_validator"
-path = "tests/thinking_level_validator.rs"
-
-[[test]]
 name = "timings"
 path = "tests/timings.rs"
-
-[[test]]
-name = "tool_definition_wrapper"
-path = "tests/tool_definition_wrapper.rs"
-
-[[test]]
-name = "tool_detach_registry"
-path = "tests/tool_detach_registry.rs"
-
-[[test]]
-name = "tool_detach_snapshot"
-path = "tests/tool_detach_snapshot.rs"
 
 [[test]]
 name = "tool_detach_timer_semantics"
 path = "tests/tool_detach_timer_semantics.rs"
 
 [[test]]
-name = "tool_execution_renderer_errors"
-path = "tests/tool_execution_renderer_errors.rs"
-
-[[test]]
-name = "tool_renderer"
-path = "tests/tool_renderer.rs"
-
-[[test]]
-name = "tool_renderers"
-path = "tests/tool_renderers.rs"
-
-[[test]]
-name = "tool_result_images"
-path = "tests/tool_result_images.rs"
-
-[[test]]
 name = "tools_manager"
 path = "tests/tools_manager.rs"
-
-[[test]]
-name = "transport_address"
-path = "tests/transport_address.rs"
 
 [[test]]
 name = "trust_manager"
@@ -3003,11 +947,3 @@ path = "tests/trust_manager.rs"
 [[test]]
 name = "uncaught"
 path = "tests/uncaught.rs"
-
-[[test]]
-name = "usage_totals"
-path = "tests/usage_totals.rs"
-
-[[test]]
-name = "windows_self_update"
-path = "tests/windows_self_update.rs"

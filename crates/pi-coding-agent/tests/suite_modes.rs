@@ -1,0 +1,84 @@
+// Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
+
+#[path = "auth_phase1_modes.rs"]
+mod auth_phase1_modes;
+#[path = "cli_mode.rs"]
+mod cli_mode;
+#[path = "clipboard_native.rs"]
+mod clipboard_native;
+#[path = "differential_cli_mode.rs"]
+mod differential_cli_mode;
+#[path = "differential_list_models.rs"]
+mod differential_list_models;
+#[path = "differential_model_catalog_cache.rs"]
+mod differential_model_catalog_cache;
+#[path = "differential_model_resolver.rs"]
+mod differential_model_resolver;
+#[path = "differential_package_manager_cli.rs"]
+mod differential_package_manager_cli;
+#[path = "differential_print_mode.rs"]
+mod differential_print_mode;
+#[path = "differential_rpc_client.rs"]
+mod differential_rpc_client;
+#[path = "differential_rpc_jsonl.rs"]
+mod differential_rpc_jsonl;
+#[path = "differential_rpc_mode.rs"]
+mod differential_rpc_mode;
+#[path = "differential_supervisor_client.rs"]
+mod differential_supervisor_client;
+#[path = "experimental_cli.rs"]
+mod experimental_cli;
+#[path = "lossless_model_scope.rs"]
+mod lossless_model_scope;
+#[path = "lossless_package_cli.rs"]
+mod lossless_package_cli;
+#[path = "model_registry.rs"]
+mod model_registry;
+#[path = "model_registry_agent_stream_throw.rs"]
+mod model_registry_agent_stream_throw;
+#[path = "model_registry_auth_drift.rs"]
+mod model_registry_auth_drift;
+#[path = "model_registry_clear_cache_repin.rs"]
+mod model_registry_clear_cache_repin;
+#[path = "model_registry_compat_requests.rs"]
+mod model_registry_compat_requests;
+#[path = "model_registry_custom_auth.rs"]
+mod model_registry_custom_auth;
+#[path = "model_registry_dispatch_lifecycle.rs"]
+mod model_registry_dispatch_lifecycle;
+#[path = "model_registry_frozen.rs"]
+mod model_registry_frozen;
+#[path = "model_registry_lossless_config.rs"]
+mod model_registry_lossless_config;
+#[path = "model_registry_modifier_throw_probe.rs"]
+mod model_registry_modifier_throw_probe;
+#[path = "model_registry_oauth_throw_probe.rs"]
+mod model_registry_oauth_throw_probe;
+#[path = "model_registry_registration_repin.rs"]
+mod model_registry_registration_repin;
+#[path = "model_registry_repin.rs"]
+mod model_registry_repin;
+#[path = "model_registry_stream_throw_probe.rs"]
+mod model_registry_stream_throw_probe;
+#[path = "model_resolver.rs"]
+mod model_resolver;
+#[path = "package_manager_cli.rs"]
+mod package_manager_cli;
+#[path = "rpc_client.rs"]
+mod rpc_client;
+#[path = "rpc_client_frozen_server.rs"]
+mod rpc_client_frozen_server;
+#[path = "rpc_entry.rs"]
+mod rpc_entry;
+#[path = "rpc_jsonl.rs"]
+mod rpc_jsonl;
+#[path = "rpc_jsonl_errors.rs"]
+mod rpc_jsonl_errors;
+#[path = "rpc_types.rs"]
+mod rpc_types;
+#[path = "set_agent_model.rs"]
+mod set_agent_model;
+#[path = "supervisor_client.rs"]
+mod supervisor_client;
+#[path = "supervisor_client_cancellation.rs"]
+mod supervisor_client_cancellation;
