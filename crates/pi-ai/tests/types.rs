@@ -45,6 +45,28 @@ fn frozen_stop_reason_types_exclude_old_pending_and_deferred_variants() {
     }
 }
 
+#[test]
+fn source_absent_cost_tiers_remain_unknown_properties() {
+    use pi_ai::types::ModelCost;
+    use pi_js_compat::js_json::{self, JsValue};
+    for tiers in ["null", r#"[{"legacy":"\\ud800"}]"#] {
+        let wire = format!(r#"{{"input":1,"tiers":{tiers},"output":2,"cacheRead":3,"cacheWrite":4}}"#);
+        let cost: ModelCost = serde_json::from_str(&wire).unwrap();
+        assert_eq!(js_json::stringify_lossless(&js_json::to_value(&cost).unwrap()), wire);
+        assert_eq!(
+            cost.properties.extra().get("tiers"),
+            js_json::parse_lossless(tiers).ok().as_ref()
+        );
+    }
+    assert!(serde_json::from_value::<pi_ai::types::ThinkingFormat>(json!("baseten")).is_err());
+    let compat: pi_ai::types::OpenAICompletionsCompat =
+        js_json::from_value(&pi_js_compat::js_json!({"thinkingFormat":"baseten"})).unwrap();
+    assert_eq!(
+        pi_ai::types::CompatFields::raw(&compat, "thinkingFormat"),
+        Some(&JsValue::String("baseten".into()))
+    );
+}
+
 #[path = "support/oracle.rs"]
 mod oracle;
 
