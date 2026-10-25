@@ -4193,10 +4193,8 @@ impl InteractiveMode {
             .session_manager
             .as_ref()
             .expect("child footer has manager");
-        let manager = manager_handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entries = manager.build_context_entries();
-        let source_cwd = manager.get_cwd().to_owned();
-        drop(manager);
+        let entries = manager_handle.build_context_entries();
+        let source_cwd = manager_handle.get_cwd();
         self.footer.borrow_mut().set_session_override(footer_override.clone());
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
