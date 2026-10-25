@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 608, `gap` 25, `partial` 30, `todo` 23.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 609, `gap` 25, `partial` 29, `todo` 23.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -67,7 +67,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/api/openai-codex-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | Actual selected lazy export: missing/empty-key setup catch and valid request/effort/event differential. Direct export returns Result; no error-stream deviation. [Map](traceability/openai-codex-responses.md). |
 | `ai/src/api/openai-codex-responses.ts` | 1677 | 1 | done | `crates/pi-ai/src/api/openai_codex_responses.rs` | Whole common-pin plus approved account-cache delta: exact requests/errors/callbacks/diagnostics, real idle/age/busy/per-account lifecycle, bounded JsValue input100-case matrix, direct/simple/lazy, full SDK tiers and streaming/binary decoder parity. Literal source discrepancies/runtime boundaries explicit; no old-only recovery/cacheRetention/tool-choice. [Map](traceability/openai-codex-responses.md). |
 | `ai/src/api/openai-completions.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_completions.rs` | `open_ai_completions_api()` lazy adapter.; re-run vs 4f9e6f8a4 pending |
-| `ai/src/api/openai-completions.ts` | 1293 | 1 | partial | `crates/pi-ai/src/api/openai_completions.rs` | Exact frozen35 existing +4 fractional/interleaving/error/EOF/custom-input scenarios and9 behavioral GREEN. Native partialArgs/streamIndex SSOT, binary64 indices and catch/end cleanup. Old public grammar/compat/request cleanup remains partial. [Traceability](traceability/openai-completions.md). |
+| `ai/src/api/openai-completions.ts` | 1293 | 1 | done | `crates/pi-ai/src/api/openai_completions.rs` | Whole common-pin audit:35 original+4 scratch+6 new source cases, recursively exact request key order; pipe/UTF16 IDs, empty prompt/literal empty-result bug, Simple toolChoice, SDK retry and raw metadata catch repaired. Native lossless arguments/scratch; explicit pathological/runtime gap row. [Trace](traceability/openai-completions.md). |
 | `ai/src/api/openai-prompt-cache.ts` | 8 | 0 | done | `crates/pi-ai/src/api/openai_prompt_cache.rs` | Code-point clamp at 64; differential.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/openai-responses-shared.ts` | 733 | 1 | done | `crates/pi-ai/src/api/openai_responses_shared.rs` | Whole common-pin audit: function-only conversion/tools and full stream/citation/scratch/terminal logic; seven new frozen RED regressions repair empty prompt, Unicode/pipe IDs, corrupt signature drop, ungated citations, unconditional cost, error defaults and phase reset. Native error propagation retained. [Trace](traceability/openai-responses-shared.md). |
 | `ai/src/api/openai-responses.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/openai_responses.rs` | `open_ai_responses_api()` lazy adapter.; re-run vs 4f9e6f8a4 pending |
