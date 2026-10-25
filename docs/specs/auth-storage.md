@@ -12,9 +12,9 @@ Successful OAuth refresh spends the old credential. The source attempts locked p
 
 In-memory async callbacks are not serialized: overlapping expired refreshes both read the current A credential before either callback persists B, matching frozen InMemoryAuthStorageBackend. File-backed callbacks retain their lock policy.
 
-Caught non-Error refresh failures are recorded as `new Error(String(value))`; native Error identity/properties survive. String conversion can itself throw before reload or the optional authentication wrapper. Wrapper reasons use Error.message or String(value), preserving exact UTF-16.
+Malformed auth JSON retains its SyntaxError constructor and message. Caught non-Error refresh failures are recorded as `new Error(String(value))`; native Error identity/properties survive. String conversion can itself throw before reload or the optional authentication wrapper. Wrapper reasons use Error.message or String(value), preserving exact UTF-16.
 
-Only synthetic disposable credentials may be used in parity proofs. Source public API parity and obsolete native consumer replacement remain separate tracked work until proved.
+Only synthetic disposable credentials may be used in parity proofs. Public API and obsolete-consumer proof is mapped in the [module trace](../porting/traceability/auth-storage.md).
 
 Persisted API-key credentials resolve their `key` through the frozen config parser. Missing/null keys and non-string JSON values throw the parser's exact TypeError message and constructor identity; they never become absent credentials. Raw getters remain unvalidated.
 

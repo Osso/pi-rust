@@ -5,6 +5,35 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;
 #[test]
+fn malformed_auth_json_preserves_frozen_syntax_error_identity() {
+    use pi_js_compat::abort::AbortReason;
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("auth.json");
+    let mut source = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    for text in ["broken-json", "{", r#"{"safe":]}"#] {
+        std::fs::write(&path, text).unwrap();
+        let expected = source.request(&json!({"id":1,"op":"error-identities","authPath":path}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
+        let actual: Vec<_> = storage
+            .drain_errors()
+            .iter()
+            .map(|error| {
+                let AbortReason::Error(native) = error.thrown_value() else {
+                    panic!("expected native Error");
+                };
+                json!({"name":native.name,"message":native.message,"constructor":native.constructor_class().name()})
+            })
+            .collect();
+        assert_eq!(json!(actual), expected["output"], "input={text}");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), text);
+    }
+}
+
+#[test]
 fn auth_file_utf8_decoder_replaces_invalid_bytes_like_node() {
     let file = std::env::temp_dir().join(format!("auth-invalid-utf8-{}.json", std::process::id()));
     std::fs::write(&file, b"{\"synthetic\":{\"type\":\"api_key\",\"key\":\"bad-\xff\"}}").unwrap();

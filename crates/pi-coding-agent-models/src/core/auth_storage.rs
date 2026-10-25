@@ -377,7 +377,13 @@ fn parse_auth_data(content: Option<&str>) -> Result<AuthStorageData, StorageErro
     let Some(content) = content.filter(|s| !s.is_empty()) else {
         return Ok(JsObject::new());
     };
-    match js_json::parse_lossless(content).map_err(|e| StorageError::new(e.to_string()))? {
+    let value = js_json::parse_lossless(content).map_err(|error| {
+        StorageError::from(NativeNodeError::from_constructor(
+            NativeErrorClass::SyntaxError,
+            error.into_message(),
+        ))
+    })?;
+    match value {
         JsValue::Object(data) => Ok(data),
         _ => Ok(JsObject::new()),
     }

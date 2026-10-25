@@ -165,6 +165,9 @@ async function main(): Promise<void> {
 				file: readFileSync(request.authPath, "utf8"),
 			};
 		}
+		if (request.op === "error-identities") {
+			return storage.drainErrors().map((error) => ({ name: error.name, message: error.message, constructor: error.constructor.name }));
+		}
 		if (request.op === "errors")
 			return { errors: storage.drainErrors().map((error) => error.message) };
 		if (request.op === "read")
