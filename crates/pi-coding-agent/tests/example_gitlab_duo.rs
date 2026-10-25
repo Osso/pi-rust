@@ -154,7 +154,7 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
         "<example:gitlab>",
         Arc::new(move |api| {
             let result = gitlab::gitlab_duo_extension_with_backends(api, runtime.clone(), backends.clone());
-            Box::pin(async move { result.map_err(HandlerError::new) })
+            Box::pin(async move { result.map_err(HandlerError::from) })
         }),
     );
     let runtime = support::runtime();
