@@ -4,11 +4,11 @@ Port frozen `4f9e6f8a4` `cli/login-command.ts` through the public AuthStorage/OA
 
 ## What it must do
 
-- [ ] Preserve dispatch/help/flag validation, provider ordering, output destinations and exit codes, including empty provider ids.
-- [ ] Forward auth/device/progress/prompt/manual/select callbacks with exact text and answers; save credentials with the frozen AuthStorage spread/key order.
-- [ ] Preserve buffered input CRLF splitting and a final bare carriage return.
-- [ ] Await optional browser opening without changing successful login on browser failure; the default browser-cli argv/error text must match.
-- [ ] Use frozen default-Chalk stdout color capability for both success and error text.
+- [x] Preserve dispatch/help/flag validation, provider ordering, output destinations and exit codes, including empty provider ids.
+- [x] Forward auth/device/progress/prompt/manual/select callbacks with exact text and answers; save credentials with the frozen AuthStorage spread/key order.
+- [x] Preserve buffered input CRLF splitting and a final bare carriage return.
+- [x] Await optional browser opening without changing successful login on browser failure; the default browser-cli argv/error text must match.
+- [x] Use frozen default-Chalk stdout color capability for both success and error text.
 
 ## How it works
 
@@ -27,7 +27,7 @@ Port frozen `4f9e6f8a4` `cli/login-command.ts` through the public AuthStorage/OA
 
 ## Known gaps (current cycle)
 
-Focused GREEN is pending for the current implementation commit.
+None within the current parity bar; all18 source cases plus native/pty proofs pass.
 
 ## Out of scope
 

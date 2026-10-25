@@ -44,3 +44,5 @@ Parent approved deleting CredentialStore read/modify/delete, resolving reads, re
 -Explicit parent-requested `cargo check -j3 --workspace --all-targets` PASS at5f55fa7f0, zero warnings: `workspace-all-targets-5f55fa7f0.log`.
 
 All short log names above are under `/tmp/settings-models-`. Current malformed-JSON constructor GREEN and final changed-line clippy follow this commit in `/tmp/settings-models-proof-ledger.md`. Historical reports under `/tmp/pi-rust-repin-auth-refresh/` are prior-slice evidence, not current blockers or whole-workspace acceptance.
+
+Current closure proof: 062551724 malformed JSON3-source-case constructor/message GREEN, `/tmp/settings-models-auth-json-error-green.log`; current full backend/public8 plus modes1 GREEN, `auth-backend-public-green.log`/`auth-modes-green.log`. Source/native login18 scenarios and9 active native cases GREEN at a8c36bbd2, `login-green.log`. Warning-mode clippy passes in `auth-json-clippy.log`/`login-clippy.log`, no changed-line warnings. Existing long oracle dispatch remains legacy test setup, not production logic; new callback helpers were split and changed lines reviewed for readability.
