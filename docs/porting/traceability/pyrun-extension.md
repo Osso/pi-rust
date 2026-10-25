@@ -110,3 +110,20 @@ Writer differential: `/tmp/bundled3-pyrun-writer-green.log`.
 | Callback throw from timer | process-uncaught authority; synchronous consume failures return the error | runtime failure-shape gap under repository policy |
 
 Differential: `/tmp/bundled3-pyrun-progress-green.log`.
+
+## Re-pin detached-evaluation (2026-10-25)
+
+| Frozen surface | Native implementation / proof | Status |
+| --- | --- | --- |
+| Artifact root/manifest correlation, cancellation settlement, replay/error/lost runtime, script existence | existing real control-DB replay/collision/cancellation tests | proven |
+| Restore ignores truncation markers | `repin_replays_capped_artifacts_without_treating_truncation_as_terminal` RED/GREEN | proven |
+| Restore diagnostic before lost runtime; live diagnostic before liveness; empty diagnostic default; completion marker | `repin_restored_runner_error_writes_failure_before_lost_runtime`, `repin_observed_runner_error_wakes_and_keeps_the_original_diagnostic` RED/GREEN, live child terminated | proven |
+| Read cursor: 1 MiB bounded reads, fragmentation, immediate drain before liveness/wait | seek/read chunk replaces whole-file read; existing fragmented UTF-16 test; explicit unread-byte state | ported |
+| Watch-driven wakeups, 1-second timer, watcher error close and pending notification permit | native fs-watch utility + Notify, watcher dropped on completion/error, real live-runner test | proven normal path |
+| Progress flush timing | one 1-second accumulator across observation reads; separate frozen progress differential | proven |
+| Foreground/detached observation, abort, detached signal removal | real live child resume/detach/abort tests; activated ownership excludes further signal handling | proven |
+| Initial launch via compiled current executable; activation write-failure injection | existing foreground-launch/activation-seam **proof gaps**, not parity approvals | gap |
+| Watch setup/runtime OS faults, exotic I/O error shapes and scheduling races | repository exclusion policy | gap |
+
+All sixteen observation/replay tests passed: `/tmp/bundled3-evaluation-green.log`.
+No live provider or user state was used.

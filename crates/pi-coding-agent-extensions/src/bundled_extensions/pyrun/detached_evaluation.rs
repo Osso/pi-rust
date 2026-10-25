@@ -41,9 +41,9 @@ use super::eval_tool::{
     PyrunEvalParams, PyrunPiRequestDispatcher, PyrunProgressUpdateCallback, create_canonical_pyrun_eval_params,
     create_pyrun_progress_reporter, eval_context, format_canonical_pyrun_eval_result,
 };
-use super::runner::{CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions};
+use super::runner::{CanonicalPyrunEvalResult, PyrunRunnerOptions};
 
-const ARTIFACT_POLL_MS: u64 = 25;
+const ARTIFACT_POLL_MS: u64 = 1_000;
 const ARTIFACT_READ_BYTE_LIMIT: usize = 1_048_576;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS: u64 = 3_000;
 
@@ -111,6 +111,7 @@ fn create_lifecycle_controller(
 }
 
 struct LaunchedRunner {
+    manifest_path: JsString,
     activation_path: JsString,
     artifacts: crate::core::detached_job_runner::DetachedJobArtifacts,
     bridge_request_path: JsString,
@@ -200,6 +201,7 @@ fn launch_foreground_pyrun_runner(
         },
     )?;
     Ok(LaunchedRunner {
+        manifest_path,
         activation_path,
         artifacts,
         bridge_request_path,
@@ -233,22 +235,50 @@ fn read_new_json_lines(
     cursor: &mut JsonLineCursor,
     byte_limit: Option<usize>,
 ) -> Result<Vec<Value>, JsString> {
-    let data = match std::fs::read(js_json::encode_node_utf8(path)) {
-        Ok(data) => data,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+    Ok(read_json_line_chunk(path, cursor, byte_limit)?.values)
+}
+
+#[derive(Default)]
+struct JsonLineReadResult {
+    values: Vec<Value>,
+    has_unread_bytes: bool,
+}
+
+fn read_json_line_chunk(
+    path: &JsString,
+    cursor: &mut JsonLineCursor,
+    byte_limit: Option<usize>,
+) -> Result<JsonLineReadResult, JsString> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = match std::fs::File::open(js_json::encode_node_utf8(path)) {
+        Ok(file) => file,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(JsonLineReadResult::default()),
         Err(error) => return Err(error.to_string().into()),
     };
-    let size = data.len() as u64;
+    let size = file
+        .metadata()
+        .map_err(|error| JsString::from(error.to_string()))?
+        .len();
     if size <= cursor.offset {
-        return Ok(Vec::new());
+        return Ok(JsonLineReadResult::default());
     }
-    let start = cursor.offset as usize;
-    let end = match byte_limit {
-        Some(limit) => (start + limit).min(data.len()),
-        None => data.len(),
-    };
-    cursor.offset = end as u64;
-    let chunk = &data[start..end];
+    let unread = (size - cursor.offset) as usize;
+    let count = byte_limit.map_or(unread, |limit| limit.min(unread));
+    file.seek(SeekFrom::Start(cursor.offset))
+        .map_err(|error| JsString::from(error.to_string()))?;
+    let mut data = vec![0; count];
+    let count = file
+        .read(&mut data)
+        .map_err(|error| JsString::from(error.to_string()))?;
+    cursor.offset += count as u64;
+    let values = consume_json_line_bytes(cursor, &data[..count])?;
+    Ok(JsonLineReadResult {
+        values,
+        has_unread_bytes: cursor.offset < size,
+    })
+}
+
+fn consume_json_line_bytes(cursor: &mut JsonLineCursor, chunk: &[u8]) -> Result<Vec<Value>, JsString> {
     let mut values = Vec::new();
     let mut line_start = 0;
     for (index, byte) in chunk.iter().enumerate() {
@@ -263,9 +293,7 @@ fn read_new_json_lines(
             values.push(js_json::parse_lossless(text.as_ref()).map_err(|error| error.into_message())?);
         }
     }
-    if line_start < chunk.len() {
-        cursor.fragments.extend_from_slice(&chunk[line_start..]);
-    }
+    cursor.fragments.extend_from_slice(&chunk[line_start..]);
     Ok(values)
 }
 
@@ -345,6 +373,7 @@ fn settle_foreground_evaluation(
     records: &[Value],
     result: Option<&CanonicalPyrunEvalResult>,
     detached: bool,
+    has_unread_bytes: bool,
 ) -> Result<Option<AgentToolResult>, HandlerError> {
     if detached {
         return Ok(None);
@@ -362,6 +391,11 @@ fn settle_foreground_evaluation(
         return Err(HandlerError::new(error));
     }
     let Some(result) = result else {
+        if !has_unread_bytes
+            && let Some(error) = read_foreground_pyrun_runner_error(&runner.manifest_path, &runner.activation_path)?
+        {
+            fail_foreground_pyrun_runner(error, &runner.foreground_completion_path, &runner.process_identity)?;
+        }
         return Ok(None);
     };
     std::fs::write(
@@ -370,6 +404,40 @@ fn settle_foreground_evaluation(
     )
     .map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(Some(format_canonical_pyrun_eval_result(&input.params, result.clone())))
+}
+
+fn read_foreground_pyrun_runner_error(
+    manifest_path: &JsString,
+    activation_path: &JsString,
+) -> Result<Option<JsString>, HandlerError> {
+    if Path::new(&js_json::encode_node_utf8(activation_path)).exists() {
+        return Ok(None);
+    }
+    let error_path = manifest_path.clone() + ".runner-error";
+    let bytes = match std::fs::read(js_json::encode_node_utf8(&error_path)) {
+        Ok(bytes) => bytes,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(HandlerError::new(error.to_string())),
+    };
+    let message = JsString::from(String::from_utf8_lossy(&bytes).as_ref()).trim();
+    Ok(Some(if message.is_empty() {
+        "Pyrun runner failed without diagnostic output.".into()
+    } else {
+        message
+    }))
+}
+
+fn fail_foreground_pyrun_runner(
+    error: JsString,
+    completion_path: &JsString,
+    runner_identity: &ProcessIdentity,
+) -> Result<(), HandlerError> {
+    std::fs::write(js_json::encode_node_utf8(completion_path), "failed\n")
+        .map_err(|error| HandlerError::new(error.to_string()))?;
+    if is_process_identity_alive(runner_identity) {
+        terminate_foreground_runner(runner_identity.pid, rustix::process::Signal::TERM).map_err(HandlerError::new)?;
+    }
+    Err(HandlerError::new(error))
 }
 
 fn check_foreground_runner_liveness(
@@ -518,7 +586,11 @@ fn read_complete_artifact_records(path: &JsString) -> Result<Vec<Value>, JsStrin
 fn restore_terminal_pyrun_result(records: &[Value]) -> Result<Option<CanonicalPyrunEvalResult>, JsString> {
     let mut terminal = None;
     for record in records {
-        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress")) {
+        if record
+            .get("kind")
+            .and_then(Value::as_string)
+            .is_some_and(|kind| kind == "progress" || kind == "truncation")
+        {
             continue;
         }
         if terminal.is_some() {
@@ -662,6 +734,13 @@ fn restore_pyrun_candidate(
     if let Some(terminal) = restore_terminal_pyrun_result(&records).map_err(HandlerError::new)? {
         return Ok(RestoredRunner::Terminal(Box::new(terminal)));
     }
+    if let Some(error) = read_foreground_pyrun_runner_error(&candidate.manifest_path, &manifest.data.activation_path)? {
+        fail_foreground_pyrun_runner(
+            error,
+            &manifest.data.foreground_completion_path,
+            &manifest.data.runner_process_identity,
+        )?;
+    }
     if !is_process_identity_alive(&manifest.data.runner_process_identity) {
         return Ok(RestoredRunner::Lost(records, manifest.data.artifacts.output_path));
     }
@@ -673,6 +752,7 @@ fn restore_pyrun_candidate(
         )));
     }
     Ok(RestoredRunner::Resume(LaunchedRunner {
+        manifest_path: candidate.manifest_path,
         activation_path: manifest.data.activation_path,
         artifacts: manifest.data.artifacts,
         bridge_request_path: manifest.data.bridge_request_path,
@@ -818,6 +898,17 @@ async fn observe_detachable_pyrun_evaluation(
         detach: Box::new(move || detach_state_fn(&detach_for_handle)),
     });
     let subscription = input.detach_registry.register(detach_handle);
+    let wakeup = Arc::new(tokio::sync::Notify::new());
+    let activity = wakeup.clone();
+    let watch_error = Arc::new(AtomicBool::new(false));
+    let error_flag = watch_error.clone();
+    let mut watcher = crate::utils::fs_watch::watch_with_error_handler(
+        Path::new(&js_json::encode_node_utf8(&runner.artifacts.directory)),
+        move |_, _| activity.notify_one(),
+        move || {
+            error_flag.store(true, Ordering::SeqCst);
+        },
+    );
     let mut next_liveness = std::time::Instant::now();
     let mut cancel_applied = false;
     let loop_result = async {
@@ -830,22 +921,28 @@ async fn observe_detachable_pyrun_evaluation(
                     respond_to_foreground_bridge_request(&input, &runner, &request).await?;
                 }
             }
-            let records = read_new_json_lines(
+            let artifact_read = read_json_line_chunk(
                 &runner.artifacts.output_path,
                 &mut output_cursor,
                 Some(ARTIFACT_READ_BYTE_LIMIT),
             )
             .map_err(HandlerError::new)?;
+            let records = artifact_read.values;
             if let Some(consumed) = progress.consume(&records)? {
                 result = Some(js_json::from_value(&consumed).map_err(|error| HandlerError::new(error.to_string()))?);
             }
             let ownership = detach_state.ownership();
-            if let Some(formatted) =
-                settle_foreground_evaluation(&input, &runner, &records, result.as_ref(), ownership.is_some())?
-            {
+            if let Some(formatted) = settle_foreground_evaluation(
+                &input,
+                &runner,
+                &records,
+                result.as_ref(),
+                ownership.is_some(),
+                artifact_read.has_unread_bytes,
+            )? {
                 return Ok(formatted);
             }
-            if ownership.is_none() {
+            if ownership.is_none() && !artifact_read.has_unread_bytes {
                 check_foreground_runner_liveness(&runner.process_identity, &mut next_liveness)?;
             }
             if let Some(ownership) = &ownership
@@ -868,9 +965,20 @@ async fn observe_detachable_pyrun_evaluation(
                     &runner.artifacts.output_path,
                 ));
             }
-            let sleep = tokio::time::sleep(Duration::from_millis(ARTIFACT_POLL_MS));
+            if artifact_read.has_unread_bytes {
+                continue;
+            }
+            if watch_error.load(Ordering::SeqCst) {
+                watcher.take();
+            }
+            let sleep = async {
+                tokio::select! {
+                    () = wakeup.notified() => {},
+                    () = tokio::time::sleep(Duration::from_millis(ARTIFACT_POLL_MS)) => {},
+                }
+            };
             match &input.signal {
-                Some(signal) if !cancel_applied => {
+                Some(signal) if !cancel_applied && !detach_state.is_activated() => {
                     tokio::select! {
                         _ = signal.wait() => {
                             cancel_applied = true;
@@ -892,6 +1000,7 @@ async fn observe_detachable_pyrun_evaluation(
     }
     .await;
     progress.close();
+    drop(watcher);
     subscription.unregister();
     loop_result
 }
