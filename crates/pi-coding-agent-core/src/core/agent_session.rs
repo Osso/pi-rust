@@ -4050,6 +4050,8 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
+                self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+                self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
                 lock(&self.inner.quota_fallback_visited_providers).clear();
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
@@ -4084,8 +4086,11 @@ impl AgentSession {
         self.write_last_assistant_control_message(message);
         let mut message = message.clone();
         self.track_duplicate_assistant_turn(&mut message);
-        if message.stop_reason == StopReason::Error || message.stop_reason == StopReason::Length {
-            // Overflow/length recovery flags are cleared below, matching the source.
+        if message.stop_reason != StopReason::Error {
+            self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+        }
+        if message.stop_reason != StopReason::Length {
+            self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
         }
         if message.stop_reason == StopReason::Error {
             return;

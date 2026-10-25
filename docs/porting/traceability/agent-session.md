@@ -330,3 +330,7 @@ Frozen :6353–6390 retains Node filesystem failures. JSONL export now checks wh
 ## Re-pin navigation during streaming (2026-10-25)
 
 Frozen :6011–6022 returns a no-op for the current leaf before any streaming restriction; the module contains no streaming navigation ban. Removed the old native-only error. `navigate_tree_current_leaf_is_noop_during_streaming_like_frozen` starts a real gated provider turn, navigates to its current persisted leaf, verifies frozen/native `{cancelled:false}`, aborts/settles the provider, and checks the leaf is unchanged. RED `/tmp/repin-agent-session-tree-streaming-red.log` observed the old-only error instead of the frozen result. This restores source behavior rather than introducing a deviation.
+
+## Re-pin recovery-flag lifetime (2026-10-25)
+
+Frozen :1512–1514 resets overflow/length recovery flags at each user-message start, and :1540–1541 resets them on non-error/non-length assistant completion respectively. Replaced a native no-op comment with those mutations. `overflow_recovery_resets_when_the_next_user_request_starts_like_frozen` drives two separate user turns, each with overflow → extension compaction → terminal non-retryable provider error. Actual frozen compacts twice; native RED `/tmp/repin-agent-session-recovery-flags-red.log` compacted only once because its lifetime flag never reset.
