@@ -44,8 +44,6 @@ pub mod example_question;
 pub mod example_questionnaire;
 #[path = "example_rpc_demo.rs"]
 pub mod example_rpc_demo;
-#[path = "example_rpc_extension_ui.rs"]
-pub mod example_rpc_extension_ui;
 #[path = "example_snake.rs"]
 pub mod example_snake;
 #[path = "example_space_invaders.rs"]

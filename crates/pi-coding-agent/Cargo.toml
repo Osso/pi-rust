@@ -1167,3 +1167,7 @@ path = "tests/differential_tool_execution.rs"
 [[test]]
 name = "lossless_tool_paths"
 path = "tests/lossless_tool_paths.rs"
+
+[[test]]
+name = "example_rpc_extension_ui"
+path = "tests/example_rpc_extension_ui.rs"
