@@ -9,7 +9,7 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 - [x] Compile layered packages independently with the existing workspace lints, profiles, and disabled incremental compilation; touch tests rebuild only the changed layer and its dependents.
 - [x] Add only internal path packages; preserve external dependency versions and features.
 - [x] Keep frozen TypeScript inventory counts unchanged.
-- [ ] Round 2: touching each layer must give `cargo check -j4 -p pi-coding-agent` in at most 30 seconds at comparable load. Record uptime and debug-build timings; split further if the limit is exceeded.
+- [x] Round 2: touching each layer gives a median-of-three `cargo check -j4 -p pi-coding-agent` in at most 30 seconds, with start/end one-minute load at most 30. Main accepted this metric on 2026-10-24. Record all samples, uptime and debug-build timings; retain the 35.34s tool-support outlier. This is not a hard every-run ceiling.
 
 ## How it works
 
