@@ -343,7 +343,7 @@ async fn set_cwd_recomputes_the_branch_and_notifies() {
     });
 
     provider
-        .set_cwd(JsString::from((&second).to_str().expect("fixture path must be UTF-8")))
+        .set_cwd(JsString::from(second.to_str().expect("fixture path must be UTF-8")))
         .unwrap();
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("other")));
     assert_eq!(notifications.load(Ordering::SeqCst), 1);
