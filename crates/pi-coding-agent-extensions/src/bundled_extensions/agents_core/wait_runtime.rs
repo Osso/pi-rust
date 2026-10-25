@@ -217,7 +217,7 @@ impl WaitAgentsWakeWatcher {
             Ok(_) => {
                 let claim_id = match pi_ai::utils::random_uuid::random_uuid() {
                     Ok(id) => id,
-                    Err(error) => return Some(WaitNotificationsWake::Error { message: error.message }),
+                    Err(error) => pi_js_compat::callback_error::throw_callback_uncaught(error.into()),
                 };
                 // Frozen runtime.ts:2244-2253 reuses this reconciliation's nowIso.
                 let outbox_now = now_iso.clone();

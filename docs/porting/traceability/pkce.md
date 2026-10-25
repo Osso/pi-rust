@@ -28,3 +28,11 @@ Workspace/all-target JSON check0errors/0warnings; all-feature/all-target warning
 Separate existing failure found while compiling the newly fallible Copilot test double: `differential_github_copilot_oauth::refresh_matches_ts` has native availableModelIds `["gpt-5.4"]` versus frozen `[]`; to_auth passes. Production github_copilot.rs is byte-identical to pre-slice, and only the test-double signature/Ok wrapping changed. This remains queued whole-Copilot work, not a randomness fix or passing package-wide claim. `q15f-oauth-entropy-final-fixtures.log` records that failure; current PKCE/OAuth failure targets were then run separately because that command stopped before reaching them.
 
 - GAP (user decision2026-10-25): OS entropy faults are outside user-observable parity; retain completed Result plumbing, but do not widen further APIs or add fault matrices solely for them; remaining unreachable boundaries may use the shared uncaught authority.
+
+## System UUID checkpoint 2
+
+Retained the completed fallible UUID, UI/settings/filesystem and bridge plumbing. Positive fixtures compile with the native error carriers; approval-dialog rejection stays an exact thrown string through `CallbackError::from_rejection`, not an entropy error.
+
+| Gap | Boundary |
+|---|---|
+| OS entropy failure (2026-10-25 user-observable parity decision) | `agents_core/wait_runtime.rs` reconciliation UUID failure reaches `pi_js_compat::callback_error::throw_callback_uncaught`; no further API widening or fault matrix. |
