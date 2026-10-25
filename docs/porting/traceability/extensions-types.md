@@ -66,7 +66,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 - `CompactionPreparation`, `CompactionResult`, and `CompactionSourceInfo` are
   temporary definitions here; ca-compaction-export owns their final home and
   will replace these without changing runner dispatch.
-- `AbortSignal` maps to `tokio_util::sync::CancellationToken`.
+- `AbortSignal` uses the shared reason-bearing native signal carrier; supplied reasons are preserved.
 - `Theme` is the concrete `modes::interactive::theme::Theme`; `ExtensionUIContext::theme()`
   returns the process theme (`Arc<Theme>`), matching the source `readonly theme: Theme`.
 
@@ -130,8 +130,7 @@ None.
 
 - TypeScript returns getters that call `runner.assertActive()` and read current
   runner fields. Rust exposes the same members as methods on `ExtensionContext`
-  backed by `ExtensionContextState`; each method performs the stale check and
-  reads live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
+  backed by `ExtensionContextState`; each method performs the stale check. The model getter captures the current callback at context creation, exactly like frozen runner.ts:822; the callback's returned value remains live. Other members read live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
   per-invocation fields.
 
 ## Provider response header order

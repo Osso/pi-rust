@@ -204,7 +204,7 @@ pub async fn emit_project_trust_event(
                 Err(error) => errors.push(ExtensionError {
                     extension_path: extension.read().path.clone(),
                     event: event_type_name("project_trust"),
-                    error: error.message,
+                    error: error.caught_message(),
                     stack: error.stack,
                 }),
             }
@@ -1031,7 +1031,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path,
             event: event.to_owned(),
-            error: error.message,
+            error: error.caught_message(),
             stack: error.stack,
         });
     }
@@ -1198,7 +1198,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path: extension_path.to_owned(),
             event: "runtime_mailbox".to_owned(),
-            error: error.message.clone(),
+            error: error.caught_message(),
             stack: error.stack.clone(),
         });
     }

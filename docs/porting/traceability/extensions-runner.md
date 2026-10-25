@@ -102,12 +102,18 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
   not no-return mutation.
 - `emitInput` compares images by value, not reference.
 
+## Frozen context/error audit (2026-10-25)
+
+Actual frozen/native boundary tests found two mismatches. `createContext` captures the current `getModel` callback (frozen :822), unlike its other live callback-backed properties; native now captures that callback while still reading its current model value and asserting stale state. The earlier native-only pre-bind model assertions contradicted frozen and are replaced with exact frozen before-bind/after-bind/rebind behavior; mutable values behind a captured callback remain tested. This is literal frozen behavior, not an approved semantic fix.
+
+Runner diagnostics, mailbox error reports, project-trust reports and factory-load diagnostics now use Error.message/String(rejection) through one HandlerError helper, preserving original rejections for propagation. Plain strings, objects, numbers, null and native UTF-16 strings previously emitted empty diagnostics. RED `/tmp/ext-api2-runner-boundary-red2.log`; GREEN pending. Exotic String-coercion failure routes to the existing shared uncaught authority (pathological-input gap); no new carrier or catch/panic mechanism added.
+
 ## Representation
 
 - Runner-owned context values live in `ExtensionContextState` behind a mutex
   shared by the runner and every context it creates. Context members are
-  fallible methods that assert the runner is active and read live state, so
-  rebinding, UI-mode changes, cwd updates, and callback-backed values are
+  fallible methods that assert the runner is active and read live state (except the frozen captured model callback), so
+  UI-mode changes, cwd updates, and other callback-backed values are
   observed after `createContext()`, matching the TypeScript getters.
 - `set_cwd` is a Rust-only runner setter used to express the live-cwd scenario;
   the TypeScript oracle assigns the private `runner.cwd` field at runtime.

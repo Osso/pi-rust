@@ -7,6 +7,120 @@ use pi_coding_agent::core::extensions::ExtensionRunner;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
 use pi_js_compat::js_json;
 
+#[tokio::test]
+async fn context_model_captures_the_bound_getter_but_reads_its_current_value_like_frozen() {
+    use pi_ai::types::Model;
+    use pi_coding_agent::core::extensions::types::ExtensionContextActions;
+    use std::sync::{Arc, Mutex};
+    let mut oracle = oracle::TsOracle::spawn(
+        "extensions-boundary-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    );
+    let expected = oracle.request(&js_json!({"id":1}));
+    let mut runner = support::runner_for(Vec::new(), "/tmp", support::runtime(), support::model_registry().await);
+    let before = runner.create_context();
+    let command_before = runner.create_command_context();
+    let make_model = |id: &str| -> Model {
+        serde_json::from_value(serde_json::json!({"id":id,"name":id,"api":"faux","provider":"faux","baseUrl":"http://localhost:0","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":10000,"maxTokens":1000})).unwrap()
+    };
+    let current = Arc::new(Mutex::new(Some(make_model("first"))));
+    let model_source = Arc::clone(&current);
+    runner
+        .bind_core(
+            support::actions(),
+            ExtensionContextActions {
+                get_model: Arc::new(move || model_source.lock().unwrap().clone()),
+                ..support::context_actions()
+            },
+            None,
+        )
+        .unwrap();
+    let after = runner.create_context();
+    let replacement = make_model("replacement");
+    runner
+        .bind_core(
+            support::actions(),
+            ExtensionContextActions {
+                get_model: Arc::new(move || Some(replacement.clone())),
+                ..support::context_actions()
+            },
+            None,
+        )
+        .unwrap();
+    *current.lock().unwrap() = Some(make_model("mutated"));
+    let output = [
+        before.model().unwrap(),
+        command_before.model().unwrap(),
+        after.model().unwrap(),
+        runner.create_context().model().unwrap(),
+    ]
+    .map(|model| model.map(|model| model.id));
+    assert_eq!(js_json!({"id":1,"output":output}), expected);
+}
+
+#[tokio::test]
+async fn runner_diagnostics_stringify_native_rejections_like_frozen() {
+    use pi_ai::request::CallbackError;
+    use pi_coding_agent::core::extensions::types::HandlerError;
+    use pi_js_compat::abort::AbortReason;
+    use std::sync::{Arc, Mutex};
+    let mut oracle = oracle::TsOracle::spawn(
+        "extensions-boundary-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    );
+    let values = vec![
+        js_json!("plain string"),
+        js_json!({"why":"failed"}),
+        js_json!(123),
+        js_json!(null),
+        js_json!(pi_js_compat::js_json::JsString::from_utf16(vec![0xd800])),
+    ];
+    let expected = oracle.request(&js_json!({"id":2,"values":values}));
+    let runtime = support::runtime();
+    let mut extensions = Vec::new();
+    for value in values {
+        extensions.push(
+            support::extension(&runtime, "/tmp", "<inline>", move |api| {
+                let value = value.clone();
+                api.on_session_start(
+                    move |_,
+                          _|
+                          -> pi_coding_agent::core::extensions::types::BoxFuture<
+                        'static,
+                        Result<Option<()>, HandlerError>,
+                    > {
+                        let value = value.clone();
+                        Box::pin(async move {
+                            Err(HandlerError::from(CallbackError::from_rejection(AbortReason::Value(
+                                value,
+                            ))))
+                        })
+                    },
+                )
+                .unwrap();
+            })
+            .await,
+        );
+    }
+    let runner = support::runner_for(extensions, "/tmp", runtime, support::model_registry().await);
+    let output = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&output);
+    let _listener = runner.on_error(Arc::new(move |error| {
+        observed.lock().unwrap().push(error.error.clone());
+    }));
+    runner
+        .emit(
+            &mut pi_coding_agent::core::extensions::types::ExtensionEvent::SessionStart(
+                pi_coding_agent::core::extensions::types::SessionStartEvent {
+                    reason: pi_coding_agent::core::extensions::types::SessionStartReason::Startup,
+                    previous_session_file: None,
+                },
+            ),
+        )
+        .await;
+    assert_eq!(js_json!({"id":2,"output":output.lock().unwrap().clone()}), expected);
+}
+
 #[test]
 fn extension_barrel_forwards_tool_and_source_contracts() {
     use pi_coding_agent::core::extensions::{
