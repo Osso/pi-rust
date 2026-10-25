@@ -1002,9 +1002,98 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
 }
 
 #[test]
+fn dead_runtime_reconciliation_cleans_expired_artifacts() {
+    for frozen in [false, true] {
+        for explicit_root in [false, true] {
+            let (directory, db) = temp_db();
+            let root = if explicit_root {
+                directory.path().to_str().unwrap().into()
+            } else {
+                pi_coding_agent::config::get_agent_dir().unwrap()
+            };
+            let session_path = directory.path().join("reconcile.jsonl").to_str().unwrap().to_owned();
+            let coordinator = create_coordinator(&db, &session_path);
+            let mut dead = coordinator
+                .prepare_child(&PrepareChildCommandInput {
+                    spawn: child_input(None),
+                    agent_id: Some("dead".into()),
+                    detached: Some(true),
+                    result: None,
+                })
+                .unwrap();
+            let dead_identity = test_process_identity("dead-reconcile");
+            dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+                adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+                handle_id: dead_identity.pid.to_string().into(),
+                cwd: None,
+                tool_call_id: None,
+            });
+            let committed = coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &dead_identity, None)
+                .unwrap();
+            assert!(matches!(
+                committed,
+                CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { .. }
+            ));
+
+            let artifact_id = directory.path().file_name().unwrap().to_str().unwrap();
+            let artifact = std::path::PathBuf::from(pi_js_compat::js_json::encode_node_utf8(&root))
+                .join("detached-jobs/reconcile")
+                .join(artifact_id);
+            std::fs::create_dir_all(&artifact).unwrap();
+            std::fs::write(artifact.join("output.log"), "expired").unwrap();
+            dead.id = artifact_id.into();
+            dead.lifecycle = AgentLifecycle::Completed;
+            dead.created_at = "2026-01-01T00:00:00.000Z".into();
+            dead.updated_at = dead.created_at.clone();
+            dead.result = Some(AgentResult {
+                summary: None,
+                duration_ms: None,
+                tool_call_id: None,
+                file_refs: Some(vec![pi_coding_agent::core::multi_agent_store::AgentFileReference {
+                    path: artifact.join("output.log").to_str().unwrap().into(),
+                    label: Some("Bash output".into()),
+                }]),
+            });
+            pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent(
+                &db,
+                &session_path,
+                &dead.id,
+                &js_json::to_value(&dead).unwrap(),
+            )
+            .unwrap();
+            let now = pi_coding_agent::utils::iso_time::now_iso_string();
+            let count = if frozen {
+                let mut source =
+                    oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+                let response = source.request(&pi_js_compat::js_json!({
+                    "id": 28302, "module": "core/lifecycle-coordinator.ts", "operation": "lifecycleReconcile",
+                    "db": db, "now": now, "artifactRoot": if explicit_root { Some(root.clone()) } else { None },
+                }));
+                assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+                response["output"].as_i64().unwrap()
+            } else {
+                LifecycleCoordinator::reconcile_dead_detached_runtimes(
+                    &db.clone().into(),
+                    &now,
+                    explicit_root.then_some(&root),
+                )
+                .unwrap()
+            };
+            assert_eq!(count, 1, "frozen={frozen} explicit_root={explicit_root}");
+            assert!(
+                !artifact.exists(),
+                "successful dead runtime reconciliation must trigger artifact cleanup"
+            );
+        }
+    }
+}
+
+#[test]
 fn dead_runtime_reconciliation_is_a_noop_without_candidates() {
     let (_directory, db) = temp_db();
-    let count = LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), NOW).expect("reconcile");
+    let count =
+        LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), NOW, None).expect("reconcile");
     assert_eq!(count, 0);
 }
 

@@ -2157,7 +2157,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     if parsed.no_supervisor != Some(true) {
         reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
             .map_err(CallbackError::from)?;
-        LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
+        LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string(), Some(&agent_dir))
             .map_err(CallbackError::from)?;
     }
     time(&"createAgentSessionRuntime".into(), TimingLabel::Main);

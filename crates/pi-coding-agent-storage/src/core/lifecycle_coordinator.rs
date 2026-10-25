@@ -40,17 +40,27 @@ fn retry_paths() -> &'static Mutex<HashSet<JsString>> {
     PATHS.get_or_init(|| Mutex::new(HashSet::new()))
 }
 
-fn schedule_dead_detached_reconciliation_retry(control_db_path: &JsString) {
+fn schedule_dead_detached_reconciliation_retry(control_db_path: &JsString, artifact_root: Option<&JsString>) {
     let mut paths = retry_paths().lock().expect("retry paths mutex");
     if !paths.insert(control_db_path.clone()) {
         return;
     }
     drop(paths);
     let path = control_db_path.clone();
+    let artifact_root = artifact_root.cloned();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS));
         retry_paths().lock().expect("retry paths mutex").remove(&path);
-        let _ = LifecycleCoordinator::reconcile_dead_detached_runtimes(&path, &iso_time::now_iso_string());
+        if let Err(error) = LifecycleCoordinator::reconcile_dead_detached_runtimes(
+            &path,
+            &iso_time::now_iso_string(),
+            artifact_root.as_ref(),
+        ) {
+            if let Some(native) = error.native_error() {
+                crate::utils::uncaught::throw_native_uncaught(native.clone());
+            }
+            crate::utils::uncaught::throw_uncaught("Error", error.message().clone());
+        }
     });
 }
 
@@ -154,14 +164,25 @@ pub struct LifecycleCoordinator {
 }
 
 impl LifecycleCoordinator {
-    pub fn reconcile_dead_detached_runtimes(control_db_path: &JsString, now_iso: &str) -> Result<i64, ControlDbError> {
+    pub fn reconcile_dead_detached_runtimes(
+        control_db_path: &JsString,
+        now_iso: &str,
+        artifact_root: Option<&JsString>,
+    ) -> Result<i64, ControlDbError> {
         match reconcile_dead_detached_agent_runtimes(control_db_path, now_iso) {
             Ok(reconciled) => {
                 clear_dead_detached_reconciliation_retry(control_db_path);
+                if reconciled > 0 {
+                    crate::core::detached_job_cleanup::run_detached_job_artifact_cleanup(
+                        control_db_path,
+                        artifact_root,
+                        Some(pi_js_compat::date::date_parse(now_iso)),
+                    )?;
+                }
                 Ok(reconciled)
             }
             Err(error) if error.is_contention() => {
-                schedule_dead_detached_reconciliation_retry(control_db_path);
+                schedule_dead_detached_reconciliation_retry(control_db_path, artifact_root);
                 Ok(0)
             }
             Err(error) => Err(error),

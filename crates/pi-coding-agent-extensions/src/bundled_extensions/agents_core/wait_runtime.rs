@@ -212,7 +212,7 @@ impl WaitAgentsWakeWatcher {
 
     fn reconcile_dead_detached_runtimes(&self) -> Option<WaitNotificationsWake> {
         let now_iso = crate::utils::iso_time::now_iso_string();
-        match LifecycleCoordinator::reconcile_dead_detached_runtimes(&self.control_db_path, &now_iso) {
+        match LifecycleCoordinator::reconcile_dead_detached_runtimes(&self.control_db_path, &now_iso, None) {
             Ok(0) => None,
             Ok(_) => {
                 let claim_id = match pi_ai::utils::random_uuid::random_uuid() {

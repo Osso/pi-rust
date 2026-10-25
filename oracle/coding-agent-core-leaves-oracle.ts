@@ -130,6 +130,12 @@ const handlers: Record<string, Handler> = {
 		return api.isSupersededRuntimeIdentity(current, replacement);
 	}),
 	activityDetail: (api, request) => cases(request).map((args) => api.summarizeToolArguments(args) ?? null),
+	lifecycleReconcile: (api, request) => {
+		const Coordinator = api.LifecycleCoordinator as unknown as {
+			reconcileDeadDetachedRuntimes(db: unknown, now: unknown, artifactRoot: unknown): unknown;
+		};
+		return Coordinator.reconcileDeadDetachedRuntimes(request.db, request.now, request.artifactRoot ?? undefined);
+	},
 	lifecycleDetachedCancellation: (api, request) => {
 		const Coordinator = api.LifecycleCoordinator as unknown as new (options: unknown) => {
 			requestDetachedCancellation(input: unknown): unknown;
