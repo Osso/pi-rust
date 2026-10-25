@@ -27,7 +27,7 @@ fn text(value: &str) -> pi_tui::tui::ComponentRef {
 }
 
 #[test]
-fn overwidth_stops_terminal_before_descriptive_panic() {
+fn overwidth_stops_terminal_before_descriptive_error() {
     let (terminal, handle) = concrete(4, 3);
     terminal.borrow_mut().set_capture_cursor_writes(true);
     let tui = pi_tui::TUI::new(handle);
@@ -37,12 +37,8 @@ fn overwidth_stops_terminal_before_descriptive_panic() {
     tui.render_now(false).unwrap();
     terminal.borrow_mut().clear_writes();
     *value.borrow_mut() = "long text".into();
-    let error = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| tui.render_now(false))).unwrap_err();
-    let message = error
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| error.downcast_ref::<&str>().copied())
-        .unwrap();
+    let error = tui.render_now(false).expect_err("overwidth render fails");
+    let message = error.message.to_utf8().expect("scalar width error");
     assert!(
         message.starts_with("Rendered line 0 exceeds terminal width (9 > 4)."),
         "{message}"
