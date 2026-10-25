@@ -3,8 +3,11 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { runPromptLifecycleScenario } from "./agent-session-prompt-lifecycle.ts";
 import { runInputImagesScenario } from "./agent-session-input-images.ts";
 import { runCompactionEventsScenario } from "./agent-session-compaction-events.ts";
+import { runManualToolCompaction } from "./agent-session-manual-tool.ts";
 
 export async function runAgentSessionScenario(request, context) {
+	if (request.operation === "manual-tool-compaction")
+		return runManualToolCompaction(context);
 	if (
 		[
 			"manual-compact-events",
