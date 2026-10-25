@@ -173,3 +173,88 @@ async fn registering_a_loaded_model_copies_native_compat_before_json_projection(
     let actual = js_json!({"error":null,"models":models,"serializedModels":js_json::stringify_lossless(&models),"numberState":number_state});
     assert_eq!(actual, expected["output"]);
 }
+
+#[tokio::test]
+async fn dynamic_validation_order_and_empty_model_guards_match_frozen() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-registry-oracle.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+    );
+    let definition = model_definition();
+    let mut model_api = definition.clone();
+    model_api["api"] = JsValue::String("registry-validation-api".into());
+    let mut second = definition.clone();
+    second["id"] = JsValue::String("second".into());
+    let cases = vec![
+        ("stream-missing-api", js_json!({}), true),
+        ("stream-empty-api", js_json!({"api":""}), true),
+        (
+            "stream-without-models",
+            js_json!({"api":"registry-validation-api"}),
+            true,
+        ),
+        ("empty-models", js_json!({"models":[]}), false),
+        (
+            "missing-provider-url",
+            js_json!({"api":"registry-validation-api","apiKey":"fixture","models":[definition]}),
+            false,
+        ),
+        (
+            "missing-key-and-oauth",
+            js_json!({"api":"registry-validation-api","baseUrl":"https://fixture.invalid","models":[definition]}),
+            false,
+        ),
+        (
+            "missing-effective-api",
+            js_json!({"baseUrl":"https://fixture.invalid","apiKey":"fixture","models":[definition]}),
+            false,
+        ),
+        (
+            "model-api-without-provider-api",
+            js_json!({"baseUrl":"https://fixture.invalid","apiKey":"fixture","models":[model_api]}),
+            false,
+        ),
+        (
+            "empty-provider-api-model-fallback",
+            js_json!({"api":"","baseUrl":"https://fixture.invalid","apiKey":"fixture","models":[model_api]}),
+            false,
+        ),
+        (
+            "validate-all-before-apply",
+            js_json!({"baseUrl":"https://fixture.invalid","apiKey":"fixture","models":[model_api,second]}),
+            false,
+        ),
+    ];
+    for (name, config, stream_callback) in cases {
+        let response = source.request(&js_json!({"operation":"registration_snapshot","provider":"registry-validation","config":config,"streamCallback":stream_callback}));
+        assert_eq!(response["ok"], JsValue::Bool(true), "{name}: {response:?}");
+        let registry = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
+        let mut input = ProviderConfigInput {
+            api: config
+                .get("api")
+                .and_then(JsValue::as_string)
+                .map(|value| value.to_utf8().unwrap()),
+            base_url: config.get("baseUrl").and_then(JsValue::as_string).cloned(),
+            api_key: config.get("apiKey").and_then(JsValue::as_string).cloned(),
+            models: config.get("models").map(|value| js_json::from_value(value).unwrap()),
+            ..Default::default()
+        };
+        if stream_callback {
+            input.stream_simple = Some(std::sync::Arc::new(|_, _, _| {
+                unreachable!("validation must not stream")
+            }));
+        }
+        let error = registry
+            .register_provider("registry-validation", input)
+            .err()
+            .map(|error| error.error_or_string_message().unwrap());
+        let models = registry
+            .get_all()
+            .into_iter()
+            .filter(|model| model.provider == "registry-validation")
+            .collect::<Vec<_>>();
+        let actual = js_json!({"error":error,"serializedModels":js_json::stringify_lossless(&js_json::to_value(&models).unwrap()),"models":models});
+        registry.unregister_provider("registry-validation").unwrap();
+        assert_eq!(actual, response["output"], "{name}");
+    }
+}
