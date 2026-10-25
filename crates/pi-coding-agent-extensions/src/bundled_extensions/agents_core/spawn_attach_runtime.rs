@@ -637,7 +637,7 @@ fn create_attached_agent(
             display_name,
             model,
             parent_id: params.parent_id.clone(),
-            permission: build_attached_session_permission(store, params.parent_id.as_ref(), ctx)?,
+            permission: build_attached_session_permission(store, params.parent_id.as_ref()),
             transcript: Some(crate::core::multi_agent_store::AgentTranscriptMetadata {
                 session_id: target.session_id.clone(),
                 path: Some(target.path.clone()),
@@ -660,31 +660,23 @@ fn create_attached_agent(
     }
 }
 
-fn build_attached_session_permission(
-    store: &MultiAgentStore,
-    parent_id: Option<&JsString>,
-    ctx: &ExtensionContext,
-) -> Result<AgentPermission, HandlerError> {
+fn build_attached_session_permission(store: &MultiAgentStore, parent_id: Option<&JsString>) -> AgentPermission {
     let Some(parent_id) = parent_id else {
-        let policy: JsString = match ctx.settings_manager()? {
-            Some(settings) => settings.lock().expect("settings").get_approval_policy().as_str().into(),
-            None => "on-request".into(),
-        };
-        return Ok(AgentPermission {
-            policy,
+        return AgentPermission {
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
-        });
+        };
     };
     let parent = store.get_agent(parent_id);
-    Ok(AgentPermission {
+    AgentPermission {
         policy: parent
             .as_ref()
             .map(|parent| parent.permission.policy.clone())
             .unwrap_or_else(|| "on-request".into()),
         inherited_from: Some(parent_id.to_owned()),
         narrowed: true,
-    })
+    }
 }
 
 fn load_attach_session_target(
@@ -720,12 +712,27 @@ fn load_attach_session_target(
     let session_manager = ctx.session_manager()?;
     let session_dir = session_manager.get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
-        let session = SessionManager::open(&path, Some(&session_dir), None)
+        let control_db_path = ctx.control_db_path()?;
+        let restored_path = match control_db_path.as_ref() {
+            Some(db) => crate::core::session_archive_storage::restore_archived_session(db, &path)
+                .map_err(|error| HandlerError::new(error.message().clone()))?,
+            None => path,
+        };
+        let session = SessionManager::open(&restored_path, Some(&session_dir), None)
             .map_err(|error| HandlerError::new(error.message().clone()))?;
+        let path = session.get_session_file().unwrap_or(&restored_path).clone();
+        let metadata = control_db_path
+            .as_ref()
+            .map(|db| crate::core::session_control_db::read_session_metadata(db, &path))
+            .transpose()
+            .map_err(|error| HandlerError::new(error.message()))?
+            .flatten();
+        let name =
+            metadata.and_then(|metadata| metadata.name.filter(|name| !name.is_empty()).or(metadata.subagent_name));
         return Ok(Ok(AttachSessionTarget {
             cwd: session.get_cwd().to_owned(),
-            name: session.get_session_name(),
-            path: session.get_session_file().unwrap_or(&path).clone(),
+            name,
+            path,
             session_id: session.get_session_id().to_owned(),
         }));
     }
@@ -939,7 +946,12 @@ fn has_live_agent_owner(input: &RecoverAgentsInput, agent: &AgentSnapshot) -> Re
             .map_err(|error| HandlerError::new(error.message()))?;
     Ok(ownership
         .and_then(|ownership| ownership.process_identity)
-        .is_some_and(|identity| is_process_identity_alive(&identity)))
+        .is_some_and(|identity| {
+            !crate::core::runtime_process::is_superseded_runtime_identity(
+                &identity,
+                super::lifecycle_runtime::runtime_process_identity(),
+            ) && is_process_identity_alive(&identity)
+        }))
 }
 
 fn resolve_configured_agent_profile(

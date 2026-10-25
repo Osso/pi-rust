@@ -808,21 +808,20 @@ async fn invalid_prompts_fail_before_session_creation() {
 
 #[tokio::test]
 async fn active_tool_call_identity_must_be_non_empty() {
-    let env = test_env().await;
-    let captured = Arc::new(Captured::default());
-    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
-    let mut input = child_input(
-        &env,
-        child_agent(&env, "agent_child", "Explorer"),
-        SpawnContext::Inherit,
-        "Continue",
-    );
-    input.active_tool_call_id = Some("  ".to_owned());
-    let error = factory.call(input).await.err().expect("blank tool call id");
-    assert_eq!(
-        error,
-        "Cannot inherit context: active tool call identity must be non-empty"
-    );
+    for context in [SpawnContext::Inherit, SpawnContext::Fresh] {
+        let env = test_env().await;
+        append_user(&env.session_manager, "parent");
+        let captured = Arc::new(Captured::default());
+        let factory =
+            create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+        let mut input = child_input(&env, child_agent(&env, "agent_child", "Explorer"), context, "Continue");
+        input.active_tool_call_id = Some("  ".to_owned());
+        let error = factory.call(input).await.err().expect("blank tool call id");
+        assert_eq!(
+            error,
+            "Cannot inherit context: active tool call identity must be non-empty"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1110,6 +1109,50 @@ async fn attached_factory_restores_archived_transcript_before_opening() {
         session_texts(&captured_session_manager(&captured)),
         vec![JsString::from("archived conversation")]
     );
+}
+
+#[tokio::test]
+async fn attach_path_uses_control_metadata_restores_archive_and_keeps_on_request_policy() {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::{
+        MultiAgentExtensionOptions, create_multi_agent_pi_request_handler,
+    };
+    use pi_coding_agent::core::session_archive_storage::archive_session_file;
+    for archived in [false, true] {
+        let env = test_env_with_settings(Some(json!({"approvalPolicy":"never"}))).await;
+        let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+        lock_session_manager(&env.session_manager)
+            .persist_for_recovery()
+            .unwrap();
+        store.set_persistence_session_manager(Some(&*lock_session_manager(&env.session_manager)));
+        let mut target = SessionManager::create(&env.cwd.clone().into(), None, None).unwrap();
+        target
+            .set_metadata_control_db_path(Some(&env.control_db.clone().into()), Default::default())
+            .unwrap();
+        target.persist_for_recovery().unwrap();
+        target.set_session_name(Some(&"Metadata 🦀".into())).unwrap();
+        let path = target.get_session_file().cloned().unwrap();
+        let input = if archived {
+            archive_session_file(&path).unwrap()
+        } else {
+            path.clone()
+        };
+        let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+            store: Some(store),
+            ..Default::default()
+        });
+        let details = handler
+            .handle(
+                &json!({"method":"agents.attachSession","params":{"path":input}}),
+                &env.session.extension_runner().create_context(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(details["agent"]["displayName"], json!("Metadata 🦀"));
+        assert_eq!(details["agent"]["permission"]["policy"], json!("on-request"));
+        assert_eq!(details["agent"]["transcript"]["path"], json!(path));
+    }
 }
 
 /// A real `AgentSession` wrapped by the adapter behaves like a child session.

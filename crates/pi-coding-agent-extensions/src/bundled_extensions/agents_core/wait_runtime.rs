@@ -13,10 +13,10 @@ use crate::core::lifecycle_coordinator::LifecycleCoordinator;
 use crate::core::multi_agent_store::{AgentMailboxMessage, AgentSnapshot, MultiAgentStore, is_active_lifecycle};
 use crate::core::runtime_coordination_format::{format_runtime_mailbox_prompt, format_shared_channel_prompt};
 use crate::core::session_control_db::{
-    RuntimeMailboxAddress, RuntimeMailboxMessage, SharedChannelMessage, advance_shared_channel_cursor,
+    RuntimeMailboxAddress, SharedChannelMessage, advance_shared_channel_cursor,
     has_pending_runtime_coordination_message, is_runtime_coordination_mailbox_message,
     list_shared_channel_messages_after, read_multi_agent_agents, read_multi_agent_state, read_shared_channel_cursor,
-    read_shared_channel_tail, resolve_own_main_runtime_coordination_recipient,
+    read_shared_channel_tail, release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
     take_runtime_mailbox_messages_for_delivery,
 };
 use crate::core::terminal_outbox_delivery::{DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections};
@@ -41,7 +41,7 @@ fn now_ms() -> i64 {
 pub enum WaitNotificationsWake {
     Agent { agent: Box<AgentSnapshot> },
     Cancelled,
-    Coordination,
+    Coordination { prompt: Option<JsString> },
     Error { message: JsString },
     None,
     Timeout,
@@ -175,6 +175,11 @@ impl WaitAgentsWakeWatcher {
             {
                 return None;
             }
+            if wake_up.kind == super::shared::WaitAgentsWakeKind::Coordination {
+                return Some(WaitNotificationsWake::Coordination {
+                    prompt: wake_up.coordination_prompt,
+                });
+            }
             return Some(WaitNotificationsWake::WakeUp { wake_up });
         }
         self.check_coordination()
@@ -249,7 +254,7 @@ impl WaitAgentsWakeWatcher {
     fn check_coordination(&self) -> Option<WaitNotificationsWake> {
         let recipient = self.recipient.as_ref()?;
         match has_pending_runtime_coordination_message(&recipient.control_db_path, &recipient.address) {
-            Ok(true) => Some(WaitNotificationsWake::Coordination),
+            Ok(true) => Some(WaitNotificationsWake::Coordination { prompt: None }),
             Ok(false) => None,
             Err(error) => Some(WaitNotificationsWake::Error {
                 message: error.message().clone(),
@@ -372,10 +377,19 @@ fn consume_non_agent_wake(
     match wake {
         WaitNotificationsWake::Agent { .. } => unreachable!("agent wakes are handled separately"),
         WaitNotificationsWake::Cancelled => Ok(tool_result("Wait cancelled.", json!({}))),
-        WaitNotificationsWake::Coordination => {
-            let coordination = take_pending_wait_coordination(store, runtime_coordination_recipient(ctx)?)?;
+        WaitNotificationsWake::Coordination { prompt } => {
+            if let Some(prompt) = prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
+                return Ok(tool_result(prompt.clone(), json!({})));
+            }
+            let coordination = take_pending_wait_coordination(runtime_coordination_recipient(ctx)?)?;
             Ok(match coordination {
-                Some(coordination) => tool_result(coordination, json!({})),
+                Some((prompt, delivery)) => tool_result(
+                    prompt,
+                    match delivery {
+                        Some(delivery) => json!({"runtimeMailboxDelivery": delivery}),
+                        None => json!({}),
+                    },
+                ),
                 None => tool_result("Coordination input changed before delivery.", json!({})),
             })
         }
@@ -435,9 +449,8 @@ fn runtime_coordination_recipient(
 }
 
 fn take_pending_wait_coordination(
-    store: &Arc<MultiAgentStore>,
     recipient: Option<RuntimeCoordinationRecipient>,
-) -> Result<Option<JsString>, HandlerError> {
+) -> Result<Option<(JsString, Option<pi_js_compat::js_json::JsValue>)>, HandlerError> {
     let Some(recipient) = recipient else {
         return Ok(None);
     };
@@ -448,39 +461,32 @@ fn take_pending_wait_coordination(
         usize::MAX,
     )
     .map_err(|error| HandlerError::new(error.message()))?;
-    for message in &mailbox_messages {
-        mark_wait_mailbox_store_message_delivered(store, message)?;
+    let result = (|| {
+        let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
+        let mut sections: Vec<JsString> = mailbox_messages
+            .iter()
+            .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(HandlerError::new)?;
+        if !channel_messages.is_empty() {
+            sections.push(format_shared_channel_prompt(
+                &channel_messages,
+                &recipient.address.session_id,
+            ));
+        }
+        let delivery = (!mailbox_messages.is_empty()).then(|| json!({
+            "controlDbPath": recipient.control_db_path,
+            "messages": mailbox_messages.iter().map(|message| json!({"id":message.id, "storeRef":message.store_ref})).collect::<Vec<_>>(),
+        }));
+        Ok((!sections.is_empty()).then(|| (JsString::join(sections, "\n\n"), delivery)))
+    })();
+    if result.is_err() {
+        for message in &mailbox_messages {
+            release_runtime_mailbox_message_claim(&recipient.control_db_path, message.id)
+                .map_err(|error| HandlerError::new(error.message()))?;
+        }
     }
-    let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
-    let mut sections: Vec<JsString> = mailbox_messages
-        .iter()
-        .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(HandlerError::new)?;
-    if !channel_messages.is_empty() {
-        sections.push(format_shared_channel_prompt(
-            &channel_messages,
-            &recipient.address.session_id,
-        ));
-    }
-    Ok((!sections.is_empty()).then(|| JsString::join(sections, "\n\n")))
-}
-
-fn mark_wait_mailbox_store_message_delivered(
-    store: &MultiAgentStore,
-    message: &RuntimeMailboxMessage,
-) -> Result<(), HandlerError> {
-    if store
-        .get_persistence_target()
-        .map(|persistence| persistence.session_path)
-        != Some(message.store_ref.session_path.clone())
-    {
-        return Ok(());
-    }
-    store
-        .mark_mailbox_message_delivered(&message.store_ref.message_id)
-        .map_err(|error| HandlerError::new(error.message))?;
-    Ok(())
+    result
 }
 
 fn take_pending_wait_shared_channel_messages(
@@ -502,7 +508,8 @@ fn take_pending_wait_shared_channel_messages(
     Ok(messages
         .into_iter()
         .filter(|message| {
-            message.sender.agent_id.is_none() && message.sender.session_id != recipient.address.session_id
+            message.sender.agent_id.is_none()
+                && (message.origin_host.is_some() || message.sender.session_id != recipient.address.session_id)
         })
         .collect())
 }
