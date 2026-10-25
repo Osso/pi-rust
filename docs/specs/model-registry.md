@@ -25,6 +25,8 @@ Model-config paths are normalized once during construction. Empty paths disable 
 
 OAuth model modifiers return Result<Vec<Model>, CallbackError>. Registration, both constructors, refresh and unregister propagate that same rejection without converting it to text. Preserve Error branding/properties and arbitrary values, including lone UTF-16 units. Failed application leaves already-installed models/global registrations intact and does not upsert the incoming provider config. A failed load-time modifier does not publish the new combined model list. Ordinary config-file errors remain getError state.
 
+The model-selector consumer distinguishes refresh rejection from its caught availability lookup failure. Selector construction stays infallible; an uncaught refresh rejection is published after construction through the existing shared uncaught authority with its original carrier. This is not a rendered getter error or a new panic channel.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).

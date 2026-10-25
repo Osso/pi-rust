@@ -117,15 +117,21 @@ impl ModelSelectorComponent {
             focused: false,
         };
         selector.mount_children();
-        // Frozen refresh/getError/getAvailable execute before the first await.
-        selector.model_registry.refresh();
-        selector.error_message = selector.model_registry.get_error().filter(|error| !error.is_empty());
-        let models = selector.model_registry.get_available();
+        // Frozen138 refresh is outside the getter catch. Its rejection is
+        // unhandled after construction; eager work still precedes the first await.
+        let models = selector.model_registry.refresh().map(|()| {
+            selector.error_message = selector.model_registry.get_error().filter(|error| !error.is_empty());
+            selector.model_registry.get_available()
+        });
         let selector = Rc::new(RefCell::new(selector));
         let pending = selector.clone();
         let initial = initial_search_input.cloned();
         tokio::task::spawn_local(async move {
             tokio::task::yield_now().await;
+            let models = match models {
+                Ok(models) => models,
+                Err(error) => crate::utils::uncaught::throw_callback_uncaught(error),
+            };
             let ui = {
                 let mut selector = pending.borrow_mut();
                 match models {
