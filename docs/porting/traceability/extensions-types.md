@@ -52,11 +52,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 - `UserBashEventResult.operations` carries a typed
   `Arc<dyn BashOperations>` instead of serialized JSON, so `user_bash`
   extensions can replace execution like the source.
-- `ctx.sessionManager` is the owning `AgentSession`'s live
-  `Arc<Mutex<SessionManager>>` (`SharedSessionManager`), not a snapshot: reads
-  observe session-side mutations and goal writes persist through the same
-  manager. Tests: `context_session_manager_is_the_live_shared_handle`,
-  `session_replacement_rebinds_the_shared_extension_handle`.
+- `ctx.sessionManager` is the existing `ReadonlySessionManager` façade over the owning `AgentSession`'s live manager. Object reads are owned isolated snapshots; only the frozen `setSessionGoalJson`/`clearSessionGoalJson` mutators remain public. Tests: `context_session_manager_is_a_live_readonly_view`, `readonly_context_snapshot_is_isolated_and_retained_view_tracks_live_writes`, `session_replacement_rebinds_the_shared_extension_handle`. Core retains its own mutable handle for setup/actions.
 - `CustomMessage` (`core/messages.ts`, owned by the session slice) is
   represented by `CustomMessagePayload` (`customType`/`content`/`display`/
   `details`), the exact `Pick<>` shape used by the API.

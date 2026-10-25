@@ -9,7 +9,6 @@ use crate::core::session_control_db::{
     EnqueueStoredRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessage, RuntimeMailboxMessageKind,
     RuntimeMailboxStoreRef, enqueue_stored_runtime_mailbox_message, take_runtime_mailbox_messages_for_delivery,
 };
-use crate::core::session_manager::lock_session_manager;
 use crate::core::tools::ask_questions::{
     self, AskQuestionsParams, Question, parse_params, question_result, validate_questions,
 };
@@ -208,7 +207,7 @@ fn send_questions_to_parent(
         ));
     }
     let session = ctx.session_manager()?;
-    let session_id = lock_session_manager(&session).get_session_id().clone();
+    let session_id = session.get_session_id().clone();
     Ok(Inbox {
         agent_id,
         db,
@@ -416,7 +415,7 @@ fn answer_question(
     let answer = raw_json!({"type":"ask_questions_answer","requestId":params.request_id,"answers":params.answers,"cancelled":params.cancelled == Some(true)});
     let message_id = answer_message_id(&params.agent_id, &params.request_id);
     let session = ctx.session_manager()?;
-    let sender_session_id = lock_session_manager(&session).get_session_id().to_owned();
+    let sender_session_id = session.get_session_id().to_owned();
     enqueue_stored_runtime_mailbox_message(&persistence.control_db_path, &EnqueueStoredRuntimeMailboxMessageInput {
         recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id: session_id.into() }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
         message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path.into() }, updated_at:None

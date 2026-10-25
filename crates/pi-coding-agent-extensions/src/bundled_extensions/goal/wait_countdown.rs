@@ -9,7 +9,6 @@ use pi_js_compat::date::date_parse_utf16;
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::ExtensionContext;
-use crate::core::session_manager::lock_session_manager;
 
 /// Countdown redraw scheduler for persisted Supervisor review deadlines.
 #[derive(Clone, Default)]
@@ -40,7 +39,7 @@ impl WaitCountdownRefresher {
         let Ok(session) = ctx.session_manager() else {
             return;
         };
-        let session_id = lock_session_manager(&session).get_session_id().clone();
+        let session_id = session.get_session_id().clone();
         self.clear_session(&session_id);
         let Some(deadline_ms) = parse_review_deadline(review_at) else {
             return;

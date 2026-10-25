@@ -432,12 +432,12 @@ struct ParentSessionSnapshot {
 
 fn parent_session_snapshot(ctx: &ExtensionContext) -> Result<ParentSessionSnapshot, JsString> {
     let manager = ctx.session_manager().map_err(|error| error.message)?;
-    let manager = lock_session_manager(&manager);
+    let manager = manager;
     Ok(ParentSessionSnapshot {
         branch: manager.get_branch(None),
-        leaf_id: manager.get_leaf_id().cloned(),
+        leaf_id: manager.get_leaf_id(),
         session_dir: manager.get_session_dir().clone(),
-        session_file: manager.get_session_file().cloned(),
+        session_file: manager.get_session_file(),
         session_id: manager.get_session_id().clone(),
     })
 }
@@ -612,7 +612,7 @@ fn create_child_agent_session_options(
 ) -> Result<CreateAgentSessionOptions, JsString> {
     let profile = resolve_child_agent_profile(&input.agent, &input.ctx)?;
     let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
-    let parent_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
+    let parent_session_id = session_manager.get_session_id().to_owned();
     Ok(CreateAgentSessionOptions {
         agent_dir: input.options.agent_dir.clone(),
         cwd: Some(input.agent.cwd.clone()),
@@ -766,7 +766,7 @@ fn open_attached_session_manager(
         ));
     }
     let session_manager = input.ctx.session_manager().map_err(|error| error.message)?;
-    let parent_session_dir = lock_session_manager(&session_manager).get_session_dir().clone();
+    let parent_session_dir = session_manager.get_session_dir().clone();
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent_session_dir));
     let mut session_manager = SessionManager::open(&input.session_path, session_dir.as_ref(), Some(&input.agent.cwd))
         .map_err(|error| error.message().clone())?;
@@ -812,7 +812,7 @@ async fn create_production_attached_session(
     let session_manager = open_attached_session_manager(&input, &shared)?;
     let parent_session_file = {
         let parent_manager = input.ctx.session_manager().map_err(|error| error.message)?;
-        lock_session_manager(&parent_manager).get_session_file().cloned()
+        parent_manager.get_session_file()
     };
     let settings_manager = create_attached_settings_manager(&input.agent, options.agent_dir.as_ref())?;
     create_bound_child_session(CreateBoundChildSessionInput {

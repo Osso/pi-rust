@@ -35,7 +35,7 @@ use pi_coding_agent::core::multi_agent_store::{
 use pi_coding_agent::core::session_control_db::{
     get_control_db_path, list_runtime_mailbox_messages, read_multi_agent_agent,
 };
-use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
+use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;
 
@@ -742,9 +742,7 @@ async fn contact_parent_delivers_to_parent_session() {
     assert_eq!(runtime_rows[0].recipient.agent_id, None);
     assert_eq!(
         runtime_rows[0].recipient.session_id,
-        lock_session_manager(&ctx.session_manager().expect("session"))
-            .get_session_id()
-            .clone()
+        ctx.session_manager().expect("session").get_session_id()
     );
     assert_eq!(runtime_rows[0].sender.agent_id.clone(), Some(JsString::from("child")));
 }

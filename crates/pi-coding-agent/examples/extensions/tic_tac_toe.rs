@@ -155,7 +155,7 @@ fn board_ascii(d: &Details) -> String {
         .join("\n---------+---------+---------\n")
 }
 fn restore(game: &SharedGame, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-    let entries = ctx.session_manager()?.lock().unwrap().get_branch(None);
+    let entries = ctx.session_manager()?.get_branch(None);
     let mut state = State::default();
     for entry in entries {
         let entry = serde_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;

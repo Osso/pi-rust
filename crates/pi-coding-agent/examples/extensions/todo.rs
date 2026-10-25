@@ -109,7 +109,7 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     .map_err(HandlerError::new)
 }
 fn restore(state: &Mutex<State>, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-    let entries = ctx.session_manager()?.lock().unwrap().get_branch(None);
+    let entries = ctx.session_manager()?.get_branch(None);
     let mut restored = State::default();
     for entry in entries {
         let value = pi_js_compat::js_json::to_value(&entry).map_err(|e| HandlerError::new(e.to_string()))?;

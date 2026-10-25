@@ -2060,7 +2060,7 @@ async fn registered_extensions_honor_hidden_and_disabled_ids() {
 }
 
 #[tokio::test]
-async fn context_session_manager_is_the_live_shared_handle() {
+async fn context_session_manager_is_a_live_readonly_view() {
     let temp = tempfile::tempdir().expect("temp dir");
     let cwd = temp.path().display().to_string();
     let session_dir = temp.path().join("sessions").display().to_string();
@@ -2084,14 +2084,13 @@ async fn context_session_manager_is_the_live_shared_handle() {
     );
     let context = runner.create_context();
     let extension_handle = context.session_manager().expect("session manager");
-    assert!(Arc::ptr_eq(&extension_handle, &manager));
-
-    {
-        let mut extension_manager = lock_session_manager(&extension_handle);
-        extension_manager
-            .set_session_goal_json(&JsString::from("{\"objective\":\"shared\"}"))
-            .expect("extension goal write");
-    }
+    assert_eq!(
+        extension_handle.get_session_id(),
+        lock_session_manager(&manager).get_session_id().clone()
+    );
+    extension_handle
+        .set_session_goal_json(&JsString::from("{\"objective\":\"shared\"}"))
+        .expect("extension goal write");
     assert_eq!(
         lock_session_manager(&manager)
             .get_session_goal_json()
@@ -2108,7 +2107,7 @@ async fn context_session_manager_is_the_live_shared_handle() {
             timestamp: 1_700_000_000_000.0,
         }))
         .expect("session append");
-    let entries = lock_session_manager(&extension_handle).get_entries();
+    let entries = extension_handle.get_entries();
     assert_eq!(
         entries.len(),
         1,

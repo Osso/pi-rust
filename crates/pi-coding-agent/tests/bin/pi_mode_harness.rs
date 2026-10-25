@@ -492,7 +492,7 @@ async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
             api.on_session_start(|_:SessionStartEvent,context:ExtensionContext| {
                 Box::pin(async move {
                     let manager=context.session_manager()?;
-                    let persisted=manager.lock().unwrap().is_persisted();
+                    let persisted=manager.get_session_file().is_some();
                     let state=js_json!({"noSupervisor":context.no_supervisor()?,"persisted":persisted,"hasStore":context.multi_agent_store()?.is_some(),"hasDetach":context.tool_detach_registry()?.is_some()});
                     std::fs::write(env("PI_HARNESS_STANDALONE_STATE"),pi_js_compat::js_json::stringify_lossless(&state)).map_err(|error| HandlerError::new(error.to_string()))?;
                     Ok(None)

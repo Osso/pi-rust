@@ -232,10 +232,7 @@ async fn browser_cli_matches_typescript() {
     let harness_calls = Arc::clone(&harness.calls);
     let context = harness.context();
     let manager = context.session_manager().unwrap();
-    let expected_session = pi_js_compat::js_format!(
-        "{}:main",
-        pi_coding_agent::core::session_manager::lock_session_manager(&manager).get_session_id()
-    );
+    let expected_session = pi_js_compat::js_format!("{}:main", manager.get_session_id());
     let runner: BrowserCliCommandRunner = Arc::new(move |executable, args, session, signal| {
         assert_eq!(session, expected_session);
         calls_for_runner

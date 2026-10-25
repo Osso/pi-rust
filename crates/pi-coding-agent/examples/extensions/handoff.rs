@@ -146,10 +146,7 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
         return Ok(());
     }
     let manager = ctx.session_manager()?;
-    let (branch, parent) = {
-        let manager = manager.lock().map_err(|error| HandlerError::new(error.to_string()))?;
-        (manager.get_branch(None), manager.get_session_file().cloned())
-    };
+    let (branch, parent) = { (manager.get_branch(None), manager.get_session_file()) };
     let messages = handoff_messages(&branch)?;
     if messages.is_empty() {
         ui.notify(&JsString::from("No conversation to hand off"), Some(NotifyType::Error))?;

@@ -9,7 +9,6 @@ use pi_js_compat::string::is_js_whitespace_unit;
 use serde_json::json;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
-use crate::core::session_manager::lock_session_manager;
 
 const MAX_NAME_CHARS: usize = 80;
 type SharedToolName = Arc<Mutex<Option<JsString>>>;
@@ -79,12 +78,10 @@ fn describe_refusal(
         return Ok(Some("Session name must be a non-empty string.".into()));
     }
     let manager = ctx.session_manager()?;
-    if ctx.multi_agent_agent_id()?.is_some_and(|id| !id.is_empty())
-        || lock_session_manager(&manager).is_subagent_session()
-    {
+    if ctx.multi_agent_agent_id()?.is_some_and(|id| !id.is_empty()) || manager.is_subagent_session() {
         return Ok(Some("Child agent sessions cannot be named.".into()));
     }
-    let manager = lock_session_manager(&manager);
+    let manager = manager;
     if manager.get_session_file().is_none() {
         return Ok(Some("Only persisted sessions can be named.".into()));
     }

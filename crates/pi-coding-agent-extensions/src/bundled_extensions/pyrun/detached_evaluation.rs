@@ -30,7 +30,6 @@ use crate::core::runtime_process::{ProcessIdentity, read_process_identity};
 use crate::core::session_control_db::{
     FinalizeDetachedJobInput, FinalizeDetachedJobResult, finalize_detached_job, read_multi_agent_agent,
 };
-use crate::core::session_manager::lock_session_manager;
 use crate::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 
 use super::detached_runner::{
@@ -103,7 +102,7 @@ fn create_lifecycle_controller(
             owner_agent_id: input.ctx.multi_agent_agent_id().ok().flatten(),
             owner_session_id: {
                 let session = input.ctx.session_manager().map_err(|error| error.message)?;
-                lock_session_manager(&session).get_session_id().to_owned()
+                session.get_session_id().to_owned()
             },
             session_path: persistence.session_path.clone(),
             store: Arc::clone(&input.store),
@@ -191,7 +190,7 @@ fn launch_foreground_pyrun_runner(
             params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled)?,
             runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
                 agent_id: Some(job_id.clone().into()),
-                session_id: lock_session_manager(&session).get_session_id().to_owned().into(),
+                session_id: session.get_session_id().to_owned().into(),
             },
             runner_options: input.runner_options.clone(),
             runner_process_identity: process_identity.clone(),
