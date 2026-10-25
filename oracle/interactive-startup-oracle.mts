@@ -91,8 +91,11 @@ interface Request {
 		| "ctrl-c"
 		| "set-second-line"
 		| "wait-750"
+		| "follow-up"
 	)[];
 	editorText?: string;
+	observeInput?: boolean;
+	pasteText?: string;
 	followUp?: string[];
 	compactionQueue?: { text: string; mode: "steer" | "followUp" }[];
 }
@@ -221,7 +224,14 @@ async function captureStartup(request: Request) {
 			container: { render(width: number): string[] },
 			width = 120,
 		) => container.render(width).map(units);
+		const submittedInputs: string[] = [];
 		const captureEventFrame = () => ({
+			...(request.observeInput
+				? {
+						inputs: submittedInputs.map(units),
+						queuedFollowUp: mode.session.getFollowUpMessages().map(units),
+					}
+				: {}),
 			chat: render(mode.chatContainer),
 			tail: render(mode.transcriptTailContainer),
 			status: render(mode.statusContainer),
@@ -249,6 +259,10 @@ async function captureStartup(request: Request) {
 		}
 		if (request.editorText !== undefined)
 			mode.editor.setText(request.editorText);
+		if (request.pasteText !== undefined)
+			mode.defaultEditor.handleInput(`\x1b[200~${request.pasteText}\x1b[201~`);
+		if (request.observeInput)
+			mode.onInputCallback = (text: string) => submittedInputs.push(text);
 		for (const text of request.followUp ?? [])
 			await mode.session.followUp(text);
 		if (request.compactionQueue)
@@ -258,6 +272,7 @@ async function captureStartup(request: Request) {
 			if (action === "toggle-thinking") mode.toggleThinkingBlockVisibility();
 			else if (action === "dequeue") mode.handleDequeue();
 			else if (action === "ctrl-c") mode.handleCtrlC();
+			else if (action === "follow-up") await mode.handleFollowUp();
 			else if (action === "set-second-line") mode.editor.setText("Second line");
 			else await new Promise((resolve) => setTimeout(resolve, 750));
 			eventFrames.push(captureEventFrame());
