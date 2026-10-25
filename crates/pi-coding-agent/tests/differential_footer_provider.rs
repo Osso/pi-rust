@@ -12,6 +12,52 @@ use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 const SOURCE: &str = "packages/coding-agent/src/core/footer-data-provider.ts";
 
 #[tokio::test]
+async fn git_discovery_continues_past_non_file_metadata_but_stops_at_missing_head() {
+    let root = tempfile::tempdir().unwrap();
+    let outer = root.path().join("repo");
+    std::fs::create_dir_all(outer.join(".git")).unwrap();
+    std::fs::write(outer.join(".git/HEAD"), "ref: refs/heads/parent\n").unwrap();
+    let mut source = oracle::TsOracle::spawn("footer-provider-oracle.mts", SOURCE);
+    let mut actual = Vec::new();
+    let mut expected = Vec::new();
+    let mut sockets = Vec::new();
+    for kind in [
+        "fifo",
+        "socket",
+        "invalid_file",
+        "missing_head",
+        "missing_worktree_head",
+        "broken_link",
+    ] {
+        let dir = outer.join(kind);
+        std::fs::create_dir(&dir).unwrap();
+        let metadata = dir.join(".git");
+        match kind {
+            "fifo" => rustix::fs::mknodat(
+                rustix::fs::CWD,
+                &metadata,
+                rustix::fs::FileType::Fifo,
+                rustix::fs::Mode::RUSR | rustix::fs::Mode::WUSR,
+                0,
+            )
+            .unwrap(),
+            "socket" => sockets.push(std::os::unix::net::UnixListener::bind(&metadata).unwrap()),
+            "invalid_file" => std::fs::write(&metadata, "not a worktree").unwrap(),
+            "missing_head" => std::fs::create_dir(&metadata).unwrap(),
+            "missing_worktree_head" => std::fs::write(&metadata, "gitdir: ../absent").unwrap(),
+            "broken_link" => std::os::unix::fs::symlink("missing", &metadata).unwrap(),
+            _ => unreachable!(),
+        }
+        let cwd = dir.to_str().unwrap();
+        expected.push(source.request(&js_json!({"operation":"metadata","cwd":cwd})));
+        let provider = FooterDataProvider::new(cwd);
+        actual.push(js_json!(provider.get_git_branch()));
+        provider.dispose();
+    }
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
 async fn synchronous_branch_callback_rejection_retains_its_original_error_and_stops_iteration() {
     let root = tempfile::tempdir().unwrap();
     let cwd = root.path().to_str().unwrap();

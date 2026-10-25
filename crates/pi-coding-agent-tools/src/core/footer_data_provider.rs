@@ -183,7 +183,8 @@ pub fn find_git_paths(cwd: &JsString) -> Option<GitPaths> {
                         head_path,
                     });
                 }
-                _ => return None,
+                Ok(_) => {}
+                Err(_) => return None,
             }
         }
         let parent = node_dirname(&dir);

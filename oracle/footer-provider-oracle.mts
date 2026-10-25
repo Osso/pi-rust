@@ -2,6 +2,7 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 type Provider = {
+	getGitBranch(): string | null;
 	setCwd(cwd: string): void;
 	dispose(): void;
 	onBranchChange(callback: () => void): () => void;
@@ -13,14 +14,16 @@ const { FooterDataProvider } = (await import(
 )) as { FooterDataProvider: new (cwd: string) => Provider };
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line) as {
-		operation: "numbers" | "live" | "dispose" | "throw";
+		operation: "numbers" | "live" | "dispose" | "throw" | "metadata";
 		cwd: string;
 	};
 	const provider = new FooterDataProvider(request.cwd);
 	const trace: string[] = [];
 	let result: unknown;
 	try {
-		if (request.operation === "numbers") {
+		if (request.operation === "metadata") {
+			result = provider.getGitBranch();
+		} else if (request.operation === "numbers") {
 			result = [
 				0,
 				-1.5,
