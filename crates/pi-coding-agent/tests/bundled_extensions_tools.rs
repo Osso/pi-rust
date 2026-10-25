@@ -21,12 +21,15 @@ fn oracle_for(module: &str) -> oracle::TsOracle {
     oracle::TsOracle::spawn("bundled-extensions-oracle.ts", module)
 }
 
+fn browser_params(record: &str) -> pi_js_compat::js_json::JsValue {
+    json!({"record":record,"fields":[
+        {"type":"email","name":"Username","selector":"#usernameInputField"},
+        {"type":"password","name":"Password","selector":"#pwInputField"}
+    ]})
+}
+
 fn valid_params() -> pi_js_compat::js_json::JsValue {
-    json!({
-        "record": "browser/rei-capital-one.json",
-        "usernameSelector": "#usernameInputField",
-        "passwordSelector": "#pwInputField"
-    })
+    browser_params("browser/rei-capital-one.json")
 }
 
 #[tokio::test]
@@ -40,11 +43,7 @@ async fn ask_secret_matches_typescript() {
             {"op": "tool", "name": "ask_secret", "params": valid_params(), "mode": "tui", "hasUI": true,
              "inputs": ["rei-user", "super-secret"]},
             {"op": "tool", "name": "ask_secret", "params": valid_params(), "mode": "rpc", "hasUI": false},
-            {"op": "tool", "name": "ask_secret", "params": json!({
-                "record": "browser/rei-capital-one.json\nleak",
-                "usernameSelector": "#usernameInputField",
-                "passwordSelector": "#pwInputField"
-            }), "mode": "tui", "hasUI": true},
+            {"op": "tool", "name": "ask_secret", "params": browser_params("browser/rei-capital-one.json\nleak"), "mode": "tui", "hasUI": true},
             {"op": "tool", "name": "ask_secret", "params": valid_params(), "mode": "tui", "hasUI": true,
              "inputs": [null]}
         ]
@@ -66,18 +65,16 @@ async fn ask_secret_matches_typescript() {
     let provision_calls = Arc::clone(&recorded);
     let provision_calls_for_harness = Arc::clone(&harness.calls);
     let tool = create_ask_secret_tool_definition(AskSecretToolOptions {
-        provision: Some(Arc::new(move |request, username, password, _signal| {
-            provision_calls
-                .lock()
-                .unwrap()
-                .push((json!(request), username.clone(), password.clone()));
+        provision: Some(Arc::new(move |request, values, _signal| {
+            provision_calls.lock().unwrap().push((json!(request), values.clone()));
             provision_calls_for_harness
                 .lock()
                 .unwrap()
                 .provision
-                .push((json!(request), username, password));
+                .push((json!(request), values));
             Box::pin(async { Ok(()) })
         })),
+        ..Default::default()
     });
     let ui = Arc::new(RecordingUi {
         confirmed: std::sync::Mutex::new(false),
@@ -106,13 +103,13 @@ async fn ask_secret_matches_typescript() {
         recorded.lock().unwrap().as_slice(),
         &[(
             valid_params(),
-            JsString::from("rei-user"),
-            JsString::from("super-secret")
+            vec![JsString::from("rei-user"), JsString::from("super-secret")]
         )]
     );
 
     let non_tui = create_ask_secret_tool_definition(AskSecretToolOptions {
-        provision: Some(Arc::new(|_, _, _, _| Box::pin(async { Ok(()) }))),
+        provision: Some(Arc::new(|_, _, _| Box::pin(async { Ok(()) }))),
+        ..Default::default()
     });
     let mut non_tui_runner = harness.runner.clone();
     non_tui_runner.set_ui_context(None, pi_coding_agent::core::extensions::types::ExtensionMode::Print);
@@ -129,11 +126,7 @@ async fn ask_secret_matches_typescript() {
 
     let error = (non_tui.execute)(
         "call-3".to_owned(),
-        json!({
-            "record": "browser/rei-capital-one.json\nleak",
-            "usernameSelector": "#usernameInputField",
-            "passwordSelector": "#pwInputField"
-        }),
+        browser_params("browser/rei-capital-one.json\nleak"),
         None,
         None,
         Some(harness.context()),
@@ -166,6 +159,60 @@ async fn ask_secret_matches_typescript() {
     .unwrap();
     assert_eq!(json!(result), steps[4]["result"]);
     assert_eq!(calls_json(&harness.take_calls()), steps[4]["calls"]);
+}
+
+#[tokio::test]
+async fn ask_secret_file_persistence_matches_frozen_bytes_permissions_and_ui() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let destination = directory.path().join("new-parent/secret.txt");
+    let params = json!({"path":destination.to_str().unwrap(),"label":"Private test secret"});
+    let mut oracle = oracle_for("packages/coding-agent/extensions/ask-secret/src/index.ts");
+    let response = oracle.request(&json!({"id":11,"extension":"ask-secret","steps":[
+        {"op":"tool","name":"ask_secret","params":params,"mode":"tui","hasUI":true,"inputs":["fixture-secret 🚀"]}
+    ]}));
+    assert_eq!(response["ok"], json!(true));
+    let expected = &response["output"]["steps"][0];
+    let expected_bytes = std::fs::read(&destination).unwrap();
+    assert_eq!(expected_bytes, "fixture-secret 🚀\n".as_bytes());
+    let expected_mode = std::fs::metadata(&destination).unwrap().permissions().mode() & 0o777;
+    assert_eq!(expected_mode, 0o600);
+    assert_eq!(
+        std::fs::metadata(destination.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    std::fs::remove_dir_all(destination.parent().unwrap()).unwrap();
+
+    let ui = Arc::new(RecordingUi::default());
+    ui.inputs.lock().unwrap().push_back(Some("fixture-secret 🚀".into()));
+    let harness = Harness::load("/tmp", ui, |api| {
+        pi_coding_agent::bundled_extensions::ask_secret::ask_secret_extension(api)
+    })
+    .await;
+    let tool = create_ask_secret_tool_definition(AskSecretToolOptions::default());
+    let result = (tool.execute)("file-call".to_owned(), params, None, None, Some(harness.context()))
+        .await
+        .unwrap();
+    assert_eq!(json!(result), expected["result"]);
+    assert_eq!(calls_json(&harness.take_calls()), expected["calls"]);
+    assert_eq!(std::fs::read(&destination).unwrap(), expected_bytes);
+    assert_eq!(
+        std::fs::metadata(&destination).unwrap().permissions().mode() & 0o777,
+        expected_mode
+    );
+    assert_eq!(
+        std::fs::metadata(destination.parent().unwrap())
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o700
+    );
+    assert_eq!(std::fs::read_dir(destination.parent().unwrap()).unwrap().count(), 1);
 }
 
 #[tokio::test]
