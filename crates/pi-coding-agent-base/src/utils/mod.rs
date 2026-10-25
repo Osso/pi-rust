@@ -8,6 +8,7 @@ pub mod clipboard_image;
 pub mod clipboard_native;
 pub mod clipboard_temp_files;
 pub mod deprecation;
+pub mod elapsed_time;
 pub mod executable;
 pub mod exif_orientation;
 pub mod footer_status;

@@ -13,6 +13,7 @@ use crate::core::extensions::{ExtensionFactory, ExtensionRegistry};
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod agents_status;
 pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;

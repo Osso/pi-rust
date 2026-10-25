@@ -12,6 +12,8 @@ pub mod agent_identity_paths;
 pub mod agents_core_runtime;
 #[path = "agents_core_shared_viewer.rs"]
 pub mod agents_core_shared_viewer;
+#[path = "agents_status.rs"]
+pub mod agents_status;
 #[path = "approval_reviewer.rs"]
 pub mod approval_reviewer;
 #[path = "args.rs"]
