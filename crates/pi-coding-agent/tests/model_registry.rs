@@ -265,7 +265,7 @@ async fn refresh_reloads_custom_models_from_disk() {
         json!({"providers": {"anthropic": {"baseUrl": "https://second.example.com/v1"}}}).to_string(),
     )
     .unwrap();
-    registry.refresh();
+    registry.refresh().unwrap();
     assert_eq!(
         registry.find("anthropic", "claude-opus-4-8").unwrap().base_url,
         "https://second.example.com/v1"
