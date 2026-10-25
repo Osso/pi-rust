@@ -9,6 +9,7 @@ const load = (path: string) => import(pathToFileURL(path).href);
 const { Agent } = await load(join(packages, "agent-core/src/index.ts"));
 const { createFauxCore, fauxAssistantMessage } = await load(join(packages, "ai/src/providers/faux.ts"));
 const { AgentSession } = await load(join(root, "agent-session.ts"));
+const { LifecycleCoordinator } = await load(join(root, "lifecycle-coordinator.ts"));
 const { SessionManager } = await load(join(root, "session-manager.ts"));
 const { SettingsManager } = await load(join(root, "settings-manager.ts"));
 const { AuthStorage } = await load(join(root, "auth-storage.ts"));
@@ -17,7 +18,7 @@ const { MultiAgentStore } = await load(join(root, "multi-agent-store.ts"));
 const { createEventBus } = await load(join(root, "event-bus.ts"));
 const { createExtensionRuntime, loadExtensionFromFactory } = await load(join(root, "extensions/index.ts"));
 
-async function observe(dir: string): Promise<unknown> {
+async function observe(dir: string, operation?: string): Promise<unknown> {
     const database = join(dir, "control.sqlite");
     const manager = SessionManager.create(dir, join(dir, "sessions"));
     manager.setMetadataControlDbPath(database);
@@ -51,6 +52,24 @@ async function observe(dir: string): Promise<unknown> {
         sessionManager: manager, settingsManager: SettingsManager.inMemory(), cwd: dir, agentDir: dir,
         resourceLoader, modelRegistry: registry, initialActiveToolNames: [], multiAgentStore: store });
     const db = new DatabaseSync(database);
+    if (operation === "finalizeFailure") {
+        const coordinator = new LifecycleCoordinator({ controlDbPath: database,
+            createAgentId: () => "agent_1", now: () => new Date().toISOString(),
+            processIdentity: session._detachedJobProcessIdentity, sessionPath: manager.getSessionFile() });
+        const prepared = coordinator.prepareChild({ agentId: "agent_1", parentId: "main", displayName: "Agent agent_1",
+            agentType: "worker", cwd: dir, permission: { policy: "on-request", narrowed: true } });
+        const committed = coordinator.commitRunningChild(prepared, manager.getSessionId());
+        if (!committed.ok) throw new Error("fixture child rejected");
+        store.publishLifecycleCoordinatorSnapshot(committed.agent);
+        db.exec("CREATE TRIGGER fail_outbox_claim BEFORE UPDATE ON multi_agent_terminal_outbox WHEN NEW.status='claimed' BEGIN SELECT RAISE(ABORT,'fixture claim failure'); END");
+        try {
+            session._finalizeReservedMultiAgent(committed.agent, "completed", { result: { summary: "completed" } });
+            return { threw: false };
+        } catch (error) {
+            return { threw: true, message: error instanceof Error ? error.message : String(error),
+                status: db.prepare("SELECT status FROM multi_agent_terminal_outbox WHERE agent_id='agent_1'").get()?.status };
+        } finally { session.dispose(); db.close(); }
+    }
     db.prepare("INSERT INTO multi_agent_terminal_outbox(session_path,agent_id,terminal_revision,event_kind,status,attempt_count,updated_at) VALUES (?,'missing',2,'completed','pending',0,?)")
         .run(manager.getSessionFile(), new Date().toISOString());
     const attempts = (): number => db.prepare("SELECT attempt_count FROM multi_agent_terminal_outbox WHERE agent_id='missing'").get().attempt_count as number;
@@ -65,7 +84,7 @@ async function observe(dir: string): Promise<unknown> {
     } finally { session.dispose(); db.close(); }
 }
 for await (const line of createInterface({ input: process.stdin })) {
-    const request: { id: number; dir: string } = JSON.parse(line);
-    try { console.log(JSON.stringify({ id: request.id, ok: true, output: await observe(request.dir) })); }
+    const request: { id: number; dir: string; operation?: string } = JSON.parse(line);
+    try { console.log(JSON.stringify({ id: request.id, ok: true, output: await observe(request.dir, request.operation) })); }
     catch (error) { console.log(JSON.stringify({ id: request.id, ok: false, error: String(error) })); }
 }

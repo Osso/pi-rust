@@ -1,6 +1,9 @@
 //! Behavioral tests for the agent-session runtime mailbox timers and steering
 //! completion (`core/agent-session.ts`).
 
+#[path = "agent_session_runtime_mailbox_finalize.rs"]
+mod finalize;
+
 use std::sync::Arc;
 use std::time::Duration;
 
