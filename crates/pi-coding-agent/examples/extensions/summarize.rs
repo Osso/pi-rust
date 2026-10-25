@@ -93,7 +93,7 @@ impl ExtensionUiComponent for Summary {
             DynamicBorder::new(Rc::new(move |s| theme.fg(ThemeColor::Accent, s))).render(width)
         };
         let mut lines = border();
-        lines.extend(Text::new(theme.fg(ThemeColor::Accent, &theme.bold("Conversation Summary")), 1, 0).render(width));
+        lines.extend(Text::new(theme.fg(ThemeColor::Accent, theme.bold("Conversation Summary")), 1, 0).render(width));
         lines.extend(Markdown::new(&self.text, 1, 1, get_markdown_theme(), None, Default::default()).render(width));
         lines.extend(Text::new(theme.fg(ThemeColor::Dim, "Press Enter or Esc to close"), 1, 0).render(width));
         lines.extend(border());

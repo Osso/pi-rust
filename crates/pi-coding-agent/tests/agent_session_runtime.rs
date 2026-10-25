@@ -1216,7 +1216,7 @@ async fn import_does_not_inherit_stale_metadata_or_historical_jsonl_names() {
     let session = harness.runtime.session();
     assert_eq!(
         session.session_file().as_ref(),
-        Some(destination_path.as_str()).map(JsString::from).as_ref()
+        Some(JsString::from(destination_path.as_str())).as_ref()
     );
     assert_eq!(session.session_name(), None);
     assert!(
@@ -1457,8 +1457,7 @@ async fn before_invalidate_error_skips_dispose_and_releases_gate_for_next_transi
         .runtime
         .new_session(NewSessionOptions::default())
         .await
-        .err()
-        .expect("hook rejection");
+        .expect_err("hook rejection");
     let after_error = json!({"sameSession":harness.runtime.session().session_manager().get_session_id()==&id,"disposed":context.cwd().is_err()});
     tokio::time::timeout(
         std::time::Duration::from_secs(5),
@@ -1517,8 +1516,8 @@ async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
     let source_file = source_manager.get_session_file().expect("source file").to_owned();
 
     let session_dir = harness.runtime.session().session_manager().get_session_dir().to_owned();
-    std::fs::remove_dir_all(&encode_node_utf8(&session_dir)).expect("remove harness session dir");
-    std::os::unix::fs::symlink(&source_sessions, &encode_node_utf8(&session_dir)).expect("symlink session dir");
+    std::fs::remove_dir_all(encode_node_utf8(&session_dir)).expect("remove harness session dir");
+    std::os::unix::fs::symlink(&source_sessions, encode_node_utf8(&session_dir)).expect("symlink session dir");
 
     let result = harness
         .runtime
@@ -1526,7 +1525,7 @@ async fn import_through_a_symlinked_session_dir_preserves_the_source_file() {
         .await
         .expect("import");
     assert!(!result.cancelled);
-    let content = std::fs::read_to_string(&encode_node_utf8(&source_file)).expect("source file readable");
+    let content = std::fs::read_to_string(encode_node_utf8(&source_file)).expect("source file readable");
     assert!(content.contains("symlinked import"), "content: {content}");
 }
 

@@ -1806,11 +1806,10 @@ async fn execute_bash_records_streams_and_commits() {
     let sink = Arc::clone(&updates);
     let committed = Arc::new(AtomicUsize::new(0));
     let committed_sink = Arc::clone(&committed);
-    fixture.session.subscribe(Arc::new(move |event| match event {
-        AgentSessionEvent::BashMessagesCommitted(_) => {
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::BashMessagesCommitted(_) = event {
             committed_sink.fetch_add(1, Ordering::SeqCst);
         }
-        _ => {}
     }));
 
     let result = fixture
@@ -2698,9 +2697,9 @@ async fn update_compaction_summary_returns_the_persistence_error() {
         )
     };
     if std::path::Path::new(&encode_node_utf8(&session_file)).exists() {
-        std::fs::remove_file(&encode_node_utf8(&session_file)).expect("remove session file");
+        std::fs::remove_file(encode_node_utf8(&session_file)).expect("remove session file");
     }
-    std::fs::create_dir(&encode_node_utf8(&session_file)).expect("replace with directory");
+    std::fs::create_dir(encode_node_utf8(&session_file)).expect("replace with directory");
 
     let before = session.messages();
     let error = session

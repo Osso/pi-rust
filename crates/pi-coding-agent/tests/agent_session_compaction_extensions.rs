@@ -1057,7 +1057,7 @@ async fn auto_compaction_reports_the_disabled_message_when_no_extension_result_e
     let expected = format!("Auto-compaction failed: {DISABLED_MESSAGE}");
     assert_eq!(
         end.error_message.as_ref(),
-        Some(expected.as_str()).map(JsString::from).as_ref()
+        Some(JsString::from(expected.as_str())).as_ref()
     );
 }
 

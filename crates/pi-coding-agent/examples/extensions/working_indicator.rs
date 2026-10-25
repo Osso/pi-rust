@@ -62,7 +62,7 @@ fn apply_indicator(mode: Mode, ui: &dyn ExtensionUiContext) -> Result<(), Handle
         &JsString::from("working-indicator"),
         Some(ExtensionStatus::Text(
             ui.theme()?
-                .fg(ThemeColor::Dim, &format!("Indicator: {}", mode.description())),
+                .fg(ThemeColor::Dim, format!("Indicator: {}", mode.description())),
         )),
     )
     .map_err(HandlerError::from)
@@ -85,7 +85,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             let current = mode.clone();
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                let next = (&args).trim().to_lowercase();
+                let next = args.trim().to_lowercase();
                 if next.is_empty() {
                     ui.notify(
                         &JsString::from(format!("Working indicator: {}", current.lock().unwrap().description())),

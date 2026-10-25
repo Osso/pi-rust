@@ -147,7 +147,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         thinking_level: Some(ThinkingLevel::Off),
         tools: Some(vec!["spawn_agent".to_owned()]),
         session_manager: Some(parent_manager),
-        control_db_path: Some(control_db_path.clone().into()),
+        control_db_path: Some(control_db_path.clone()),
         multi_agent_store: Some(Arc::clone(&store)),
         extension_factories: vec![InlineExtension::Factory {
             extension_path: Some("<first-party:agents-core>".to_owned().into()),

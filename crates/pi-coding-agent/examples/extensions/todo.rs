@@ -68,7 +68,7 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(move|_,params,_,_,_|{let state=execute.clone();Box::pin(async move {Ok(execute_todo(&mut state.lock().unwrap(),&params))})}),
         render_call:Some(infallible_render_call(|args,th,_| {
-            let mut text=th.fg(C::ToolTitle,&th.bold("todo "))+&th.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("undefined")));
+            let mut text=th.fg(C::ToolTitle,th.bold("todo "))+&th.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("undefined")));
             if let Some(value)=args["text"].as_string().filter(|v|!v.is_empty()){text.push_str(&js_format!(" {}", th.fg(C::Dim,&js_format!("\"{}\"", value))));}
             if let Some(id)=args["id"].as_f64(){text.push_str(&js_format!(" {}", th.fg(C::Accent,&js_format!("#{}", number(id)))));}
             text_component(text)
@@ -185,7 +185,7 @@ fn execute_todo(state: &mut State, params: &Value) -> AgentToolResult {
     }
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(JsValue::from(details)),
+        details: Some(details),
         is_error: None,
         terminate: None,
     }
@@ -221,10 +221,10 @@ fn first_text(result: &AgentToolResult) -> JsString {
 }
 fn render_result(result: &AgentToolResult, expanded: bool, th: &Theme) -> JsString {
     let Some(details) = &result.details else {
-        return first_text(result).into();
+        return first_text(result);
     };
     if details.is_null() {
-        return first_text(result).into();
+        return first_text(result);
     }
     if let Some(error) = details["error"].as_string().filter(|s| !s.is_empty()) {
         return th.fg(C::Error, &js_format!("Error: {}", error));
@@ -286,7 +286,7 @@ impl ExtensionUiComponent for TodoList {
         let th = &self.theme;
         let header = th.fg(C::BorderMuted, "───")
             + &th.fg(C::Accent, " Todos ")
-            + &th.fg(C::BorderMuted, &"─".repeat(width.saturating_sub(10)));
+            + &th.fg(C::BorderMuted, "─".repeat(width.saturating_sub(10)));
         let mut lines = vec![
             JsString::default(),
             truncate_to_width(&header, width),

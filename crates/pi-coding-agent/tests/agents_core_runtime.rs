@@ -1361,7 +1361,7 @@ async fn steering_requests_reject_unknown_agents() {
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
             control_db_path: test.control_db_path.clone().into(),
-            session_id: test.session_path.clone().into(),
+            session_id: test.session_path.clone(),
         },
         None,
     )

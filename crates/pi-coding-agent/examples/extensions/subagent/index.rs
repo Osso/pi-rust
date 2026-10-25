@@ -45,7 +45,7 @@ fn output(messages: &Value) -> JsString {
         }
         for part in message["content"].as_array().into_iter().flatten() {
             if part["type"] == pi_js_compat::js_json!("text") {
-                return text(&part["text"]).into();
+                return text(&part["text"]);
             }
         }
     }
@@ -70,7 +70,7 @@ fn result_output(r: &Value) -> JsString {
 fn result(content: JsString, details: Value, error: bool) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(content))],
-        details: Some(JsValue::from(details)),
+        details: Some(details),
         is_error: error.then_some(true),
         terminate: None,
     }
@@ -148,7 +148,7 @@ async fn execute(
         for item in chain.into_iter().chain(tasks).flatten().chain(std::iter::once(&params)) {
             let name = text(&item["agent"]);
             if !name.is_empty() && !names.iter().any(|n| n == &name) {
-                names.push(name.into());
+                names.push(name);
             }
         }
         let names = names
@@ -162,7 +162,7 @@ async fn execute(
                 .as_ref()
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| "(unknown)".into());
-            if !ctx.ui()?.confirm(&JsString::from("Run project-local agents?"),&JsString::from(js_format!("Agents: {}\nSource: {}\n\nProject agents are repo-controlled. Only continue for trusted repositories.", JsString::join(&names, ", "), dir)),None).await? {
+            if !ctx.ui()?.confirm(&JsString::from("Run project-local agents?"),&js_format!("Agents: {}\nSource: {}\n\nProject agents are repo-controlled. Only continue for trusted repositories.", JsString::join(&names, ", "), dir),None).await? {
     return Ok(result("Canceled: project-local agents not approved.".into(),details(mode,&scope,&discovery,vec![]),false));
    }
         }
@@ -221,7 +221,7 @@ async fn run_chain(
                 }
                 let mut d = d.clone();
                 d["results"] = json!(all);
-                partial.details = Some(JsValue::from(d));
+                partial.details = Some(d);
                 u(partial)
             }) as AgentToolUpdateCallback
         });
@@ -452,7 +452,7 @@ async fn run_single(
     command
         .args(dispatch.invocation.prefix.iter().map(encode_node_utf8))
         .args(args.iter().map(encode_node_utf8))
-        .current_dir(&encode_node_utf8(&item["cwd"].as_string().unwrap_or(&dispatch.cwd)))
+        .current_dir(encode_node_utf8(&item["cwd"].as_string().unwrap_or(&dispatch.cwd)))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());
@@ -516,7 +516,7 @@ fn write_prompt(agent: &AgentConfig) -> Result<(tempfile::TempDir, PathBuf), Han
     let safe = pi_js_compat::js_regex::JsRegex::new(r"[^a-zA-Z0-9_.-]+")
         .expect("valid filename sanitizer regex")
         .replace_all(&agent.name, "_");
-    let path = dir.path().join(&encode_node_utf8(&js_format!("prompt-{}.md", safe)));
+    let path = dir.path().join(encode_node_utf8(&js_format!("prompt-{}.md", safe)));
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
     let mut file = std::fs::OpenOptions::new()

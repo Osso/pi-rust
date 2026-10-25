@@ -106,7 +106,7 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
 fn result(text: impl Into<JsString>, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(JsValue::from(details)),
+        details: Some(details),
         is_error: None,
         terminate: None,
     }

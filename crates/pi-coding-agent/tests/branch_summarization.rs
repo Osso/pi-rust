@@ -446,9 +446,7 @@ async fn generates_a_preambled_summary_with_file_lists() {
 
     assert_eq!(
         result.summary.as_ref(),
-        (Some(
-            "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\n## Goal\nExplore\n\n<modified-files>\nsrc/a.ts\n</modified-files>"
-        )).map(JsString::from).as_ref()
+        Some(JsString::from("The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\n## Goal\nExplore\n\n<modified-files>\nsrc/a.ts\n</modified-files>")).as_ref()
     );
     assert!(serde_json::to_value(&result).unwrap().get("usage").is_none());
     assert_eq!(result.read_files, Some(Vec::new()));

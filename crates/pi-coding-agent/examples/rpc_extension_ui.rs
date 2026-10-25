@@ -162,7 +162,7 @@ impl RpcExtensionUi {
         let a = self.actions.clone();
         input.on_submit = Some(Rc::new(move |s| {
             a.borrow_mut()
-                .push_back(Action::Complete((!(s).trim().is_empty()).then(|| (s).trim().into())))
+                .push_back(Action::Complete((!(s).trim().is_empty()).then(|| (s).trim())))
         }));
         let a = self.actions.clone();
         input.on_escape = Some(Rc::new(move || a.borrow_mut().push_back(Action::Complete(None))));
@@ -220,7 +220,6 @@ impl RpcExtensionUi {
                     .map(JsString::from)
                     .to_vec()
                     .into_iter()
-                    .map(JsString::from)
                     .collect::<Vec<_>>(),
                 Completion::Local("select"),
             ),
@@ -230,7 +229,6 @@ impl RpcExtensionUi {
                     .map(JsString::from)
                     .to_vec()
                     .into_iter()
-                    .map(JsString::from)
                     .collect::<Vec<_>>(),
                 Completion::Local("confirm"),
             ),
@@ -268,7 +266,7 @@ impl RpcExtensionUi {
         let id = req.get("id").cloned().unwrap_or(Value::Null);
         match field(req, "method", "") {
             matched_tag if matched_tag == "select" => self.select(
-                field(req, "title", "Select").into(),
+                field(req, "title", "Select"),
                 req["options"]
                     .as_array()
                     .into_iter()
@@ -282,10 +280,10 @@ impl RpcExtensionUi {
                 let title = if let Some(message) = req["message"].as_string().filter(|s| !s.is_empty()) {
                     js_format!("{}: {}", field(req, "title", "undefined"), message)
                 } else {
-                    field(req, "title", "Confirm").into()
+                    field(req, "title", "Confirm")
                 };
                 self.select(
-                    JsString::from(title),
+                    title,
                     ["Yes", "No"].map(JsString::from).to_vec(),
                     Completion::Rpc { id, confirm: true },
                 );
@@ -294,12 +292,12 @@ impl RpcExtensionUi {
                 let title = if let Some(p) = req["placeholder"].as_string().filter(|s| !s.is_empty()) {
                     js_format!("{} ({})", field(req, "title", "undefined"), p)
                 } else {
-                    field(req, "title", "Input").into()
+                    field(req, "title", "Input")
                 };
-                self.input(JsString::from(title), None, Completion::Rpc { id, confirm: false });
+                self.input(title, None, Completion::Rpc { id, confirm: false });
             }
             matched_tag if matched_tag == "editor" => self.input(
-                field(req, "title", "Editor").into(),
+                field(req, "title", "Editor"),
                 req["prefill"].as_string().map(|s| s.replace('\n', " ")),
                 Completion::Rpc { id, confirm: false },
             ),
@@ -402,8 +400,7 @@ impl RpcExtensionUi {
                 "{}[result: {}...]{}",
                 DIM,
                 clipped(
-                    &data
-                        .get("result")
+                    data.get("result")
                         .map(pi_js_compat::js_json::stringify_lossless)
                         .unwrap_or_else(|| "undefined".into()),
                     120
@@ -464,7 +461,7 @@ impl Component for RpcExtensionUi {
                 lines.extend(self.prompt.render(width));
             }
         }
-        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
+        lines.into_iter().collect::<Vec<_>>()
     }
     fn handle_input(&mut self, data: &JsString) {
         match &mut self.dialog {
