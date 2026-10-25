@@ -13263,7 +13263,7 @@ mod ui_tests {
                     .unwrap();
                 mode.session().follow_up("visible user input", &[]).await.unwrap();
                 mode.update_pending_messages_display();
-                let output = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let output = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.pending_messages_container.borrow_mut().render(100),
                     "\n",
                 ));
@@ -14435,7 +14435,7 @@ mod ui_tests {
                         }).await.expect("worker receives owner result");
                         worker.join().unwrap()
                     } else { ui.set_header(Some(factory)) };
-                    let error = result.err().expect("header failure must propagate to its caller");
+                    let error = result.expect_err("header failure must propagate to its caller");
                     let value = match error.thrown_value() {
                         pi_js_compat::abort::AbortReason::Error(value) => value,
                         reason => panic!("unexpected header rejection: {reason:?}"),
@@ -16056,7 +16056,7 @@ mod ui_tests {
                 let (mode, _terminal, _faux, _temp) = build_mode_with_loader(loader, None).await;
                 let _events = start(&mode).await;
                 mode.show_loaded_resources(false, false).unwrap();
-                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let rendered = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.loaded_resources_container.borrow_mut().render(220),
                     "\n",
                 ));
@@ -16744,7 +16744,7 @@ mod ui_tests {
                 target.persist_for_recovery().expect("persist target session");
                 let target_id = target.get_session_id().to_owned();
                 let target_file = target.get_session_file().expect("target file");
-                assert!(std::path::Path::new(&&encode_node_utf8(&target_file)).exists());
+                assert!(std::path::Path::new(&encode_node_utf8(target_file)).exists());
 
                 terminal.borrow_mut().send_input("/resume");
                 mode.ui.process_events();
@@ -17105,7 +17105,7 @@ mod ui_tests {
                 *mode.changelog_markdown.borrow_mut() = Some(JsString::from("## [1.2.3]\n- Added feature"));
                 mode.startup_notices_shown.set(false);
                 mode.show_startup_notices_if_needed();
-                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let rendered = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.chat_container.borrow_mut().render(120),
                     "\n",
                 ));
@@ -17119,7 +17119,7 @@ mod ui_tests {
                 mode.settings_mut(|settings| settings.set_collapse_changelog(true));
                 mode.startup_notices_shown.set(false);
                 mode.show_startup_notices_if_needed();
-                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let rendered = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.chat_container.borrow_mut().render(120),
                     "\n",
                 ));
@@ -17181,7 +17181,7 @@ mod ui_tests {
                 let working = |mode: &Rc<InteractiveMode>| {
                     let editor = mode.editor();
                     let rendered =
-                        pi_tui::utils::strip_terminal_sequences(&JsString::join(editor.borrow_mut().render(80), "\n"));
+                        pi_tui::utils::strip_terminal_sequences(JsString::join(editor.borrow_mut().render(80), "\n"));
                     pi_tui::components::loader::DEFAULT_FRAMES
                         .iter()
                         .any(|frame| rendered.contains(*frame))
@@ -17247,7 +17247,7 @@ mod ui_tests {
 
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model.clone()))
                     .await;
-                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let rendered = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.chat_container.borrow_mut().render(200),
                     "\n",
                 ));
@@ -17259,7 +17259,7 @@ mod ui_tests {
 
                 mode.chat_container.borrow_mut().clear();
                 mode.maybe_warn_about_anthropic_subscription_auth(Some(model)).await;
-                let rendered = pi_tui::utils::strip_terminal_sequences(&JsString::join(
+                let rendered = pi_tui::utils::strip_terminal_sequences(JsString::join(
                     mode.chat_container.borrow_mut().render(200),
                     "\n",
                 ));
@@ -17341,7 +17341,7 @@ mod ui_tests {
                     .await;
 
                 let rendered = pi_tui::utils::strip_terminal_sequences(
-                    &JsString::join(mode.chat_container.borrow_mut().render(200), "\n"),
+                    JsString::join(mode.chat_container.borrow_mut().render(200), "\n"),
                 );
                 assert!(
                     rendered.contains("Share URL: https://pi.dev/session/#abc123"),
@@ -17444,7 +17444,7 @@ mod ui_tests {
             slot: slot.map(|index| crate::core::multi_agent_store::AgentSlot { index, pinned: true }),
             transcript: transcript_path.map(|path| crate::core::multi_agent_store::AgentTranscriptMetadata {
                 session_id: JsString::from("child-session"),
-                path: Some(JsString::from(path.to_owned())),
+                path: Some(path.to_owned()),
             }),
             event_stream: None,
             worker: None,
@@ -17941,7 +17941,7 @@ mod ui_tests {
                 let normalized = JsString::join(chat.split('\n').map(|text| text.trim()), "\n");
                 assert!(
                     normalized.contains(
-                        &[
+                        [
                             "Compaction failed after timeout.",
                             "Model: ollama/qwen3:4b-instruct-128k.",
                             "The compaction request did not finish before the timeout.",
@@ -17976,7 +17976,7 @@ mod ui_tests {
                 let normalized = JsString::join(chat.split('\n').map(|text| text.trim()), "\n");
                 assert!(
                     normalized.contains(
-                        &[
+                        [
                             "Compaction failed.",
                             "No compaction was saved; context remains unchanged.",
                             "Original error: boom.",
@@ -18002,17 +18002,13 @@ mod ui_tests {
                 spawn_agent(&store, "Child", Some(1), Some(&path), None);
                 let (mode, _terminal, _faux, _temp) = build_mode_with_store(Arc::clone(&store)).await;
                 let _events = start(&mode).await;
-                let main_footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
-                    mode.footer.borrow_mut().render(200),
-                    "\n",
-                ));
+                let main_footer =
+                    pi_tui::utils::strip_terminal_sequences(JsString::join(mode.footer.borrow_mut().render(200), "\n"));
                 assert!(main_footer.contains("faux-1"), "{main_footer:?}");
 
                 assert!(mode.select_agent_slot(1).unwrap());
-                let footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
-                    mode.footer.borrow_mut().render(200),
-                    "\n",
-                ));
+                let footer =
+                    pi_tui::utils::strip_terminal_sequences(JsString::join(mode.footer.borrow_mut().render(200), "\n"));
                 assert!(footer.contains("faux-2"), "{footer:?}");
                 assert!(!footer.contains("faux-1"), "{footer:?}");
                 assert!(footer.contains('↑'), "child usage must be shown: {footer:?}");
@@ -18020,10 +18016,8 @@ mod ui_tests {
                 assert!(chat.contains("child prompt"), "{chat:?}");
 
                 assert!(mode.select_agent_view_from_bridge(&JsString::from("main")));
-                let footer = pi_tui::utils::strip_terminal_sequences(&JsString::join(
-                    mode.footer.borrow_mut().render(200),
-                    "\n",
-                ));
+                let footer =
+                    pi_tui::utils::strip_terminal_sequences(JsString::join(mode.footer.borrow_mut().render(200), "\n"));
                 assert!(footer.contains("faux-1"), "{footer:?}");
             })
             .await;
@@ -20420,7 +20414,9 @@ mod lossless_ui_bridge_tests {
             }
             _ => panic!("status not delivered"),
         }
-        context.set_widget(&key, Some(&[text.clone()]), None).unwrap();
+        context
+            .set_widget(&key, Some(std::slice::from_ref(&text)), None)
+            .unwrap();
         match receiver.recv().unwrap() {
             UiRequest::SetWidget {
                 key: actual,
@@ -20437,7 +20433,7 @@ mod lossless_ui_bridge_tests {
             UiRequest::SetTitle(value) => assert_eq!(value, text),
             _ => panic!("title not delivered"),
         }
-        let selected = context.select(&key, &[text.clone()], None);
+        let selected = context.select(&key, std::slice::from_ref(&text), None);
         match receiver.recv().unwrap() {
             UiRequest::Select {
                 title,
