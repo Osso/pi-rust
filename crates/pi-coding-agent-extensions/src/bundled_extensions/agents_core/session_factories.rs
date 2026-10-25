@@ -149,8 +149,8 @@ impl ChildAgentSession for AgentSessionChildSession {
         }))
     }
 
-    fn messages(&self) -> Vec<AgentMessage> {
-        self.session.messages()
+    fn messages(&self) -> Vec<Arc<AgentMessage>> {
+        self.session.messages().into_iter().map(Arc::new).collect()
     }
 
     fn prompt(
@@ -642,6 +642,7 @@ fn create_child_agent_session_options(
 struct TranscriptChildSession {
     inner: Arc<dyn UnboundChildAgentSession>,
     transcript: AgentTranscriptMetadata,
+    messages_by_entry_id: std::sync::Mutex<std::collections::HashMap<JsString, Arc<AgentMessage>>>,
 }
 
 impl ChildAgentSession for TranscriptChildSession {
@@ -657,8 +658,26 @@ impl ChildAgentSession for TranscriptChildSession {
         self.inner.drain_runtime_coordination()
     }
 
-    fn messages(&self) -> Vec<AgentMessage> {
-        self.inner.messages()
+    fn messages(&self) -> Vec<Arc<AgentMessage>> {
+        let manager = self.inner.session_manager();
+        let manager = lock_session_manager(&manager);
+        let mut messages = self.messages_by_entry_id.lock().expect("child messages");
+        manager
+            .get_branch(None)
+            .iter()
+            .filter_map(|entry| {
+                let known = entry.known();
+                let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
+                    return None;
+                };
+                let id = entry.id()?;
+                Some(Arc::clone(
+                    messages
+                        .entry(id.clone())
+                        .or_insert_with(|| Arc::new(*message.message.clone())),
+                ))
+            })
+            .collect()
     }
 
     fn prompt(
@@ -696,6 +715,7 @@ async fn create_bound_child_session(
     Ok(Arc::new(TranscriptChildSession {
         inner: session,
         transcript,
+        messages_by_entry_id: Default::default(),
     }) as Arc<dyn ChildAgentSession>)
 }
 

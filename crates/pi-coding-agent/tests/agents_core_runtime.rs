@@ -315,11 +315,12 @@ fn seed_child(store: &Arc<MultiAgentStore>, test: &TestDir, id: &str, transcript
 }
 
 struct FakeSession {
-    messages: Arc<Mutex<Vec<AgentMessage>>>,
+    messages: Arc<Mutex<Vec<Arc<AgentMessage>>>>,
     transcript: Option<pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata>,
     summary: String,
     abort_calls: Arc<Mutex<usize>>,
     on_prompt: Option<Arc<dyn Fn() + Send + Sync>>,
+    response_error: Option<JsString>,
 }
 
 impl FakeSession {
@@ -335,6 +336,7 @@ impl FakeSession {
             summary: summary.to_owned(),
             abort_calls: Arc::new(Mutex::new(0)),
             on_prompt: None,
+            response_error: None,
         }
     }
 }
@@ -344,7 +346,7 @@ impl ChildAgentSession for FakeSession {
         *self.abort_calls.lock().expect("abort") += 1;
     }
 
-    fn messages(&self) -> Vec<AgentMessage> {
+    fn messages(&self) -> Vec<Arc<AgentMessage>> {
         self.messages.lock().expect("messages").clone()
     }
 
@@ -367,13 +369,17 @@ impl ChildAgentSession for FakeSession {
             .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
                 summary,
             )));
+        if let Some(error) = &self.response_error {
+            assistant.stop_reason = pi_ai::types::StopReason::Error;
+            assistant.error_message = Some(error.clone());
+        }
         let session_messages = Arc::clone(&self.messages);
         Box::pin(async move {
-            session_messages.lock().expect("messages").push(user);
+            session_messages.lock().expect("messages").push(Arc::new(user));
             session_messages
                 .lock()
                 .expect("messages")
-                .push(AgentMessage::Assistant(Box::new(assistant)));
+                .push(Arc::new(AgentMessage::Assistant(Box::new(assistant))));
             Ok(())
         })
     }
@@ -581,6 +587,134 @@ async fn child_runtime_rejects_orchestration_tools() {
 
 #[path = "support/oracle.rs"]
 mod repin_oracle;
+
+#[tokio::test]
+async fn child_response_ignores_inherited_text_and_fails_terminal_model_error() {
+    for response_error in [None, Some(JsString::from("model rejected")), Some(JsString::default())] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let (_runner, ctx) = test_context(&test, None, None, false).await;
+        let handles = create_multi_agent_runtime_handles();
+        let expected_error = response_error.clone();
+        let factory = ChildAgentSessionFactory::new(move |_| {
+            let response_error = response_error.clone();
+            Box::pin(async move {
+                let mut session = FakeSession::new("", Some("child-session"));
+                let mut old = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 0.0);
+                old.content
+                    .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
+                        "inherited answer",
+                    )));
+                session
+                    .messages
+                    .lock()
+                    .unwrap()
+                    .push(Arc::new(AgentMessage::Assistant(Box::new(old))));
+                session.response_error = response_error;
+                Ok(Arc::new(session) as Arc<dyn ChildAgentSession>)
+            })
+        });
+        let (journal, _) = recording_journal();
+        let result = spawn_agent(SpawnAgentRuntimeInput {
+            active_tool_call_id: None,
+            create_child_session: Some(factory),
+            ctx,
+            desktop_notifier: Arc::new(RecordingNotifier::default()),
+            dispatches: Arc::clone(&handles.dispatches),
+            handles: Some(Arc::clone(&handles.sessions)),
+            ownerships: Arc::clone(&handles.ownerships),
+            params: json!({"prompt":"work"}),
+            pi: Some(journal),
+            store: Arc::clone(&store),
+            waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
+            _marker: std::marker::PhantomData,
+        })
+        .await
+        .unwrap();
+        let details = result.details.unwrap();
+        assert_eq!(details["dispatched"], json!(true));
+        let id = details["agent"]["id"].as_string().unwrap();
+        let terminal = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                let current = store.get_agent(id).unwrap();
+                if !pi_coding_agent::core::multi_agent_store::is_active_lifecycle(current.lifecycle) {
+                    break current;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .unwrap();
+        if let Some(error) = expected_error {
+            assert_eq!(terminal.lifecycle, AgentLifecycle::Failed);
+            let expected = if error.is_empty() {
+                JsString::from("Child model request ended with error")
+            } else {
+                error
+            };
+            assert_eq!(terminal.error.unwrap().message, expected);
+        } else {
+            assert_eq!(terminal.lifecycle, AgentLifecycle::Completed);
+            assert!(
+                terminal.result.is_none(),
+                "Inherited answer must not become this turn's result: {:?}",
+                terminal.result
+            );
+        }
+    }
+}
+
+#[test]
+fn frozen_child_response_matrix_preserves_identity_errors_and_utf16() {
+    use pi_coding_agent::bundled_extensions::agents_core::child_response::read_current_child_assistant_text;
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let assistant = |text: JsString, error: Option<JsString>| {
+        let mut message = pi_ai::types::AssistantMessage::empty("faux", "faux", "faux", 1.0);
+        message
+            .content
+            .push(pi_ai::types::AssistantContent::Text(pi_ai::types::TextContent::new(
+                text,
+            )));
+        if error.is_some() {
+            message.stop_reason = pi_ai::types::StopReason::Error;
+            message.error_message = error;
+        }
+        json!(AgentMessage::Assistant(Box::new(message)))
+    };
+    let old = assistant("old".into(), None);
+    let empty = assistant("".into(), None);
+    let raw = assistant(JsString::from_utf16(vec![0xD800, 0x78, 0xDC00]), None);
+    let failed = assistant("do not use".into(), Some("raw error".into()));
+    let fallback = assistant("".into(), Some("".into()));
+    let cases = vec![
+        (vec![], 0),
+        (vec![old.clone()], 1),
+        (vec![old.clone(), empty.clone()], 1),
+        (vec![old.clone(), old.clone()], 1),
+        (vec![old.clone(), raw.clone(), empty.clone()], 1),
+        (vec![old.clone(), failed.clone()], 1),
+        (vec![fallback], 0),
+        (vec![failed, raw.clone()], 1),
+        (vec![raw], 0),
+    ];
+    for (messages, previous_count) in cases {
+        let source =
+            ts.request(&json!({"id":3,"op":"childResponse","messages":messages,"previousCount":previous_count}));
+        let native: Vec<Arc<AgentMessage>> = messages
+            .iter()
+            .map(|value| Arc::new(pi_js_compat::js_json::from_value(value).unwrap()))
+            .collect();
+        let actual = read_current_child_assistant_text(&native, &native[..previous_count]);
+        let response = match actual {
+            Ok(output) => json!({"id":3,"ok":true,"output":output}),
+            Err(message) => json!({"id":3,"ok":false,"error":{"name":"Error","message":message}}),
+        };
+        assert_eq!(source, response, "messages={messages:?}; previous={previous_count}");
+    }
+}
 
 #[tokio::test]
 async fn frozen_settlement_abort_and_detached_predicate_match() {

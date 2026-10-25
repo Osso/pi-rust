@@ -226,7 +226,7 @@ async fn public_registration_propagates_late_tool_failure_instead_of_returning_s
 struct NoDispatchSession;
 
 impl ChildAgentSession for NoDispatchSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
@@ -370,7 +370,7 @@ struct ControlledCompletionSession {
 }
 
 impl ChildAgentSession for ControlledCompletionSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn transcript(&self) -> Option<AgentTranscriptMetadata> {
