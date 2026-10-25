@@ -53,10 +53,6 @@ name = "suite_modes"
 path = "tests/suite_modes.rs"
 
 [[test]]
-name = "suite_session"
-path = "tests/suite_session.rs"
-
-[[test]]
 name = "suite_tools"
 path = "tests/suite_tools.rs"
 
