@@ -3,6 +3,61 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+async function probeTrustReuse(request: {
+	id: number;
+	root: string;
+	trusted: boolean;
+}): Promise<void> {
+	const { DefaultResourceLoader } = await import(
+		pathToFileURL(process.argv[2]).href
+	);
+	const { SettingsManager } = await import(
+		pathToFileURL(join(dirname(process.argv[2]), "settings-manager.ts")).href
+	);
+	const state = globalThis as unknown as { fixtureLoads: string[] };
+	state.fixtureLoads = [];
+	for (const [directory, name] of [
+		["agent/extensions", "global"],
+		["agent/extensions", "failed"],
+		["project/.pi/extensions", "project"],
+	]) {
+		mkdirSync(join(request.root, directory), { recursive: true });
+		writeFileSync(
+			join(request.root, directory, `${name}.ts`),
+			`export default () => { globalThis.fixtureLoads.push("${name}"); ${name === "failed" ? 'throw new Error("fixture-failure");' : ""} };`,
+		);
+	}
+	const settings = SettingsManager.inMemory();
+	const loader = new DefaultResourceLoader({
+		cwd: join(request.root, "project"),
+		agentDir: join(request.root, "agent"),
+		settingsManager: settings,
+		noSkills: true,
+		noPromptTemplates: true,
+		noThemes: true,
+		noContextFiles: true,
+		extensionFactories: [
+			() => {
+				state.fixtureLoads.push("inline");
+			},
+		],
+	});
+	let preload: string[] = [];
+	await loader.reload({
+		resolveProjectTrust: ({
+			extensionsResult,
+		}: {
+			extensionsResult: { extensions: Array<{ path: string }> };
+		}) => {
+			preload = extensionsResult.extensions.map((extension) => extension.path);
+			return request.trusted;
+		},
+	});
+	process.stdout.write(
+		`${JSON.stringify({ id: request.id, preload, loaded: loader.getExtensions().extensions.map((extension: { path: string }) => extension.path), errors: loader.getExtensions().errors, calls: state.fixtureLoads, trusted: settings.isProjectTrusted() })}\n`,
+	);
+}
+
 async function main(): Promise<void> {
 	const { DefaultResourceLoader } = await import(
 		pathToFileURL(process.argv[2]).href
@@ -13,50 +68,7 @@ async function main(): Promise<void> {
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		if (request.operation === "trust_reuse") {
-			const state = globalThis as unknown as { fixtureLoads: string[] };
-			state.fixtureLoads = [];
-			for (const [directory, name] of [
-				["agent/extensions", "global"],
-				["agent/extensions", "failed"],
-				["project/.pi/extensions", "project"],
-			]) {
-				mkdirSync(join(request.root, directory), { recursive: true });
-				writeFileSync(
-					join(request.root, directory, `${name}.ts`),
-					`export default () => { globalThis.fixtureLoads.push("${name}"); ${name === "failed" ? 'throw new Error("fixture-failure");' : ""} };`,
-				);
-			}
-			const settings = SettingsManager.inMemory();
-			const loader = new DefaultResourceLoader({
-				cwd: join(request.root, "project"),
-				agentDir: join(request.root, "agent"),
-				settingsManager: settings,
-				noSkills: true,
-				noPromptTemplates: true,
-				noThemes: true,
-				noContextFiles: true,
-				extensionFactories: [
-					() => {
-						state.fixtureLoads.push("inline");
-					},
-				],
-			});
-			let preload: string[] = [];
-			await loader.reload({
-				resolveProjectTrust: ({
-					extensionsResult,
-				}: {
-					extensionsResult: { extensions: Array<{ path: string }> };
-				}) => {
-					preload = extensionsResult.extensions.map(
-						(extension) => extension.path,
-					);
-					return request.trusted;
-				},
-			});
-			process.stdout.write(
-				`${JSON.stringify({ id: request.id, preload, loaded: loader.getExtensions().extensions.map((extension: { path: string }) => extension.path), errors: loader.getExtensions().errors, calls: state.fixtureLoads, trusted: settings.isProjectTrusted() })}\n`,
-			);
+			await probeTrustReuse(request);
 			continue;
 		}
 		if (request.operation === "theme_source") {
