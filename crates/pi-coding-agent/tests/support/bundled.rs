@@ -297,7 +297,7 @@ impl Harness {
             ..support::context_actions()
         };
 
-        runner.bind_core(extension_actions, context_actions, None);
+        runner.bind_core(extension_actions, context_actions, None).unwrap();
         runner.set_ui_context(Some(ui.clone() as Arc<dyn ExtensionUiContext>), ExtensionMode::Rpc);
         Self {
             runner,
@@ -322,7 +322,7 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
 
 async fn model_registry_with(auth: Option<JsObject>) -> Arc<ModelRegistry> {
     match auth {
-        Some(auth) => Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(auth))),
+        Some(auth) => Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(auth)).unwrap()),
         None => support::model_registry().await,
     }
 }

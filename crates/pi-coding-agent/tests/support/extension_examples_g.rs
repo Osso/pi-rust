@@ -95,7 +95,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let result = Arc::new(Mutex::new(None));
         let captured = result.clone();
         let context = ExtensionUiFactoryContext {
@@ -159,9 +159,9 @@ pub async fn compare(
         let state = extension.read();
         json!({"commands":state.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":state.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":state.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()})
     };
-    let registry = Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new()),
-    ));
+    let registry = Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new())).unwrap(),
+    );
     if let Some(models) = request["models"].as_array() {
         registry
             .register_provider(
@@ -273,7 +273,7 @@ pub async fn compare(
         log.lock().unwrap().push(json!(["user", message, options]));
         Ok(())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let log = trace.clone();
     let _errors = runner.on_error(Arc::new(move |error| {
         log.lock()

@@ -17,7 +17,7 @@ Invalid JavaScript runtime input types are excluded by the typed Rust API (AGENT
 
 ## Native property-label validation
 
-Existing `validate_string_argument`/`NativeNodeError::invalid_argument_value`/`invalid_argument_value_message` accept native JsString labels through their existing conversion contracts. There is still one inspection/truncation formatter. Bash env-value NUL errors preserve exact `options.env['KEY']` labels, including an unmatched surrogate in KEY, after argv validation. Actual source/native RED2→GREEN2 (`bash-env-validation-red.log`, `bash-env-validation-green.log`) proves generic spawn EINVAL was wrong. IndexMap and existing JsObject own-key order select the first invalid property; parent deferred actual child envp ordering to the [shared-spawn item](child-process.md#open-shared-spawn-item).
+Existing `validate_string_argument`/`NativeNodeError::invalid_argument_value`/`invalid_argument_value_message` accept native JsString labels through their existing conversion contracts. There is still one inspection/truncation formatter. Bash env-value NUL errors preserve exact `options.env['KEY']` labels, including an unmatched surrogate in KEY, after argv validation. Actual source/native RED2→GREEN2 (`bash-env-validation-red.log`, `bash-env-validation-green.log`) proves generic spawn EINVAL was wrong. IndexMap and existing JsObject own-key order select the first invalid property; actual child envp order has the separately [accepted runtime gap](child-process.md#accepted-runtime-gap-child-envp-order), user decision 2026-10-24; it does not relax this pre-spawn validation order.
 
 ## uv_spawn failure delivery
 

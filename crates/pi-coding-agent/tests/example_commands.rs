@@ -161,7 +161,7 @@ async fn run_native(request: &Value) -> Value {
             json!(registered.get_argument_completions.as_ref().unwrap()(&prefix.as_str().unwrap().into()).unwrap())
         })
         .collect();
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, Arc::new(model_registry));
     let ui = Arc::new(CapturedUi::default());
     let current_commands = Arc::new(Mutex::new(Vec::<SlashCommandInfo>::new()));
@@ -172,7 +172,7 @@ async fn run_native(request: &Value) -> Value {
         actions_log.lock().unwrap().push(json!({"type":"getCommands"}));
         Ok(commands_snapshot.lock().unwrap().clone())
     });
-    runner.bind_core(actions, support::context_actions(), None);
+    runner.bind_core(actions, support::context_actions(), None).unwrap();
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     let resolved = runner.get_command("commands").unwrap();
     let mut invocations = Vec::new();

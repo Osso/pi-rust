@@ -661,7 +661,7 @@ async fn project_spec_tool_registration_reads_specs_and_reports_paths() {
         })
     );
 
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let runner = ExtensionRunner::new(
         extensions.extensions.clone(),
         extensions.runtime.clone(),
@@ -731,7 +731,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         }]),
         ..Default::default()
     });
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new())).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = runtime.find("openai-codex", "gpt-5.6-sol").unwrap();
     let session_manager = SessionManager::create(

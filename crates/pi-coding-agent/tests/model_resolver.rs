@@ -322,7 +322,8 @@ async fn full_registry_resolves_authenticated_default_and_unconfigured_explicit_
     let registry = ModelRegistry::in_memory(AuthStorage::in_memory([(
         "anthropic",
         serde_json::json!({"type":"api_key","key":"fixture"}),
-    )]));
+    )]))
+    .unwrap();
     let initial = find_initial_model(
         &FindInitialModelOptions {
             default_provider: Some("anthropic".into()),

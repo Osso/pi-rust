@@ -131,7 +131,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let trace = self.trace.clone();
         let item = self.item.clone();
         let theme = self.theme();
@@ -265,7 +265,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     }
     let models = ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
         pi_js_compat::js_json::JsObject::new(),
-    ));
+    ))
+    .unwrap();
     let mut runner = ExtensionRunner::new(
         vec![extension],
         runtime,
@@ -283,7 +284,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         log.lock().unwrap().push(json!(["append", kind, data]));
         Ok(())
     });
-    runner.bind_core(actions, fixture::context_actions(), None);
+    runner.bind_core(actions, fixture::context_actions(), None).unwrap();
     let log = trace.clone();
     let _error = runner.on_error(Arc::new(move |e| {
         log.lock().unwrap().push(json!(["error", e.event, e.error]))

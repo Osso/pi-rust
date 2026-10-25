@@ -213,7 +213,7 @@ async fn show(ui: &Arc<dyn ExtensionUiContext>, demo: Demo, index: usize) -> Res
         }),
     )
     .await
-    .map_err(HandlerError::new)
+    .map_err(HandlerError::from)
 }
 pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
     for (name, description, demo) in COMMANDS {

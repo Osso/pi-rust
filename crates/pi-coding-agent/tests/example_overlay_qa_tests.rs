@@ -244,7 +244,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         opts: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let script = self.scripts.lock().unwrap().pop_front().unwrap_or(json!({}));
         let delay = script["delay"].as_u64().unwrap_or(0);
         let calls = self.calls.clone();
@@ -475,7 +475,9 @@ async fn native(request: &Value) -> Value {
         .map(|(name, c)| json!([name, c.description]))
         .collect::<Vec<_>>();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, support::model_registry().await);
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let ui = Arc::new(Ui {
         scripts: Mutex::new(request["scripts"].as_array().unwrap().iter().cloned().collect()),
         calls: Arc::new(Mutex::new(Vec::new())),

@@ -116,7 +116,7 @@ fn stream_fixture(
     // Stream callbacks consume output Models, not registration definitions.
     // Use the public reconstruction path without unrelated API/OAuth callbacks.
     let id = model.id.clone();
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new())).unwrap();
     registry
         .register_provider(
             "gitlab-duo",
@@ -154,7 +154,7 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
         "<example:gitlab>",
         Arc::new(move |api| {
             let result = gitlab::gitlab_duo_extension_with_backends(api, runtime.clone(), backends.clone());
-            Box::pin(async move { result.map_err(HandlerError::new) })
+            Box::pin(async move { result.map_err(HandlerError::from) })
         }),
     );
     let runtime = support::runtime();
@@ -171,18 +171,18 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
     let config = runtime.pending_provider_registrations()[0].config.clone();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, models.clone());
     let target = models.clone();
-    runner.bind_core(
-        support::actions(),
-        support::context_actions(),
-        Some(ProviderActions {
-            register_provider: Some(Arc::new(move |name, config| {
-                target
-                    .register_provider(name, config.clone())
-                    .map_err(|error| error.message().clone())
-            })),
-            ..Default::default()
-        }),
-    );
+    runner
+        .bind_core(
+            support::actions(),
+            support::context_actions(),
+            Some(ProviderActions {
+                register_provider: Some(Arc::new(move |name, config| {
+                    target.register_provider(name, config.clone())
+                })),
+                ..Default::default()
+            }),
+        )
+        .unwrap();
     let first = &config.models.as_ref().unwrap()[0];
     assert!(
         models.find("gitlab-duo", &first.id).is_some(),

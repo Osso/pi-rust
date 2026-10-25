@@ -72,7 +72,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     )
     .await
     .unwrap();
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let manager = support::session_manager(cwd);
     let mut runner = ExtensionRunner::new(
         vec![extension.clone()],
@@ -113,7 +113,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .expect("fixture completion callback");
         }
     });
-    runner.bind_core(support::actions(), context, None);
+    runner.bind_core(support::actions(), context, None).unwrap();
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
     let error_log = errors.clone();
     runner.on_error(Arc::new(move |error| {

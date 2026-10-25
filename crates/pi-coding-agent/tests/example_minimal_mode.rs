@@ -45,7 +45,8 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
         .collect();
     let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    );
+    )
+    .unwrap();
     let mut runner = support::runner_for(vec![extension.clone()], cwd, runtime, Arc::new(model_registry));
     support::bind(&mut runner);
     let theme = load_theme_from_path(

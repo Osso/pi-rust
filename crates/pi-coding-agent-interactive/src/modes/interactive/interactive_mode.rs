@@ -1916,7 +1916,7 @@ enum UiRequest {
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, CallbackError>>,
     },
     AddTerminalInput {
         handler: TerminalInputHandler,
@@ -2217,14 +2217,14 @@ impl ExtensionUiContext for InteractiveUiContext {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Custom {
             factory,
             options,
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string()))? })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string()))? })
     }
 
     fn set_title(&self, title: &JsString) {
@@ -5963,16 +5963,17 @@ impl InteractiveMode {
         self.set_tools_expanded(!self.tool_output_expanded.get());
     }
 
-    fn detach_running_tool(&self) -> bool {
+    fn detach_running_tool(&self) -> Result<bool, CallbackError> {
+        // Frozen interactive-mode.ts:3795-3804 has no local callback-error catch.
         let session = self.session();
         if !session.has_detachable_tool() {
-            return false;
+            return Ok(false);
         }
-        if !session.detach_running_tool() {
-            return false;
+        if !session.detach_running_tool()? {
+            return Ok(false);
         }
         self.show_status("Detached tool to background job");
-        true
+        Ok(true)
     }
 
     fn toggle_thinking_block_visibility(&self) {
@@ -6712,7 +6713,9 @@ impl InteractiveMode {
         self.default_editor.borrow_mut().on_action(
             "app.tool.background",
             action(self, |mode| {
-                mode.detach_running_tool();
+                // Frozen :3767 invokes this directly from its synchronous editor action.
+                mode.detach_running_tool()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             }),
         );
         self.default_editor.borrow_mut().on_action(
@@ -7907,10 +7910,11 @@ impl InteractiveMode {
         self.show_status("Model selection saved to settings");
     }
 
-    async fn show_models_selector(&self) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
+    async fn show_models_selector(&self) -> Result<(), CallbackError> {
         let session = self.session();
         let runtime = session.model_registry().clone();
-        runtime.refresh();
+        // Frozen interactive-mode.ts:6154–6156 propagates refresh before discovery.
+        runtime.refresh()?;
         let available_models = runtime.get_available()?;
         if available_models.is_empty() {
             self.show_status("No models available");
@@ -8011,7 +8015,8 @@ impl InteractiveMode {
         if !scoped.is_empty() {
             return Ok(scoped.into_iter().map(|scoped| scoped.model).collect());
         }
-        session.model_registry().refresh();
+        // Frozen5965 is outside the getter-only catch at5966–5969.
+        session.model_registry().refresh()?;
         Ok(session.model_registry().get_available().unwrap_or_default()) // Frozen registry-only catch.
     }
 
@@ -10071,7 +10076,8 @@ impl InteractiveMode {
                         .logout(&provider_option.id)
                         .map_err(crate::core::auth_storage::StorageError::into_callback)
                         .and_then(|()| {
-                            runtime.refresh();
+                            // Frozen6839–6852 catches logout/refresh/footer failures together.
+                            runtime.refresh()?;
                             mode.update_available_provider_count()
                         });
                     match result {
@@ -10356,7 +10362,8 @@ impl InteractiveMode {
         auth_type: LoginAuthType,
         previous_model: Model,
     ) -> Result<(), CallbackError> {
-        self.session().model_registry().refresh();
+        // Frozen6867 propagates into the API-key/OAuth caller catches.
+        self.session().model_registry().refresh()?;
         let action_label = if auth_type == LoginAuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
         } else {
@@ -11321,7 +11328,7 @@ impl InteractiveMode {
         &self,
         factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, CallbackError>>,
     ) -> Result<(), CallbackError> {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
@@ -11372,7 +11379,7 @@ impl InteractiveMode {
                 // A synchronous TS factory throw rejects before the chained
                 // async catch: no mounting, restoration, or disposal occurs.
                 if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-                    let _ = respond.send(Err(error));
+                    let _ = respond.send(Err(error.into()));
                 }
                 return Ok(());
             }
@@ -11399,7 +11406,7 @@ impl InteractiveMode {
                         }
                     });
                     if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-                        let _ = respond.send(Err(error));
+                        let _ = respond.send(Err(error.into()));
                     }
                 }
             }
@@ -13138,7 +13145,7 @@ mod ui_tests {
         let model_registry = setup
             .model_registry
             .clone()
-            .unwrap_or_else(|| ModelRegistry::in_memory(AuthStorage::in_memory(credentials)));
+            .unwrap_or_else(|| ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap());
         scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
         for provider in extra_providers {
             scripted_registry::register_scripted_provider(&model_registry, provider);
@@ -17885,7 +17892,7 @@ mod ui_tests {
                                 "late settlement must not restore twice"
                             );
                         } else if reject {
-                            assert_eq!(result.take().unwrap().await, Err(JsString::from("async failure")));
+                            assert_eq!(result.take().unwrap().await, Err(CallbackError::new("async failure")));
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
@@ -17950,7 +17957,7 @@ mod ui_tests {
                         )
                         .unwrap();
                         tokio::task::yield_now().await;
-                        assert_eq!(receive.await.unwrap(), Err(JsString::from("rejected")));
+                        assert_eq!(receive.await.unwrap(), Err(CallbackError::new("rejected")));
                         mode.editor()
                             .borrow_mut()
                             .set_text(&JsString::from("after rejection"))
@@ -18036,7 +18043,7 @@ mod ui_tests {
                         }),
                     );
                     mode.handle_ui_requests().await;
-                    assert_eq!(result.await, Err(JsString::from("fixture constructor failed")));
+                    assert_eq!(result.await, Err(CallbackError::new("fixture constructor failed")));
                     assert!(!mode.ui.has_overlay_entries());
                     assert!(Rc::ptr_eq(&focused, &mode.ui.get_focused_component().unwrap()));
                     assert_eq!(mode.editor().borrow().get_text().unwrap(), "draft 🚀");
@@ -18695,9 +18702,9 @@ mod ui_tests {
     }
 
     impl crate::core::tool_detach_registry::ToolDetachHandle for TestDetachHandle {
-        fn detach(&self) -> bool {
+        fn detach(&self) -> Result<bool, CallbackError> {
             self.detached.store(true, std::sync::atomic::Ordering::SeqCst);
-            true
+            Ok(true)
         }
     }
 

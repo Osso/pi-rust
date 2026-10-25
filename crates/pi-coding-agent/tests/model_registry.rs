@@ -34,7 +34,7 @@ fn storage_with(entries: &[(&str, Value)]) -> Arc<AuthStorage> {
 async fn registry(storage: Arc<AuthStorage>, models_path: Option<String>) -> ModelRegistry {
     match models_path {
         Some(path) => ModelRegistry::create((*storage).clone(), Some(path.into())).unwrap(),
-        None => ModelRegistry::in_memory((*storage).clone()),
+        None => ModelRegistry::in_memory((*storage).clone()).unwrap(),
     }
 }
 
@@ -265,7 +265,7 @@ async fn refresh_reloads_custom_models_from_disk() {
         json!({"providers": {"anthropic": {"baseUrl": "https://second.example.com/v1"}}}).to_string(),
     )
     .unwrap();
-    registry.refresh();
+    registry.refresh().unwrap();
     assert_eq!(
         registry.find("anthropic", "claude-opus-4-8").unwrap().base_url,
         "https://second.example.com/v1"

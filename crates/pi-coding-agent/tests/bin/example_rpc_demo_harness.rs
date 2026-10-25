@@ -90,7 +90,7 @@ async fn main() {
         ..Default::default()
     });
     let auth_storage = AuthStorage::in_memory(Vec::<(JsString, JsValue)>::new());
-    let models = ModelRegistry::in_memory(auth_storage.clone());
+    let models = ModelRegistry::in_memory(auth_storage.clone()).unwrap();
     let settings = Arc::new(Mutex::new(
         pi_coding_agent::core::settings_manager::SettingsManager::in_memory(Default::default(), Default::default()),
     ));

@@ -21,6 +21,10 @@ No replacement patch or semantic source edit was attempted. A targeted strict no
 
 Probe commands/file sets and full outputs: `/tmp/pi-rust-repin-infra/typecheck-new-pin-{probe,with-declarations}.log`; detailed command ledger: `/tmp/pi-rust-repin-infra/ledger.md`. Reproducible regression: `oracle/typecheck-reference.test.mjs` compiles the public index with the same builder, then proves a concrete invalid fixture still yields exactly TS2322. Fixture mutation tests reject wrong HEAD, dirty catalog and absent compiler. `oracle/repin-infra.test.mjs` proves lock-selected type-import resolution with a real compiler and rejects a string-to-number mutation.
 
+## Frozen /v target discrepancy (2026-10-24)
+
+At the common pin, `packages/tui/src/utils.ts:40–42` uses RegExp `/v`, but `tsconfig.base.json` and the TUI/coding-agent build configs select ES2022. Including these unchanged TUI sources in the strict no-emit gate produces TS1501. Runtime selector probes pass. Parent approval: the model-registry/model-selector fixture's temporary no-emit config may select target/lib ES2024; use the same pinned compiler and source bytes. Do not patch source or change the shared builder/default gate. Other fixtures must cite this note when requesting the same scoped adjustment.
+
 ## Protected invocation
 
 From the Rust checkout:

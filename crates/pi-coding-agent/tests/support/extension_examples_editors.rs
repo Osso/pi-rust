@@ -104,7 +104,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async move {
             self.effects
                 .lock()
@@ -232,7 +232,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
     )
     .await
     .unwrap();
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let mut runner = extensions::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     let live = Arc::new(Mutex::new(request.clone()));
     let mut actions = extensions::actions();
@@ -262,7 +262,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
             .filter(|u| !u.is_null())
             .map(|u| serde_json::from_value(u.clone()).unwrap())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let errors = Arc::new(Mutex::new(Vec::new()));
     let captured = errors.clone();
     let _errors = runner.on_error(Arc::new(move |error| {

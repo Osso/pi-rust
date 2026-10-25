@@ -242,14 +242,16 @@ async fn test_context_with_extensions(
 ) -> (ExtensionRunner, ExtensionContext) {
     let runtime = create_extension_runtime();
     let storage = pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new());
-    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(storage);
+    let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(storage).unwrap();
     let registry = Arc::new(model_registry);
     let mut runner = ExtensionRunner::new(extensions, runtime, &test.cwd, session_manager, registry, None);
-    runner.bind_core(
-        actions(),
-        context_actions(test.control_db_path.clone(), agent_id, requires_agent_id),
-        None,
-    );
+    runner
+        .bind_core(
+            actions(),
+            context_actions(test.control_db_path.clone(), agent_id, requires_agent_id),
+            None,
+        )
+        .unwrap();
     if let Some(ui) = ui {
         runner.set_ui_context(Some(ui), ExtensionMode::Rpc);
     }

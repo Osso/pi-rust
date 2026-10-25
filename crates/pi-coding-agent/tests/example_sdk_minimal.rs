@@ -72,7 +72,7 @@ async fn fixture(authenticated: bool) -> Fixture {
     } else {
         serde_json::Map::new()
     };
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     faux.set_responses(vec![FauxResponseStep::Factory(Arc::new(
         |context, _options, _state, _model| {

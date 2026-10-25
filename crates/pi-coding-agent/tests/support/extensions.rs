@@ -20,9 +20,12 @@ pub fn event_bus() -> Arc<dyn EventBus> {
 }
 
 pub async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 pub fn session_manager(cwd: &str) -> SharedSessionManager {
@@ -188,5 +191,5 @@ pub fn runner_for_session(
 }
 
 pub fn bind(runner: &mut ExtensionRunner) {
-    runner.bind_core(actions(), context_actions(), None);
+    runner.bind_core(actions(), context_actions(), None).unwrap();
 }

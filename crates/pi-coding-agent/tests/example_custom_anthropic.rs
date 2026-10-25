@@ -167,7 +167,7 @@ fn stream_fixture(
     // Stream callbacks consume output Models, not registration definitions.
     // Use the public reconstruction path without unrelated API/OAuth callbacks.
     let id = model.id.clone();
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new())).unwrap();
     registry
         .register_provider(
             "custom-anthropic",

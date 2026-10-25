@@ -201,7 +201,7 @@ async fn generate_draft(
             None,
         )
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     Ok(result.and_then(|value| value.as_string().cloned()))
 }
 

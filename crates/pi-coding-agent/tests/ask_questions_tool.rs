@@ -76,7 +76,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<Value>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async move {
             let keys = self.scripts.lock().unwrap().pop_front().expect("UI request")?;
             let result = Arc::new(Mutex::new(None));
@@ -418,7 +418,7 @@ impl ExtensionUiContext for PendingUi {
         &'a self,
         _: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<Value>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async move {
             let (sender, receiver) = tokio::sync::oneshot::channel();
             self.panels.lock().unwrap().push(sender);

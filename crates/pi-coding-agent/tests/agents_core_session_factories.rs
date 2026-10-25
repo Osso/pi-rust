@@ -49,7 +49,7 @@ fn faux() -> FauxProviderHandle {
 async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = pi_js_compat::js_json::JsObject::new();
     data.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }

@@ -59,7 +59,7 @@ fn auth_data() -> serde_json::Map<String, serde_json::Value> {
 }
 
 async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data())).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
@@ -432,7 +432,7 @@ async fn scripted_sessions_keep_their_responses_across_other_registry_refreshes(
     second
         .faux
         .set_responses(vec![completed_text_response("second answer")]);
-    first.session.model_registry().refresh();
+    first.session.model_registry().refresh().unwrap();
     let (first_result, second_result) = tokio::join!(
         first.session.prompt("first request", PromptOptions::default()),
         second.session.prompt("second request", PromptOptions::default()),
@@ -1257,7 +1257,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
     fixture.faux.set_responses(vec![
         faux_assistant_message("ack", FauxAssistantMessageOptions::default()).into(),
     ]);
-    fixture.session.model_registry().refresh();
+    fixture.session.model_registry().refresh().unwrap();
 
     fixture
         .session
@@ -1309,7 +1309,7 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
     )
     .await;
     let control_db_path = fixture.session.control_db_path().expect("control db");
-    fixture.session.model_registry().refresh();
+    fixture.session.model_registry().refresh().unwrap();
     fixture
         .session
         .drain_runtime_coordination()
@@ -3218,9 +3218,9 @@ struct RecordingDetachHandle {
 }
 
 impl ToolDetachHandle for RecordingDetachHandle {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         self.detached.store(true, Ordering::SeqCst);
-        self.accepts
+        Ok(self.accepts)
     }
 }
 
@@ -3235,8 +3235,8 @@ async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_re
 
     assert!(!fixture.session.has_detachable_tool());
     assert!(!fixture.session.has_detachable_bash_tool());
-    assert!(!fixture.session.detach_running_tool());
-    assert!(!fixture.session.detach_bash_tool());
+    assert!(!fixture.session.detach_running_tool().expect("fixture detach callback"));
+    assert!(!fixture.session.detach_bash_tool().expect("fixture detach callback"));
 
     let detached = Arc::new(AtomicBool::new(false));
     let subscription = registry.register(Arc::new(RecordingDetachHandle {
@@ -3245,7 +3245,7 @@ async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_re
     }));
     assert!(fixture.session.has_detachable_tool());
     assert!(fixture.session.has_detachable_bash_tool());
-    assert!(!fixture.session.detach_running_tool());
+    assert!(!fixture.session.detach_running_tool().expect("fixture detach callback"));
     assert!(detached.load(Ordering::SeqCst));
 
     let accepted = Arc::new(AtomicBool::new(false));
@@ -3253,7 +3253,7 @@ async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_re
         detached: Arc::clone(&accepted),
         accepts: true,
     }));
-    assert!(fixture.session.detach_bash_tool());
+    assert!(fixture.session.detach_bash_tool().expect("fixture detach callback"));
     assert!(accepted.load(Ordering::SeqCst));
     assert!(
         fixture.session.has_detachable_tool(),

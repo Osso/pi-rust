@@ -50,7 +50,7 @@ async fn provider_key_lookup_preserves_frozen_error_brand_and_arbitrary_thrown_v
         let registry = ModelRegistry::in_memory(AuthStorage::in_memory([(
             "q15-oauth-throw",
             js_json!({"type":"oauth","access":"access","refresh":"refresh","expires":if expired {0_f64} else {9999999999999_f64}}),
-        )]));
+        )])).unwrap();
         let rejected = reason.clone();
         registry
             .register_provider(

@@ -17,7 +17,7 @@ async fn authentication_completion_refreshes_registry_and_counts_unique_scoped_p
                 Vec::new(),serde_json::Map::new(),false,
                 TestModeSetup {model_registry:Some(registry.clone()),..Default::default()},
             ).await;
-            registry.unregister_provider("faux");
+            registry.unregister_provider("faux").unwrap();
             let previous=mode.session().model();
             let scoped:Vec<_>=providers.into_iter().map(|provider| {
                 let mut model=previous.clone();model.id="same-id".into();model.provider=provider.into();

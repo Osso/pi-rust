@@ -10,8 +10,14 @@ Frozen `packages/coding-agent/src/core/tools/ask-questions-panel.ts` at `4f9e6f8
 | inputs submit/escape / activateRow / editAnswer / handleKey | corresponding private methods | free text, Other, single, multi, partial cancel fixtures |
 | renderTabBar / renderOptionRows / renderSubmitSummary / renderBody / renderHelp | rendering methods | fresh question-panel-branches-first.log:10complete exact ANSI/UTF16 histories,99frames cover raw headers/options/descriptions/custom answers,narrow/zero widths,focus,render-request counts,invalidation,post-finish input,blank submit,Other empty/success,toggle removal,disabled Submit and custom next/previous/editor-key conflicts.7tests GREEN also retain8plain-layout histories,nonblocking inbox,failed-panel recovery and abort-through-settlement behavior; no panel production change was needed |
 
+Whole-module common-pin closure, post-round-2 runtime/raw-unit/static gates: [question checkpoint](../question-tools-proof.md).
+
 ## Q18 native checkpoint
 
-Custom answers, submit actions, input events and every rendered row are `JsString`; native Input/keybinding APIs receive original UTF-16. No renderer encodes option/header/question/answer text. `raw_answer_tests::custom_and_multi_select_answers_keep_original_units` covers raw custom answer aggregation; the fresh10-history/99-frame differential and8retained real-panel histories now execute against this native checkpoint; the small private raw-answer unit remains pending its focused library command.
+Custom answers, submit actions, input events and every rendered row are `JsString`; native Input/keybinding APIs receive original UTF-16. No renderer encodes option/header/question/answer text. `raw_answer_tests::custom_and_multi_select_answers_keep_original_units` covers raw custom answer aggregation; the fresh10-history/99-frame differential and8retained real-panel histories now execute against this native checkpoint; the private raw-answer unit is GREEN with the queued formatter unit: `cargo test -j4 -p pi-coding-agent-core --lib core::tools::ask_questions` (2/0, `question-private-raw-units.log`).
 
-Source `app.questions.next` defaults right/tab; previous left/shift-tab. Free text retains left/right editor navigation. Multiple questions or multi-select require a Submit tab; multi-select may submit an empty answer. Selected options serialize in source option order, not toggle order.
+Source `app.questions.next` defaults right/tab; previous left/shift-tab. Free text retains left/right editor navigation. Multiple questions or multi-select require a Submit tab; multi-select may submit an empty answer.
+
+## Frozen discrepancy preserved
+
+A free-text question named `__proto__` can be completed in panel state but produces no own answer property when the frozen plain-object result receives the string assignment. The retained real-panel differential asserts the resulting `{}`. This records the existing source behavior, not a native semantic correction. Selected options serialize in source option order, not toggle order.

@@ -124,11 +124,13 @@ pub type ReplacedSendUserMessageCallback = Arc<
 >;
 pub type ContextShortcutHandler =
     Arc<dyn Fn(ExtensionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
-pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), JsString> + Send + Sync>;
-pub type UnregisterProviderCallback = Arc<dyn Fn(&str) + Send + Sync>;
+// Frozen extensions/runner.ts:461–473 propagates immediate provider failures.
+pub type RegisterProviderCallback = Arc<dyn Fn(&str, &ProviderConfig) -> Result<(), CallbackError> + Send + Sync>;
+pub type UnregisterProviderCallback = Arc<dyn Fn(&str) -> Result<(), CallbackError> + Send + Sync>;
 pub type RegisterProviderHandler =
-    Arc<dyn Fn(&str, &ProviderConfig, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
-pub type UnregisterProviderRuntimeCallback = Arc<dyn Fn(&str, Option<&JsString>) -> Result<(), JsString> + Send + Sync>;
+    Arc<dyn Fn(&str, &ProviderConfig, Option<&JsString>) -> Result<(), CallbackError> + Send + Sync>;
+pub type UnregisterProviderRuntimeCallback =
+    Arc<dyn Fn(&str, Option<&JsString>) -> Result<(), CallbackError> + Send + Sync>;
 
 pub trait ApprovalReviewer: Send + Sync {
     fn call(
@@ -603,7 +605,7 @@ pub trait ExtensionUiContext: Send + Sync {
         &'a self,
         _factory: ExtensionUiCustomFactory,
         _options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -3048,7 +3050,7 @@ pub struct ExtensionCommandContextActions {
 #[derive(Clone, Default)]
 pub struct ProviderActions {
     pub register_provider: Option<RegisterProviderCallback>,
-    pub unregister_provider: Option<StrCallback>,
+    pub unregister_provider: Option<UnregisterProviderCallback>,
 }
 
 /// Commands owned by the runtime, addressable like extension prompt commands.
@@ -3628,13 +3630,13 @@ impl ExtensionApi {
         (self.runtime.actions().set_thinking_level)(level)
     }
 
-    pub fn register_provider(&self, name: &str, config: ProviderConfig) -> Result<(), JsString> {
+    pub fn register_provider(&self, name: &str, config: ProviderConfig) -> Result<(), CallbackError> {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.register_provider(name, config, Some(&extension_path))
     }
 
-    pub fn unregister_provider(&self, name: &str) -> Result<(), JsString> {
+    pub fn unregister_provider(&self, name: &str) -> Result<(), CallbackError> {
         self.runtime.assert_active()?;
         let extension_path = self.extension_lock().path.clone();
         self.runtime.unregister_provider(name, Some(&extension_path))

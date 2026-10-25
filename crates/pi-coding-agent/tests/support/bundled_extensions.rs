@@ -15,9 +15,12 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 #[derive(Default)]
@@ -144,7 +147,9 @@ impl Harness {
             model_registry().await,
             None,
         );
-        runner.bind_core(actions(&calls), context_actions(&calls, control_db_path), None);
+        runner
+            .bind_core(actions(&calls), context_actions(&calls, control_db_path), None)
+            .unwrap();
         runner.bind_command_context(Some(command_actions(&calls)));
         runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
         Self {

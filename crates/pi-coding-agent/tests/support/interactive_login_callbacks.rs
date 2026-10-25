@@ -54,7 +54,7 @@ async fn oauth_select_cancel_and_empty_ids_match_frozen_callback_values() {
             let chat: Vec<_> = mode.chat_container.borrow_mut().render(200).iter().map(|line|line.units().to_vec()).collect();
             let restored=mode.editor_container.borrow().children().iter().any(|child|Rc::ptr_eq(child,&mode.editor_handle.borrow()));
             assert_eq!(serde_json::json!({"choices":*choices.lock().unwrap(),"frames":[frames],"chat":chat,"restored":restored}), expected["output"],"keys={keys:?}");
-            mode.session().model_registry().unregister_provider("q15-callback");
+            mode.session().model_registry().unregister_provider("q15-callback").unwrap();
             mode.stop().unwrap();
         }
     }).await;

@@ -770,10 +770,13 @@ async fn providers_scenario(temp_dir: &str) -> Value {
                 .lock()
                 .unwrap()
                 .push(provider_record("unregister", name, None));
+            Ok(())
         })),
     };
     let mut runner = support::runner_for(vec![a], temp_dir, runtime.clone(), support::model_registry().await);
-    runner.bind_core(support::actions(), support::context_actions(), Some(provider_actions));
+    runner
+        .bind_core(support::actions(), support::context_actions(), Some(provider_actions))
+        .unwrap();
     let mut steps = vec![
         json!({"calls": calls.lock().unwrap().clone()}),
         json!({"pending": runtime.pending_provider_registrations().len()}),
@@ -1088,27 +1091,29 @@ async fn context_live_scenario(temp_dir: &str) -> Value {
         support::model_registry().await,
         None,
     );
-    runner.bind_core(
-        support::actions(),
-        ExtensionContextActions {
-            get_model: Arc::new(move || model_getter.lock().unwrap().clone()),
-            get_thinking_level: Some(Arc::new(move || *thinking_getter.lock().unwrap())),
-            get_scoped_models: Some(Arc::new(move || scoped_getter.lock().unwrap().clone())),
-            get_control_db_path: Some(Arc::new(move || {
-                control_getter.lock().unwrap().clone().map(JsString::from)
-            })),
-            get_multi_agent_agent_id: Some(Arc::new(move || {
-                agent_getter.lock().unwrap().clone().map(JsString::from)
-            })),
-            get_multi_agent_parent_session_id: Some(Arc::new(move || {
-                parent_getter.lock().unwrap().clone().map(JsString::from)
-            })),
-            get_no_supervisor: None,
-            get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
-            ..support::context_actions()
-        },
-        None,
-    );
+    runner
+        .bind_core(
+            support::actions(),
+            ExtensionContextActions {
+                get_model: Arc::new(move || model_getter.lock().unwrap().clone()),
+                get_thinking_level: Some(Arc::new(move || *thinking_getter.lock().unwrap())),
+                get_scoped_models: Some(Arc::new(move || scoped_getter.lock().unwrap().clone())),
+                get_control_db_path: Some(Arc::new(move || {
+                    control_getter.lock().unwrap().clone().map(JsString::from)
+                })),
+                get_multi_agent_agent_id: Some(Arc::new(move || {
+                    agent_getter.lock().unwrap().clone().map(JsString::from)
+                })),
+                get_multi_agent_parent_session_id: Some(Arc::new(move || {
+                    parent_getter.lock().unwrap().clone().map(JsString::from)
+                })),
+                get_no_supervisor: None,
+                get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
+                ..support::context_actions()
+            },
+            None,
+        )
+        .unwrap();
 
     let ctx = runner.create_context();
     let command = runner.create_command_context();
@@ -1412,14 +1417,16 @@ async fn context_members_read_live_runner_state() {
     assert!(!ctx.has_ui().unwrap());
     assert!(ctx.model().unwrap().is_none());
 
-    runner.bind_core(
-        support::actions(),
-        ExtensionContextActions {
-            get_model: Arc::new(move || getter.lock().unwrap().clone()),
-            ..support::context_actions()
-        },
-        None,
-    );
+    runner
+        .bind_core(
+            support::actions(),
+            ExtensionContextActions {
+                get_model: Arc::new(move || getter.lock().unwrap().clone()),
+                ..support::context_actions()
+            },
+            None,
+        )
+        .unwrap();
     *model.lock().unwrap() = Some(test_model("model-a"));
     runner.set_cwd("/tmp/moved");
     runner.set_ui_context(None, ExtensionMode::Json);
@@ -1446,18 +1453,20 @@ async fn context_set_thinking_level_invokes_the_session_setter() {
         support::model_registry().await,
         None,
     );
-    runner.bind_core(
-        support::actions(),
-        ExtensionContextActions {
-            get_thinking_level: Some(Arc::new(move || *getter.lock().unwrap())),
-            set_thinking_level: Some(Arc::new(move |level| {
-                *setter_target.lock().unwrap() = level;
-                Ok(())
-            })),
-            ..support::context_actions()
-        },
-        None,
-    );
+    runner
+        .bind_core(
+            support::actions(),
+            ExtensionContextActions {
+                get_thinking_level: Some(Arc::new(move || *getter.lock().unwrap())),
+                set_thinking_level: Some(Arc::new(move |level| {
+                    *setter_target.lock().unwrap() = level;
+                    Ok(())
+                })),
+                ..support::context_actions()
+            },
+            None,
+        )
+        .unwrap();
     let ctx = runner.create_context();
 
     ctx.set_thinking_level(ThinkingLevel::Ultra).unwrap();
@@ -1567,7 +1576,7 @@ async fn wrapper_does_not_inject_old_added_tool_names() {
     let mut actions = support::actions();
     let get_active = Arc::clone(&active_tools);
     actions.get_active_tools = Arc::new(move || Ok(get_active.lock().unwrap().clone()));
-    runner.bind_core(actions, support::context_actions(), None);
+    runner.bind_core(actions, support::context_actions(), None).unwrap();
 
     let registered = runner.get_all_registered_tools();
     let tools = wrap_registered_tools(registered, &runner);
@@ -1655,7 +1664,7 @@ async fn cancelled_context_signal_aborts_dispatch() {
     let mut actions = support::context_actions();
     let signal = token.clone();
     actions.get_signal = Arc::new(move || Some(signal.clone()));
-    runner.bind_core(support::actions(), actions, None);
+    runner.bind_core(support::actions(), actions, None).unwrap();
 
     let error = runner.emit_context(Vec::new()).await.unwrap_err();
     assert_eq!(error.message, "Agent run aborted");
@@ -1679,7 +1688,9 @@ async fn reports_invalid_queued_provider_registration() {
     let errors = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&errors);
     runner.on_error(Arc::new(move |error| sink.lock().unwrap().push(error.clone())));
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let errors = errors.lock().unwrap();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].event, "register_provider");
