@@ -421,7 +421,7 @@ fn pi_manifest_discovery_matches_frozen_public_consumer() {
     }));
     let actual = paths
         .iter()
-        .map(|path| discover_extension_paths(std::slice::from_ref(path), &cwd, &agent_dir))
+        .map(|path| discover_extension_paths(std::slice::from_ref(path), &cwd, &agent_dir).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(json!(actual), expected);
 }

@@ -1,6 +1,6 @@
 # extensions/loader.ts → `core::extensions::loader`
 
-Source: `packages/coding-agent/src/core/extensions/loader.ts` (790 lines).
+Source: `packages/coding-agent/src/core/extensions/loader.ts` (753 lines at frozen `4f9e6f8a4`).
 Rust: `crates/pi-coding-agent-tools/src/core/extensions/loader.rs`.
 
 Approved deviation: TypeScript module loading (`jiti`, virtual modules,
@@ -32,9 +32,15 @@ Diagnostics text preserved:
 - `Extension does not export a valid factory function: {path}`
 - `Failed to load extension: {message}`
 
+## Relative-path audit (2026-10-25)
+
+Whole frozen loader inspection found three ordinary path defects: configured paths and registry lookup used the process cwd instead of the supplied cwd; filesystem-loaded extensions kept the unresolved path as `resolvedPath`; absolute manifest entries were joined below the package instead of replacing it. These now follow frozen resolution and source metadata. Public discovery/loading returns `Result` and propagates path errors rather than panicking or using the unresolved input. Resource-loader and fixture callers propagate or unwrap this mechanically.
+
+RED: actual frozen relative `entry.ts` loads successfully while native reports an invalid factory (`/tmp/ext-api2-loader-red.log`). New differential covers relative loading, source metadata, configured directory and absolute manifest resolution, plus invalid file-URL errors. Post-commit GREEN pending.
+
 ## Remaining work
 
-None. The Rust-native discovery surface is complete; `core::resource_loader::DefaultResourceLoader`
+Finish current focused proof and API/runtime audit. The Rust-native discovery surface is implemented; `core::resource_loader::DefaultResourceLoader`
 resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
 
 ## Gaps

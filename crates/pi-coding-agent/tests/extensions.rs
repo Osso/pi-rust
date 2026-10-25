@@ -1827,7 +1827,8 @@ fn discovers_direct_files_and_index_entries() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1868,7 +1869,8 @@ fn package_manifest_entries_keep_declared_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1898,7 +1900,8 @@ fn configured_directories_use_manifest_or_index() {
         ],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1964,7 +1967,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     assert_eq!(paths.len(), 2);
 
     let mut registry = ExtensionRegistry::new();
@@ -1985,7 +1989,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
                     .into_owned(),
             )],
         )
-        .await;
+        .await
+        .unwrap();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.extensions.len(), 1);
     assert_eq!(
@@ -2010,7 +2015,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.extensions.len(), 0);
     assert_eq!(
         result.errors[0].error,
@@ -2029,7 +2035,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.errors[0].error, "Failed to load extension: boom");
     fs::remove_dir_all(dir).ok();
 }

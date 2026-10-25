@@ -18,7 +18,10 @@ use crate::core::event_bus::{EventBus, EventBusController};
 use crate::core::pi_manifest::read_pi_manifest;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::timings::{TimingLabel, time};
-use crate::utils::paths::{PathInputOptions, node_basename, node_dirname, node_join, process_cwd, resolve_path};
+use crate::utils::paths::{
+    PathInputOptions, node_basename, node_dirname, node_is_absolute, node_join, node_normalize, process_cwd,
+    resolve_path,
+};
 
 use super::extension_runtime::{ExtensionRuntime, create_extension_runtime};
 use super::types::{
@@ -129,9 +132,8 @@ fn normalize_unicode_space_options() -> PathInputOptions {
     }
 }
 
-fn resolve_against_process_cwd(input: &JsString, options: &PathInputOptions) -> JsString {
-    let cwd = process_cwd().expect("process cwd must be available for extension loading");
-    resolve_path(input, cwd, options).unwrap_or_else(|_| input.clone())
+fn resolve_against_process_cwd(input: &JsString, options: &PathInputOptions) -> Result<JsString, HandlerError> {
+    Ok(resolve_path(input, process_cwd()?, options)?)
 }
 
 fn extension_source(extension_path: &JsString) -> JsString {
@@ -191,7 +193,7 @@ pub async fn load_extension_from_factory(
     extension_path: &JsString,
 ) -> Result<Extension, HandlerError> {
     let extension = create_extension(extension_path, extension_path);
-    let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
+    let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options())?;
     let api = ExtensionApi::new(extension.clone(), runtime, resolved_cwd, event_bus);
     factory(&api).await?;
     time(&js_format!("{} factory", extension_path), TimingLabel::Extensions);
@@ -207,7 +209,11 @@ fn resolve_extension_entries(dir: &JsString) -> Option<Vec<JsString>> {
     {
         let mut entries = Vec::new();
         for extension_path in declared {
-            let resolved = node_join(dir, extension_path);
+            let resolved = if node_is_absolute(&extension_path) {
+                node_normalize(extension_path)
+            } else {
+                node_join(dir, extension_path)
+            };
             if Path::new(&encode_node_utf8(&resolved)).exists() {
                 entries.push(resolved);
             }
@@ -274,17 +280,20 @@ fn discover_extensions_in_dir(dir: &JsString) -> Vec<JsString> {
 }
 
 /// Discover extension paths from project/global dirs and configured paths.
-pub fn discover_extension_paths(configured_paths: &[JsString], cwd: &JsString, agent_dir: &JsString) -> Vec<JsString> {
-    let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
-    let resolved_agent_dir = resolve_against_process_cwd(agent_dir, &default_path_options());
+pub fn discover_extension_paths(
+    configured_paths: &[JsString],
+    cwd: &JsString,
+    agent_dir: &JsString,
+) -> Result<Vec<JsString>, HandlerError> {
+    let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options())?;
+    let resolved_agent_dir = resolve_against_process_cwd(agent_dir, &default_path_options())?;
     let mut all_paths: Vec<JsString> = Vec::new();
     let mut seen: Vec<JsString> = Vec::new();
 
     let add_paths = |paths: Vec<JsString>, all_paths: &mut Vec<JsString>, seen: &mut Vec<JsString>| {
         for path in paths {
-            let resolved = resolve_against_process_cwd(&path, &default_path_options());
-            if !seen.contains(&resolved) {
-                seen.push(resolved);
+            if !seen.contains(&path) {
+                seen.push(path.clone());
                 all_paths.push(path);
             }
         }
@@ -300,7 +309,7 @@ pub fn discover_extension_paths(configured_paths: &[JsString], cwd: &JsString, a
     add_paths(discover_extensions_in_dir(&global_ext_dir), &mut all_paths, &mut seen);
 
     for configured in configured_paths {
-        let resolved = resolve_against_process_cwd(configured, &normalize_unicode_space_options());
+        let resolved = resolve_path(configured, &resolved_cwd, &normalize_unicode_space_options())?;
         let encoded = encode_node_utf8(&resolved);
         let resolved_path = Path::new(&encoded);
         if resolved_path.exists() && resolved_path.is_dir() {
@@ -314,7 +323,7 @@ pub fn discover_extension_paths(configured_paths: &[JsString], cwd: &JsString, a
         add_paths(vec![resolved], &mut all_paths, &mut seen);
     }
 
-    all_paths
+    Ok(all_paths)
 }
 
 fn first_party_extension_name(extension_path: &JsString) -> Option<JsString> {
@@ -389,24 +398,26 @@ impl ExtensionRegistry {
     async fn load_extension(
         &self,
         extension_path: &JsString,
+        resolved_path: &JsString,
         cwd: &JsString,
         event_bus: Arc<dyn EventBus>,
         runtime: ExtensionRuntime,
     ) -> Result<Extension, ExtensionLoadError> {
-        let resolved_path = resolve_against_process_cwd(extension_path, &normalize_unicode_space_options());
-        let Some(factory) = self.get(&resolved_path).or_else(|| self.get(extension_path)).cloned() else {
+        let Some(factory) = self.get(resolved_path).or_else(|| self.get(extension_path)).cloned() else {
             return Err(ExtensionLoadError {
                 path: extension_path.to_owned(),
                 error: js_format!("Extension does not export a valid factory function: {}", extension_path),
             });
         };
         time(&js_format!("{} module import", extension_path), TimingLabel::Extensions);
-        load_extension_from_factory(factory, cwd, event_bus, runtime, extension_path)
-            .await
-            .map_err(|error| ExtensionLoadError {
-                path: extension_path.to_owned(),
-                error: pi_js_compat::js_json::JsString::from("Failed to load extension: ") + error.message,
-            })
+        let extension = create_extension(extension_path, resolved_path);
+        let api = ExtensionApi::new(extension.clone(), runtime, cwd.clone(), event_bus);
+        factory(&api).await.map_err(|error| ExtensionLoadError {
+            path: extension_path.to_owned(),
+            error: pi_js_compat::js_json::JsString::from("Failed to load extension: ") + error.message,
+        })?;
+        time(&js_format!("{} factory", extension_path), TimingLabel::Extensions);
+        Ok(extension)
     }
 
     /// Load extensions from paths; load failures are collected, not thrown.
@@ -416,26 +427,33 @@ impl ExtensionRegistry {
         cwd: &JsString,
         event_bus: Option<Arc<dyn EventBus>>,
         runtime: Option<ExtensionRuntime>,
-    ) -> LoadExtensionsResult {
+    ) -> Result<LoadExtensionsResult, HandlerError> {
         let event_bus = event_bus.unwrap_or_else(|| Arc::new(EventBusController::new()));
         let runtime = runtime.unwrap_or_else(create_extension_runtime);
-        let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
+        let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options())?;
         let mut extensions = Vec::new();
         let mut errors = Vec::new();
         for extension_path in paths {
+            let resolved_path = resolve_path(extension_path, &resolved_cwd, &normalize_unicode_space_options())?;
             match self
-                .load_extension(extension_path, &resolved_cwd, Arc::clone(&event_bus), runtime.clone())
+                .load_extension(
+                    extension_path,
+                    &resolved_path,
+                    &resolved_cwd,
+                    Arc::clone(&event_bus),
+                    runtime.clone(),
+                )
                 .await
             {
                 Ok(extension) => extensions.push(extension),
                 Err(error) => errors.push(error),
             }
         }
-        LoadExtensionsResult {
+        Ok(LoadExtensionsResult {
             extensions,
             errors,
             runtime,
-        }
+        })
     }
 
     /// Discover project/global/configured extensions and load the enabled ones.
@@ -446,15 +464,12 @@ impl ExtensionRegistry {
         agent_dir: &JsString,
         event_bus: Option<Arc<dyn EventBus>>,
         disabled_extensions: &[JsString],
-    ) -> LoadExtensionsResult {
-        let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options());
-        let paths = discover_extension_paths(configured_paths, cwd, agent_dir);
+    ) -> Result<LoadExtensionsResult, HandlerError> {
+        let resolved_cwd = resolve_against_process_cwd(cwd, &default_path_options())?;
+        let paths = discover_extension_paths(configured_paths, cwd, agent_dir)?;
         let enabled: Vec<JsString> = paths
             .into_iter()
-            .filter(|path| {
-                let resolved = resolve_against_process_cwd(path, &default_path_options());
-                !is_extension_path_disabled(disabled_extensions, path, &resolved)
-            })
+            .filter(|path| !is_extension_path_disabled(disabled_extensions, path, path))
             .collect();
         self.load_extensions(&enabled, &resolved_cwd, event_bus, None).await
     }
@@ -466,7 +481,7 @@ pub async fn load_extensions(
     cwd: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
     runtime: Option<ExtensionRuntime>,
-) -> LoadExtensionsResult {
+) -> Result<LoadExtensionsResult, HandlerError> {
     ExtensionRegistry::new()
         .load_extensions(paths, cwd, event_bus, runtime)
         .await
@@ -478,7 +493,7 @@ pub async fn load_extensions_cached(
     cwd: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
     runtime: Option<ExtensionRuntime>,
-) -> LoadExtensionsResult {
+) -> Result<LoadExtensionsResult, HandlerError> {
     load_extensions(paths, cwd, event_bus, runtime).await
 }
 
@@ -491,7 +506,7 @@ pub async fn discover_and_load_extensions(
     cwd: &JsString,
     agent_dir: &JsString,
     event_bus: Option<Arc<dyn EventBus>>,
-) -> LoadExtensionsResult {
+) -> Result<LoadExtensionsResult, HandlerError> {
     ExtensionRegistry::new()
         .discover_and_load_extensions(configured_paths, cwd, agent_dir, event_bus, &[])
         .await
