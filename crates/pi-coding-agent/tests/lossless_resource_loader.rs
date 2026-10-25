@@ -137,6 +137,47 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
 }
 
 #[tokio::test]
+async fn additional_theme_paths_receive_default_source_metadata_like_frozen() {
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    let root = tempfile::tempdir().unwrap();
+    let theme = root.path().join("custom.json");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+        &theme,
+    )
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":4,"operation":"theme_source","root":root.path(),"theme":theme}));
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: root.path().to_str().unwrap().into(),
+        agent_dir: root.path().to_str().unwrap().into(),
+        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            Default::default(),
+        )))),
+        no_extensions: true,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        no_context_files: true,
+        additional_theme_paths: vec![theme.to_str().unwrap().into()],
+        ..Default::default()
+    })
+    .unwrap();
+    loader.reload().await.unwrap();
+    assert_eq!(
+        json!({"id":4,"themes":loader.get_themes().themes.into_iter().map(|theme| theme.source_info).collect::<Vec<_>>()}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn append_prompt_override_reads_the_new_system_prompt_like_frozen() {
     use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
     use pi_coding_agent::core::settings_manager::SettingsManager;

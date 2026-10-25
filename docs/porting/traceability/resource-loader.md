@@ -135,6 +135,10 @@ Extended the same actual frozen lifecycle fixture to append a prompt after the r
 
 Frozen attempts reads for existing AGENTS/CLAUDE candidates, including directories, and logs chalk-yellow Error text on read failures. Native previously silently skipped directory candidates and used Rust OS text for prompt warnings. Context reads now follow read→realpath→collect, skip with the exact Node read/realpath message on failure, and use the existing stdout-bound Chalk authority for yellow diagnostics. RED `/tmp/ext-api2-resource-warnings-red.log` has one native OS-text warning versus three frozen Node-text warnings. The subprocess comparison covers FORCE_COLOR=0/1; GREEN pending.
 
+## Theme default metadata (2026-10-25)
+
+Frozen assigns default source metadata to directly supplied themes that have no package/extension or existing source info. Native omitted this final branch. Actual frozen/native RED `/tmp/ext-api3-resource-theme-red.log` exports local/temporary/top-level/baseDir metadata versus native null for a valid additional JSON theme. The native branch now retains frozen precedence: extension/package metadata, existing info, then default info. No theme-loader algorithm changed; focused post-commit proof pending.
+
 ## System-prompt publication (2026-10-25)
 
 The append-system-prompt override must see the system prompt published earlier in the same reload. Native kept that final stage private until both callbacks completed. Actual frozen/native RED `/tmp/ext-api3-resource-prompt-red.log`: frozen observes `[system-1,system-2]`, native observes `[null,system-1]` across two reloads. Publish the existing state after the system override and before loading append sources, without holding the mutex during callbacks. Focused post-commit proof pending.
