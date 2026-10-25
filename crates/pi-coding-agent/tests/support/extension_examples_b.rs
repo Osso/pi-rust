@@ -622,6 +622,7 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,

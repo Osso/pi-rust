@@ -37,6 +37,7 @@ impl EditorFixedCell for OwnedCell {
 }
 struct Backend(Arc<std::sync::atomic::AtomicUsize>);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }

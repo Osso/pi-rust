@@ -90,6 +90,7 @@ impl example::doom_engine::DoomModule for Module {
 }
 struct Backend(Trace, bool);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("Doom does not create an editor")
     }
