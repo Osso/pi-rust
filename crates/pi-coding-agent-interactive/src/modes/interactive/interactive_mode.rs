@@ -7907,10 +7907,11 @@ impl InteractiveMode {
         self.show_status("Model selection saved to settings");
     }
 
-    async fn show_models_selector(&self) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
+    async fn show_models_selector(&self) -> Result<(), CallbackError> {
         let session = self.session();
         let runtime = session.model_registry().clone();
-        runtime.refresh();
+        // Frozen interactive-mode.ts:6154–6156 propagates refresh before discovery.
+        runtime.refresh()?;
         let available_models = runtime.get_available()?;
         if available_models.is_empty() {
             self.show_status("No models available");
@@ -8011,7 +8012,8 @@ impl InteractiveMode {
         if !scoped.is_empty() {
             return Ok(scoped.into_iter().map(|scoped| scoped.model).collect());
         }
-        session.model_registry().refresh();
+        // Frozen5965 is outside the getter-only catch at5966–5969.
+        session.model_registry().refresh()?;
         Ok(session.model_registry().get_available().unwrap_or_default()) // Frozen registry-only catch.
     }
 
@@ -10071,7 +10073,8 @@ impl InteractiveMode {
                         .logout(&provider_option.id)
                         .map_err(crate::core::auth_storage::StorageError::into_callback)
                         .and_then(|()| {
-                            runtime.refresh();
+                            // Frozen6839–6852 catches logout/refresh/footer failures together.
+                            runtime.refresh()?;
                             mode.update_available_provider_count()
                         });
                     match result {
@@ -10356,7 +10359,8 @@ impl InteractiveMode {
         auth_type: LoginAuthType,
         previous_model: Model,
     ) -> Result<(), CallbackError> {
-        self.session().model_registry().refresh();
+        // Frozen6867 propagates into the API-key/OAuth caller catches.
+        self.session().model_registry().refresh()?;
         let action_label = if auth_type == LoginAuthType::Oauth {
             js_format!("Logged in to {}", provider_name)
         } else {

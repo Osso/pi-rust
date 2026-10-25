@@ -95,6 +95,8 @@ Parent5315a68a is integrated at0d091ce1. Current all-target workspace check:0err
 | Session services queued providers | agent-session-services.ts:161–173 catches Error.message/String(error) into diagnostics | same fallible conversion; normal diagnostics continue and pending queue clears only after conversion succeeds |
 | SDK09/12 explicit inMemory examples | examples/sdk/09-api-keys-and-oauth.ts:45 and12-full-control.ts:27 have no catch | propagate with ? through existing CallbackError results;74positive fixture constructors assert successful setup with unwrap, not production panic transport |
 
+Interactive-mode.ts:5965 refresh is outside the getter-only catch;6155 refresh is uncaught in showModelsSelector;6841 logout refresh shares the enclosing error catch;6867 authentication refresh propagates to its caller's API-key/OAuth catches. Native callers now use the existing CallbackError results at those exact boundaries. Model-selector.ts:123–138 unawaited load rejection is separately parent-approved to use the existing shared uncaught authority from the deferred task; process proof pending.
+
 Other consumers and current compile proof remain pending; this table is not a completed migration claim.
 
 ## Remaining work

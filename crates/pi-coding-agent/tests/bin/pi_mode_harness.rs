@@ -488,7 +488,7 @@ async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
                     ..Default::default()
                 },
             )
-            .map_err(HandlerError::new)?;
+            .map_err(HandlerError::from)?;
             api.on_session_start(|_:SessionStartEvent,context:ExtensionContext| {
                 Box::pin(async move {
                     let manager=context.session_manager()?;
