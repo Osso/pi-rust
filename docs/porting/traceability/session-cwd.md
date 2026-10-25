@@ -19,6 +19,10 @@ Rust: `crates/pi-coding-agent-storage/src/core/session_cwd.rs`. Native filesyste
 | `assertSessionCwdExists`: no issue / missing issue / stat throw | CallbackError Result without message flattening | guarded assertion cases, full missing-error record differential, actual filesystem error tests |
 | interactive resume catches MissingSessionCwdError itself | caught original issue; reconstruction helper/reopen deleted | actual frozen handleResumeSession/prompt method vs real native runtime; rewrite JSONL after error generation and before UI delivery; confirmation and cancellation frames stay tied to original error |
 
+## Whole-module renewal (2026-10-25)
+
+Storage lane re-read the frozen module and current native implementation against the complete symbol/branch table above. `cargo test -j4 -p pi-coding-agent --test session_cwd` passes all16 tests at `f1684d2b`; combined leaf invocation/output is `/tmp/pi-rust-repin-storage/f1684d2b-leaf-regressions.log`. The current workspace check is0 errors/0 warnings and warning-mode clippy has no changed-line findings. The fixed-point root failure is source-correspondence evidence only, as noted in its row; no fabricated dynamic proof or new deviation. Whole `session-cwd.ts` coverage is renewed; runtime resume/recovery consumers remain separately owned.
+
 ## Proof ledger
 
 Logs under `/tmp/pi-rust-repin-lossless-interactive/`:
