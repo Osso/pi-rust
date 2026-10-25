@@ -1574,6 +1574,44 @@ impl AgentSession {
         )));
     }
 
+    fn percentage_compaction_threshold_reached(&self) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        if settings.threshold_percent.is_none() {
+            return Ok(false);
+        }
+        let Some(usage) = self.get_context_usage() else {
+            return Ok(false);
+        };
+        crate::core::compaction::should_compact(
+            usage.tokens,
+            usage.context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            self.model().auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))
+    }
+
+    async fn compact_for_next_turn(
+        &self,
+        mut turn: PrepareNextTurnContext,
+    ) -> Result<PrepareNextTurnContext, AgentSessionError> {
+        if self.percentage_compaction_threshold_reached()? {
+            let identity = self
+                .find_last_assistant_message_with_identity()
+                .map(|(_, identity)| identity);
+            self.check_compaction(&turn.message, identity.as_ref(), false).await?;
+        } else if self.has_ready_background_compaction()? {
+            self.run_auto_compaction("threshold", false, false).await?;
+        } else {
+            return Ok(turn);
+        }
+        turn.context.messages = self.messages();
+        Ok(turn)
+    }
+
     fn install_agent_next_turn_refresh(&self) {
         let previous_with_context = self.inner.agent.prepare_next_turn_with_context_hook();
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
@@ -1584,11 +1622,14 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
-                    if let Some(inner) = weak.upgrade() {
-                        lock(&inner.settings_manager)
-                            .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
-                    }
+                    let turn = if let Some(inner) = weak.upgrade() {
+                        AgentSession { inner }
+                            .compact_for_next_turn(turn)
+                            .await
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?
+                    } else {
+                        turn
+                    };
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
