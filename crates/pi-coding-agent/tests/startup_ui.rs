@@ -24,26 +24,36 @@ use std::sync::Mutex;
 
 struct ScriptedTerminal {
     keys: Mutex<Vec<String>>,
+    output: Vec<JsString>,
+    active: bool,
 }
 
 impl ScriptedTerminal {
     fn new(keys: Vec<String>) -> Self {
-        Self { keys: Mutex::new(keys) }
+        Self {
+            keys: Mutex::new(keys),
+            output: Vec::new(),
+            active: false,
+        }
     }
 }
 
 impl Terminal for ScriptedTerminal {
     fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        self.active = true;
         Ok(())
     }
 
     fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        self.active = false;
         Ok(())
     }
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 
-    fn write(&mut self, _data: &JsString) {}
+    fn write(&mut self, data: &JsString) {
+        self.output.push(data.clone());
+    }
 
     fn columns(&self) -> usize {
         80
@@ -223,6 +233,104 @@ fn in_memory_settings() -> SettingsManager {
             project_trusted: Some(false),
         },
     )
+}
+
+#[test]
+fn session_picker_validation_retry_cancel_and_exit_reach_the_terminal_boundary() {
+    let output = env_probe::run_probe(
+        "session_picker_ui_probe_child",
+        &[(
+            "PI_PACKAGE_DIR",
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string(),
+        )],
+    );
+    assert!(String::from_utf8(output.stdout).unwrap().contains("PICKER_UI_PROOF:ok"));
+}
+
+#[test]
+#[ignore = "child process probe"]
+fn session_picker_ui_probe_child() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    use pi_coding_agent::cli::session_picker::{
+        SelectSessionOptions, SelectSessionOutcome, SessionListFuture, SessionListProgress, SessionLoader,
+        select_session,
+    };
+    use pi_coding_agent::core::session_manager::SessionInfo;
+    use std::sync::Arc;
+    struct Loader;
+    impl SessionLoader for Loader {
+        fn load<'a>(
+            &'a self,
+            _: Option<SessionListProgress<'a>>,
+        ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>> {
+            Box::pin(async {
+                Ok(vec![SessionInfo {
+                    path: "/sessions/selected.jsonl".into(),
+                    id: "selected".into(),
+                    cwd: "/work".into(),
+                    name: Some("Selectable session".into()),
+                    is_archived: Some(false),
+                    parent_session_path: None,
+                    created: 0.0,
+                    modified: 0.0,
+                    message_count: 1,
+                    first_message: "message".into(),
+                }])
+            })
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for (keys, expected) in [
+        (
+            vec!["", "", "\r", "", "\r", "\u{1b}"],
+            SelectSessionOutcome::Selected("/sessions/selected.jsonl".into()),
+        ),
+        (vec!["\u{1b}"], SelectSessionOutcome::Cancelled),
+        (vec!["\u{3}"], SelectSessionOutcome::Exited),
+    ] {
+        let settings = in_memory_settings();
+        let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(
+            keys.into_iter().map(str::to_owned).collect(),
+        )));
+        let terminal_interface: Rc<RefCell<dyn Terminal>> = terminal.clone();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&attempts);
+        let validate = Arc::new(move |path: &JsString| {
+            assert_eq!(path, "/sessions/selected.jsonl");
+            if seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Err(JsString::from("Selection blocked once"))
+            } else {
+                Ok(())
+            }
+        });
+        let selected = runtime
+            .block_on(select_session(
+                Arc::new(Loader),
+                Arc::new(Loader),
+                SelectSessionOptions {
+                    settings_manager: &settings,
+                    terminal: terminal_interface,
+                    env: &env(&[("COLORFGBG", "0;15")]),
+                    control_db_path: None,
+                    archived_sessions_loader: None,
+                    validate_selection: Some(validate),
+                },
+            ))
+            .unwrap();
+        assert_eq!(selected, expected);
+        assert!(!terminal.borrow().active);
+        if matches!(selected, SelectSessionOutcome::Selected(_)) {
+            let output = JsString::join(terminal.borrow().output.iter(), "");
+            assert!(output.to_utf8().unwrap().contains("Selection blocked once"));
+            assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
+        }
+    }
+    println!("PICKER_UI_PROOF:ok");
 }
 
 fn run_selector_probe(key: &str) -> String {
