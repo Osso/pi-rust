@@ -141,6 +141,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "claude-bash-hook",
     "claude-memory-enrich",
     "claude-memory-session-end",
+    "codex-daybreak",
     "codex-fast",
     "codex-image-generation",
     "codex-usage",

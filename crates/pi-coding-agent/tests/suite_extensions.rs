@@ -8,6 +8,8 @@ pub mod bundled_extensions_gates;
 pub mod bundled_extensions_tools;
 #[path = "claude_bash_hook_extension.rs"]
 pub mod claude_bash_hook_extension;
+#[path = "codex_daybreak.rs"]
+pub mod codex_daybreak;
 #[path = "codex_usage_extension.rs"]
 pub mod codex_usage_extension;
 #[path = "differential_bundled_extensions.rs"]
