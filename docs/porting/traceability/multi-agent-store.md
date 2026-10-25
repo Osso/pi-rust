@@ -2,7 +2,7 @@
 
 ## Storage-3 live listener membership (2026-10-25)
 
-`repin_storage_listener_membership` compares actual frozen update, transition and lifecycle-notification dispatch after a callback removes a later subscriber or appends a new one. RED `/tmp/storage3-store-membership-red.log` invoked the removed update listener; frozen invoked only the first. Native dispatch now walks monotonic registration IDs in a BTreeMap, retrieving one live listener at a time without a lock across callbacks. This preserves frozen Set removal/append behavior rather than copying the listener set. Whole-store acceptance remains open.
+`repin_storage_listener_membership` compares actual frozen update, transition and lifecycle-notification dispatch after a callback removes a later subscriber or appends a new one. RED `/tmp/storage3-store-membership-red.log` invoked the removed update listener; frozen invoked only the first. Native dispatch now walks monotonic registration IDs in a BTreeMap, retrieving one live listener at a time without a lock across callbacks. This preserves frozen Set removal/append behavior rather than copying the listener set. The six dispatch scenarios pass atcf9a3361c (`/tmp/storage3-repin_storage_listener_membership-green-final.log`); the intersecting callback/state+wire10-test group, nine listener-throw subprocess cases, and three restore/persistence regressions also pass. Warning-mode Clippy passes; one redundant borrow in the mechanical abort diagnostic adapter was fixed atc0f49ae3c, leaving zero changed-line warnings. Strict protected fixture types and Biome pass. Whole-store acceptance remains open.
 
 ## Storage-3 callback, clock and state boundaries (2026-10-25)
 
