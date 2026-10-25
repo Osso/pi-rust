@@ -1,6 +1,6 @@
 # Anthropic messages traceability
 
-Frozen: `packages/ai/src/api/anthropic-messages.ts` at [source lock](../source-lock.json), 1239 lines. Native: `crates/pi-ai/src/api/anthropic_messages.rs`, SDK request helper `anthropic_sdk.rs`, lazy wrapper `anthropic_messages_lazy.rs`.
+Frozen: `packages/ai/src/api/anthropic-messages.ts` at [source lock](../source-lock.json), 1238 lines. Native: `crates/pi-ai/src/api/anthropic_messages.rs`, SDK request helper `anthropic_sdk.rs`, lazy wrapper `anthropic_messages_lazy.rs`.
 
 ## Whole-module audit (2026-10-25)
 
@@ -20,12 +20,12 @@ Frozen: `packages/ai/src/api/anthropic-messages.ts` at [source lock](../source-l
 
 **DISCREPANCY preserved:** source initializes text/thinking/signature start blocks to empty even when content_block_start supplies nonempty values. Native follows that source behavior; the existing full-content source regression remains intact.
 
-## Explicit open/gap rows
+## Recorded SDK/runtime gaps
 
 | Status | Boundary |
 |---|---|
-| open | Source options.client can bypass construction with an injected SDK client such as AnthropicVertex. Native has no equivalent injected-client field. This is an unported branch, not an inferred approval. |
-| open proof | Shared SDK request reason/deadline matrices are proven, but a full provider-level real-socket post-header/pending-body rejection reason matrix remains unproven; do not infer it from callback errors or pre-abort fixtures. See [SDK boundary](openai-sdk.md#shared-sdk-reasondeadline-boundary). |
+| gap | Source options.client can bypass construction with an injected SDK client such as AnthropicVertex. Native has no equivalent injected-client field. This is an unported branch, not an inferred approval. |
+| gap | Provider-specific post-header/pending-body cancellation exception objects and lifetimes retain a native SDK runtime boundary; shared SDK request reason/deadline and existing provider event proofs remain authoritative. No new runtime-object carrier or further matrix is added under the 2026-10-25 lighter-proof close-out. See [SDK boundary](openai-sdk.md#shared-sdk-reasondeadline-boundary). |
 | gap | Missing response bodies have no typed native HttpResponse representation. Wrong-typed/exotic runtime JSON, numeric extremes, OS/runtime fault shapes and unmatched units beyond existing opaque/schema carriers use the project bar. No new carrier is added for those shapes. |
 
 Current renewal: 23 affected source/SDK tests (one separately invoked diagnostics child), including the original provider matrix and five new Anthropic cases; 26 native Anthropic behaviors. [Exact ledger](../ai-api-repin-proof.md). The first incorrectly filtered behavior command ran zero tests and is not evidence. Approved immutable snapshots/native ownership/fixed native message key order remain unchanged. The Rust-only request.fetch seam is used only for bounded fake-fetch proof, never a live provider.

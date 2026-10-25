@@ -199,7 +199,7 @@ fn seed_old_artifact(f: &Fixture, ts: &mut oracle::TsOracle) -> std::path::PathB
 #[test]
 fn reciprocal_terminal_publication_ack_and_real_artifact_cleanup() {
     let mut source = oracle::TsOracle::spawn("storage-terminal-outbox-oracle.mts", "packages/coding-agent/src/core");
-    let mut control = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut control = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let f = fixture(&mut source);
     for source_first in [true, false] {
         for lifecycle in ["completed", "failed", "aborted"] {
@@ -232,7 +232,7 @@ fn reciprocal_terminal_publication_ack_and_real_artifact_cleanup() {
 #[test]
 fn reciprocal_mismatch_retry_poison_and_acknowledgement_conflict() {
     let mut source = oracle::TsOracle::spawn("storage-terminal-outbox-oracle.mts", "packages/coding-agent/src/core");
-    let mut control = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut control = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for scenario in ["missing", "revision", "running", "ack-conflict"] {
         let f = fixture(&mut source);
         seed_terminal(&f, &mut control, "child", "completed", true);
@@ -290,7 +290,7 @@ fn reciprocal_mismatch_retry_poison_and_acknowledgement_conflict() {
 #[test]
 fn cleanup_finally_runs_after_later_failure_and_preserves_original_clock_throw() {
     let mut source = oracle::TsOracle::spawn("storage-terminal-outbox-oracle.mts", "packages/coding-agent/src/core");
-    let mut control = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut control = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for throw_at in [2, 3] {
         let f = fixture(&mut source);
         let expected_agent = seed_terminal(&f, &mut control, "child", "completed", true);

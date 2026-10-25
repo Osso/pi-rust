@@ -249,7 +249,6 @@ fn model() -> Model {
                 cache_read: 0.3,
                 cache_write: 3.75,
             },
-            tiers: None,
         },
         context_window: 200_000.0,
         auto_compaction_threshold: None,
@@ -1513,18 +1512,20 @@ async fn bedrock_configuration_scoped_profile_is_not_ambient() {
 
 #[tokio::test]
 async fn bedrock_source_unsupported_images_fail_instead_of_silent_omission() {
-    let unsupported: Context=serde_json::from_value(json!({"messages":[{"role":"user","content":[{"type":"image","mimeType":"image/svg+xml","data":"AAAA"}],"timestamp":1}]})).unwrap();
-    compare_bedrock_scenarios(vec![Scenario {
-        name: "unsupported-image",
-        model: model(),
-        context: unsupported,
-        options: options(),
-        process_env: BTreeMap::new(),
-        script: text_script(),
-        capture_payload: true,
-        simple: None,
-    }])
-    .await;
+    for (mime_type, data) in [("image/svg+xml", "AAAA"), ("image/png", "not_base64!")] {
+        let unsupported: Context=serde_json::from_value(json!({"messages":[{"role":"user","content":[{"type":"image","mimeType":mime_type,"data":data}],"timestamp":1}]})).unwrap();
+        compare_bedrock_scenarios(vec![Scenario {
+            name: "unsupported-image",
+            model: model(),
+            context: unsupported,
+            options: options(),
+            process_env: BTreeMap::new(),
+            script: text_script(),
+            capture_payload: true,
+            simple: None,
+        }])
+        .await;
+    }
 }
 
 #[tokio::test]

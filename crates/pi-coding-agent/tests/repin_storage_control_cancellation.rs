@@ -13,7 +13,7 @@ use serde_json::json;
 #[test]
 fn expired_detached_cancellation_rolls_back_lifecycle_and_command_together() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for (case, updated_at) in [
         "2020-01-01T00:00:00.000Z".to_owned(),
         pi_coding_agent::utils::iso_time::now_iso_string(),

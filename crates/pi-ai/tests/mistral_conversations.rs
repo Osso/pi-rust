@@ -83,7 +83,6 @@ fn model(id: &str, reasoning: bool) -> Model {
                 cache_read: 0.1,
                 cache_write: 0.2,
             },
-            tiers: None,
         },
         context_window: 128_000.0,
         auto_compaction_threshold: None,

@@ -10,7 +10,7 @@ use serde_json::json;
 
 fn compare_recovery(replay: bool) {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let supervisor: ProcessIdentity = serde_json::from_str(get_runtime_process_instance_id().unwrap()).unwrap();
     let mut old = read_process_identity(std::process::id()).unwrap();
     old.incarnation = Some("old-incarnation".into());

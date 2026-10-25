@@ -21,6 +21,6 @@ Frozen: `packages/ai/src/api/google-generative-ai.ts` at [source lock](../source
 ## Explicit gaps
 
 - The approved [typed-native payload signal row](google-client.md#typed-native-payload-signal-boundary) applies; no new carrier is introduced.
-- SDK global base-URL process-env overrides are implemented but not independently isolated in the current differential. SDK host-version headers, OS/runtime fault shapes, pathological wrong-typed JSON/numeric extremes and unmatched units beyond existing opaque/schema carriers retain the project gap boundary. Arbitrary args that are not objects are excluded by the typed core.
+- SDK global base-URL process-env overrides pass the isolated native/source environment child proof. SDK host-version headers, OS/runtime fault shapes, pathological wrong-typed JSON/numeric extremes and unmatched units beyond existing opaque/schema carriers retain the project gap boundary. Arbitrary args that are not objects are excluded by the typed core.
 
 The wire fixture compares body text without JSON/error normalization; only volatile clocks/generated-ID times and host Node version substrings are normalized. A separate process proof compares actual counter domains exactly. [Ledger](../ai-api-repin-proof.md); [SDK scope](google-client.md).

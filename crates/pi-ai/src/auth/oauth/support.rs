@@ -207,6 +207,23 @@ async fn collect_body(mut body: Box<dyn HttpBody>) -> Result<Vec<u8>, CallbackEr
     Ok(bytes)
 }
 
+/// The browser helpers preserve Error rejections and wrap other manual input rejections.
+pub fn normalize_manual_rejection(error: CallbackError) -> CallbackError {
+    match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(_) => match error.error_or_string_message() {
+            Ok(message) => CallbackError::new(message),
+            Err(error) => error,
+        },
+        _ => error,
+    }
+}
+
+/// `Response.json()` retains UTF-16 and throws the shared V8-compatible SyntaxError.
+pub fn parse_response_json(body: &str) -> Result<pi_js_compat::js_json::JsValue, CallbackError> {
+    pi_js_compat::js_json::parse_lossless(body)
+        .map_err(|error| pi_js_compat::node_error::NativeNodeError::new("SyntaxError", error.into_message()).into())
+}
+
 pub fn json_request(url: &str, body: impl Into<pi_js_compat::js_json::JsValue>, accept: bool) -> HttpRequest {
     let mut headers = vec![("Content-Type".to_owned(), "application/json".to_owned())];
     if accept {
@@ -254,8 +271,8 @@ pub fn parse_authorization_input(input: &pi_js_compat::js_json::JsString) -> Aut
         let mut state = None;
         for (name, value) in url.query_pairs() {
             match name.as_ref() {
-                "code" => code = Some(value.into_owned().into()),
-                "state" => state = Some(value.into_owned().into()),
+                "code" if code.is_none() => code = Some(value.into_owned().into()),
+                "state" if state.is_none() => state = Some(value.into_owned().into()),
                 _ => {}
             }
         }
@@ -265,7 +282,13 @@ pub fn parse_authorization_input(input: &pi_js_compat::js_json::JsString) -> Aut
     if let Some(index) = value.find("#") {
         return AuthorizationInput {
             code: Some(value.slice(0, index)),
-            state: Some(value.slice(index + 1, value.len())),
+            state: Some(
+                value
+                    .slice(index + 1, value.len())
+                    .split('#')
+                    .next()
+                    .unwrap_or_default(),
+            ),
         };
     }
 
@@ -274,8 +297,8 @@ pub fn parse_authorization_input(input: &pi_js_compat::js_json::JsString) -> Aut
         let mut state = None;
         for (name, value) in url::form_urlencoded::parse(pi_js_compat::js_json::encode_node_utf8(&value).as_bytes()) {
             match name.as_ref() {
-                "code" => code = Some(value.into_owned().into()),
-                "state" => state = Some(value.into_owned().into()),
+                "code" if code.is_none() => code = Some(value.into_owned().into()),
+                "state" if state.is_none() => state = Some(value.into_owned().into()),
                 _ => {}
             }
         }

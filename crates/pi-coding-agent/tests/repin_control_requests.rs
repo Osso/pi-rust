@@ -24,7 +24,7 @@ fn supervisor_priority_exclusive_claim_requeue_and_response_kind_match_peer() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let future =
         pi_coding_agent::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 + 3_600_000);
     let mut ids = Vec::new();
@@ -119,7 +119,7 @@ fn supervisor_recovery_expires_deadlines_and_requeues_unexpired_peer_claims() {
         .to_owned();
     // Native initializer first; source public producers and claims then mutate the same database.
     assert!(read_supervisor_request(&path, -1).unwrap().is_none());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_js_compat::date::js_now_millis() as i64;
     let past = pi_coding_agent::utils::iso_time::format_iso_millis(now - 3_600_000);
     let future = pi_coding_agent::utils::iso_time::format_iso_millis(now + 3_600_000);
@@ -177,7 +177,7 @@ fn cancelled_peer_request_stays_cancelled_and_rejects_completion() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let deadline =
         pi_coding_agent::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 + 3600_000);
     let id=call(&mut ts,"postSupervisorRequest",json!([db,{"senderSessionId":"sender","projectId":"p","kind":"supervisor_advisory","payload":{},"deadlineAt":deadline}])).as_f64().unwrap() as i64;

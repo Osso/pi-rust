@@ -29,7 +29,7 @@ fn fixture(
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = read_process_identity(std::process::id()).unwrap();
     let owner = MultiAgentRuntimeOwnerIdentity {
@@ -296,7 +296,7 @@ fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut child = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut child = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity: ProcessIdentity = js_json::from_value(
         &js_json::parse_lossless(
@@ -357,7 +357,7 @@ fn dead_owned_fixture_runtime_recovery_honors_persisted_suppression() {
         matches!(result, RecoverDeadMultiAgentRuntimeResult::Ok { .. }),
         "{result:?}"
     );
-    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert!(
         call(
             &mut peer,

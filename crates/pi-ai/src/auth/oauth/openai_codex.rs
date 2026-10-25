@@ -13,14 +13,14 @@ use crate::auth::oauth::device_code::{
 use crate::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::auth::oauth::pkce::generate_pkce_with;
 use crate::auth::oauth::support::{
-    AuthorizationInput, CallbackReply, CallbackRequest, CallbackServer, OAuthHttpResponse, OAuthRuntime, form_request,
-    json_request, parse_authorization_input, random_hex, send, start_callback_server,
+    AuthorizationInput, CallbackReply, CallbackRequest, CallbackServer, OAuthRuntime, form_request, json_request,
+    parse_authorization_input, random_hex, start_callback_server,
 };
 use crate::auth::{
     AuthError, AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind, AuthSelectOption, ModelAuth, OAuthAuth,
     OAuthCredential,
 };
-use crate::request::CallbackError;
+use crate::request::{CallbackError, HttpResponse, read_body_text};
 use crate::utils::provider_env::get_provider_env_value;
 
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -32,8 +32,12 @@ const DEVICE_TOKEN_URL: &str = "https://auth.openai.com/api/accounts/deviceauth/
 const DEVICE_VERIFICATION_URI: &str = "https://auth.openai.com/codex/device";
 const DEVICE_REDIRECT_URI: &str = "https://auth.openai.com/deviceauth/callback";
 const DEVICE_CODE_TIMEOUT_SECONDS: f64 = 900.0;
-const BROWSER_LOGIN_METHOD: &str = "browser";
-const DEVICE_CODE_LOGIN_METHOD: &str = "device_code";
+pub const OPENAI_CODEX_BROWSER_LOGIN_METHOD: &str = "browser";
+pub const OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD: &str = "device_code";
+use self::{
+    OPENAI_CODEX_BROWSER_LOGIN_METHOD as BROWSER_LOGIN_METHOD,
+    OPENAI_CODEX_DEVICE_CODE_LOGIN_METHOD as DEVICE_CODE_LOGIN_METHOD,
+};
 const SCOPE: &str = "openid profile email offline_access";
 const JWT_CLAIM_PATH: &str = "https://api.openai.com/auth";
 
@@ -83,10 +87,9 @@ impl OAuthAuth for OpenAICodexOAuth {
         &self,
         credential: OAuthCredential,
     ) -> crate::request::BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         Box::pin(async move {
-            refresh_openai_codex(&runtime, &credential.refresh, signal)
+            refresh_openai_codex(&runtime, &credential.refresh)
                 .await
                 .map_err(AuthError::from)
         })
@@ -112,15 +115,15 @@ struct OAuthToken {
 
 #[derive(Debug, Clone, PartialEq)]
 struct DeviceAuthInfo {
-    device_auth_id: String,
-    user_code: String,
+    device_auth_id: JsString,
+    user_code: JsString,
     interval_seconds: f64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct DeviceTokenSuccess {
-    authorization_code: String,
-    code_verifier: String,
+    authorization_code: JsString,
+    code_verifier: JsString,
 }
 
 fn create_state(runtime: &OAuthRuntime) -> Result<String, CallbackError> {
@@ -130,34 +133,38 @@ fn create_state(runtime: &OAuthRuntime) -> Result<String, CallbackError> {
 fn fetch_with_login_cancellation(
     runtime: &OAuthRuntime,
     request: crate::request::HttpRequest,
-    signal: AbortSignal,
-) -> crate::request::BoxFuture<'_, Result<OAuthHttpResponse, CallbackError>> {
+    signal: Option<AbortSignal>,
+) -> crate::request::BoxFuture<'_, Result<HttpResponse, CallbackError>> {
     let fetch = Arc::clone(&runtime.fetch);
     Box::pin(async move {
-        match send(&fetch, request, Some(signal.clone())).await {
+        match fetch.fetch(request, signal.clone()).await {
             Ok(response) => Ok(response),
-            Err(_error) if signal.aborted() => Err(CallbackError::new("Login cancelled")),
+            Err(_error) if signal.is_some_and(|signal| signal.aborted()) => Err(CallbackError::new("Login cancelled")),
             Err(error) => Err(error),
         }
     })
 }
 
-fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<OAuthToken, CallbackError> {
-    if !response.ok() {
-        let text = if response.body.is_empty() {
-            response.status_text.as_str()
-        } else {
-            response.body.as_str()
-        };
+async fn read_token_response(response: HttpResponse, operation: &str) -> Result<OAuthToken, CallbackError> {
+    let body = read_body_text(response.body).await;
+    if !(200..300).contains(&response.status) {
+        let body = body.unwrap_or_default();
+        let text = if body.is_empty() { &response.status_text } else { &body };
         return Err(CallbackError::new(format!(
             "OpenAI Codex token {operation} failed ({}): {text}",
             response.status
         )));
     }
     use pi_js_compat::js_json::{self, JsValue};
-    let json = js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
-    let access = json.get("access_token").and_then(JsValue::as_string);
-    let refresh = json.get("refresh_token").and_then(JsValue::as_string);
+    let json = crate::auth::oauth::support::parse_response_json(&body?)?;
+    let access = json
+        .get("access_token")
+        .and_then(JsValue::as_string)
+        .filter(|token| !token.is_empty());
+    let refresh = json
+        .get("refresh_token")
+        .and_then(JsValue::as_string)
+        .filter(|token| !token.is_empty());
     let expires_in = json.get("expires_in").and_then(JsValue::as_f64);
     let (Some(access), Some(refresh), Some(expires_in)) = (access, refresh, expires_in) else {
         return Err(CallbackError::new(format!(
@@ -176,29 +183,29 @@ fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<O
 async fn exchange_authorization_code(
     runtime: &OAuthRuntime,
     code: &JsString,
-    verifier: &str,
+    verifier: &JsString,
     redirect_uri: &str,
-    signal: AbortSignal,
-    now: f64,
+    signal: Option<AbortSignal>,
 ) -> Result<OAuthCredential, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "authorization_code"),
         ("client_id", CLIENT_ID),
         ("code", &crate::auth::oauth::support::to_form_usv_string(code)),
-        ("code_verifier", verifier),
+        (
+            "code_verifier",
+            &crate::auth::oauth::support::to_form_usv_string(verifier),
+        ),
         ("redirect_uri", redirect_uri),
     ]);
     let request = form_request(TOKEN_URL, body, false);
     let response = fetch_with_login_cancellation(runtime, request, signal).await?;
-    let token = read_token_response(response, "exchange")?;
-    credentials_from_token(token, now)
+    let token = read_token_response(response, "exchange").await?;
+    credentials_from_token(token, runtime.now())
 }
 
 async fn refresh_access_token(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: AbortSignal,
-    now: f64,
 ) -> Result<OAuthToken, CallbackError> {
     let body = crate::auth::oauth::support::form_encode(&[
         ("grant_type", "refresh_token"),
@@ -209,14 +216,17 @@ async fn refresh_access_token(
         ("client_id", CLIENT_ID),
     ]);
     let request = form_request(TOKEN_URL, body, false);
-    let response = send(&runtime.fetch, request, Some(signal)).await.map_err(|error| {
-        CallbackError::new(pi_js_compat::js_json::JsString::join(
-            ["OpenAI Codex token refresh error: ".into(), error.message],
-            "",
-        ))
-    })?;
-    let mut token = read_token_response(response, "refresh")?;
-    token.expires += now;
+    let response = match runtime.fetch.fetch(request, None).await {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(CallbackError::new(js_format!(
+                "OpenAI Codex token refresh error: {}",
+                error.error_or_string_message()?
+            )));
+        }
+    };
+    let mut token = read_token_response(response, "refresh").await?;
+    token.expires += runtime.now();
     Ok(token)
 }
 
@@ -278,31 +288,38 @@ fn get_email(id_token: Option<&JsString>) -> Option<JsString> {
 
 async fn start_device_auth(runtime: &OAuthRuntime, signal: AbortSignal) -> Result<DeviceAuthInfo, CallbackError> {
     let request = json_request(DEVICE_USER_CODE_URL, json!({"client_id": CLIENT_ID}), false);
-    let response = fetch_with_login_cancellation(runtime, request, signal).await?;
-    if !response.ok() {
+    let response = fetch_with_login_cancellation(runtime, request, Some(signal)).await?;
+    if !(200..300).contains(&response.status) {
         if response.status == 404 {
             return Err(CallbackError::new(
                 "OpenAI Codex device code login is not enabled for this server. Use browser login or verify the server URL.",
             ));
         }
-        let suffix = if response.body.is_empty() {
+        let body = read_body_text(response.body).await.unwrap_or_default();
+        let suffix = if body.is_empty() {
             String::new()
         } else {
-            format!(": {}", response.body)
+            format!(": {body}")
         };
         return Err(CallbackError::new(format!(
             "OpenAI Codex device code request failed with status {}{suffix}",
             response.status
         )));
     }
-    let json = response.json.unwrap_or(Value::Null);
+    use pi_js_compat::js_json::{self, JsValue};
+    let json = crate::auth::oauth::support::parse_response_json(&read_body_text(response.body).await?)?;
     let interval_seconds = match json.get("interval") {
-        Some(Value::String(text)) => Some(pi_js_compat::number::parse_number(text)),
-        Some(Value::Number(number)) => number.as_f64(),
+        Some(value @ (JsValue::String(_) | JsValue::Number(_))) => js_json::to_js_number(value).ok(),
         _ => None,
     };
-    let device_auth_id = json.get("device_auth_id").and_then(Value::as_str);
-    let user_code = json.get("user_code").and_then(Value::as_str);
+    let device_auth_id = json
+        .get("device_auth_id")
+        .and_then(JsValue::as_string)
+        .filter(|id| !id.is_empty());
+    let user_code = json
+        .get("user_code")
+        .and_then(JsValue::as_string)
+        .filter(|code| !code.is_empty());
     let Some((device_auth_id, user_code, interval_seconds)) = device_auth_id
         .zip(user_code)
         .zip(interval_seconds.filter(|seconds| seconds.is_finite() && *seconds >= 0.0))
@@ -310,7 +327,7 @@ async fn start_device_auth(runtime: &OAuthRuntime, signal: AbortSignal) -> Resul
     else {
         return Err(CallbackError::new(format!(
             "Invalid OpenAI Codex device code response: {}",
-            pi_js_compat::js_json::stringify(&json)
+            pi_js_compat::js_json::stringify_lossless(&json)
         )));
     };
     Ok(DeviceAuthInfo {
@@ -338,32 +355,28 @@ async fn poll_device_auth(
         let runtime = runtime.clone();
         let signal = signal.clone();
         async move {
-            let body = json!({
+            let body = pi_js_compat::js_json!({
                 "device_auth_id": device.device_auth_id,
                 "user_code": device.user_code,
             });
             let request = json_request(DEVICE_TOKEN_URL, &body, false);
-            let signal_for_error = signal.clone();
-            let response = match fetch_with_login_cancellation(&runtime, request, signal).await {
-                Ok(response) => response,
-                Err(_error) if signal_for_error.aborted() => {
-                    return Ok(OAuthDeviceCodePollResult::Failed {
-                        message: "Login cancelled".to_owned().into(),
-                    });
-                }
-                Err(error) => {
-                    return Ok(OAuthDeviceCodePollResult::Failed { message: error.message });
-                }
-            };
-            if response.ok() {
-                let json = response.json.unwrap_or(Value::Null);
-                let authorization_code = json.get("authorization_code").and_then(Value::as_str);
-                let code_verifier = json.get("code_verifier").and_then(Value::as_str);
+            let response = fetch_with_login_cancellation(&runtime, request, Some(signal)).await?;
+            let status = response.status;
+            if (200..300).contains(&status) {
+                let json = crate::auth::oauth::support::parse_response_json(&read_body_text(response.body).await?)?;
+                let authorization_code = json
+                    .get("authorization_code")
+                    .and_then(pi_js_compat::js_json::JsValue::as_string)
+                    .filter(|code| !code.is_empty());
+                let code_verifier = json
+                    .get("code_verifier")
+                    .and_then(pi_js_compat::js_json::JsValue::as_string)
+                    .filter(|verifier| !verifier.is_empty());
                 let (Some(authorization_code), Some(code_verifier)) = (authorization_code, code_verifier) else {
                     return Ok(OAuthDeviceCodePollResult::Failed {
                         message: format!(
                             "Invalid OpenAI Codex device auth token response: {}",
-                            pi_js_compat::js_json::stringify(&json)
+                            pi_js_compat::js_json::stringify_lossless(&json)
                         )
                         .into(),
                     });
@@ -373,11 +386,12 @@ async fn poll_device_auth(
                     code_verifier: code_verifier.to_owned(),
                 }));
             }
-            if response.status == 403 || response.status == 404 {
+            if status == 403 || status == 404 {
                 return Ok(OAuthDeviceCodePollResult::Pending);
             }
-            let error_code = response
-                .json
+            let body = read_body_text(response.body).await.unwrap_or_default();
+            let json = serde_json::from_str::<Value>(&body).ok();
+            let error_code = json
                 .as_ref()
                 .and_then(|json| json.get("error"))
                 .and_then(|error| match error {
@@ -389,17 +403,13 @@ async fn poll_device_auth(
                 Some("deviceauth_authorization_pending") => OAuthDeviceCodePollResult::Pending,
                 Some("slow_down") => OAuthDeviceCodePollResult::SlowDown { interval_seconds: None },
                 _ => {
-                    let suffix = if response.body.is_empty() {
+                    let suffix = if body.is_empty() {
                         String::new()
                     } else {
-                        format!(": {}", response.body)
+                        format!(": {body}")
                     };
                     OAuthDeviceCodePollResult::Failed {
-                        message: format!(
-                            "OpenAI Codex device auth failed with status {}{suffix}",
-                            response.status
-                        )
-                        .into(),
+                        message: format!("OpenAI Codex device auth failed with status {}{suffix}", status).into(),
                     }
                 }
             })
@@ -408,7 +418,7 @@ async fn poll_device_auth(
     .await
 }
 
-async fn login_device_code(
+pub(crate) async fn login_device_code(
     runtime: &OAuthRuntime,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
@@ -426,11 +436,10 @@ async fn login_device_code(
         .map_err(AuthError::from)?;
     exchange_authorization_code(
         runtime,
-        &code.authorization_code.clone().into(),
+        &code.authorization_code,
         &code.code_verifier,
         DEVICE_REDIRECT_URI,
-        interaction.signal(),
-        runtime.now(),
+        Some(interaction.signal()),
     )
     .await
     .map_err(AuthError::from)
@@ -489,10 +498,11 @@ async fn start_local_server(host: &JsString, state: String) -> LocalServer {
     }
 }
 
-async fn login_browser(
+pub(crate) async fn login_browser(
     runtime: &OAuthRuntime,
     callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
+    originator: &JsString,
 ) -> Result<OAuthCredential, AuthError> {
     let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes))?;
     let state = create_state(runtime)?;
@@ -508,7 +518,10 @@ async fn login_browser(
             ("state", &state),
             ("id_token_add_organizations", "true"),
             ("codex_cli_simplified_flow", "true"),
-            ("originator", "pi"),
+            (
+                "originator",
+                &crate::auth::oauth::support::to_form_usv_string(originator),
+            ),
         ],
     );
     let server = start_local_server(callback_host, state.clone()).await;
@@ -540,22 +553,25 @@ async fn login_browser(
         settle,
     } = server;
     let mut receiver = Box::pin(receiver);
-    let interaction_signal = interaction.signal();
     let mut manual: Option<Result<JsString, CallbackError>> = None;
     let result = loop {
         tokio::select! {
             biased;
             response = &mut receiver => break response.ok().flatten(),
             response = &mut prompt, if manual.is_none() => {
-                manual = Some(response);
+                manual = Some(response.map_err(crate::auth::oauth::support::normalize_manual_rejection));
                 settle_local(&settle, None);
             }
-            _ = interaction_signal.wait() => settle_local(&settle, None),
+
         }
     };
 
     if result.is_none() && manual.is_none() {
-        manual = Some(prompt.await);
+        manual = Some(
+            prompt
+                .await
+                .map_err(crate::auth::oauth::support::normalize_manual_rejection),
+        );
     }
     if let Some(Err(error)) = &manual {
         close_server(callback_server);
@@ -563,7 +579,7 @@ async fn login_browser(
         return Err(AuthError::from(error.clone()));
     }
 
-    let code = match result {
+    let mut code = match result {
         Some(code) => Some(JsString::from(code)),
         None => match manual.and_then(Result::ok).filter(|input| !input.is_empty()) {
             Some(input) => match resolve_manual_code(&input, &state) {
@@ -577,21 +593,40 @@ async fn login_browser(
             None => None,
         },
     };
-    let Some(code) = code else {
+    if code.as_ref().is_none_or(JsString::is_empty) {
+        let input = interaction
+            .prompt(AuthPrompt {
+                signal: None,
+                kind: AuthPromptKind::Text {
+                    message: "Paste the authorization code (or full redirect URL):".into(),
+                    placeholder: None,
+                },
+            })
+            .await;
+        code = match input {
+            Ok(input) => match resolve_manual_code(&input, &state) {
+                Ok(code) => code,
+                Err(message) => {
+                    close_server(callback_server);
+                    manual_abort.abort(None);
+                    return Err(AuthError::failed(message));
+                }
+            },
+            Err(error) => {
+                close_server(callback_server);
+                manual_abort.abort(None);
+                return Err(error.into());
+            }
+        };
+    }
+    let Some(code) = code.filter(|code| !code.is_empty()) else {
         close_server(callback_server);
         manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
 
-    let credential = exchange_authorization_code(
-        runtime,
-        &code,
-        &pkce.verifier,
-        REDIRECT_URI,
-        interaction.signal(),
-        runtime.now(),
-    )
-    .await;
+    let credential =
+        exchange_authorization_code(runtime, &code, &pkce.verifier.clone().into(), REDIRECT_URI, None).await;
     close_server(callback_server);
     manual_abort.abort(None);
     credential.map_err(AuthError::from)
@@ -605,7 +640,10 @@ fn close_server(server: Option<CallbackServer>) {
 
 fn resolve_manual_code(input: &JsString, expected_state: &str) -> Result<Option<JsString>, &'static str> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
-    if state.as_ref().is_some_and(|state| state != expected_state) {
+    if state
+        .as_ref()
+        .is_some_and(|state| !state.is_empty() && state != expected_state)
+    {
         return Err("State mismatch");
     }
     Ok(code)
@@ -641,7 +679,7 @@ async fn login_openai_codex(
     if method == DEVICE_CODE_LOGIN_METHOD {
         login_device_code(runtime, interaction).await
     } else if method == BROWSER_LOGIN_METHOD {
-        login_browser(runtime, callback_host, interaction).await
+        login_browser(runtime, callback_host, interaction, &"pi".into()).await
     } else {
         Err(AuthError::failed(js_format!(
             "Unknown OpenAI Codex login method: {}",
@@ -653,8 +691,7 @@ async fn login_openai_codex(
 async fn refresh_openai_codex(
     runtime: &OAuthRuntime,
     refresh_token: &pi_js_compat::js_json::JsString,
-    signal: AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
-    let token = refresh_access_token(runtime, refresh_token, signal, runtime.now()).await?;
+    let token = refresh_access_token(runtime, refresh_token).await?;
     credentials_from_token(token, 0.0)
 }

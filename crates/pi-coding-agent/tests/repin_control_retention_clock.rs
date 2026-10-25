@@ -32,7 +32,7 @@ fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let base = pi_js_compat::date::js_now_millis() as i64;
     let boundary = utils::iso_time::format_iso_millis(base);
     let fresh = utils::iso_time::format_iso_millis(base + 1);

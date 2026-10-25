@@ -239,12 +239,13 @@ async fn exchange_authorization_code(
             wrap_request_error(prefix, error)
         })?;
 
-    let token_data: pi_js_compat::js_json::JsValue =
-        pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
-            CallbackError::new(format!(
-                "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
-            ))
-        })?;
+    let token_data: pi_js_compat::js_json::JsValue = crate::auth::oauth::support::parse_response_json(&response_body)
+        .map_err(|error| {
+        wrap_request_error(
+            format!("Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details="),
+            error,
+        )
+    })?;
     credential_from_token(&token_data, runtime.now())
 }
 
@@ -324,7 +325,6 @@ async fn login_anthropic(
         settle: wait_settle,
     } = wait;
     let mut receiver = Box::pin(receiver);
-    let interaction_signal = interaction.signal();
     let result = loop {
         tokio::select! {
             biased;
@@ -332,17 +332,19 @@ async fn login_anthropic(
                 break response.ok().flatten();
             }
             response = &mut prompt, if manual.is_none() => {
-                manual = Some(response);
+                manual = Some(response.map_err(crate::auth::oauth::support::normalize_manual_rejection));
                 settle_wait(&wait_settle, None);
             }
-            _ = interaction_signal.wait() => {
-                settle_wait(&wait_settle, None);
-            }
+
         }
     };
 
     if result.is_none() && manual.is_none() {
-        manual = Some(prompt.await);
+        manual = Some(
+            prompt
+                .await
+                .map_err(crate::auth::oauth::support::normalize_manual_rejection),
+        );
     }
     if let Some(Err(error)) = &manual {
         server.close();
@@ -350,7 +352,7 @@ async fn login_anthropic(
         return Err(AuthError::from(error.clone()));
     }
 
-    let (code, state) = match result {
+    let (mut code, mut state) = match result {
         Some(CallbackCode { code, state }) => (Some(code.into()), Some(state.into())),
         None => match manual.and_then(Result::ok).filter(|input| !input.is_empty()) {
             Some(input) => match resolve_manual_input(&input, &pkce.verifier) {
@@ -365,12 +367,35 @@ async fn login_anthropic(
         },
     };
 
-    let Some(code) = code else {
+    if code.as_ref().is_none_or(JsString::is_empty) {
+        let input = interaction
+            .prompt(AuthPrompt {
+                signal: None,
+                kind: AuthPromptKind::Text {
+                    message: "Paste the authorization code or full redirect URL:".into(),
+                    placeholder: Some(REDIRECT_URI.into()),
+                },
+            })
+            .await;
+        let resolved = match input {
+            Ok(input) => resolve_manual_input(&input, &pkce.verifier),
+            Err(error) => Err(error.into()),
+        };
+        match resolved {
+            Ok(resolved) => (code, state) = resolved,
+            Err(error) => {
+                server.close();
+                manual_abort.abort(None);
+                return Err(error);
+            }
+        }
+    }
+    let Some(code) = code.filter(|code| !code.is_empty()) else {
         server.close();
         manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));
     };
-    let Some(state) = state else {
+    let Some(state) = state.filter(|state| !state.is_empty()) else {
         server.close();
         manual_abort.abort(None);
         return Err(AuthError::failed("Missing OAuth state"));
@@ -391,7 +416,10 @@ async fn login_anthropic(
 
 fn resolve_manual_input(input: &JsString, verifier: &str) -> Result<(Option<JsString>, Option<JsString>), AuthError> {
     let AuthorizationInput { code, state } = parse_authorization_input(input);
-    if state.as_ref().is_some_and(|state| state != verifier) {
+    if state
+        .as_ref()
+        .is_some_and(|state| !state.is_empty() && state != verifier)
+    {
         return Err(AuthError::failed("OAuth state mismatch"));
     }
     Ok((code, Some(state.unwrap_or_else(|| verifier.into()))))
@@ -413,10 +441,11 @@ async fn refresh_anthropic(
             error,
         )
     })?;
-    let data: pi_js_compat::js_json::JsValue = pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
-        CallbackError::new(format!(
-            "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
-        ))
+    let data = crate::auth::oauth::support::parse_response_json(&response_body).map_err(|error| {
+        wrap_request_error(
+            format!("Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details="),
+            error,
+        )
     })?;
     let access = data
         .get("access_token")

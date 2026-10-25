@@ -1099,7 +1099,6 @@ pub(crate) fn assert_runtime_mailbox_routing_with_fields(
 ) -> Result<(), ControlDbError> {
     use js_json::{JsString, JsValue};
     let field = |key: &str| message.get(&JsString::from(key));
-    let text = |text: &str| JsValue::String(JsString::from(text));
     if !matches!(field("recipientSessionId"), Some(JsValue::String(_))) {
         return Ok(());
     }
@@ -1107,8 +1106,8 @@ pub(crate) fn assert_runtime_mailbox_routing_with_fields(
     let same_recipient = same_field("recipientSessionId") && same_field("recipientAgentId");
     let same_sender = same_field("senderSessionId") && same_field("senderAgentId");
     let same_kind = same_field("kind");
-    let host = gethostname::gethostname().to_string_lossy().into_owned();
-    let default_host = text(&host);
+    let host = super::read_local_hostname();
+    let default_host = JsValue::String(host.clone());
     let previous_host = match field("recipientHost") {
         None | Some(JsValue::Null) => &default_host,
         Some(value) => value,
@@ -1118,7 +1117,7 @@ pub(crate) fn assert_runtime_mailbox_routing_with_fields(
         .as_ref()
         .filter(|host| !host.is_empty())
         .cloned()
-        .unwrap_or_else(|| host.into());
+        .unwrap_or(host);
     let same_host = previous_host == &JsValue::String(input_host);
     if same_recipient && same_sender && same_kind && same_host {
         return Ok(());

@@ -12,7 +12,7 @@ use serde_json::json;
 fn a_replacement_without_nonce_cannot_supersede_an_alive_nonce_owner() {
     let root = tempfile::tempdir().unwrap();
     let db = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let supervisor: ProcessIdentity = serde_json::from_str(get_runtime_process_instance_id().unwrap()).unwrap();
     let replacement = read_process_identity(std::process::id()).unwrap();
     let mut current = replacement.clone();

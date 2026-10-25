@@ -245,6 +245,7 @@ impl SettingsStorage for FileSettingsStorage {
             SettingsScope::Global => &self.global_settings_path,
             SettingsScope::Project => &self.project_settings_path,
         };
+        let source_path = path;
         let encoded = pi_js_compat::js_json::encode_node_utf8(path);
         let path = Path::new(&encoded);
         let dir = path.parent().map_or_else(|| PathBuf::from("."), Path::to_path_buf);
@@ -256,11 +257,14 @@ impl SettingsStorage for FileSettingsStorage {
             None
         };
 
-        let current = if file_exists {
-            Some(fs::read_to_string(path).map_err(|error| SettingsFailure::new(error.to_string()))?)
-        } else {
-            None
-        };
+        let current =
+            if file_exists {
+                Some(fs::read_to_string(path).map_err(|error| {
+                    SettingsFailure::new(pi_js_compat::node_fs::node_read_error(&error, source_path))
+                })?)
+            } else {
+                None
+            };
         let next = apply(current.as_deref());
         if let Some(next) = next {
             if !dir.exists() {
@@ -269,7 +273,9 @@ impl SettingsStorage for FileSettingsStorage {
             if release.is_none() {
                 release = Some(Self::acquire_lock_sync_with_retry(path)?);
             }
-            fs::write(path, next).map_err(|error| SettingsFailure::new(error.to_string()))?;
+            fs::write(path, next).map_err(|error| {
+                SettingsFailure::new(pi_js_compat::node_fs::node_fs_error(&error, "open", source_path))
+            })?;
         }
         drop(release);
         Ok(())
@@ -1355,7 +1361,8 @@ impl SettingsManager {
         }
         if let Some(value) = value {
             return Err(SettingsFailure::new(
-                JsString::from(format!("Invalid {setting_name} setting: ")) + js_json::stringify_lossless(value),
+                JsString::from(format!("Invalid {setting_name} setting: "))
+                    + js_json::to_js_string(value).map_err(SettingsFailure::new)?,
             ));
         }
         Ok(None)

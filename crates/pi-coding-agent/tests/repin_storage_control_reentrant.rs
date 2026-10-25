@@ -50,7 +50,7 @@ fn retained_callbacks_can_reenter_the_same_database() {
         return;
     }
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let result =
         source.request(&json!({"id":1,"steps":[{"op":"retainedNested","args":[root.path().join("source.sqlite")]}]}));
     assert_eq!(result["output"][0]["ok"], true, "{result}");

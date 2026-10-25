@@ -112,7 +112,7 @@ struct CliOAuthCallbacks {
     browser_cli_open_tasks: Mutex<Vec<tokio::task::JoinHandle<()>>>,
 }
 impl OAuthLoginCallbacks for CliOAuthCallbacks {
-    fn on_auth(&self, info: OAuthAuthInfo) {
+    fn on_auth(&self, info: OAuthAuthInfo) -> Result<(), CallbackError> {
         self.io
             .stdout(&js_format!("\nOpen this URL in your browser:\n{}\n", info.url));
         if let Some(instructions) = info.instructions {
@@ -135,8 +135,9 @@ impl OAuthLoginCallbacks for CliOAuthCallbacks {
                 .push(task);
         }
         self.io.stdout(&"\n".into());
+        Ok(())
     }
-    fn on_device_code(&self, info: OAuthDeviceCodeInfo) {
+    fn on_device_code(&self, info: OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
         self.io.stdout(&js_format!(
             "\nOpen this URL in your browser:\n{}\nEnter code: {}\n",
             info.verification_uri,
@@ -149,6 +150,7 @@ impl OAuthLoginCallbacks for CliOAuthCallbacks {
             ));
         }
         self.io.stdout(&"\n".into());
+        Ok(())
     }
     fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         Box::pin(async move {
@@ -171,8 +173,9 @@ impl OAuthLoginCallbacks for CliOAuthCallbacks {
                 .map_err(CallbackError::new)
         }))
     }
-    fn on_progress(&self, message: &JsString) {
+    fn on_progress(&self, message: &JsString) -> Result<(), CallbackError> {
         self.io.stdout(&js_format!("{}\n", message));
+        Ok(())
     }
     fn on_select(&self, prompt: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
         Box::pin(async move {

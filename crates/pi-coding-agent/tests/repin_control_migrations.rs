@@ -24,7 +24,7 @@ fn new_fixture() -> (tempfile::TempDir, String, oracle::TsOracle) {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     call(&mut ts, "listRuntimeMailboxMessages", json!([db]));
     (t, db, ts)
 }

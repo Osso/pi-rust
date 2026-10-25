@@ -1,9 +1,9 @@
 //! Shared control SQLite database (`core/session-control-db.ts`).
 //!
 //! Every Pi runtime on the machine opens the same `control.sqlite`. The TypeScript and Rust
-//! runtimes must agree on schema, migrations, PRAGMAs, SQL text, and transaction boundaries,
-//! so this module keeps the SQL statements verbatim and performs all writes inside
-//! `BEGIN IMMEDIATE` transactions.
+//! runtimes must agree on persisted schema, migrations, PRAGMAs and transaction boundaries.
+//! This module keeps persisted DDL bytes and the source's explicit `BEGIN IMMEDIATE`
+//! boundaries; other single-statement writes remain atomic SQLite statements.
 
 pub(crate) mod agents;
 mod channel;
@@ -240,10 +240,11 @@ pub struct RuntimeMailboxListener {
     pub updated_at: String,
 }
 
+type RuntimeProcessAliveProbe = dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync;
+
 #[derive(Clone, Default)]
 pub struct RuntimeMailboxRegistrationOptions {
-    pub is_runtime_process_alive:
-        Option<Arc<dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync>>,
+    pub is_runtime_process_alive: Option<Arc<RuntimeProcessAliveProbe>>,
     pub reconcile_runtime_replacement: Option<bool>,
     pub runtime_instance_id: Option<String>,
 }
@@ -309,6 +310,10 @@ pub struct MultiAgentRuntimeOwnershipIdentity {
 /// `getControlDbPath(directory = getUserStateRoot())`.
 pub fn get_control_db_path(directory: impl Into<JsString>) -> JsString {
     crate::utils::paths::node_join(directory, "control.sqlite")
+}
+
+fn read_local_hostname() -> JsString {
+    pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str())
 }
 
 pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&JsString>) -> JsString {

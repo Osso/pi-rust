@@ -169,7 +169,7 @@ fn register_fixture(request: &Value) {
                 callbacks.on_auth(OAuthAuthInfo {
                     url: "https://example.invalid/login".into(),
                     instructions: Some("Open browser".into()),
-                });
+                })?;
                 if browser {
                     return Ok(OAuthCredentials::new(
                         "refresh-token",
@@ -182,8 +182,8 @@ fn register_fixture(request: &Value) {
                     user_code: "CODE-1234".into(),
                     expires_in_seconds: Some(60.0),
                     interval_seconds: None,
-                });
-                callbacks.on_progress(&"Ready".into());
+                })?;
+                callbacks.on_progress(&"Ready".into())?;
                 let answer = callbacks
                     .on_prompt(OAuthPrompt {
                         message: "Token".into(),

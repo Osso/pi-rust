@@ -43,10 +43,12 @@ pub struct OAuthSelectPrompt {
 
 /// Callback surface retained only for coding-agent extension compatibility.
 pub trait OAuthLoginCallbacks: Send + Sync {
-    fn on_auth(&self, info: OAuthAuthInfo);
-    fn on_device_code(&self, info: OAuthDeviceCodeInfo);
+    fn on_auth(&self, info: OAuthAuthInfo) -> Result<(), CallbackError>;
+    fn on_device_code(&self, info: OAuthDeviceCodeInfo) -> Result<(), CallbackError>;
     fn on_prompt(&self, prompt: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
-    fn on_progress(&self, _message: &JsString) {}
+    fn on_progress(&self, _message: &JsString) -> Result<(), CallbackError> {
+        Ok(())
+    }
     fn on_manual_code_input(&self) -> Option<BoxFuture<'_, Result<JsString, CallbackError>>> {
         None
     }

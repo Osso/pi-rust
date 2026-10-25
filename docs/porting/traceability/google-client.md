@@ -36,12 +36,12 @@ Frozen Generative90/Vertex105 await SDK generateContentStream directly; their pr
 | `GoogleToken` JWT bearer exchange | `token_request_body`, `sign_service_account_jwt` | differential ids 103, 105-108, 120; `service_account_tokens_are_signed_rs256_with_the_google_claims` |
 | `OAuth2Client.refreshTokenNoCache` | `token_request_body` authorized-user branch | differential id 104; `authorized_user_tokens_use_the_refresh_token_grant` |
 | token caching / expiry | `GoogleClient::fetch_access_token` | `vertex_retries_reuse_the_cached_access_token` |
-| `GoogleAuth` ADC file resolution and deferred I/O | captured keyFilename; request-time `load_credentials`, `well_known_adc_path`, `parse_credentials` | differential ids103-108; onPayload rejection wins over missing credential file; well-known path remains untested |
+| `GoogleAuth` ADC file resolution and deferred I/O | captured keyFilename; request-time `load_credentials`, `well_known_adc_path`, `parse_credentials` | differential ids103-108; onPayload rejection wins over missing credential file; isolated HOME discovery loads authorized-user ADC and proves token + API requests |
 
 ## Gaps
 - GCE metadata credentials, external/impersonated credential types, and universe-domain token URLs.
 - gaxios retry config, proxy support, timeouts, and multipart/upload paths (not used by the adapters).
-- SDK global process-env endpoint overrides are implemented but not independently isolated in the current matrix; malformed credential/OS fault messages are not generalized from successful token-grant proofs.
+- SDK global process-env endpoint overrides and HOME-based ADC discovery have an isolated native/source proof; malformed credential/OS fault messages are not generalized from successful token-grant proofs.
 
 ## Discrepancies
 - Query-bearing base URLs retain the pinned SDK's literal concatenation: the appended model path becomes part of the existing query before URLSearchParams writes alt=sse. The native port preserves that source output, even when it is unsuitable for the intended server route.

@@ -346,8 +346,7 @@ async fn run_stream(
         .flatten();
     let compat = get_compat(model);
     let client = create_client(model, context, &api_key, stream_options, cache_session_id, &compat);
-    let params = build_params(model, context, options, stream_options, &compat)
-        .map_err(|error| Failure::Message(error.into()))?;
+    let params = build_params(model, context, options, stream_options, &compat).map_err(Failure::Message)?;
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload

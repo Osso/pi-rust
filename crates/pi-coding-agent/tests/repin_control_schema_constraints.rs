@@ -8,7 +8,7 @@ use serde_json::json;
 #[test]
 fn nested_legacy_artifacts_reject_insert_and_update_in_either_primary_initializer() {
     let temporary = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for native_first in [false, true] {
         let path = temporary.path().join(format!("{native_first}.sqlite"));
         let path = path.to_str().unwrap();

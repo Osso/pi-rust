@@ -9,7 +9,7 @@ use serde_json::json;
 #[test]
 fn listener_path_assertion_distinguishes_absent_empty_and_real_paths() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let recipient = RuntimeMailboxAddress {
         session_id: "recipient".into(),
         agent_id: None,

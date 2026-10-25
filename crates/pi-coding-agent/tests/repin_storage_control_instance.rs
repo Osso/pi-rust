@@ -24,7 +24,7 @@ fn assert_instance(wire: &str) -> Value {
 
 #[test]
 fn process_instance_wire_uses_a_cached_v4_incarnation_like_frozen() {
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let result = source.request(&json!({"id":1,"steps":[{"op":"call","args":["getRuntimeProcessInstanceId",[]]},{"op":"call","args":["getRuntimeProcessInstanceId",[]]}]}));
     assert_eq!(result["output"][0]["ok"], true, "{result}");
     assert_eq!(result["output"][0], result["output"][1]);

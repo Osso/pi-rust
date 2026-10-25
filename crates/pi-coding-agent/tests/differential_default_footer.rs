@@ -57,7 +57,6 @@ fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Mode
                 cache_read: 0.0,
                 cache_write: 0.0,
             },
-            tiers: None,
         },
         context_window,
         auto_compaction_threshold: None,
