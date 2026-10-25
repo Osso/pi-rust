@@ -24,13 +24,14 @@ use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 struct Random;
 impl RandomSource for Random {
-    fn fill(&self, b: &mut [u8]) {
+    fn fill(&self, b: &mut [u8]) -> Result<(), CallbackError> {
         for (i, x) in b.iter_mut().enumerate() {
             *x = i as u8;
         }
+        Ok(())
     }
-    fn uuid(&self) -> String {
-        "00000000-0000-4000-8000-000000000000".into()
+    fn uuid(&self) -> Result<String, CallbackError> {
+        Ok("00000000-0000-4000-8000-000000000000".into())
     }
 }
 struct Body(Option<Vec<u8>>);

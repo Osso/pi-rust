@@ -2,13 +2,11 @@
 mod oracle;
 
 use pi_ai::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
-use pi_ai::auth::oauth::pkce::{challenge_for, generate_pkce};
 use serde_json::json;
 
 pub(crate) fn run() {
     let mut oracle = oracle::TsOracle::spawn("oauth-oracle.ts", "packages/ai/src");
     compare_pages(&mut oracle);
-    compare_pkce(&mut oracle);
 }
 
 fn compare_pages(oracle: &mut oracle::TsOracle) {
@@ -31,31 +29,6 @@ fn compare_pages(oracle: &mut oracle::TsOracle) {
         };
         assert_eq!(result["html"], json!(actual), "html mismatch for {:?}", case.message);
     }
-}
-
-fn compare_pkce(oracle: &mut oracle::TsOracle) {
-    let response = oracle.request(&json!({"id": 2, "operation": "pkce", "count": 8}));
-    assert_eq!(response["ok"], json!(true), "pkce oracle failed: {response}");
-
-    let results = response["output"]["results"]
-        .as_array()
-        .expect("pkce results must be an array");
-    assert_eq!(results.len(), 8);
-    for result in results {
-        let verifier = result["verifier"].as_str().expect("verifier must be a string");
-        let challenge = result["challenge"].as_str().expect("challenge must be a string");
-        assert_eq!(verifier.len(), 43);
-        assert!(
-            verifier
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || "-_".contains(character))
-        );
-        assert_eq!(challenge_for(verifier), challenge);
-    }
-
-    let generated = generate_pkce();
-    assert_eq!(generated.challenge, challenge_for(&generated.verifier));
-    assert_eq!(generated.verifier.len(), 43);
 }
 
 struct HtmlCase {

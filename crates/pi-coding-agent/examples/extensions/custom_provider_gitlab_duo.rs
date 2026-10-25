@@ -144,8 +144,8 @@ impl GitlabOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let state = self.0.clone();
         Box::pin(async move {
-            let pkce = generate_pkce_with(|b| state.runtime.random.fill(b));
-            let uuid = state.runtime.random.uuid();
+            let pkce = generate_pkce_with(|b| state.runtime.random.fill(b))?;
+            let uuid = state.runtime.random.uuid()?;
             let url = url_with_query(
                 "https://gitlab.com/oauth/authorize",
                 &[

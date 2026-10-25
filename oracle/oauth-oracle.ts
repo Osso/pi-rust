@@ -75,11 +75,11 @@ function serveRequests(api: Record<string, unknown>): void {
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
 	if (modulePath === undefined) throw new Error("oauth oracle requires a source module path");
-	const oauthPage = (await import(pathToFileURL(`${modulePath}/auth/oauth/oauth-page.ts`).href)) as Record<
+	const oauthPage = (await import(pathToFileURL(`${modulePath}/utils/oauth/oauth-page.ts`).href)) as Record<
 		string,
 		unknown
 	>;
-	const pkce = (await import(pathToFileURL(`${modulePath}/auth/oauth/pkce.ts`).href)) as Record<string, unknown>;
+	const pkce = (await import(pathToFileURL(`${modulePath}/utils/oauth/pkce.ts`).href)) as Record<string, unknown>;
 	serveRequests({ ...oauthPage, ...pkce });
 }
 

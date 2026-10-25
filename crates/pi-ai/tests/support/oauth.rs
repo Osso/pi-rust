@@ -60,14 +60,15 @@ impl TestRandom {
 }
 
 impl RandomSource for TestRandom {
-    fn fill(&self, bytes: &mut [u8]) {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CallbackError> {
         for (index, byte) in bytes.iter_mut().enumerate() {
             *byte = (index % 255 + 1) as u8;
         }
+        Ok(())
     }
 
-    fn uuid(&self) -> String {
-        self.uuid.clone()
+    fn uuid(&self) -> Result<String, CallbackError> {
+        Ok(self.uuid.clone())
     }
 }
 
