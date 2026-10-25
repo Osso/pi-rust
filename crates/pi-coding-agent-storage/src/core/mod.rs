@@ -1,3 +1,4 @@
+pub mod agent_activity_detail;
 pub mod agent_lifecycle_trace;
 pub mod detached_job_cleanup;
 pub mod detached_job_retention;

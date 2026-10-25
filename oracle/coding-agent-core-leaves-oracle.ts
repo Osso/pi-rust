@@ -113,6 +113,23 @@ const handlers: Record<string, Handler> = {
 	}),
 	runtimeProcess: (api, request) =>
 		cases(request).map((value) => api.commandLineIsPiRuntime(value)),
+	runtimeIdentitySnapshot: (api, request) => cases(request).map((pid) => ({
+		identity: api.readProcessIdentity(pid),
+		group: api.readProcessGroupId(pid),
+		alive: api.isProcessIdentityAlive(api.readProcessIdentity(pid)),
+	})),
+	runtimeIdentityError: (api, request) => cases(request).map((pid) => {
+		try {
+			return { identity: api.readProcessIdentity(pid) };
+		} catch (error) {
+			return { error: errorOf(error).message };
+		}
+	}),
+	supersededRuntimeIdentity: (api, request) => cases(request).map((entry) => {
+		const [current, replacement] = entry as unknown[];
+		return api.isSupersededRuntimeIdentity(current, replacement);
+	}),
+	activityDetail: (api, request) => cases(request).map((args) => api.summarizeToolArguments(args) ?? null),
 	projectResolver: (api, request) => ({
 		resolved: (request.resolveCases as Array<{ configPath: string; cwd: string; remotes: string[] }>).map((entry) =>
 			api.resolveSupervisorProject({
