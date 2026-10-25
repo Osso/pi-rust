@@ -19,7 +19,7 @@ use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::abort::AbortSignal;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::{js_json, js_json::JsString};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 struct Random;
@@ -222,22 +222,9 @@ async fn registration_login_refresh_and_errors_match_pinned_example() {
         let p = provider(input.clone(), calls.clone(), Arc::new(Mutex::new(1700000000000.0))).await;
         let expected = ts.request(&input);
         if input["kind"] == "metadata" {
-            let models = p
-                .models
-                .as_ref()
-                .unwrap()
-                .iter()
-                .map(|m| {
-                    let mut v = serde_json::to_value(m).unwrap();
-                    for k in ["api", "provider", "baseUrl"] {
-                        v.as_object_mut().unwrap().remove(k);
-                    }
-                    v
-                })
-                .collect::<Vec<_>>();
             assert_eq!(
-                json!({"id":"gitlab-duo","baseUrl":p.base_url,"apiKey":p.api_key,"api":p.api,"models":models,"oauthName":p.oauth.as_ref().unwrap().name}),
-                expected["metadata"]
+                js_json!({"id":"gitlab-duo","baseUrl":p.base_url,"apiKey":p.api_key,"api":p.api,"models":p.models,"oauthName":p.oauth.as_ref().unwrap().name}),
+                pi_js_compat::js_json::to_value(&expected["metadata"]).unwrap()
             );
             continue;
         }

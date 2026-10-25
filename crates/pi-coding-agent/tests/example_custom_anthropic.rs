@@ -21,7 +21,7 @@ use pi_coding_agent::core::extensions::{
 };
 use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::abort::AbortSignal;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::{js_json, js_json::JsString};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};
 
@@ -257,22 +257,9 @@ async fn default_factory_registers_exact_catalog_without_network() {
         "example-custom-anthropic-oracle.ts",
         "packages/coding-agent/examples/extensions/custom-provider-anthropic/index.ts",
     );
-    let expected = oracle.request(&json!({"kind":"metadata"}));
-    let models: Vec<_> = provider
-        .models
-        .as_ref()
-        .unwrap()
-        .iter()
-        .map(|m| {
-            let mut value = serde_json::to_value(m).unwrap();
-            for key in ["api", "provider", "baseUrl"] {
-                value.as_object_mut().unwrap().remove(key);
-            }
-            value
-        })
-        .collect();
+    let expected = oracle.request(&js_json!({"kind":"metadata"}));
     assert_eq!(
-        json!({"id":pending[0].name,"baseUrl":provider.base_url,"apiKey":provider.api_key,"api":provider.api,"models":models,"oauthName":provider.oauth.as_ref().unwrap().name}),
+        js_json!({"id":pending[0].name,"baseUrl":provider.base_url,"apiKey":provider.api_key,"api":provider.api,"models":provider.models,"oauthName":provider.oauth.as_ref().unwrap().name}),
         expected["metadata"]
     );
 }
