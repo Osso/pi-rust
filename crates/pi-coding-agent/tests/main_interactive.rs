@@ -314,7 +314,7 @@ fn import_failure_exits_through_the_fatal_runtime_handler() {
             "to show full startup help and loaded resources.",
             "/import bad-session\r",
         ),
-        input("to show full startup help and loaded resources.", ""),
+        input("Replace current session with bad-session?", "\r"),
     ];
     let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
     let text = visible(&outcome.stdout);
