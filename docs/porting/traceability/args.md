@@ -1,58 +1,33 @@
 # Coding-agent CLI args traceability
 
-Pinned source: `packages/coding-agent/src/cli/args.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-
+Frozen source: `packages/coding-agent/src/cli/args.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (551 lines).
 Rust: `crates/pi-coding-agent-data/src/cli/args.rs`.
 
-## Common-pin renderer flag removal (2026-10-22)
+Whole-module audit found no remaining production mismatch. The former oracle whitelist hid `noSupervisor` and `refreshModels`; it now snapshots every parsed field and only converts the JS Map to ordered entries. Native snapshots include both fields.
 
-Frozen args.ts has no `--tui-mode` option/help entry. Removed native parser branch, typed field and main/interactive plumbing. Existing differential requests28035–28037 cover old flag names through the frozen unknown-long-flag contract, retaining values and repeated/missing-value behavior. Native `removed_tui_mode_uses_unknown_flag_contract` asserts `--tui-mode fullscreen` is unknown data, not a renderer selector. RED `test-args-fullscreen-red.log` observed old native parse/help divergence before deletion.
-
-## Exported symbols
-
-| TypeScript | Rust | Proof |
+| Source symbol/branch | Native representation | Proof |
 |---|---|---|
-| `Args` interface | `Args` struct (field order mirrors the interface; `Option` models `undefined`) | `tests/args.rs`, differential requests `28000..=28044` |
-| `isValidThinkingLevel` | `is_valid_thinking_level` | `tests/args.rs`, differential request `28200` |
-| `parseArgs` | `parse_args` | `tests/args.rs` (19 tests), differential requests `28000..=28044` |
-| `printHelp` | `print_help` | `tests/args.rs::prints_help_with_and_without_extension_flags`, differential requests `28100..=28101` |
-| `ExtensionFlag` type (`core/extensions/types.ts`) | `ExtensionFlag`, `ExtensionFlagType`, `ExtensionFlagDefault` | Differential requests `28100..=28101` |
+| `Args`, `Mode`, diagnostics and optional fields | `Args`, `Mode`, `Diagnostic`; absent fields remain absent | Complete parsed-result differential |
+| `isValidThinkingLevel`: eight literals | `is_valid_thinking_level`, `ThinkingLevel` | Source valid/invalid/case/whitespace matrix |
+| `parseArgs`: aliases, single values, missing values and consumption | `parse_args` | Retained 45 source cases plus every built-in flag with seven ordinary next-token states |
+| Repeated append/resource flags; latest single value; invalid mode/thinking preserves earlier accepted value | Same parser | Source repeated/combined cases |
+| Models preserve empty trimmed items; tools/exclusions discard them | `split_comma_list`, `split_non_empty_list` | Existing native and source cases |
+| Approval preset/policy validation and bypass mapping | Native approval helpers | Exact source diagnostic/value cases |
+| Print consumes ordinary/triple-dash prompts, not file/flag args | Native print branch | Source/native prompt-consumption cases |
+| Terminal export values, width validation, intent including equals syntax | Parser + `is_terminal_export_invocation` | Retained 16 source export cases and ordinary flag/value matrix |
+| Terminal export allowed fields and incompatible data/flags | `collect_terminal_export_diagnostics` | Exact source diagnostics; optional false/empty values retain field presence |
+| Standalone requires no-session; conflicts in fixed source order | `collect_standalone_worker_diagnostics` | Source full conflict list in both argv orders |
+| List models/search, refresh models, tools/extensions/login | Same parser | Complete result includes refreshModels; empty/flag/file/missing next tokens |
+| Project trust, offline, verbosity, files/messages | Same parser | Native + frozen complete snapshots |
+| Unknown long flags: equals/value/true; overwrite preserves Map order; unknown short diagnostics | `IndexMap`, `UnknownFlagValue` | Source duplicate/order and missing/flag/file/value cases |
+| `printHelp`: full text, default stdout Chalk, extension rows/default description/UTF-16 padding | `print_help`, `extension_flags_text` | Exact frozen full-help output with/without extension flags; raw extension path retained until stdout encoding |
 
-## Branches
+## Semantics and gaps
 
-| Source lines | Behavior | Rust proof |
-|---|---|---|
-| 74-81 | `--help/-h`, `--version/-v`; `--mode` only accepts `text`/`json`/`rpc` and consumes its value even when invalid | parse cases `28001..=28003` |
-| 82-84 | `--continue/-c`, `--resume/-r` | `28004` |
-| 85-93 | Single-value flags consume only when a next argument exists | `28005`, `28007`, `28012..=28013` |
-| 94-100 | `--append-system-prompt` appends; repeated values keep source order | `28006` |
-| 101-113 | `--name/-n` and `--worktree/-w` emit `requires a value` errors when trailing | `28007` |
-| 114-126 | Session flags (`--no-session`, `--session`, `--session-id`, `--fork`, `--session-dir`) | `28008` |
-| 127-141 | `--models` trims every comma part; `--tools`/`--exclude-tools` also drop empty names | `28010..=28011` |
-| 142-163 | Approval preset/policy consume only non-flag values; invalid values emit exact messages; `--dangerously-bypass-approvals` maps to `auto-approve` | `28014..=28019` |
-| 164-172 | `--thinking` accepts the eight literals; invalid values warn with the joined list | `28020..=28022` |
-| 173-178 | `--print/-p` consumes the next argument unless it starts with `@`, `-`, or is `---`-prefixed | `28023..=28025` |
-| 179-209 | `--export`, repeated `--extension/-e`, `--skill`, `--prompt-template`, `--theme`, and the `no-*` disablers | `28026..=28030` |
-| 210-223 | `--list-models` takes a search value only when the next argument is neither flag nor `@file` | `28031` |
-| 224-241 | `tools`, `extensions`, `login <provider>`; `login` errors when the provider is missing or flag-like | `28032..=28034` |
-| 242-256 | `--tui-mode` accepts `regular`/`fullscreen`, consumes invalid non-flag values, and reports missing/flag-like values without consuming | `28035..=28037` |
-| 257-267 | `--verbose`, `--approve/-a`, `--no-approve/-na`, `--offline` | `28038..=28039` |
-| 268-283 | `@` prefix strips one character into `fileArgs`; unknown long flags use `name=value` or consume one non-flag/non-`@` value, otherwise `true`; unknown short flags error; other arguments become messages | `28040..=28044` |
-| 284-285 | Return the accumulated result | all parse cases |
-| 290-299 | Extension flag block: ` <value>` for string flags, fallback `Registered by <path>`, 30-column pad | differential `28101` |
-| 301-479 | Full help text including package identity, env var names, and tool list; `console.log` adds the final newline | differential `28100..=28101` |
+- Accepted `exportColumns` is a positive safe integer; native `u64` represents that validated result exactly.
+- `--tui-mode` is source-absent and stays unknown-flag data. Its old parser branch/help entry are removed; no compatibility path remains.
+- Adversarial/exotic inputs, lone surrogates beyond existing carriers, numeric extremes and OS/runtime oddities follow the repository parity-bar gap. No new carrier is introduced for them.
 
-## Semantics
+## Proof
 
-- Unknown flags use `IndexMap`, matching JavaScript `Map` insertion order and last-value-wins replacement.
-- `ListModels::All` models the TypeScript `true` union member; `list_models` keeps search strings verbatim.
-- JavaScript `number` fields do not exist in this module, so no `f64` mapping is required.
-- Typed Rust inputs exclude non-string argv elements (invalid JavaScript runtime input types).
-
-## Discrepancies
-
-None found; differential comparison is byte-exact for help output and structural for parsed values.
-
-## Baseline registry re-pin (2026-10-25)
-
-Frozen help has the plain config command, both terminal-export flags, and no Anthropic bearer/Baseten environment-variable lines. Restore those exact lines; parser behavior is unchanged. Existing full-help differential was RED; no expected strings were edited.
+At the version/checkpoint code plus the args fixture expansion: `cargo test -j3 -p pi-coding-agent --test suite_core_1 args:: -- --nocapture` passes all 27 selected tests. Frozen source remains unmodified. Log: `/tmp/settings-models-args-green.log`. Final oracle typecheck and changed-test clippy/readability are recorded with the checkpoint.
