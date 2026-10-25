@@ -265,7 +265,9 @@ fn list_jsonl_files(root: &JsString) -> Vec<JsString> {
 }
 
 fn read_dir_entries(directory: &JsString) -> std::io::Result<Vec<fs::DirEntry>> {
-    fs::read_dir(encode_node_utf8(directory))?.collect()
+    let mut entries: Vec<_> = fs::read_dir(encode_node_utf8(directory))?.collect::<Result<_, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    Ok(entries)
 }
 
 struct ParsedSessionFile {
@@ -282,13 +284,20 @@ enum SessionFileParseResult {
     NonSession,
 }
 
-fn metadata_mtime_ms(metadata: &fs::Metadata) -> f64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|elapsed| elapsed.as_secs_f64() * 1000.0)
-        .unwrap_or(0.0)
+fn metadata_mtime_ms(metadata: &fs::Metadata) -> Result<f64, JsString> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0)
+    }
+    #[cfg(not(unix))]
+    {
+        let modified = metadata.modified().map_err(|error| JsString::from(error.to_string()))?;
+        Ok(match modified.duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs_f64() * 1000.0,
+            Err(error) => -error.duration().as_secs_f64() * 1000.0,
+        })
+    }
 }
 
 fn metadata_mode(metadata: &fs::Metadata) -> u32 {
@@ -338,7 +347,7 @@ fn read_session_file_for_migration(file_path: &JsString) -> Result<SessionFilePa
         lines,
         entries,
         size: metadata.len(),
-        mtime_ms: metadata_mtime_ms(&metadata),
+        mtime_ms: metadata_mtime_ms(&metadata)?,
         mode: metadata_mode(&metadata),
     }))
 }
@@ -419,7 +428,7 @@ fn write_session_file_atomically(
     now_ms: i64,
 ) -> Result<JsString, JsString> {
     let current = stat_file(file_path)?;
-    if current.len() != parsed.size || metadata_mtime_ms(&current) != parsed.mtime_ms {
+    if current.len() != parsed.size || metadata_mtime_ms(&current)? != parsed.mtime_ms {
         return Err("session changed while scanning; rerun after it is idle".into());
     }
 

@@ -23,14 +23,18 @@ Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (`t
 
 Entry sizing directly serializes the lossless KnownSessionEntry; impossible serialization errors fail explicitly, never count as zero. Existing cap/search algorithm unchanged. The same oversized escaped-text fixture compares actual frozen truncation output, not only sizes.
 
+## Storage migration ordering and timestamp fixes (2026-10-25)
+
+Actual frozen module RED/GREEN: `repin_storage_tool_output` compares the complete migration report for four malformed filenames created out of order and for a source-created oversized session changed from mtime -2 seconds to -1 second inside the scanner callback. Native previously emitted filesystem iteration order and silently projected both negative timestamps to0, then overwrote the changed file; frozen reports one error and leaves its bytes unchanged. Native now sorts entries by their OS filename before the source stack traversal and computes POSIX Node mtimeMs from seconds plus nanoseconds. No timestamp fallback remains; the non-POSIX metadata query propagates failure. Logs: `/tmp/pi-rust-repin-storage/tool-migration-order-time-{red,green}.log`. Whole-module row remains open.
+
 ## Gaps
 
 - Typed boundary: only `AgentMessage::ToolResult` values are truncated. A raw custom object with `role:"toolResult"` and an array `content` is preserved untruncated, because the Rust message union parses that shape as a custom message.
-- Atomic rewrite compares `mtimeMs` as `f64`; the source compares Node's `stat.mtimeMs`. Both derive from the same filesystem timestamp.
+- Atomic rewrite compares `mtimeMs` as `f64` using the same POSIX seconds/nanoseconds arithmetic as Node. Windows-only behavior remains under the approved platform gap.
 
 ## Discrepancies
 
-None observed. File traversal order differs but is not observable in the report.
+The formerly recorded claim that traversal order is unobservable was incorrect: `errors` and `backupPaths` retain traversal order. The four-file differential above reproduces and corrects the error-report ordering; no source discrepancy is introduced.
 
 ## JS-value boundary regression (2026-10-20)
 
