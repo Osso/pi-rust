@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/cli/list-tools.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent/src/cli/list_tools.rs`.
+Rust: `crates/pi-coding-agent-tools/src/cli/list_tools.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Historical proof below is unchanged.
 
 Differential: `tests/differential_list_tools.rs` compares `formatToolInventory` byte-for-byte across four fixtures (`28500..=28503`): empty, sources/active flags, description truncation, and locale name ordering.
 
