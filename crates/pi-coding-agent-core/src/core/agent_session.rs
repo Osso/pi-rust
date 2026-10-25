@@ -1087,6 +1087,7 @@ struct ActiveTool {
     started_at: String,
     tool_call_id: String,
     tool_name: String,
+    detail: Option<JsString>,
 }
 
 fn active_tool_activity(
@@ -1097,7 +1098,7 @@ fn active_tool_activity(
         started_at: tool.started_at.clone().into(),
         tool_call_id: tool.tool_call_id.clone().into(),
         tool_name: tool.tool_name.clone().into(),
-        detail: None,
+        detail: tool.detail.clone(),
     })
 }
 
@@ -3578,6 +3579,7 @@ impl AgentSession {
             tool_call_id,
             tool_name,
             started_at,
+            args,
             ..
         } = event
         {
@@ -3587,6 +3589,7 @@ impl AgentSession {
                     started_at: crate::utils::iso_time::format_iso_millis(*started_at as i64),
                     tool_call_id: tool_call_id.clone(),
                     tool_name: tool_name.clone(),
+                    detail: crate::core::agent_activity_detail::summarize_tool_arguments(args),
                 },
             ));
         }

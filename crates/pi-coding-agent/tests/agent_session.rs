@@ -1116,10 +1116,13 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
                 pi_ai::providers::faux::faux_text("working"),
                 pi_ai::providers::faux::faux_tool_call(
                     "echo",
-                    (json!({"text": "hi"}).as_object().cloned().expect("arguments"))
-                        .into_iter()
-                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
-                        .collect::<pi_js_compat::js_json::JsObject>(),
+                    (json!({"text": "hi", "query": " inspect\n  files "})
+                        .as_object()
+                        .cloned()
+                        .expect("arguments"))
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-1".to_owned()),
                 ),
             ],
@@ -1138,6 +1141,12 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
         .expect("prompt");
 
     let activities = activities.lock().unwrap().clone();
+    assert!(
+        activities.iter().any(|activity| matches!(activity,
+            Some(AgentCurrentActivity::Tool { detail: Some(detail), .. }) if detail == "inspect files"
+        )),
+        "tool arguments must be summarized in published activity: {activities:?}"
+    );
     assert!(
         matches!(activities.first(), Some(Some(AgentCurrentActivity::Thinking { .. }))),
         "agent_start publishes thinking: {activities:?}"
