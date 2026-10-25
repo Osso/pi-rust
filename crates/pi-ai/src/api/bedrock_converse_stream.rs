@@ -10,7 +10,7 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::api::bedrock_credentials::{env_credentials, profile_credentials, profile_name, profile_region};
 use crate::api::bedrock_eventstream::EventStreamDecoder;

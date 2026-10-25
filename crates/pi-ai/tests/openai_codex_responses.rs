@@ -466,7 +466,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
     let mut xhigh_model = model();
     xhigh_model.id = "gpt-5.5".to_owned();
     xhigh_model.thinking_level_map = Some(
-        [(pi_ai::types::ModelThinkingLevel::Xhigh, Some("xhigh".to_owned()))]
+        [(pi_ai::types::ModelThinkingLevel::Xhigh, Some("xhigh".into()))]
             .into_iter()
             .collect(),
     );
@@ -488,7 +488,7 @@ async fn stream_simple_preserves_xhigh_and_clamps_minimal() {
     let mut minimal_model = model();
     minimal_model.id = "gpt-5.3-codex".to_owned();
     minimal_model.thinking_level_map = Some(
-        [(pi_ai::types::ModelThinkingLevel::Minimal, Some("low".to_owned()))]
+        [(pi_ai::types::ModelThinkingLevel::Minimal, Some("low".into()))]
             .into_iter()
             .collect(),
     );
