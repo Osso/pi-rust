@@ -1,8 +1,7 @@
 //! Request/option helpers and event normalization for the Anthropic Messages
 //! adapter tests. HTTP scripting reuses the shared `RecordingFetch`.
 
-#[path = "recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_recording_fetch as recording_fetch;
 
 pub use recording_fetch::{RecordingFetch, ScriptedResponse};
 

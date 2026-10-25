@@ -1,7 +1,6 @@
 //! Differential proof for `locale_compare` against Node's `Intl.Collator`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use std::cmp::Ordering;
 

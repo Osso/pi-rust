@@ -1,7 +1,6 @@
+use crate::shared_oracle_2 as oracle;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::string::{replace, replace_global};
-#[path = "support/oracle.rs"]
-mod oracle;
 
 #[test]
 fn matches_node_replace_and_replace_all_on_raw_units() {

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 use pi_js_compat::{
     collator::locale_compare_utf16,
     js_json::{JsValue, parse_lossless},

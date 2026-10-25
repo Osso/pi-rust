@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_tui::native_modifiers::{ModifierKey, is_native_modifier_pressed};
 use serde_json::json;

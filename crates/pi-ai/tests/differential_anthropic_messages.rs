@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/anthropic.rs"]
-mod support;
+use crate::shared_anthropic as support;
+use crate::shared_oracle as oracle;
 
 use std::sync::Arc;
 

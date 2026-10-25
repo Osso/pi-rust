@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/provider_normalize.rs"]
 pub mod provider_normalize;
 use pi_ai::types::{AssistantMessageEvent, Context, Model, StopReason};

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::auth::oauth::pkce::generate_pkce_with;
 use pi_js_compat::{

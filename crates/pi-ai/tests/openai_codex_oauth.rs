@@ -5,8 +5,7 @@ use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
 use pi_ai::auth::{AuthEvent, AuthPromptKind, OAuthAuth, OAuthCredential};
 use serde_json::json;
 
-#[path = "support/oauth.rs"]
-mod oauth_support;
+use crate::shared_oauth as oauth_support;
 
 use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use oauth_support::{

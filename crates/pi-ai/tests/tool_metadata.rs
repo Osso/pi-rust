@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxTokenSize, RegisterFauxProviderOptions, create_faux_core, faux_assistant_message,

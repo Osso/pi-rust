@@ -1,7 +1,6 @@
 //! Differential proof for Base64 `atob`/`btoa` and Node `Buffer`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::base64::{atob, btoa, buffer_from_base64, buffer_to_base64};
 use serde_json::json;

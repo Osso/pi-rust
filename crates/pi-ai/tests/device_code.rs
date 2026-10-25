@@ -20,8 +20,7 @@ async fn device_poll_preserves_a_rejected_callback() {
     assert_eq!(result.unwrap_err(), error);
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test(start_paused = true)]
 async fn device_poll_schedules_and_outcomes_match_frozen() {

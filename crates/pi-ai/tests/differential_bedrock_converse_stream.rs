@@ -1,8 +1,6 @@
-#[path = "support/provider_normalize.rs"]
-pub mod provider_normalize;
+pub use crate::shared_provider_normalize as provider_normalize;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::collections::BTreeMap;
 use std::sync::Arc;

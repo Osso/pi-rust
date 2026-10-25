@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::api::{
     anthropic_messages::AnthropicMessagesApi, azure_openai_responses::AzureOpenAIResponsesApi,
     google_generative_ai::GoogleGenerativeAiApi, google_vertex::GoogleVertexApi,

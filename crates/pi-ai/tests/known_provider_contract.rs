@@ -1,6 +1,5 @@
 //! Frozen types.ts KnownProvider literal union is the complete ordered public list.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn known_provider_literals_match_the_actual_frozen_export() {

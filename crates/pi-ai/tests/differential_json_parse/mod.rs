@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::utils::json_parse::{parse_json_with_repair, parse_streaming_json, repair_json};
 use serde_json::{Number, Value, json};

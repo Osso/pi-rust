@@ -1,7 +1,5 @@
-#[path = "support/editor_host.rs"]
-mod editor_host;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_editor_host as editor_host;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::{
     abort::{AbortReason, AbortSignal},

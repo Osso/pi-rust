@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use pi_tui::fuzzy::{fuzzy_filter, fuzzy_match};
 use serde_json::json;

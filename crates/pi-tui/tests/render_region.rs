@@ -1,9 +1,6 @@
-#[path = "support/components.rs"]
-mod components;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/virtual_terminal.rs"]
-mod virtual_terminal;
+use crate::shared_components as components;
+use crate::shared_oracle as oracle;
+use crate::shared_virtual_terminal as virtual_terminal;
 
 use std::cell::RefCell;
 use std::rc::Rc;

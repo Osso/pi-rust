@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/oracle.rs"]
+mod shared_oracle;
+
 #[path = "api_model_headers.rs"]
 pub mod api_model_headers;
 #[path = "differential_image_models.rs"]

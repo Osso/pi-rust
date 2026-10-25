@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::number::to_locale_string;
 use serde_json::json;

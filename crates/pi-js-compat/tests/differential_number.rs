@@ -1,7 +1,6 @@
 //! Differential proof for `Number`, `parseInt`, `parseFloat`, and `Number::toString`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::number::{js_number_to_string, js_number_value, parse_float, parse_int, parse_number, to_fixed};
 use serde_json::json;

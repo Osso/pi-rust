@@ -1,7 +1,6 @@
 //! Differential proof for the minimatch 10.2.5 port.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::minimatch::{MinimatchOptions, brace_expand, minimatch};
 use serde_json::{Map, Value, json};

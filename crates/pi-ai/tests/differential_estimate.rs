@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::Context;
 use pi_ai::utils::estimate::{estimate_context_tokens, estimate_messages_tokens};

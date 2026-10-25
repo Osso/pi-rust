@@ -20,10 +20,8 @@ use pi_ai::request::BoxFuture;
 use pi_ai::types::ProviderEnv;
 use serde_json::{Value, json};
 
-#[path = "support/oauth.rs"]
-mod oauth_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oauth as oauth_support;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn anthropic_provider_matches_frozen_module() {

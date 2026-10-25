@@ -2,8 +2,7 @@
 use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
 use std::cell::RefCell;
 use std::rc::Rc;

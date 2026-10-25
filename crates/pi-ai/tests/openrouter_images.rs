@@ -1,5 +1,4 @@
-#[path = "support/recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_recording_fetch as recording_fetch;
 
 use std::sync::{Arc, Mutex};
 

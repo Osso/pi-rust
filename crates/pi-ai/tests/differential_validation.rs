@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::{Tool, ToolCall, TypeBoxSchema};
 use pi_ai::utils::validation::{validate_tool_arguments, validate_tool_call};

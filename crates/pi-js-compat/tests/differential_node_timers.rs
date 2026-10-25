@@ -1,6 +1,5 @@
 //! Node's scheduled delay, observed without waiting for oversized timers.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::node_timers::normalize_timeout_delay;
 use pi_js_compat::number::parse_number;
