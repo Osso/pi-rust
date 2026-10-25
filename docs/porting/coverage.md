@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 607, `gap` 25, `partial` 28, `todo` 26.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 608, `gap` 25, `partial` 28, `todo` 25.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -193,7 +193,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/oauth/types.ts` | 79 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | provider interface + existing compat callbacks; builtin callback/flow revalidation pending; [trace](traceability/oauth-registry.md) |
 | `ai/src/utils/overflow.ts` | 166 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | Whole frozen module: old-only recoverable-length/range pattern removed; JS regex behavior and truthiness restored. RED → GREEN 14 + differential + seeded consumer; [traceability](traceability/overflow.md); ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | done | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback is a documented typed exclusion ([traceability](traceability/provider-env.md)).; re-run vs 4f9e6f8a4 pending |
-| `ai/src/utils/retry.ts` | 125 | 2 | todo | `crates/pi-ai/src/utils/retry.rs` | Frozen two-export classifiers: focused differential 508 requests/1,016 booleans; 31 semantic mutants killed (development only). BLOCKED staged removal: source-absent native policy/callback/loop retained unchanged solely for coupled harness/compaction consumers to compile; no whole-module promotion/waiver. [Traceability](traceability/retry.md). |
+| `ai/src/utils/retry.ts` | 125 | 2 | done | `crates/pi-ai/src/utils/retry.rs` | Whole frozen two-export classifier audit;508requests/1016booleans direct-source GREEN. Source-absent policy/callback/loop and obsolete tests removed after consumer retirement. [Traceability](traceability/retry.md). |
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)).; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/validation.ts` | 324 | 2 | todo | `crates/pi-ai/src/utils/validation.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/utils/validation.rs`; Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
