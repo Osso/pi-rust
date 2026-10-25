@@ -30,9 +30,9 @@ edition = "2024"
 license = "MIT"
 rust-version = "1.96"
 
-# Disk budget: ~460 integration-test binaries each link every dependency.
-# Full debuginfo plus incremental state grew target/ to ~680 GB.
-# Incremental is disabled in .cargo/config.toml (overrides ~/.cargo).
+# Keep line tables for diagnostics without full dependency debuginfo.
+# Incremental compilation is enabled in .cargo/config.toml; integration-test
+# consolidation bounds cache duplication. See docs/porting/crate-split-3.md.
 [profile.dev]
 debug = "line-tables-only"
 

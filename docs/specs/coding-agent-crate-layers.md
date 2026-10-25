@@ -13,7 +13,8 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 
 ## How it works
 
-- [Current layer graph and proof](../porting/crate-split-2.md).
+- [Round-2 layer graph and proof](../porting/crate-split-2.md).
+- [Round-3 UI layer and build-performance proof](../porting/crate-split-3.md).
 - [Round-2 content audit](../porting/crate-split-2-audit.md).
 
 ## Implementation inventory

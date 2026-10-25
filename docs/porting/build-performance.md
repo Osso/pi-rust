@@ -37,6 +37,8 @@ Code snapshot: `5cfabf6dd`; the lockfile records only the new local package and 
 | Frozen inventory | PASS; 686 rows / 186,679 locked lines | `scripts/source-inventory.py` |
 | Readability/content audit | Moved implementations unchanged; new root has only exports/module declarations | Git diff and `ui-move-files.json` |
 
+The later rapid A/B touch and behavior-preserving body-edit comparisons do not demonstrate a hot-loop split benefit. With incremental disabled, the mode touch check improved 9.22→7.95s and pi build 16.96→16.62s at comparable load. Main accepted retaining the UI split for this modest cold-check win and independent widget dependency graph. [All final measurements and acceptance](crate-split-3.md).
+
 ## Rejected or deferred profile changes
 
 - `profile.dev.debug=0` was measured, not kept: initial build 5m03s, runtime/tools touches 1m13s/1m17s, at load approximately 87–96. Different host load prevents a causal comparison; there is no evidence to justify removing existing line-table diagnostics.
