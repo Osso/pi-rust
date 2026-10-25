@@ -622,6 +622,7 @@ async fn overflow_recovery_resets_when_the_next_user_request_starts_like_frozen(
                 FauxAssistantMessageOptions {
                     stop_reason: Some(pi_ai::StopReason::Error),
                     error_message: Some(message.into()),
+                    timestamp: Some(0.0),
                     ..Default::default()
                 },
             )

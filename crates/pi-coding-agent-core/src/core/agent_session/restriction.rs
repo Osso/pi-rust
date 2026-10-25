@@ -442,7 +442,7 @@ impl AgentSession {
                 return Ok(Some("normal"));
             }
             self.finish_exhausted_retry(&message);
-            if self.check_compaction(&message, true).await? {
+            if self.check_compaction(&message, Some(&identity), true).await? {
                 return Ok(Some("normal"));
             }
             self.select_post_agent_run_continuation().await

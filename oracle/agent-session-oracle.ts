@@ -211,7 +211,7 @@ async function run(request) {
 				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
 			};
 			core.setResponses(["maximum context length exceeded", "fatal", "maximum context length exceeded", "fatal"].map((errorMessage) =>
-				fauxAssistantMessage([], { stopReason: "error", errorMessage })));
+				fauxAssistantMessage([], { stopReason: "error", errorMessage, timestamp: 0 })));
 			await session.prompt("first overflow request");
 			await session.prompt("second overflow request");
 			session.dispose();

@@ -334,3 +334,7 @@ Frozen :6011–6022 returns a no-op for the current leaf before any streaming re
 ## Re-pin recovery-flag lifetime (2026-10-25)
 
 Frozen :1512–1514 resets overflow/length recovery flags at each user-message start, and :1540–1541 resets them on non-error/non-length assistant completion respectively. Replaced a native no-op comment with those mutations. `overflow_recovery_resets_when_the_next_user_request_starts_like_frozen` drives two separate user turns, each with overflow → extension compaction → terminal non-retryable provider error. Actual frozen compacts twice; native RED `/tmp/repin-agent-session-recovery-flags-red.log` compacted only once because its lifetime flag never reset.
+
+## Re-pin compaction-boundary message identity (2026-10-25)
+
+The repeated-overflow test stayed RED after flag resets: native discarded the second persisted error solely because its timestamp preceded/equalled the compaction timestamp. Frozen :299–319 uses stored message reference/branch order first, timestamps only for synthetic messages. `check_compaction` now receives the existing Agent-owned identity from post-run/pre-prompt callers, resolves its SessionManager entry, and compares branch positions before timestamp fallback. No value-equality identity inference or new carrier is used. The regression now pins every provider error timestamp to zero, proving persisted order wins deterministically; it retains exact two-compaction frozen expectation. `agent_session/restriction.rs` has mechanical identity-argument propagation only.
