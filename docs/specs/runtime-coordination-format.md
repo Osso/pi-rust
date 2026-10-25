@@ -4,9 +4,9 @@ Match frozen `core/runtime-coordination-format.ts` at `4f9e6f8a4`. [Traceability
 
 ## What it must do
 
-- [ ] Format mailbox prompts with exact sender/host lines, body whitespace, fallback text and file-reference order/labels.
-- [ ] Format shared-channel prompts with trimmed bodies, exact sender/host lines, message separators and action-only handling guidance, including an empty message list.
-- [ ] Preserve the existing mailbox UTF-16 carriers and explicit errors for invalid reference lists/null references.
+- [x] Format mailbox prompts with exact sender/host lines, body whitespace, fallback text and file-reference order/labels.
+- [x] Format shared-channel prompts with trimmed bodies, exact sender/host lines, message separators and action-only handling guidance, including an empty message list.
+- [x] Preserve the existing mailbox UTF-16 carriers and explicit errors for invalid reference lists/null references.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Match frozen `core/runtime-coordination-format.ts` at `4f9e6f8a4`. [Traceability
 
 ## Known gaps (current cycle)
 
-- [ ] Record fresh common-pin differential results.
+None.
 
 ## Out of scope
 
