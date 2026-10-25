@@ -261,7 +261,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
         json!(
             ctx.footer_data
                 .as_ref()
-                .map_or(0, |footer| footer.get_available_provider_count())
+                .map_or(0.0, |footer| footer.get_available_provider_count())
         ),
     );
     footer.insert(

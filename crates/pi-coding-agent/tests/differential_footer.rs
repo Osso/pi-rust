@@ -161,7 +161,7 @@ async fn compare_request(oracle: &mut oracle::TsOracle, mut request: Value) -> O
         .unwrap();
     }
     let provider = Arc::new(FooterDataProvider::new(directory.path().to_str().unwrap()));
-    provider.set_available_provider_count(request["providerCount"].as_u64().unwrap() as usize);
+    provider.set_available_provider_count(request["providerCount"].as_f64().unwrap());
     for pair in request["statuses"].as_array().unwrap() {
         provider.set_extension_status(
             &raw(&pair[0]),

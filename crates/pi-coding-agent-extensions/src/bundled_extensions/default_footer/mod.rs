@@ -230,7 +230,7 @@ fn format_right_side(input: &DefaultFooterComponentInput) -> Result<JsString, Ha
         Some(model) if model.reasoning => js_format!(" • effort {}", session.thinking_level),
         _ => JsString::default(),
     };
-    if input.footer_data.get_available_provider_count() > 1 && session.model.is_some() {
+    if input.footer_data.get_available_provider_count() > 1.0 && session.model.is_some() {
         let provider = session
             .model
             .as_ref()

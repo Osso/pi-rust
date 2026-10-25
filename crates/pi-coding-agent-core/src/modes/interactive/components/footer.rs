@@ -277,7 +277,7 @@ impl FooterComponent {
         }
 
         let mut right_side = right_side_without_provider.clone();
-        if self.footer_data.get_available_provider_count() > 1
+        if self.footer_data.get_available_provider_count() > 1.0
             && let Some(model) = &displayed_model
         {
             right_side = js_format!("({}) {}", model.provider, right_side_without_provider);

@@ -366,8 +366,8 @@ async fn tracks_extension_statuses_and_provider_count() {
     provider.clear_extension_statuses();
     assert!(provider.get_extension_statuses().unwrap().is_empty());
 
-    provider.set_available_provider_count(3);
-    assert_eq!(provider.get_available_provider_count(), 3);
+    provider.set_available_provider_count(3.0);
+    assert_eq!(provider.get_available_provider_count(), 3.0);
     provider.dispose();
     fs::remove_dir_all(temp).unwrap();
 }

@@ -9,7 +9,7 @@ use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve};
 use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -259,7 +259,7 @@ struct FooterState {
     git_paths: Mutex<Option<GitPaths>>,
     branch_change_callbacks: Mutex<Vec<BranchChangeCallback>>,
     next_callback_id: AtomicUsize,
-    available_provider_count: AtomicUsize,
+    available_provider_count: AtomicU64,
     refresh_timer: Mutex<Option<JoinHandle<()>>>,
     git_watcher_retry_timer: Mutex<Option<JoinHandle<()>>>,
     refresh_in_flight: AtomicBool,
@@ -275,8 +275,16 @@ struct FooterState {
 
 impl FooterState {
     fn notify_branch_change(&self) {
-        let callbacks = lock(&self.branch_change_callbacks).clone();
-        for (_, callback) in callbacks {
+        let mut previous = None;
+        loop {
+            let next = lock(&self.branch_change_callbacks)
+                .iter()
+                .find(|(id, _)| previous.is_none_or(|previous| *id > previous))
+                .cloned();
+            let Some((id, callback)) = next else {
+                return;
+            };
+            previous = Some(id);
             callback();
         }
     }
@@ -342,7 +350,7 @@ impl FooterDataProvider {
             cached_branch: Mutex::new(None),
             branch_change_callbacks: Mutex::new(Vec::new()),
             next_callback_id: AtomicUsize::new(0),
-            available_provider_count: AtomicUsize::new(0),
+            available_provider_count: AtomicU64::new(0.0_f64.to_bits()),
             refresh_timer: Mutex::new(None),
             git_watcher_retry_timer: Mutex::new(None),
             refresh_in_flight: AtomicBool::new(false),
@@ -425,12 +433,14 @@ impl FooterDataProvider {
         lock(&self.state.extension_statuses).clear();
     }
 
-    pub fn get_available_provider_count(&self) -> usize {
-        self.state.available_provider_count.load(Ordering::SeqCst)
+    pub fn get_available_provider_count(&self) -> f64 {
+        f64::from_bits(self.state.available_provider_count.load(Ordering::SeqCst))
     }
 
-    pub fn set_available_provider_count(&self, count: usize) {
-        self.state.available_provider_count.store(count, Ordering::SeqCst);
+    pub fn set_available_provider_count(&self, count: f64) {
+        self.state
+            .available_provider_count
+            .store(count.to_bits(), Ordering::SeqCst);
     }
 
     pub fn set_cwd(&self, cwd: impl Into<JsString>) {

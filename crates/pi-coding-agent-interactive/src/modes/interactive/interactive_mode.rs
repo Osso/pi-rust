@@ -7889,7 +7889,7 @@ impl InteractiveMode {
         let models = self.get_model_candidates()?;
         let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
-            .set_available_provider_count(unique_providers.len());
+            .set_available_provider_count(unique_providers.len() as f64);
         Ok(())
     }
 
