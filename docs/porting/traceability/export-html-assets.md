@@ -1,6 +1,6 @@
 # HTML-export asset modules
 
-Source paths below are relative to `packages/coding-agent/src/core/export-html/` at the [original pin](../source-lock.json). Rust paths are relative to `crates/pi-coding-agent-core/src/core/export_html/templates/`. Full byte arrays compared equal on 2026-10-20 at the [proof-ledger revision](../proven-assets-proof.md).
+Source paths below are relative to `packages/coding-agent/src/core/export-html/` at the [original pin](../source-lock.json). Rust paths are relative to `crates/pi-coding-agent-tools/src/core/export_html/templates/`. Full byte arrays compared equal on 2026-10-20 at the [proof-ledger revision](../proven-assets-proof.md).
 
 | Source = Rust relative path | Bytes | SHA-256 | Inclusion constant |
 |---|---:|---|---|
