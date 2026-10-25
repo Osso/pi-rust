@@ -17885,7 +17885,7 @@ mod ui_tests {
                                 "late settlement must not restore twice"
                             );
                         } else if reject {
-                            assert_eq!(result.take().unwrap().await, Err(JsString::from("async failure")));
+                            assert_eq!(result.take().unwrap().await, Err(CallbackError::new("async failure")));
                             assert!(!mode.ui.has_overlay_entries());
                             assert!(Rc::ptr_eq(&editor, &mode.ui.get_focused_component().unwrap()));
                             assert_eq!(
@@ -17950,7 +17950,7 @@ mod ui_tests {
                         )
                         .unwrap();
                         tokio::task::yield_now().await;
-                        assert_eq!(receive.await.unwrap(), Err(JsString::from("rejected")));
+                        assert_eq!(receive.await.unwrap(), Err(CallbackError::new("rejected")));
                         mode.editor()
                             .borrow_mut()
                             .set_text(&JsString::from("after rejection"))
@@ -18036,7 +18036,7 @@ mod ui_tests {
                         }),
                     );
                     mode.handle_ui_requests().await;
-                    assert_eq!(result.await, Err(JsString::from("fixture constructor failed")));
+                    assert_eq!(result.await, Err(CallbackError::new("fixture constructor failed")));
                     assert!(!mode.ui.has_overlay_entries());
                     assert!(Rc::ptr_eq(&focused, &mode.ui.get_focused_component().unwrap()));
                     assert_eq!(mode.editor().borrow().get_text().unwrap(), "draft 🚀");
