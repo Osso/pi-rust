@@ -26,6 +26,7 @@ The existing `CallbackError` crosses UI and queue boundaries. The exported facto
 - `differential_question_rejections`: seven actual frozen direct-factory/agent-loop histories (raw D800 string, TypeError/code/raw message, null, boolean, number, message-lookalike object, missing-context TypeError). Both native ContextTool text and real native agent-loop result match frozen.
 - Actual behavioral RED: `question-custom-rejection-red.log`; CallbackError interface RED: `question-custom-callback-api-red.log`. A final direct-factory guard audit exposed Error versus frozen TypeError for missing context: `question-missing-context-brand-red.log`; only that owned guard's existing NativeNodeError constructor changes.
 - `question-custom-queue-consumers-green.log`: 15 tests plus explicitly exercised child helper, retaining panel histories, validation/metadata/guards and real durable queue recovery/error boundaries.
+- Consumer verification exposed a pre-existing summarize fixture mismatch on exact parent `4c28cdf4` as well as this branch (`summarize-parent-4c28cdf4-baseline.log`): native faux registration omitted the API explicitly set by oracle `extension-examples-i-session-oracle.ts:11`. Main approved that one fixture field to bind the same static gpt-5.2 API even when only model `other` is registered; no summarize or model-registry production logic changes.
 
 ## Approved gap: rejection value whose own toString throws
 

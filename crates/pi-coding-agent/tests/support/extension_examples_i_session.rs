@@ -237,6 +237,11 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
     };
     let faux = faux_provider(RegisterFauxProviderOptions {
+        api: Some(
+            pi_ai::compat::get_model("openai", "gpt-5.2")
+                .expect("frozen fixture model")
+                .api,
+        ),
         provider: Some("openai".into()),
         models: Some(vec![FauxModelDefinition {
             id: if request["missingModel"] == true {
