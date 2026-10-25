@@ -65,7 +65,9 @@ fn footer_session(input: &DefaultFooterComponentInput) -> Result<FooterSessionOv
     };
     Ok(FooterSessionOverride {
         cwd,
-        session_manager: Some(session_manager),
+        session_manager: Some(crate::core::readonly_session_manager::create_readonly_session_manager(
+            session_manager,
+        )),
         model: input.ctx.model()?,
         thinking_level: input.ctx.get_thinking_level()?.as_str().into(),
         context_usage: input
@@ -162,7 +164,7 @@ fn session_usage(session: &FooterSessionOverride) -> SessionUsage {
     let Some(session_manager) = session.session_manager.as_ref() else {
         return usage;
     };
-    let entries = lock_session_manager(session_manager).get_entries();
+    let entries = session_manager.get_entries();
     for entry in entries {
         let known = entry.known();
         let Some(KnownSessionEntry::Message(message)) = known.as_deref() else {
@@ -228,7 +230,7 @@ fn format_right_side(input: &DefaultFooterComponentInput) -> Result<JsString, Ha
         Some(model) if model.reasoning => js_format!(" • effort {}", session.thinking_level),
         _ => JsString::default(),
     };
-    if input.footer_data.get_available_provider_count() > 1 && session.model.is_some() {
+    if input.footer_data.get_available_provider_count() > 1.0 && session.model.is_some() {
         let provider = session
             .model
             .as_ref()
@@ -269,7 +271,7 @@ fn format_pwd_line(input: &DefaultFooterComponentInput, width: usize) -> Result<
         pwd = js_format!("{} ({})", pwd, branch);
     }
     if let Some(session_manager) = session.session_manager.as_ref()
-        && let Some(session_name) = lock_session_manager(session_manager).get_session_name()
+        && let Some(session_name) = session_manager.get_session_name()
     {
         pwd = js_format!("{} • {}", pwd, session_name);
     }
@@ -320,7 +322,7 @@ pub struct DefaultFooterComponent {
 
 impl DefaultFooterComponent {
     fn new(input: DefaultFooterComponentInput) -> Self {
-        let subscription = input.footer_data.on_branch_change(|| {});
+        let subscription = input.footer_data.on_branch_change(|| Ok(()));
         Self {
             input,
             subscriptions: std::sync::Mutex::new(vec![subscription]),
@@ -388,7 +390,10 @@ fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore
     Arc::new(
         move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
             let tui = footer.tui.clone();
-            let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
+            let unsubscribe = footer.footer_data.on_branch_change(move || {
+                tui.request_render();
+                Ok(())
+            });
             let get_agent_counts = store.clone().map(|store| {
                 let store = Arc::clone(&store);
                 Arc::new(move || Some(count_default_footer_agents(&store)))

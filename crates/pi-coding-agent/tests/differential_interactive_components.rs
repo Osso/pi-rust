@@ -2261,7 +2261,9 @@ fn footer_cases() -> Vec<(Value, Value)> {
         footer.set_auto_compact_enabled(index == 0);
         footer.set_session_override(FooterSessionOverride {
             cwd: JsString::from("/repo"),
-            session_manager: (index == 0).then_some(override_manager),
+            session_manager: (index == 0).then(|| {
+                pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager(override_manager)
+            }),
             model: Some(override_model),
             thinking_level: JsString::from("high"),
             context_usage: percent.map(|percent| ContextUsage {

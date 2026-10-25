@@ -166,7 +166,7 @@ pub fn spawn_process(command: &str, args: &[&str], stdio: ChildStdioOptions) -> 
 /// re-armed on every chunk, so an actively writing descendant keeps us reading
 /// while a quiet inherited handle releases us after the grace elapses.
 pub async fn wait_for_child_process(child: &mut Child) -> io::Result<ProcessOutput> {
-    capture_child_process(child, None, None)
+    capture_child_process(child, None, None, rustix::process::Signal::KILL)
         .await
         .map(|capture| capture.output)
 }
@@ -185,13 +185,14 @@ pub struct CapturedProcessOutput {
 }
 
 /// Shared capture authority; a configured cap applies independently to both streams.
-/// Stop/reap immediately on overflow or abort, retaining only bounded output bytes.
+/// Destroy captured pipes and send `kill_signal` on overflow/abort, retaining bounded bytes.
 pub async fn capture_child_process(
     child: &mut Child,
     max_bytes: Option<usize>,
     signal: Option<&pi_js_compat::abort::AbortSignal>,
+    kill_signal: rustix::process::Signal,
 ) -> io::Result<CapturedProcessOutput> {
-    capture_with_sink(child, max_bytes, signal, OutputSink::Capture).await
+    capture_with_sink(child, max_bytes, signal, kill_signal, OutputSink::Capture).await
 }
 
 /// Wait with the same post-exit idle grace while forwarding bytes without retaining
@@ -200,9 +201,15 @@ pub async fn wait_for_child_process_streaming(
     child: &mut Child,
     on_data: ProcessDataCallback,
 ) -> io::Result<ProcessOutput> {
-    capture_with_sink(child, None, None, OutputSink::Stream(on_data))
-        .await
-        .map(|capture| capture.output)
+    capture_with_sink(
+        child,
+        None,
+        None,
+        rustix::process::Signal::KILL,
+        OutputSink::Stream(on_data),
+    )
+    .await
+    .map(|capture| capture.output)
 }
 
 enum OutputSink {
@@ -214,18 +221,19 @@ async fn capture_with_sink(
     child: &mut Child,
     max_bytes: Option<usize>,
     signal: Option<&pi_js_compat::abort::AbortSignal>,
+    kill_signal: rustix::process::Signal,
     sink: OutputSink,
 ) -> io::Result<CapturedProcessOutput> {
     let (mut receiver, stdout_task, stderr_task) = start_output_readers(child);
     let mut state = WaitState::new(stdout_task.is_none(), stderr_task.is_none(), max_bytes, sink);
     collect_child_events(child, &mut receiver, &mut state, signal).await;
+    abort_reader(stdout_task).await;
+    abort_reader(stderr_task).await;
     let stopped = if (state.stopped.is_some() || state.error.is_some()) && !state.exited {
-        stop_child_process(child, &mut state).await
+        stop_child_process(child, &mut state, kill_signal).await
     } else {
         Ok(())
     };
-    abort_reader(stdout_task);
-    abort_reader(stderr_task);
     while let Ok(event) = receiver.try_recv() {
         state.record_event(Some(event));
     }
@@ -263,11 +271,20 @@ async fn collect_child_events(
     }
 }
 
-async fn stop_child_process(child: &mut Child, state: &mut WaitState) -> io::Result<()> {
+async fn stop_child_process(
+    child: &mut Child,
+    state: &mut WaitState,
+    kill_signal: rustix::process::Signal,
+) -> io::Result<()> {
     let status = match child.try_wait()? {
         Some(status) => status,
         None => {
-            child.kill().await?;
+            if let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) {
+                match rustix::process::kill_process(pid, kill_signal) {
+                    Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
             child.wait().await?
         }
     };
@@ -304,9 +321,14 @@ fn start_output_readers(
     (receiver, stdout_task, stderr_task)
 }
 
-fn abort_reader(task: Option<tokio::task::JoinHandle<()>>) {
+async fn abort_reader(task: Option<tokio::task::JoinHandle<()>>) {
     if let Some(task) = task {
         task.abort();
+        match task.await {
+            Ok(()) => {}
+            Err(error) if error.is_cancelled() => {}
+            Err(error) => std::panic::resume_unwind(error.into_panic()),
+        }
     }
 }
 

@@ -35,7 +35,7 @@ pub struct DetachedJobCleanupResult {
 
 pub struct DetachedJobCleanupOptions<'a> {
     pub artifact_root: JsString,
-    pub now: Option<i64>,
+    pub now: Option<f64>,
     pub on_directory_quarantined: Option<&'a dyn Fn(&JsString)>,
 }
 
@@ -61,7 +61,7 @@ pub fn cleanup_detached_job_artifacts(
         &DetachedArtifactRetentionPolicy {
             max_age: DETACHED_ARTIFACT_MAX_AGE_MS,
             max_bytes: DETACHED_ARTIFACT_MAX_BYTES,
-            now: options.now.unwrap_or_else(now_millis) as f64,
+            now: options.now.unwrap_or_else(now_millis),
         },
     )?;
     delete_selected_artifact_directories(
@@ -75,7 +75,7 @@ pub fn cleanup_detached_job_artifacts(
 pub fn run_detached_job_artifact_cleanup(
     control_db_path: &JsString,
     artifact_root: Option<&JsString>,
-    now: Option<i64>,
+    now: Option<f64>,
 ) -> Result<(), crate::config::ConfigError> {
     // `getAgentDir()` is a JS string: Node decodes the env/home path bytes as UTF-8.
     let artifact_root = match artifact_root {
@@ -101,11 +101,8 @@ pub fn run_detached_job_artifact_cleanup(
     Ok(())
 }
 
-fn now_millis() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .expect("the system clock is after the epoch")
-        .as_millis() as i64
+fn now_millis() -> f64 {
+    pi_js_compat::date::js_now_millis()
 }
 
 fn empty_cleanup_result(reason: &str) -> DetachedJobCleanupResult {

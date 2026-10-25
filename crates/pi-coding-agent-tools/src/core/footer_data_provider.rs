@@ -9,24 +9,48 @@ use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve};
 use indexmap::IndexMap;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::RecommendedWatcher;
 use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use tokio::task::JoinHandle;
 
-use crate::core::session_manager::SessionManager;
-use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, close_watcher, watch_with_error_handler};
+use crate::core::readonly_session_manager::ReadonlySessionManager;
+use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
+
+#[doc(hidden)]
+pub type FooterWatchListener = Box<dyn Fn(WatchEventKind, Option<PathBuf>) + Send>;
+#[doc(hidden)]
+pub type FooterWatchFailure = Arc<dyn Fn() + Send + Sync>;
+#[doc(hidden)]
+pub type FooterWatchHandle = Box<dyn Send>;
+#[doc(hidden)]
+pub type FooterWatchFactory =
+    Arc<dyn Fn(&Path, FooterWatchListener, FooterWatchFailure) -> Option<FooterWatchHandle> + Send + Sync>;
+
+fn watch_system_path(
+    path: &Path,
+    listener: FooterWatchListener,
+    failed: FooterWatchFailure,
+) -> Option<FooterWatchHandle> {
+    watch_with_error_handler(path, listener, move || failed()).map(|watcher| Box::new(watcher) as FooterWatchHandle)
+}
 
 /// Debounce for file-system triggered branch refreshes.
 const WATCH_DEBOUNCE_MS: u64 = 500;
-/// Poll interval for `HEAD` and `reftable/tables.list`.
+
+#[cfg(test)]
+mod tests;
+#[cfg(test)]
+mod tests_refresh;
+#[cfg(test)]
+mod tests_runtime_watch;
+/// Poll interval for WSL Windows-mounted `HEAD` files only.
 const GIT_FILE_POLL_INTERVAL_MS: u64 = 1_000;
 
-type BranchChangeCallback = (usize, Arc<dyn Fn() + Send + Sync>);
+type BranchChangeCallback = (usize, Arc<dyn Fn() -> Result<(), CallbackError> + Send + Sync>);
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -53,7 +77,7 @@ pub struct ContextUsage {
 #[derive(Clone)]
 pub struct FooterSessionOverride {
     pub cwd: JsString,
-    pub session_manager: Option<Arc<Mutex<SessionManager>>>,
+    pub session_manager: Option<ReadonlySessionManager>,
     pub model: Option<Model>,
     pub thinking_level: JsString,
     pub context_usage: Option<ContextUsage>,
@@ -89,50 +113,66 @@ pub trait GitBranchRunner: Send + Sync {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemGitBranchRunner;
 
-impl SystemGitBranchRunner {
-    fn command(repo_dir: &JsString) -> std::process::Command {
-        let mut command = std::process::Command::new("git");
-        command
-            .arg("--no-optional-locks")
-            .arg("symbolic-ref")
-            .arg("--quiet")
-            .arg("--short")
-            .arg("HEAD")
-            .current_dir(encode_node_utf8(repo_dir));
-        command
-    }
+const GIT_BRANCH_ARGS: [&str; 5] = ["--no-optional-locks", "symbolic-ref", "--quiet", "--short", "HEAD"];
+const GIT_MAX_BUFFER_BYTES: usize = 1024 * 1024;
+
+fn decode_git_branch(bytes: &[u8]) -> Option<JsString> {
+    let branch = JsString::from(String::from_utf8_lossy(bytes).as_ref()).trim();
+    (!branch.is_empty()).then_some(branch)
 }
 
 impl GitBranchRunner for SystemGitBranchRunner {
     fn resolve_sync(&self, repo_dir: &JsString) -> Option<JsString> {
-        let output = Self::command(repo_dir).output().ok()?;
-        if !output.status.success() {
+        use crate::utils::child_process::{ChildStdio, ChildStdioOptions, SpawnSyncOptions, spawn_sync};
+        let cwd = encode_node_utf8(repo_dir);
+        let arguments = GIT_BRANCH_ARGS.map(JsString::from);
+        let output = spawn_sync(
+            &"git".into(),
+            &arguments,
+            SpawnSyncOptions {
+                cwd: Some(Path::new(&cwd)),
+                max_buffer: Some(GIT_MAX_BUFFER_BYTES),
+                stdio: ChildStdioOptions {
+                    stdin: ChildStdio::Ignore,
+                    stdout: ChildStdio::Pipe,
+                    stderr: ChildStdio::Ignore,
+                },
+                ..Default::default()
+            },
+        )
+        .ok()?;
+        if output.status != Some(0) {
             return None;
         }
-        let branch = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
-        let branch = branch.trim();
-        (!branch.is_empty()).then(|| branch.to_owned())
+        decode_git_branch(output.stdout.as_deref().expect("successful piped git stdout"))
     }
 
     fn resolve_async(&self, repo_dir: &JsString) -> BoxFuture<'static, Option<JsString>> {
         let repo_dir = repo_dir.clone();
         Box::pin(async move {
-            let output = tokio::process::Command::new("git")
-                .arg("--no-optional-locks")
-                .arg("symbolic-ref")
-                .arg("--quiet")
-                .arg("--short")
-                .arg("HEAD")
+            use std::process::Stdio;
+            let mut child = tokio::process::Command::new("git")
+                .args(GIT_BRANCH_ARGS)
                 .current_dir(encode_node_utf8(&repo_dir))
-                .output()
-                .await
+                .env_clear()
+                .envs(pi_js_compat::process_env::vars())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()
                 .ok()?;
-            if !output.status.success() {
+            let captured = crate::utils::child_process::capture_child_process(
+                &mut child,
+                Some(GIT_MAX_BUFFER_BYTES),
+                None,
+                rustix::process::Signal::TERM,
+            )
+            .await
+            .ok()?;
+            if captured.stopped.is_some() || captured.output.status != Some(0) {
                 return None;
             }
-            let branch = JsString::from(String::from_utf8_lossy(&output.stdout).as_ref());
-            let branch = branch.trim();
-            (!branch.is_empty()).then(|| branch.to_owned())
+            decode_git_branch(&captured.output.stdout)
         })
     }
 }
@@ -161,7 +201,8 @@ pub fn find_git_paths(cwd: &JsString) -> Option<GitPaths> {
                         head_path,
                     });
                 }
-                _ => return None,
+                Ok(_) => {}
+                Err(_) => return None,
             }
         }
         let parent = node_dirname(&dir);
@@ -234,15 +275,22 @@ pub fn resolve_footer_executable_name() -> Option<JsString> {
 
 fn is_wsl_environment() -> bool {
     cfg!(target_os = "linux")
-        && (pi_js_compat::process_env::get("WSL_DISTRO_NAME").is_some()
-            || pi_js_compat::process_env::get("WSL_INTEROP").is_some())
+        && (pi_js_compat::process_env::get("WSL_DISTRO_NAME").is_some_and(|value| !value.is_empty())
+            || pi_js_compat::process_env::get("WSL_INTEROP").is_some_and(|value| !value.is_empty()))
 }
 
 fn is_windows_mounted_repo_path(path: &JsString) -> bool {
     let units = path.units();
-    let prefix_matches = units
-        .get(..5)
-        .is_some_and(|prefix| prefix.iter().copied().eq("/mnt/".encode_utf16()));
+    let prefix_matches = units.get(..5).is_some_and(|prefix| {
+        prefix
+            .iter()
+            .copied()
+            .map(|unit| match unit {
+                65..=90 => unit + 32,
+                _ => unit,
+            })
+            .eq("/mnt/".encode_utf16())
+    });
     let drive_matches = units.get(5).is_some_and(|unit| matches!(unit, 65..=90 | 97..=122));
     prefix_matches && drive_matches && matches!(units.get(6), None | Some(47))
 }
@@ -259,25 +307,34 @@ struct FooterState {
     git_paths: Mutex<Option<GitPaths>>,
     branch_change_callbacks: Mutex<Vec<BranchChangeCallback>>,
     next_callback_id: AtomicUsize,
-    available_provider_count: AtomicUsize,
+    available_provider_count: AtomicU64,
     refresh_timer: Mutex<Option<JoinHandle<()>>>,
     git_watcher_retry_timer: Mutex<Option<JoinHandle<()>>>,
     refresh_in_flight: AtomicBool,
     refresh_pending: AtomicBool,
     disposed: AtomicBool,
     session_override: Mutex<Option<FooterSessionOverride>>,
-    head_watcher: Mutex<Option<RecommendedWatcher>>,
-    reftable_watcher: Mutex<Option<RecommendedWatcher>>,
-    reftable_tables_list_watcher: Mutex<Option<RecommendedWatcher>>,
+    head_watcher: Mutex<Option<FooterWatchHandle>>,
+    reftable_watcher: Mutex<Option<FooterWatchHandle>>,
+    reftable_tables_list_watcher: Mutex<Option<FooterWatchHandle>>,
     poll_timer: Mutex<Option<JoinHandle<()>>>,
     git: Arc<dyn GitBranchRunner>,
+    watch: FooterWatchFactory,
 }
 
 impl FooterState {
-    fn notify_branch_change(&self) {
-        let callbacks = lock(&self.branch_change_callbacks).clone();
-        for (_, callback) in callbacks {
-            callback();
+    fn notify_branch_change(&self) -> Result<(), CallbackError> {
+        let mut previous = None;
+        loop {
+            let next = lock(&self.branch_change_callbacks)
+                .iter()
+                .find(|(id, _)| previous.is_none_or(|previous| *id > previous))
+                .cloned();
+            let Some((id, callback)) = next else {
+                return Ok(());
+            };
+            previous = Some(id);
+            callback()?;
         }
     }
 
@@ -334,6 +391,16 @@ impl FooterDataProvider {
     }
 
     pub fn with_git_runner(cwd: impl Into<JsString>, git: Arc<dyn GitBranchRunner>) -> Self {
+        Self::with_git_and_watch_factory(cwd, git, Arc::new(watch_system_path))
+    }
+
+    /// Footer-only fault injection for runtime watcher failures absent from real inotify probes.
+    #[doc(hidden)]
+    pub fn with_git_and_watch_factory(
+        cwd: impl Into<JsString>,
+        git: Arc<dyn GitBranchRunner>,
+        watch: FooterWatchFactory,
+    ) -> Self {
         let cwd = cwd.into();
         let state = Arc::new(FooterState {
             git_paths: Mutex::new(find_git_paths(&cwd)),
@@ -342,7 +409,7 @@ impl FooterDataProvider {
             cached_branch: Mutex::new(None),
             branch_change_callbacks: Mutex::new(Vec::new()),
             next_callback_id: AtomicUsize::new(0),
-            available_provider_count: AtomicUsize::new(0),
+            available_provider_count: AtomicU64::new(0.0_f64.to_bits()),
             refresh_timer: Mutex::new(None),
             git_watcher_retry_timer: Mutex::new(None),
             refresh_in_flight: AtomicBool::new(false),
@@ -354,6 +421,7 @@ impl FooterDataProvider {
             reftable_tables_list_watcher: Mutex::new(None),
             poll_timer: Mutex::new(None),
             git,
+            watch,
         });
         let provider = Self {
             state,
@@ -388,7 +456,10 @@ impl FooterDataProvider {
     }
 
     /// Subscribes to branch changes; dropping the subscription unsubscribes.
-    pub fn on_branch_change(&self, callback: impl Fn() + Send + Sync + 'static) -> BranchChangeSubscription {
+    pub fn on_branch_change(
+        &self,
+        callback: impl Fn() -> Result<(), CallbackError> + Send + Sync + 'static,
+    ) -> BranchChangeSubscription {
         let id = self.state.next_callback_id.fetch_add(1, Ordering::SeqCst);
         lock(&self.state.branch_change_callbacks).push((id, Arc::new(callback)));
         BranchChangeSubscription {
@@ -425,20 +496,22 @@ impl FooterDataProvider {
         lock(&self.state.extension_statuses).clear();
     }
 
-    pub fn get_available_provider_count(&self) -> usize {
-        self.state.available_provider_count.load(Ordering::SeqCst)
+    pub fn get_available_provider_count(&self) -> f64 {
+        f64::from_bits(self.state.available_provider_count.load(Ordering::SeqCst))
     }
 
-    pub fn set_available_provider_count(&self, count: usize) {
-        self.state.available_provider_count.store(count, Ordering::SeqCst);
+    pub fn set_available_provider_count(&self, count: f64) {
+        self.state
+            .available_provider_count
+            .store(count.to_bits(), Ordering::SeqCst);
     }
 
-    pub fn set_cwd(&self, cwd: impl Into<JsString>) {
+    pub fn set_cwd(&self, cwd: impl Into<JsString>) -> Result<(), CallbackError> {
         let cwd = cwd.into();
         {
             let mut current = lock(&self.state.cwd);
             if *current == cwd {
-                return;
+                return Ok(());
             }
             *current = cwd.clone();
         }
@@ -449,7 +522,7 @@ impl FooterDataProvider {
         *lock(&self.state.cached_branch) = None;
         *lock(&self.state.git_paths) = find_git_paths(&cwd);
         self.setup_git_watcher();
-        self.state.notify_branch_change();
+        self.state.notify_branch_change()
     }
 
     pub fn dispose(&self) {
@@ -474,44 +547,49 @@ impl FooterDataProvider {
         let handle = self.runtime.spawn(async move {
             tokio::time::sleep(Duration::from_millis(WATCH_DEBOUNCE_MS)).await;
             *lock(&provider.state.refresh_timer) = None;
-            provider.refresh_git_branch_async().await;
+            provider
+                .refresh_git_branch_async()
+                .await
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         });
         *timer = Some(handle);
     }
 
-    async fn refresh_git_branch_async(&self) {
+    async fn refresh_git_branch_async(&self) -> Result<(), CallbackError> {
         if self.state.disposed.load(Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         if self.state.refresh_in_flight.swap(true, Ordering::SeqCst) {
             self.state.refresh_pending.store(true, Ordering::SeqCst);
-            return;
+            return Ok(());
         }
-        let next_branch = self.state.resolve_branch_async().await;
-        if self.state.disposed.load(Ordering::SeqCst) {
-            self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-            return;
-        }
-        let previous = lock(&self.state.cached_branch).clone();
-        *lock(&self.state.cached_branch) = Some(next_branch.clone());
+        let result = self.publish_refreshed_branch().await;
         self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-        if let Some(previous) = previous
-            && previous != next_branch
-        {
-            self.state.notify_branch_change();
-        }
-        if self.state.refresh_pending.swap(false, Ordering::SeqCst) && !self.state.disposed.load(Ordering::SeqCst) {
+        if !self.state.disposed.load(Ordering::SeqCst) && self.state.refresh_pending.swap(false, Ordering::SeqCst) {
             self.schedule_refresh();
         }
+        result
+    }
+
+    async fn publish_refreshed_branch(&self) -> Result<(), CallbackError> {
+        let next_branch = self.state.resolve_branch_async().await;
+        if self.state.disposed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let previous = lock(&self.state.cached_branch).replace(next_branch.clone());
+        if previous.is_some_and(|previous| previous != next_branch) {
+            self.state.notify_branch_change()?;
+        }
+        Ok(())
     }
 
     fn clear_git_watchers(&self) {
-        close_watcher(lock(&self.state.head_watcher).take());
-        close_watcher(lock(&self.state.reftable_watcher).take());
-        close_watcher(lock(&self.state.reftable_tables_list_watcher).take());
+        drop(lock(&self.state.head_watcher).take());
         if let Some(timer) = lock(&self.state.poll_timer).take() {
             timer.abort();
         }
+        drop(lock(&self.state.reftable_watcher).take());
+        drop(lock(&self.state.reftable_tables_list_watcher).take());
         if let Some(timer) = lock(&self.state.git_watcher_retry_timer).take() {
             timer.abort();
         }
@@ -541,98 +619,79 @@ impl FooterDataProvider {
             return;
         };
         let poll_git_head = should_poll_git_head(&paths.repo_dir);
-        let head_dir = node_dirname(&paths.head_path);
+        self.watch_head_directory(&paths.head_path);
+        if poll_git_head {
+            self.start_head_polling(paths.head_path.clone());
+        }
+        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
+            return;
+        }
+        self.watch_reftable_paths(&paths.common_git_dir);
+    }
 
-        let head_provider = self.clone();
-        let head_watcher = watch_with_error_handler(
+    fn watcher_error_handler(&self) -> FooterWatchFailure {
+        let provider = self.clone();
+        Arc::new(move || provider.handle_git_watcher_error())
+    }
+
+    fn watch_head_directory(&self, head_path: &JsString) {
+        let head_dir = node_dirname(head_path);
+        let provider = self.clone();
+        let watcher = (self.state.watch)(
             Path::new(&encode_node_utf8(&head_dir)),
-            move |_kind: WatchEventKind, filename: Option<PathBuf>| {
+            Box::new(move |_, filename| {
                 let matches = filename
                     .as_ref()
                     .is_none_or(|path| path.file_name().is_some_and(|name| name == "HEAD"));
                 if matches {
-                    head_provider.schedule_refresh();
+                    provider.schedule_refresh();
                 }
-            },
-            {
-                let provider = self.clone();
-                move || provider.handle_git_watcher_error()
-            },
+            }),
+            self.watcher_error_handler(),
         );
-        *lock(&self.state.head_watcher) = head_watcher;
+        *lock(&self.state.head_watcher) = watcher;
+    }
 
-        let reftable_dir = node_join(&paths.common_git_dir, "reftable");
-        if Path::new(&encode_node_utf8(&reftable_dir)).exists() {
-            let reftable_provider = self.clone();
-            let reftable_watcher = watch_with_error_handler(
-                Path::new(&encode_node_utf8(&reftable_dir)),
-                move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
-                    reftable_provider.schedule_refresh();
-                },
-                {
-                    let provider = self.clone();
-                    move || provider.handle_git_watcher_error()
-                },
-            );
-            *lock(&self.state.reftable_watcher) = reftable_watcher;
+    fn watch_refresh_path(&self, path: &JsString) -> Option<FooterWatchHandle> {
+        let provider = self.clone();
+        (self.state.watch)(
+            Path::new(&encode_node_utf8(path)),
+            Box::new(move |_, _| provider.schedule_refresh()),
+            self.watcher_error_handler(),
+        )
+    }
 
-            let tables_list = node_join(&reftable_dir, "tables.list");
-            if Path::new(&encode_node_utf8(&tables_list)).exists() {
-                let list_provider = self.clone();
-                let list_watcher = watch_with_error_handler(
-                    Path::new(&encode_node_utf8(&tables_list)),
-                    move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
-                        list_provider.schedule_refresh();
-                    },
-                    {
-                        let provider = self.clone();
-                        move || provider.handle_git_watcher_error()
-                    },
-                );
-                *lock(&self.state.reftable_tables_list_watcher) = list_watcher;
-            }
-        }
-
-        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
+    fn watch_reftable_paths(&self, common_git_dir: &JsString) {
+        let directory = node_join(common_git_dir, "reftable");
+        if !Path::new(&encode_node_utf8(&directory)).exists() {
             return;
         }
+        let watcher = self.watch_refresh_path(&directory);
+        *lock(&self.state.reftable_watcher) = watcher;
+        if lock(&self.state.reftable_watcher).is_none() {
+            return;
+        }
+        let tables = node_join(&directory, "tables.list");
+        if Path::new(&encode_node_utf8(&tables)).exists() {
+            let watcher = self.watch_refresh_path(&tables);
+            *lock(&self.state.reftable_tables_list_watcher) = watcher;
+        }
+    }
 
+    fn start_head_polling(&self, head_path: JsString) {
         let provider = self.clone();
-        let poll_tables_list = Path::new(&encode_node_utf8(&node_join(&reftable_dir, "tables.list"))).exists();
-        let poll_head = poll_git_head;
-        let head_path = paths.head_path.clone();
         let handle = self.runtime.spawn(async move {
             let mut head_stamp = file_stamp(&head_path);
-            let mut tables_stamp = file_stamp(&node_join(&reftable_dir, "tables.list"));
             let mut ticker = tokio::time::interval(Duration::from_millis(GIT_FILE_POLL_INTERVAL_MS));
             loop {
                 ticker.tick().await;
                 if provider.state.disposed.load(Ordering::SeqCst) {
                     return;
                 }
-                if poll_head {
-                    let current = file_stamp(&head_path);
-                    if current != head_stamp {
-                        head_stamp = current;
-                        provider.schedule_refresh();
-                    }
-                }
-                if poll_tables_list {
-                    let path = provider
-                        .state
-                        .git_paths
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .as_ref()
-                        .map(|paths| node_join(&paths.common_git_dir, "reftable/tables.list"));
-                    let Some(path) = path else {
-                        continue;
-                    };
-                    let current = file_stamp(&path);
-                    if current != tables_stamp {
-                        tables_stamp = current;
-                        provider.schedule_refresh();
-                    }
+                let current = file_stamp(&head_path);
+                if current != head_stamp {
+                    head_stamp = current;
+                    provider.schedule_refresh();
                 }
             }
         });
@@ -640,21 +699,12 @@ impl FooterDataProvider {
     }
 }
 
-fn file_stamp(path: &JsString) -> Option<(u128, u128, u64)> {
+fn file_stamp(path: &JsString) -> Option<(f64, f64, f64)> {
+    use std::os::unix::fs::MetadataExt;
     let metadata = std::fs::metadata(encode_node_utf8(path)).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
-    let created = metadata
-        .created()
-        .ok()
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos())
-        .unwrap_or(0);
-    Some((modified, created, metadata.len()))
+    let modified_ms = metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0;
+    let changed_ms = metadata.ctime() as f64 * 1000.0 + metadata.ctime_nsec() as f64 / 1_000_000.0;
+    Some((modified_ms, changed_ms, metadata.len() as f64))
 }
 
 /// Unsubscribes a branch-change callback on drop.

@@ -402,7 +402,7 @@ fn cancel_persisted_detached_runtime(
         .map_err(|error| HandlerError::new(error.message()))?;
     match cancelled {
         crate::core::lifecycle_coordinator::LifecycleCommandResult::Ok { agent } => {
-            publish_coordinator_snapshot(store, &agent).map_err(|error| HandlerError::new(error.message()))?;
+            publish_coordinator_snapshot(store, &agent).map_err(HandlerError::from)?;
             Ok(CancelReservedAgentResult::Ok { agent: *agent })
         }
         crate::core::lifecycle_coordinator::LifecycleCommandResult::Err { .. } => Ok(CancelReservedAgentResult::Err {

@@ -21,7 +21,6 @@ use crate::core::extensions::types::{
 };
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions, is_active_lifecycle};
 use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
-use crate::core::sqlite::ControlDbError;
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::WaitingDesktopNotificationHandles;
@@ -232,16 +231,18 @@ pub fn consume_notifications(
     super::wait_runtime::consume_notifications_runtime(store, wake, ctx, &format_agent_status)
 }
 
-pub fn deliver_terminal_outbox_for_store(store: &Arc<MultiAgentStore>) -> Result<u32, ControlDbError> {
+pub fn deliver_terminal_outbox_for_store(
+    store: &Arc<MultiAgentStore>,
+) -> Result<f64, pi_js_compat::callback_error::CallbackError> {
     let Some(persistence) = store.get_persistence_target() else {
-        return Ok(0);
+        return Ok(0.0);
     };
     crate::core::terminal_outbox_delivery::deliver_terminal_outbox_projections(
         &crate::core::terminal_outbox_delivery::DeliverTerminalOutboxOptions {
             artifact_root: None,
             claim_id: pi_ai::utils::random_uuid::random_uuid()?.into(),
             control_db_path: persistence.control_db_path,
-            now: Arc::new(crate::utils::iso_time::now_iso_string),
+            now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),
             store: Arc::clone(store),
         },
     )

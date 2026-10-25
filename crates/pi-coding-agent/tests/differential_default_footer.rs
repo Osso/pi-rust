@@ -148,7 +148,9 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
             .expect("fixture path must be UTF-8"),
         )));
         footer_data.set_available_provider_count(
-            case.get("availableProviderCount").and_then(Value::as_u64).unwrap_or(1) as usize,
+            case.get("availableProviderCount")
+                .and_then(Value::as_f64)
+                .unwrap_or(1.0),
         );
         if let Some(statuses) = case.get("extensionStatuses").and_then(Value::as_object) {
             for (key, text) in statuses {
@@ -198,7 +200,11 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                         .unwrap_or("/tmp/child")
                         .to_owned(),
                 ),
-                session_manager: Some(Arc::new(Mutex::new(override_session))),
+                session_manager: Some(
+                    pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager(Arc::new(
+                        Mutex::new(override_session),
+                    )),
+                ),
                 model: override_model,
                 thinking_level: JsString::from(
                     override_value

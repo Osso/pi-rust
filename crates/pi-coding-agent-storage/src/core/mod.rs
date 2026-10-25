@@ -7,6 +7,7 @@ pub mod host_relay_client;
 pub mod host_relay_store;
 pub mod lifecycle_coordinator;
 pub mod multi_agent_store;
+pub mod readonly_session_manager;
 pub mod resident_session;
 pub mod runtime_coordination_format;
 pub mod runtime_mailbox_acceptance;

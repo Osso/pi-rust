@@ -350,7 +350,11 @@ async fn pwd_line_uses_override_and_restores_main_session() {
 
     fixture.footer_data.set_session_override(FooterSessionOverride {
         cwd: JsString::from("/tmp/child"),
-        session_manager: Some(Arc::clone(&override_session)),
+        session_manager: Some(
+            pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager(Arc::clone(
+                &override_session,
+            )),
+        ),
         model: Some(test_model(true)),
         thinking_level: JsString::from("high"),
         context_usage: Some(pi_coding_agent::core::footer_data_provider::ContextUsage {
