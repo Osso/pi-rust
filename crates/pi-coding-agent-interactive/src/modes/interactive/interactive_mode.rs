@@ -1791,7 +1791,7 @@ pub struct InteractiveModeOptions {
     pub model_fallback_message: Option<JsString>,
     pub auto_trust_on_reload_cwd: Option<JsString>,
     pub initial_message: Option<JsString>,
-    pub initial_images: Vec<ImageContent>,
+    pub initial_images: Option<Vec<ImageContent>>,
     pub initial_messages: Vec<JsString>,
     pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
