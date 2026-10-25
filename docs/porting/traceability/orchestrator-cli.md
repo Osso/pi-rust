@@ -16,3 +16,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 `rpc_stream_only_forwards_complete_jsonl_stdin_lines` additionally compares BOM-padded commands and whitespace-only frames (ECMAScript non-ASCII whitespace set) against the frozen CLI. Replacing JS trim with Rust trim is killed. Negative CLI Unicode frames are not separately proved.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
+
+New native CLI embedding/signal proof: `cli_serve_process::cli_serve_signals_match_frozen` runs the actual frozen CLI and native run_cli in owned subprocesses. It compares startup log bytes and live list IPC, then verifies SIGINT/SIGTERM exit0 and socket removal. Process-global signal work has a standalone target; its only ignored function is the parent-invoked child helper. Execution pending at implementation commit.
