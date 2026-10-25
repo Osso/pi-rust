@@ -97,3 +97,16 @@ Callable-status consumer adaptation (2026-10-24): create_pi_capability_snapshot 
 | ENOSPC, exotic filesystem fault identity and numeric extremes | repository parity policy | gap |
 
 Writer differential: `/tmp/bundled3-pyrun-writer-green.log`.
+
+## Re-pin detached-progress (2026-10-25)
+
+| Frozen symbol / branch | Native proof | Status |
+| --- | --- | --- |
+| `isConsoleProgressUpdate`; console buffering, first stream/stream change; pending/dense threshold of 100 | `pyrun_progress_batches_across_reads_and_flushes_like_frozen` compares snapshots with frozen, including 60+60 records across two reads | done |
+| First pending flush timer; no timer reset on subsequent updates; timed flush | same paused-time differential, sparse and dense cases | done |
+| Non-console, terminal and truncation records flush; last result retained | same status/truncation/result cases | done |
+| `close` cancels timer and discards unreported updates | same close-before-deadline case | done |
+| Observer integration | one accumulator across polls, close on every return; removed old per-read batching | ported; observer regression pending |
+| Callback throw from timer | process-uncaught authority; synchronous consume failures return the error | runtime failure-shape gap under repository policy |
+
+Differential: `/tmp/bundled3-pyrun-progress-green.log`.

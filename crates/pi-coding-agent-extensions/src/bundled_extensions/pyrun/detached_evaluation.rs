@@ -45,7 +45,6 @@ use super::runner::{CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, Pyru
 
 const ARTIFACT_POLL_MS: u64 = 25;
 const ARTIFACT_READ_BYTE_LIMIT: usize = 1_048_576;
-const DENSE_CONSOLE_RECORD_THRESHOLD: usize = 100;
 const FOREGROUND_RUNNER_LIVENESS_POLL_MS: u64 = 3_000;
 
 pub struct DurablePyrunEvaluationInput {
@@ -388,121 +387,6 @@ fn check_foreground_runner_liveness(
     }
     *next_check_at = now + Duration::from_millis(FOREGROUND_RUNNER_LIVENESS_POLL_MS);
     Ok(())
-}
-
-fn has_dense_console_progress(records: &[Value]) -> bool {
-    let mut console_records = 0;
-    for record in records {
-        if record.get("kind").and_then(Value::as_string) != Some(&JsString::from("progress"))
-            || record["update"]["type"]
-                .as_string()
-                .is_none_or(|kind| kind != "console")
-        {
-            continue;
-        }
-        console_records += 1;
-        if console_records >= DENSE_CONSOLE_RECORD_THRESHOLD {
-            return true;
-        }
-    }
-    false
-}
-
-fn consume_artifact_records(
-    records: &[Value],
-    report_progress: &(dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), HandlerError> + Send + Sync),
-) -> Result<Option<CanonicalPyrunEvalResult>, HandlerError> {
-    if has_dense_console_progress(records) {
-        return consume_dense_artifact_records(records, report_progress);
-    }
-    consume_individual_artifact_records(records, report_progress)
-}
-
-fn consume_individual_artifact_records(
-    records: &[Value],
-    report_progress: &(dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), HandlerError> + Send + Sync),
-) -> Result<Option<CanonicalPyrunEvalResult>, HandlerError> {
-    let mut result = None;
-    for record in records {
-        match record.get("kind").and_then(Value::as_string) {
-            Some(kind) if kind == "progress" => {
-                if let Some(update) = record.get("update") {
-                    report_progress(CanonicalPyrunProgressUpdate { raw: update.clone() })?;
-                }
-            }
-            Some(kind) if kind == "result" => {
-                if let Some(value) = record.get("result") {
-                    result = js_json::from_value(value).ok();
-                }
-            }
-            _ => {}
-        }
-    }
-    Ok(result)
-}
-
-fn consume_dense_artifact_records(
-    records: &[Value],
-    report_progress: &(dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), HandlerError> + Send + Sync),
-) -> Result<Option<CanonicalPyrunEvalResult>, HandlerError> {
-    struct Batch {
-        update: Option<CanonicalPyrunProgressUpdate>,
-        text: Vec<JsString>,
-    }
-    fn flush(
-        batch: &mut Batch,
-        report_progress: &(dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), HandlerError> + Send + Sync),
-    ) -> Result<(), HandlerError> {
-        if let Some(update) = batch.update.take() {
-            report_progress(update.with_text(JsString::join(batch.text.iter(), "")))?;
-        }
-        batch.text.clear();
-        Ok(())
-    }
-    let mut batch = Batch {
-        update: None,
-        text: Vec::new(),
-    };
-    let mut result = None;
-    for record in records {
-        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("progress")) {
-            let Some(update) = record.get("update") else {
-                continue;
-            };
-            let update = CanonicalPyrunProgressUpdate { raw: update.clone() };
-            if update.message_type() != "console" {
-                flush(&mut batch, report_progress)?;
-                report_progress(update)?;
-                continue;
-            }
-            let Some(text) = update.text() else {
-                flush(&mut batch, report_progress)?;
-                report_progress(update)?;
-                continue;
-            };
-            let stream = update.raw.get("stream").and_then(Value::as_string).cloned();
-            if batch
-                .update
-                .as_ref()
-                .and_then(|existing| existing.raw.get("stream").and_then(Value::as_string))
-                .is_some_and(|existing| Some(existing.to_owned()) != stream)
-            {
-                flush(&mut batch, report_progress)?;
-            }
-            let text = text.to_owned();
-            batch.update = Some(update);
-            batch.text.push(text);
-            continue;
-        }
-        flush(&mut batch, report_progress)?;
-        if record.get("kind").and_then(Value::as_string) == Some(&JsString::from("result"))
-            && let Some(value) = record.get("result")
-        {
-            result = js_json::from_value(value).ok();
-        }
-    }
-    flush(&mut batch, report_progress)?;
-    Ok(result)
 }
 
 fn detached_result(params: &PyrunEvalParams, job_id: &JsString, log_path: &JsString) -> AgentToolResult {
@@ -916,6 +800,7 @@ async fn observe_detachable_pyrun_evaluation(
     let mut result: Option<CanonicalPyrunEvalResult> = None;
     let mut terminal_agent: Option<AgentNode> = None;
     let report_progress = create_pyrun_progress_reporter(input.on_update.clone());
+    let mut progress = super::detached_progress::ArtifactProgressAccumulator::new(report_progress, ARTIFACT_POLL_MS);
     let detach_state = Arc::new(DetachState {
         cwd: input.ctx.cwd().unwrap_or_default(),
         job_id: runner.job_id.clone(),
@@ -951,8 +836,8 @@ async fn observe_detachable_pyrun_evaluation(
                 Some(ARTIFACT_READ_BYTE_LIMIT),
             )
             .map_err(HandlerError::new)?;
-            if let Some(consumed) = consume_artifact_records(&records, report_progress.as_ref())? {
-                result = Some(consumed);
+            if let Some(consumed) = progress.consume(&records)? {
+                result = Some(js_json::from_value(&consumed).map_err(|error| HandlerError::new(error.to_string()))?);
             }
             let ownership = detach_state.ownership();
             if let Some(formatted) =
@@ -1006,6 +891,7 @@ async fn observe_detachable_pyrun_evaluation(
         Ok(format_terminal_agent_error(&input.params, &agent))
     }
     .await;
+    progress.close();
     subscription.unregister();
     loop_result
 }
