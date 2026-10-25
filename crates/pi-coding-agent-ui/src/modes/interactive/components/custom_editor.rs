@@ -173,26 +173,6 @@ fn read_legacy_prompt_history(path: Option<&JsString>) -> Vec<JsString> {
         .collect()
 }
 
-#[cfg(test)]
-mod raw_legacy_history_tests {
-    use super::*;
-
-    #[test]
-    fn legacy_json_import_retains_unmatched_units_and_filters_non_strings() {
-        let directory = tempfile::tempdir().unwrap();
-        let path = JsString::from(directory.path().join("history.json").display().to_string());
-        std::fs::write(encode_node_utf8(&path), r#"["\ud800",42,"\udc00","😀"]"#).unwrap();
-        assert_eq!(
-            read_legacy_prompt_history(Some(&path)),
-            vec![
-                JsString::from_utf16(vec![0xd800]),
-                JsString::from_utf16(vec![0xdc00]),
-                JsString::from("😀"),
-            ]
-        );
-    }
-}
-
 fn as_action_fn(handler: &AppActionHandler) -> Rc<dyn Fn()> {
     let handler = Rc::clone(handler);
     Rc::new(move || {
@@ -386,5 +366,25 @@ impl pi_tui::tui::Focusable for CustomEditor {
 
     fn set_focused(&mut self, focused: bool) {
         pi_tui::tui::Focusable::set_focused(&mut self.editor, focused);
+    }
+}
+
+#[cfg(test)]
+mod raw_legacy_history_tests {
+    use super::*;
+
+    #[test]
+    fn legacy_json_import_retains_unmatched_units_and_filters_non_strings() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = JsString::from(directory.path().join("history.json").display().to_string());
+        std::fs::write(encode_node_utf8(&path), r#"["\ud800",42,"\udc00","😀"]"#).unwrap();
+        assert_eq!(
+            read_legacy_prompt_history(Some(&path)),
+            vec![
+                JsString::from_utf16(vec![0xd800]),
+                JsString::from_utf16(vec![0xdc00]),
+                JsString::from("😀"),
+            ]
+        );
     }
 }
