@@ -262,9 +262,16 @@ fn is_wsl_environment() -> bool {
 
 fn is_windows_mounted_repo_path(path: &JsString) -> bool {
     let units = path.units();
-    let prefix_matches = units
-        .get(..5)
-        .is_some_and(|prefix| prefix.iter().copied().eq("/mnt/".encode_utf16()));
+    let prefix_matches = units.get(..5).is_some_and(|prefix| {
+        prefix
+            .iter()
+            .copied()
+            .map(|unit| match unit {
+                65..=90 => unit + 32,
+                _ => unit,
+            })
+            .eq("/mnt/".encode_utf16())
+    });
     let drive_matches = units.get(5).is_some_and(|unit| matches!(unit, 65..=90 | 97..=122));
     prefix_matches && drive_matches && matches!(units.get(6), None | Some(47))
 }

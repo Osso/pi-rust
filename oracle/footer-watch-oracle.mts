@@ -68,7 +68,8 @@ for await (const line of createInterface({ input: process.stdin })) {
 			| "reftable_fail"
 			| "retry"
 			| "wsl_empty"
-			| "wsl_ctime";
+			| "wsl_ctime"
+			| "wsl_case";
 	};
 	const root = await mkdtemp(join(tmpdir(), "footer-watch-"));
 	const git = join(root, ".git");
@@ -102,7 +103,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 		(Reflect.get(provider, "clearGitWatchers") as () => void).call(provider);
 		if (wsl)
 			(Reflect.get(provider, "gitPaths") as { repoDir: string }).repoDir =
-				"/mnt/Z/repo";
+				operation === "wsl_case" ? "/MNT/Z/repo" : "/mnt/Z/repo";
 		fs.chmodSync(permissionPath, 0o111);
 		(Reflect.get(provider, "setupGitWatcher") as () => void).call(provider);
 	}

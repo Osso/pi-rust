@@ -48,14 +48,18 @@ async fn native_real_watch_scenario(operation: &str) -> JsValue {
     let initial = provider.get_git_branch();
     let wsl = operation.starts_with("wsl_");
     let permission_path = match operation {
-        "head_fail" | "wsl_empty" | "wsl_ctime" => Some(&git_dir),
+        "head_fail" | "wsl_empty" | "wsl_ctime" | "wsl_case" => Some(&git_dir),
         "reftable_fail" => Some(&table),
         _ => None,
     };
     if let Some(path) = permission_path {
         provider.clear_git_watchers();
         if wsl {
-            lock(&provider.state.git_paths).as_mut().unwrap().repo_dir = "/mnt/Z/repo".into();
+            lock(&provider.state.git_paths).as_mut().unwrap().repo_dir = if operation == "wsl_case" {
+                "/MNT/Z/repo".into()
+            } else {
+                "/mnt/Z/repo".into()
+            };
         }
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o111)).unwrap();
         provider.setup_git_watcher();
@@ -106,7 +110,7 @@ fn wsl_head_polling_uses_truthiness_and_ctime_instead_of_birthtime() {
     );
     let mut expected_cases = Vec::new();
     let mut actual_cases = Vec::new();
-    for operation in ["wsl_empty", "wsl_ctime"] {
+    for operation in ["wsl_empty", "wsl_ctime", "wsl_case"] {
         let expected = source.request(&js_json!({"operation":operation}));
         let output_path = root.path().join("wsl.json");
         let output = std::process::Command::new(std::env::current_exe().unwrap())
