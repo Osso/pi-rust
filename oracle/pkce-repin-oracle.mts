@@ -1,6 +1,6 @@
-import { createInterface } from "node:readline";
 import { createRequire, syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 type Request = {
@@ -100,7 +100,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 	} catch (error) {
 		const value =
 			error instanceof Error
-				? { name: error.name, message: error.message, ...error }
+				? Object.assign({ name: error.name, message: error.message }, error)
 				: error;
 		console.log(JSON.stringify({ ok: false, value, calls, effects }));
 	}
