@@ -1,35 +1,48 @@
-# coding-agent paths — native checkpoint
+# Coding-agent paths
 
-Frozen module: `packages/coding-agent/src/utils/paths.ts` at `4f9e6f8a4`. Rust: `utils/paths.rs`. Historical `532f7d12` proofs are not common-pin acceptance.
+Frozen source: `packages/coding-agent/src/utils/paths.ts` at `4f9e6f8a4` (118 lines). Native implementation: `crates/pi-coding-agent-base/src/utils/paths.rs`. [Node file-URL contract](../../specs/node-file-url.md).
 
-| Source capability | Implementation / exact proof | Missing or blocked |
+## Export and branch map
+
+| Frozen source | Native behavior | Current-pin proof |
 |---|---|---|
-| Input trim, Unicode-space replacement, `@`, tilde/home | Native `JsString` input/output/options; 96 source-wrapper outcomes include raw home/path units | Broad prior fixtures need native API migration |
-| Local-prefix classification | Native JS trim and literal prefixes | No whole-platform claim |
-| Resolve, cwd-relative, display-relative | Native POSIX component operations; 2,527 Node POSIX outcomes across scalar/raw segments, dot/parent/trailing/root/backslash cases | Windows path operations unimplemented, not an approved gap |
-| Canonicalize / source catch-and-return-original | Node-style JS realpath walk retains native non-link components; actual filesystem binding alone encodes. Existing replacement-named files and symlink prefixes: four exact frozen comparisons | Wider realpath race/device/pipe/cache cases unproven |
-| `file://` | Actual WHATWG URL boundary consumes USVString; native raw input retained until that constructor | Comprehensive URL error codes/names, Windows drive/UNC behavior unproven |
-| Cloud-sync marking | Native text until actual process argv encoding | Invocation/error behavior not re-proven |
-| `process.cwd()` dependency | Explicit `Result`; shared Node uv_cwd formatting; read-classification process differential compares deleted-CWD error exactly | Windows remains a recorded gap |
+| `PathInputOptions:9–20` | Owned native UTF-16 home; trim/Unicode spaces/one @/default-on tilde options | `paths` options tests; `differential_paths`; `lossless_paths` native-home matrix |
+| `canonicalizePath:28–34` | Real filesystem walk; source catch returns exact original input on any failure | `differential_paths_boundaries::canonical_paths_follow_real_files_symlink_chains_and_source_catch_boundaries`:18 real file/directory/relative/absolute/chained/dangling/cyclic/raw-byte/socket/NUL/empty/root histories; `lossless_paths` four existing replacement-name/symlink histories |
+| `isLocalPath:41–55` | JS trim; exact case-sensitive npm/git/github/http/https/ssh exclusions | `paths`, `differential_paths`, `lossless_paths`; ordinary names, file URLs, uppercase protocols and raw units |
+| `normalizePath:57–79` | Exact order: optional trim, Unicode spaces, one @, eager home lookup when expansion enabled, bare~/slash expansion, literal file:// conversion | `paths`, common-pin `differential_paths`, native-unit `lossless_paths`; HOME-unset and forced NSS failure process proof in `differential_render_home` ([shared home authority](node-os.md)) |
+| `resolvePath:81–85` | Normalize input before default-option base normalization; absolute/relative POSIX resolve | Common-pin `differential_paths`, `lossless_paths` wrapper matrix and Node POSIX matrix; deleted-cwd propagation covered by `differential_read_classification` and `differential_render_home` |
+| `getCwdRelativePath:87–96` | Explicit cwd lookup; resolved cwd/path; reject .., ../ and absolute escape; empty result becomes . | `paths`, `differential_paths`, `lossless_paths`: descendant/same/ancestor/sibling/dot-prefix/raw-unit paths |
+| `formatPathRelativeToCwdOrAbsolute:98–101` | Relative within cwd, otherwise absolute; POSIX slash output | Same common-pin matrices; absolute and relative raw-unit output |
+| `markPathIgnoredByCloudSync:103–118` | Linux setfattr exact argv; ignored stdio and returned spawn errors/status; synchronous validation throws through Result | `differential_paths_boundaries`: actual-source/native NUL TypeError; real private subprocess exit23, missing executable and ENOEXEC. Exact argv/stdin EOF/raw-unit UTF-8 conversion; no child stdout/stderr leakage. Frozen package-manager caller1893 / native `ensure_npm_project` mechanically propagates original native error |
 
-## Q5 shared home-error propagation (2026-10-23)
+## Shared Node file-URL authority
 
-The private home_directory authority returns `Result<JsString, NativeNodeError>`, not panic_any. normalize_path maps failure into its existing PathError; resolve_path propagates it; canonicalize_path retains frozen's explicit catch-and-return-original. Mechanical consumers trust_manager::has_trust_requiring_project_resources and external_session_importer::import_external_session_alias propagate errors through existing Result boundaries. Supplied homeDir still avoids lookup entirely.
+`pi_js_compat::node_url::FileUrl` owns file-host/path states, separators, initial drive roots, encoded dot shortening, leading empty segments, query/fragment separation, URL error serialization and strict UTF-8 percent decoding. The base caller's existing `url::Url` dependency validates/normalizes only the host. It never supplies a pathname. There is no new dependency or alternate pathname route.
 
-`differential_render_home` extends the HOME-unset/forced-getpwuid_r-EIO process proof to tilde normalization/resolution/canonicalization and collapsed read classification, plus real ToolExecutionComponent frames. The native child previously panicked outside renderer catch (render-home-tilde-red.log); the authority no longer panics. Broader NSS errno/return-code mismatch remains [approved](node-os.md).
+`differential_paths_boundaries` compares exact parsed results and error fields with the unchanged frozen module delegating to actual Node:29 fixed URL cases and1,250 adversarial cases (24 hosts ×52 paths +2 raw-unit cases). Cases include localhost normalization, IPv4/IPv6/invalid/Unicode hosts, authorities with credentials/ports/drives, repeated slash/backslash, initial/noninitial colon/bar drives, dot encodings, %3A/%7C round trips, malformed UTF-8/percent escapes, encoded slash precedence, NUL, raw Unicode, query/fragment serialization and USV input errors.
 
-## Removed old-pin exports
+The original url2.5.8 pathname parser removed leading empty segments and used obsolete drive behavior. Two attempted adapters failed new cases and were removed, not retained as fallbacks. Expanded matrix RED also proved Node's encoded-slash `input` is the serialized URL, not the raw input, and nonlocal hosts remain invalid even with a first drive path. Those behaviors are now literal, not altered as source bugs.
 
-Frozen paths has neither `normalizeWindowsShellPath` nor `getFileRevision`. Shell-drive conversion is removed. The revision helper remains crate-private solely for its current model-cache consumer; model-cache source alignment remains separate. Old focused/differential fixtures invoking these exports must be retired/adapted, not treated as new-pin proof.
+## Explicit gaps and exclusions
 
-## Development proof ledger
+| Case | Disposition |
+|---|---|
+| Windows-only tilde/backslash/path/URL branches | Approved platform gap (AGENTS, 2026-10-22). POSIX behavior is proven; no Windows runtime claim. |
+| macOS-only two-xattr invocation branch | Literal port through the same `spawn_sync`, inspected but not executable on Linux. Main approved this platform-proof gap2026-10-24; it does not prevent module-row closure. |
+| Host IDNA verdict differences | Main permits tested differences to be recorded as gaps rather than adding IDNA. None observed in the current matrix. |
+| NSS failure errno/return-code mismatch | Existing approved [node-os gap](node-os.md); success paths exact. |
+| Invalid runtime option/input types | Existing typed-core exclusion. Raw UTF-16 strings remain represented exactly until the actual URL/filesystem/process boundary. |
 
-`tests/lossless_paths.rs` and `oracle/lossless-node-path-oracle.ts` exercise actual source modules/Node functions. The standalone manifest under `/tmp/pi-rust-repin-lossless-content/chalk-standalone/crates/probe` imports the actual Rust file and test target; unchanged mandatory runner, explicit private `PI_TEST_SANDBOX_DIR`, fake/private filesystem only. Logs there:
+`normalizeWindowsShellPath` and `getFileRevision` are absent from the frozen module and absent from the current Rust workspace. No old-only export or revision helper remains. No newly discovered frozen logic bug is changed or silently reclassified.
 
-- `paths-red.log`: scalar-only API compiler RED.
-- `paths-green-attempt.log`: behavioral mismatch for `canonicalizePath("")`; Node resolves cwd before filesystem access.
-- `paths-posix-matrix.log`: two tests, 96 wrapper + 2,527 Node POSIX outcomes.
-- `paths-realpath.log`: behavioral RED, existing raw input replaced before returning realpath.
-- `paths-realpath-green.log`: three tests, including four actual realpath/symlink comparisons. Intermediate compile attempt needed an explicit cache value type.
+## Proof ledger
 
-Standalone output reports unused internal model-revision/helper-method warnings; not suppressed and not a warning-free project gate. Current source/caller integration, broad prior fixtures, readability/final checks and independent verification remain open. This checkpoint is not whole-module or full-port acceptance.
+Logs and exact command/revision scope: `/tmp/pi-rust-repin-core-tools/ledger.md`.
+
+- `paths-boundaries-red.log`: actual-source cloud NUL and leading-slash RED before fixes.
+- `paths-url-adversarial-first.log`:41 exact mismatches/1,202 cases before native-host/error-input corrections. Earlier adapter logs are RED, not proof of success.
+- `paths-process-filesystem-green.log` at `f876fd91`:5 tests plus the ignored subprocess helper invoked explicitly three times; all URL/real-filesystem/cloud boundaries above.
+- `paths-retained-matrices.log` at `f876fd91`:15 tests across `paths`, `differential_paths`, `lossless_paths`, including96 native wrapper outcomes,5,832 Node POSIX helper outcomes and four existing raw-unit realpaths. Old standalone/historical-pin logs are not acceptance evidence.
+- `paths-final-runtime.log` at `45e435e2`:16 tests GREEN plus the child helper invoked explicitly three times after fixture type/lint corrections; `paths-final-boundaries.log` at `e88cb5a2` revalidates the segment-update readability extraction. Earlier retained algorithm proofs intersecting this extraction are backed by the final adversarial path matrix; no redundant broad runtime rerun.
+- `paths-workspace-summary.json` at `45e435e2`: required workspace/all-targets/keep-going check exits0, zero errors/warnings, successful build-finished. `paths-final-clippy-summary.json`: four-package warning-mode all-target/all-feature lint plus the two corrected fixture targets yield zero changed-primary findings. There are1,197 prior global diagnostics and four untouched `paths.rs` borrow findings, not a clean project lint baseline.
+- Protected unmodified common-reference strict fixture compiler0 (`paths-oracle-types-green.log`), new oracle Biome0 (`paths-oracle-biome.log`). Initial two duplicate-property TS2783 diagnostics fixed with equivalent Object.assign, never suppressed. Manual changed-line Rust/TS readability audit is clean: segment updates extracted, native error paths explicit, no nesting beyond two levels in new production helpers. No metrics binary available. Fmt checked before each commit; inventory counts remain locked and final status is recorded in the ledger.

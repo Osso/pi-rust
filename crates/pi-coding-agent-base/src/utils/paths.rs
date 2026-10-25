@@ -1,4 +1,3 @@
-use percent_encoding::percent_decode_str;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::node_error::NativeNodeError;
 
@@ -217,30 +216,44 @@ pub fn format_path_relative_to_cwd_or_absolute(
 }
 
 /// The actual argv binding, rather than the normalization functions, encodes text.
-pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
+pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) -> Result<(), Box<NativeNodeError>> {
+    use super::child_process::{ChildStdio, ChildStdioOptions, SpawnSyncOptions, spawn_sync};
+    let options = || SpawnSyncOptions {
+        stdio: ChildStdioOptions {
+            stdin: ChildStdio::Ignore,
+            stdout: ChildStdio::Ignore,
+            stderr: ChildStdio::Ignore,
+        },
+        ..Default::default()
+    };
     let path = path.into();
     #[cfg(target_os = "macos")]
     for attribute in ["com.dropbox.ignored", "com.apple.fileprovider.ignore#P"] {
-        let _ = std::process::Command::new("xattr")
-            .args(["-w", attribute, "1", &encode_node_utf8(&path)])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        spawn_sync(
+            &"xattr".into(),
+            &["-w".into(), attribute.into(), "1".into(), path.clone()],
+            options(),
+        )?;
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("setfattr")
-            .args(["-n", "user.com.dropbox.ignored", "-v", "1", &encode_node_utf8(&path)])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        spawn_sync(
+            &"setfattr".into(),
+            &[
+                "-n".into(),
+                "user.com.dropbox.ignored".into(),
+                "-v".into(),
+                "1".into(),
+                path,
+            ],
+            options(),
+        )?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        let _ = path;
+        let _ = (path, options);
     }
+    Ok(())
 }
 
 pub fn process_cwd() -> Result<JsString, PathError> {
@@ -388,71 +401,19 @@ pub fn home_directory() -> Result<JsString, NativeNodeError> {
 }
 
 fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
-    // WHATWG URL consumes a USVString; the diagnostic's input remains the original string.
-    let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| {
+    let file = pi_js_compat::node_url::FileUrl::parse(value);
+    // Existing IDNA/host validation only. This parser never owns the pathname.
+    let host_url = format!("file://{}/", file.host());
+    let url = url::Url::parse(&host_url).map_err(|_| {
         PathError::from(
             NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, "Invalid URL")
                 .with_property("code", pi_js_compat::js_json::JsValue::String("ERR_INVALID_URL".into()))
-                .with_property("input", pi_js_compat::js_json::JsValue::String(value.clone())),
+                .with_property(
+                    "input",
+                    pi_js_compat::js_json::JsValue::String(encode_node_utf8(value).into()),
+                ),
         )
     })?;
-    if url.scheme() != "file" {
-        return Err(file_url_type_error("The URL must be of scheme file", "ERR_INVALID_URL_SCHEME").into());
-    }
-    if !cfg!(windows) && !matches!(url.host_str(), None | Some("" | "localhost")) {
-        return Err(file_url_type_error(
-            format!(
-                "File URL host must be \"localhost\" or empty on {}",
-                std::env::consts::OS
-            ),
-            "ERR_INVALID_FILE_URL_HOST",
-        )
-        .into());
-    }
-    decode_file_url_path(url.path(), value)
-}
-
-fn decode_file_url_path(encoded: &str, input: &JsString) -> Result<JsString, PathError> {
-    if encoded.contains("%2F") || encoded.contains("%2f") {
-        return Err(file_url_type_error(
-            "File URL path must not include encoded / characters",
-            "ERR_INVALID_FILE_URL_PATH",
-        )
-        .with_property("input", pi_js_compat::js_json::JsValue::String(input.clone()))
-        .into());
-    }
-    let malformed = || {
-        PathError::from(NativeNodeError::from_constructor(
-            pi_js_compat::node_error::NativeErrorClass::URIError,
-            "URI malformed",
-        ))
-    };
-    if !has_valid_percent_sequences(encoded) {
-        return Err(malformed());
-    }
-    let decoded = percent_decode_str(encoded).decode_utf8().map_err(|_| malformed())?;
-    Ok(decoded.as_ref().into())
-}
-
-fn file_url_type_error(message: impl Into<JsString>, code: &str) -> NativeNodeError {
-    NativeNodeError::from_node_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, code, message)
-}
-
-fn has_valid_percent_sequences(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            if index + 2 >= bytes.len()
-                || !bytes[index + 1].is_ascii_hexdigit()
-                || !bytes[index + 2].is_ascii_hexdigit()
-            {
-                return false;
-            }
-            index += 3;
-        } else {
-            index += 1;
-        }
-    }
-    true
+    file.into_posix_path(url.host_str().unwrap_or(""))
+        .map_err(PathError::from)
 }

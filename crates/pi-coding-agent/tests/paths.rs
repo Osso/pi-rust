@@ -195,5 +195,5 @@ fn formats_paths_relative_to_cwd_or_absolute() {
 #[test]
 fn cloud_sync_marking_is_best_effort() {
     let dir = TempDir::new().expect("temp dir");
-    pi_coding_agent::utils::paths::mark_path_ignored_by_cloud_sync(&text(dir.path()));
+    pi_coding_agent::utils::paths::mark_path_ignored_by_cloud_sync(text(dir.path())).unwrap();
 }
