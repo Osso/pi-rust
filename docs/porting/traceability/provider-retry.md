@@ -1,23 +1,18 @@
-# utils/provider-retry traceability
+# Native SDK retry helper
 
-Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+`packages/ai/src/utils/provider-retry.ts` belongs to the retired pin, not common pin4f9e6f8a4. `crates/pi-ai/src/utils/provider_retry.rs` remains a Rust implementation helper for the current OpenAI/Anthropic SDK stand-ins; the retired helper is not the parity authority.
 
-Pinned source: `packages/ai/src/utils/provider-retry.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Current authorities: frozen installed `openai/client.mjs:433–470` and `@anthropic-ai/sdk/client.mjs:377–415`, reached through public SDK requests in `oracle/stainless-retry-oracle.ts`.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `DEFAULT_MAX_RETRY_DELAY_MS` | `60_000`. | `provider_retry::DEFAULT_MAX_RETRY_DELAY_MS`. |
-| `isProviderError` / `ProviderError` | Error with optional numeric `status` and `Headers`. | `ProviderError` + case-insensitive `ProviderErrorHeaders`; non-provider throws use `ProviderRequestError::Other`. `headers_are_case_insensitive`. |
-| `isRetryableProviderError` | `x-should-retry: true/false` wins; absent status retries; 408/409/429/>=500 retry. | `is_retryable_provider_error`; `retries_errors_marked_retryable_even_for_client_statuses`, `does_not_retry_errors_marked_non_retryable`, `retries_statuses_without_an_explicit_retry_header`. |
-| `validateServerRetryDelayMs` | Cap defaults to 60s; `maxRetryDelayMs = 0` disables; over-cap throws `Server requested Ns retry delay (max: Ms). <message>` with ceiling seconds. | `validate_server_retry_delay_ms` + `RetryDelayLimitError`; `rejects_a_provider_requested_delay_above_the_limit`, `allows_disabling_the_delay_cap`, `retry_delay_limit_display_uses_ceiling_seconds`. |
-| `getRetryDelayMs` | `retry-after-ms` parseFloat; `retry-after` parseFloat seconds or `Date.parse`; otherwise `min(0.5 * 2^index, 8) * 1000 * (1 - random * 0.25)`. | `get_retry_delay_ms`, `pi_js_compat::number::parse_float`, `pi_js_compat::date::date_parse`, `random_fraction`; `non_finite_retry_after_values_exceed_the_cap`, `iso_8601_prefixes_parse_as_seconds_like_parse_float`, `exponential_delay_is_capped_at_eight_seconds`, `server_delays_are_validated_against_the_cap`, `honors_http_date_retry_after_headers`; helper values in `crates/pi-js-compat/tests/number.rs` and `date.rs`. |
-| `abortableSleep` | Sleep is interruptible; aborted before or during the delay raises `AbortError` (`Request aborted`). | `abortable_sleep` uses biased `tokio::select!`; `aborts_a_provider_requested_retry_delay`. |
-| `retryProviderRequest` | `maxRetries` defaults to 0; retries only provider errors that are retryable; aborted signal wins over the provider error; each retry is a fresh request. | `retry_provider_request`; `retries_retryable_provider_errors_after_the_server_delay`, `defaults_to_zero_retries`, `does_not_retry_non_provider_errors`, `retry_future_is_send`. |
+| Branch | Current proof |
+|---|---|
+| x-should-retry override, absent status,408/409/429/>=500; fresh request/attempt count | existing native retry tests and whole provider request matrices |
+| retry-after-ms parsed first; truthy retry-after replaces an absent or zero millisecond hint | new actual OpenAI and Anthropic public API calls both schedule200ms for headers0 and0.2 seconds; native public retry operation must really wait at least180ms and perform exactly two calls |
+| missing hint uses bounded exponential delay/jitter; date header uses current clock | existing native delay/date tests; timing/random scheduling edge cases retain the project runtime boundary |
+| SDK wrappers disable the native helper's old server-delay cap | OpenAI Responses/Completions/Azure/images regressions retained; Anthropic now also ignores source-unused maxRetryDelayMs, proven with2ms hint and caller old cap1ms |
 
-## Exclusions and deviations
+**Correction:** neither current frozen SDK has the older60s hint-selection restriction. No such restriction was added. Their default-delay branch is `timeoutMillis === undefined`; zero can be replaced by the seconds header but does not independently select default jitter.
 
-- `AbortError.message` is `The operation was aborted` because `CancellationToken` has no reason payload; the TypeScript helper uses `Request aborted`. Traceability records this as a cross-module mapping, not a source discrepancy.
-- `Date.parse` accepts HTTP dates and ECMAScript ISO 8601. V8 legacy formats (`"Jan 1 2999"`, `"1/1/2020"`) and HTTP dates before 1970 are not supported. Zone-less ISO date-times use the process-local zone, matching V8.
-- Non-finite `retry-after` values: `parseFloat("Infinity")` is `Infinity`, so the default 60s cap rejects the delay like the source; with the cap disabled the Tokio duration conversion fails and the sleep is zero.
-- Random jitter is drawn from `getrandom`; deterministic tests assert the 25% jitter band and capped base.
-- No differential oracle: timers, wall clock, randomness, and abort scheduling require a JS event loop.
+The native helper still exposes its internal optional cap for existing Rust callers; it is not forwarded as an OpenAI/Anthropic SDK option. Platform timing, entropy failure, pathological headers/numeric extremes and Node timer interleavings retain the project gap boundary. Existing reason-bearing signals are unchanged; no CancellationToken exception applies.
+
+Proof: `differential_stainless_retry::zero_millisecond_hint_uses_seconds_header_like_both_actual_sdks`, affected full source-provider renewal, [lane ledger](../ai-api-repin-proof.md). The source fixture schedules request timeouts normally and fast-forwards only observed retry timers. A3s request watchdog and immediate fatal exit bound the fixture; no network is used. An initial wrong SDK export selection caused a fixture startup hang, not behavioral RED; all cargo/Node process groups were cancelled and verified gone before the corrected fixture ran.

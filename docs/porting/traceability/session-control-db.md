@@ -1,5 +1,29 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Empty listener-path assertion (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-listener-path-red.log` omits the public trusted path for an empty registration path while native exposed sessionPath:"". Registration now timestamps only nonempty supplied paths, preserving the original path value in SQLite. Source/native GREEN `/tmp/storage3-control-listener-path-green.log` covers omitted, empty and ordinary absolute paths with real public registration/read APIs. No new carrier or path fallback.
+
+## Public mailbox reference normalization (2026-10-25)
+
+Actual-source complete-wire RED `/tmp/storage3-control-file-refs-red.log` returns path/label references while native leaked original label/path order and unknown reference properties. The existing parse_file_refs/AgentFileReference serializer now supplies only the public projection; RuntimeMailboxMessage retains its existing lossless JsValue carrier. GREEN `/tmp/storage3-control-file-refs-green.log` compares the entire actual-source/native JSON string, including CJK filenames, and proves canonical SQLite bytes remain unchanged. This normalization follows frozen parseFileRefs; raw persistence still preserves its original fields/order.
+
+## Retention-free reads under writer contention (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-read-contention-valid-red.log` holds an owned SQLite BEGIN IMMEDIATE writer across both real-source and native reads. Frozen returns an empty mailbox; native's unconditional cleanup DELETE waits five seconds then fails database-locked. Mailbox/channel cleanup now performs the frozen due-row read before each conditional delete. GREEN `/tmp/storage3-control-read-contention-green.log` reads successfully while the writer remains held. Existing exact-age/invalid-birth differential remains GREEN in `/tmp/storage3-control-read-contention-clock.log`. This is ordinary WAL contention, not an injected OS fault or scheduling-race waiver. The first probe had a fixture-only JsString Display compile error and is not production evidence.
+
+## Retained callback reentrancy (2026-10-25)
+
+Owned-process RED `/tmp/storage3-control-reentrant-red.log` proves frozen nested withControlDb/enqueue returns ID1 while native deadlocks on its non-reentrant connection mutex. Main approved exact parking_lot for RetainedControlDb only; [dependency purpose](../../dependencies.md) and Cargo.lock are tracked. Its ReentrantMutex protects the existing RefCell/optional connection; nested callbacks borrow the same connection, while closing waits for the active-call count to reach zero. GREEN `/tmp/storage3-control-reentrant-green.log` also verifies an outer immediate transaction rolls back a nested public enqueue, leaving exactly the original message to claim. The child is bounded and killed/waited on failure; no unsafe pointer, alternate connection, fallback or production API is added.
+
+## Runtime instance UUID wire format (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-instance-red.log` validates frozen UUIDv4 then finds a native UUIDv7 incarnation in getRuntimeProcessInstanceId output. Generation now uses the existing random_uuid authority; its failures use the existing ControlDbError rather than panicking in the UUIDv7 generator. The public return type is unchanged. Source/native GREEN `/tmp/storage3-control-instance-green.log` checks cached wire equality, exact field order, UUID version/variant and the native live PID; three existing identity/cache tests pass in `/tmp/storage3-control-instance-unit.log`. Random values and process-specific identities are not falsely compared across runtimes.
+
+## Empty-host mailbox wake (2026-10-25)
+
+Actual-source process-boundary RED `/tmp/storage3-mailbox-notify-valid-red.log` receives the frozen SIGUSR2 wake but times out waiting for native enqueue with recipientHost:"". Both enqueue APIs now share the frozen absent/empty/local notification guard. The owned Node child installs its signal handler before registration and carries a recognized entrypoint argument; no provider or external process is used. GREEN `/tmp/storage3-mailbox-notify-green.log` observes real source, native stored-enqueue and native existing-row routing wakes. Retry identity remains under the existing approved empty-host delta.
+
 ## Runtime-registration probe rejection (2026-10-25)
 
 Actual frozen baseline `/tmp/storage3-control-registration-source.log` preserves a coded TypeError from the injected live-process probe before replacement. Native API RED `/tmp/storage3-control-registration-api-red.log` accepted only bool. The existing registration option now returns Result<bool,CallbackError>; the existing ControlDbError source preserves it and aborts before listener/health mutation. The test compares full original error/call count and unchanged listener/health records. Default process probing is unchanged; no new carrier or callback family.

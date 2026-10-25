@@ -24,6 +24,29 @@ function normalize(value: unknown): unknown {
 	return value === undefined ? null : value;
 }
 
+function exerciseRetainedReentry(api: Api, path: string): unknown {
+	const release = api.retainControlDbConnection(path) as () => void;
+	const insertAndFail = () => {
+		api.enqueueIncomingMessage(path, "rollback");
+		throw new Error("nested rollback");
+	};
+	try {
+		const id = api.withControlDb(path, () => api.enqueueIncomingMessage(path, "nested"));
+		try {
+			api.withControlDb(path, (db: unknown) => api.withImmediateTransaction(db, insertAndFail));
+		} catch (error) {
+			if (!(error instanceof Error) || error.message !== "nested rollback") throw error;
+		}
+		return {
+			id,
+			remaining: api.claimLatestIncomingMessage(path),
+			second: normalize(api.claimLatestIncomingMessage(path)),
+		};
+	} finally {
+		release();
+	}
+}
+
 async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
 	if (!sourceRoot) throw new Error("control-db oracle requires the coding-agent src directory");
@@ -36,6 +59,10 @@ async function main(): Promise<void> {
 	};
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "retainedNested") {
+			const [path] = step.args as [string];
+			return exerciseRetainedReentry(api, path);
+		}
 		if (step.op === "registerThrow") {
 			const [path, recipient] = step.args as [string, unknown];
 			let calls = 0;
