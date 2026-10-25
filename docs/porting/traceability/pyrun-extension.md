@@ -160,3 +160,22 @@ with fallible propagation. Actual-frozen prompt/disposal differential is GREEN i
 Mechanical fallout: `crates/pi-coding-agent/src/main.rs` wraps its existing dispatcher
 with no disposer; existing custom-handler and tool-definition tests adapt to the
 explicit native option structures. No handler behavior was changed outside this lane.
+
+## Re-pin inherited process groups
+
+Frozen `runner.ts` adds `inheritedProcessGroupId`: native options now retain it,
+Linux `/proc/<pid>/stat` group lookup uses the final `)` boundary, current process
+is excluded, and disposal/abort signals every inherited group member before the
+runner when no detached group was signalled. Detached runners pass their own PID,
+matching source; control polling is now the frozen one second, not 25 ms.
+`pyrun_dispose_terminates_inherited_process_group_members_like_frozen` creates a
+private process group with a real parent/grandchild and proves both frozen and
+native disposal stop the whole group. RED missing option; GREEN
+`/tmp/bundled3-pyrun-inherited-green2.log`. Cleanup is bounded and group-owned.
+
+Three existing detached-runner cases now run through a dedicated self-spawn child
+in its own process group instead of executing a process-owning runner in the test
+supervisor. They still assert the exact returned terminal revision, not just exit
+success. Four complete fixture option literals gained `inherited_process_group_id: None`.
+Windows taskkill is a platform gap; uncommon signal/proc filesystem fault identity
+and races follow the repository runtime-fault gap policy.

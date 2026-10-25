@@ -189,6 +189,7 @@ fn create_executor_state(
         detached: None,
         env: Some(wrapped.env.into_iter().collect()),
         inherit_env: Some(false),
+        inherited_process_group_id: None,
     };
     let runner = PyrunRunnerClient::new(runner_options.clone());
     let evaluate = create_pyrun_eval_executor(

@@ -255,3 +255,76 @@ async fn pyrun_custom_prompt_and_handler_disposal_match_frozen() {
     assert_eq!(expected["ok"], json!(true), "{expected:?}");
     assert_eq!(json!(events.lock().unwrap().clone()), expected["output"]);
 }
+
+#[tokio::test]
+async fn pyrun_dispose_terminates_inherited_process_group_members_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::{
+        CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerOptions,
+    };
+    use pi_coding_agent::core::detached_bash_runner::is_process_identity_alive;
+    use pi_coding_agent::core::runtime_process::read_process_identity;
+    use std::os::unix::process::CommandExt;
+    let _environment = ENVIRONMENT.lock().await;
+    process_env::set("PI_PYRUN_RUNNER_ARGS", "[]");
+    let directory = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-pyrun-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    for frozen in [true, false] {
+        let pid_path = directory.path().join("child-pid");
+        let _ = std::fs::remove_file(&pid_path);
+        let script = format!(
+            "import subprocess,sys,time,pathlib\nchild=subprocess.Popen([sys.executable,'-c','import time;time.sleep(30)'])\npathlib.Path({:?}).write_text(str(child.pid))\ntime.sleep(30)",
+            pid_path.to_str().unwrap()
+        );
+        let mut tree = std::process::Command::new("python3")
+            .args(["-c", &script])
+            .process_group(0)
+            .spawn()
+            .unwrap();
+        for _ in 0..100 {
+            if pid_path.exists() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let child_pid = std::fs::read_to_string(&pid_path).unwrap().parse::<u32>().unwrap();
+        let leader_identity = read_process_identity(tree.id()).unwrap();
+        let child_identity = read_process_identity(child_pid).unwrap();
+        let runner_script =
+            "import sys,json\nfor line in sys.stdin:\n print(json.dumps({'type':'completed','value':42}),flush=True)";
+        if frozen {
+            let expected=oracle.request(&json!({"id":1,"cases":[{"params":{"code":"1+1"},"options":{"command":"python3","args":["-u","-c",runner_script],"detached":false,"inheritedProcessGroupId":tree.id()}}]}));
+            assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        } else {
+            let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
+                command: Some("python3".into()),
+                args: Some(vec!["-u".into(), "-c".into(), runner_script.into()]),
+                detached: Some(false),
+                inherited_process_group_id: Some(tree.id()),
+                ..Default::default()
+            });
+            let params: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"1+1"})).unwrap();
+            assert_eq!(
+                runner.evaluate(params, None, None, None).await.unwrap().value,
+                Some(json!(42))
+            );
+            runner.dispose();
+        }
+        for _ in 0..100 {
+            if !is_process_identity_alive(&leader_identity) && !is_process_identity_alive(&child_identity) {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let alive = is_process_identity_alive(&leader_identity) || is_process_identity_alive(&child_identity);
+        let _ = rustix::process::kill_process_group(
+            rustix::process::Pid::from_raw(tree.id() as i32).unwrap(),
+            rustix::process::Signal::KILL,
+        );
+        tree.wait().unwrap();
+        assert!(!alive, "inherited group descendants survived disposal, frozen={frozen}");
+    }
+    process_env::clear();
+}

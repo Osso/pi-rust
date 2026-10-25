@@ -34,7 +34,7 @@ use super::runner::{
 
 pub const DETACHED_PYRUN_RUNNER_MODE: &str = "--internal-detached-pyrun-runner";
 const DETACHED_PYRUN_LAUNCH_VERSION: f64 = 3.0;
-const CONTROL_POLL_MS: u64 = 25;
+const CONTROL_POLL_MS: u64 = 1_000;
 const LAUNCH_MANIFEST_POLL_MS: u64 = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS: u64 = 30_000;
 
@@ -291,6 +291,7 @@ pub async fn run_detached_pyrun_runner(manifest_path: &JsString) -> Result<Optio
         retain_control_db_connection(&manifest.data.control_db_path).map_err(|error| error.message().clone())?;
     let runner_options = PyrunRunnerOptions {
         detached: Some(false),
+        inherited_process_group_id: Some(std::process::id()),
         ..manifest.data.runner_options.clone()
     };
     let runner = PyrunRunnerClient::new(runner_options);

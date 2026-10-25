@@ -63,6 +63,7 @@ fn runner_for(dir: &str) -> PyrunRunnerClient {
         ),
         inherit_env: Some(true),
         detached: Some(false),
+        inherited_process_group_id: None,
     })
 }
 
