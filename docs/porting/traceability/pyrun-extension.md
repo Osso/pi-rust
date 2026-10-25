@@ -146,3 +146,8 @@ and context signal, and durably replies with result/undefined or exact error tex
 Successful DB-backed mailbox dispatch still needs a dedicated end-to-end proof.
 Remaining index audit work: standalone supervisor/active-tool dispatch checks,
 custom tool-definition prompt options and custom handler disposal.
+
+Dispatcher follow-up: eleven frozen/native scenarios prove standalone rejection
+for agents/messages/session-resume, all seven active-tool mappings, and custom
+handler fall-through. RED accepted an unavailable standalone capability; GREEN
+`/tmp/bundled3-pyrun-dispatcher-green.log` rejects it before custom dispatch.

@@ -108,3 +108,72 @@ async fn pyrun_registration_checks_command_without_parsing_args_and_routes_bridg
     );
     process_env::clear();
 }
+
+#[tokio::test]
+async fn pyrun_dispatcher_supervisor_and_active_tool_guards_match_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::{index::create_pyrun_pi_dispatcher, runner::PiRequest};
+    use std::sync::{Arc, Mutex};
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-registration-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/index.ts",
+    );
+    for (standalone, method) in [
+        (true, "agents.list"),
+        (true, "messages.send"),
+        (true, "sessions.resume"),
+        (false, "agents.spawn"),
+        (false, "agents.wait"),
+        (false, "agents.attachSession"),
+        (false, "agents.list"),
+        (false, "agents.current"),
+        (false, "agents.select"),
+        (false, "messages.send"),
+        (false, "custom"),
+    ] {
+        let runtime = support::runtime();
+        let api = Arc::new(Mutex::new(None));
+        let capture = api.clone();
+        let extension = support::extension(&runtime, cwd, "dispatcher", move |api| {
+            *capture.lock().unwrap() = Some(api.clone())
+        })
+        .await;
+        let mut runner = ExtensionRunner::new(
+            vec![extension],
+            runtime,
+            cwd,
+            support::session_manager(cwd),
+            support::model_registry().await,
+            None,
+        );
+        let mut context = support::context_actions();
+        context.get_no_supervisor = Some(Arc::new(move || standalone));
+        runner.bind_core(support::actions(), context, None).unwrap();
+        let dispatcher = create_pyrun_pi_dispatcher(
+            &api.lock().unwrap().take().unwrap(),
+            &PyrunExtensionOptions {
+                pi_request_handlers: vec![Arc::new(|_, _, _, _| Box::pin(async { Ok(Some(json!("handled"))) }))],
+                ..Default::default()
+            },
+        );
+        let actual = match dispatcher(
+            PiRequest {
+                method: method.into(),
+                params: json!(null),
+            },
+            runner.create_context(),
+            None,
+            None,
+        )
+        .await
+        {
+            Ok(result) => json!({"result":result}),
+            Err(error) => json!({"error":error.message}),
+        };
+        let expected =
+            oracle.request(&json!({"id":1,"operation":"dispatcher","method":method,"standalone":standalone}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        assert_eq!(actual, expected["output"], "{method}, standalone={standalone}");
+    }
+}

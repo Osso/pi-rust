@@ -709,6 +709,18 @@ async fn dispatch_builtin_pyrun_request(
     }
 }
 
+fn required_agent_bridge_tool(method: &JsString) -> Option<&'static str> {
+    match method.to_utf8().as_deref() {
+        Ok("agents.spawn") => Some("spawn_agent"),
+        Ok("agents.wait") => Some("wait_agent"),
+        Ok("agents.attachSession") => Some("attach_session_agent"),
+        Ok("agents.list") => Some("list_agents"),
+        Ok("agents.current" | "agents.select") => Some("agent_viewer"),
+        Ok("messages.send") => Some("send_agent_message"),
+        _ => None,
+    }
+}
+
 /// `createPyrunPiDispatcher`.
 pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOptions) -> PyrunPiRequestDispatcher {
     let pi = pi.clone();
@@ -717,11 +729,25 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
         let pi = pi.clone();
         let handlers = handlers.clone();
         Box::pin(async move {
+            let requires_supervisor = request.method.starts_with("agents.")
+                || request.method == "messages.send"
+                || request.method == "sessions.resume";
+            if ctx.no_supervisor()? && requires_supervisor {
+                return Err(HandlerError::new(js_format!(
+                    "Pi API {} is unavailable in standalone worker mode",
+                    request.method
+                )));
+            }
             if let Some(result) =
                 dispatch_builtin_pyrun_request(&request, &pi, &ctx, signal.clone(), active_tool_call_id.as_deref())
                     .await?
             {
                 return Ok(Some(result));
+            }
+            if let Some(required) = required_agent_bridge_tool(&request.method)
+                && !pi.get_active_tools()?.iter().any(|tool| tool == required)
+            {
+                return Err(HandlerError::new(format!("Tool is not active: {required}")));
             }
             for handler in &handlers {
                 let result = handler(
