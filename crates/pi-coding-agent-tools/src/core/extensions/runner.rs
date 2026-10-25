@@ -24,6 +24,10 @@ use crate::core::system_prompt::BuildSystemPromptOptions;
 use super::extension_runtime::ExtensionRuntime;
 use super::types::*;
 
+fn lock_settings(settings: &Mutex<SettingsManager>) -> std::sync::MutexGuard<'_, SettingsManager> {
+    settings.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
 pub(super) fn persist_sandbox_profile(
     manager: &SharedSessionManager,
     settings: &Arc<Mutex<SettingsManager>>,
@@ -39,7 +43,7 @@ pub(super) fn persist_sandbox_profile(
                 "Session sandbox profiles require a persisted session",
             ));
         }
-        lock(settings).set_session_sandbox_profile(profile);
+        lock_settings(settings).set_session_sandbox_profile(profile);
     } else {
         let profile = profile
             .ok_or_else(|| HandlerError::new("Only session sandbox profiles can inherit configured settings"))?;
@@ -48,11 +52,11 @@ pub(super) fn persist_sandbox_profile(
         } else {
             SettingsScope::Project
         };
-        lock(settings)
+        lock_settings(settings)
             .set_sandbox_profile(profile, scope)
             .map_err(CallbackError::from)?;
     }
-    Ok(lock(settings).get_explicit_sandbox_profile())
+    Ok(lock_settings(settings).get_explicit_sandbox_profile())
 }
 
 pub(super) fn update_sandbox_status(
