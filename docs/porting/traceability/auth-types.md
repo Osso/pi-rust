@@ -65,3 +65,7 @@ AuthType was not restored as an auth export. The real interactive login-method d
 ## Separate remaining slices
 
 Whole helper/context/store implementation revalidation is tracked in their own rows. Source-absent OpenRouter/Radius/Kimi/xAI OAuth modules/load overrides/exports and OpenRouter image OAuth advertisement are the explicitly approved next slice, after outside-consumer audit. This interface closure does not claim those modules match frozen. Parent's known-RED external-editor lib test and final milestone verification remain outside this lane's checkpoint.
+
+## OAuth credential property order (2026-10-25)
+
+OAuthCredential adds key_order metadata, captured from native JSON before extracting typed fields. Serialization drains keys in that order and appends newly added fields; values remain canonical typed access/refresh/expires plus extras. `.new` retains its explicit native construction order; Codex assigns the frozen access/refresh/expires/accountId/email order. App storage separately reproduces the frozen type-first spread. This is persistence parity, not a fixed-order deviation. Native interleaved-key round-trip and actual frozen AuthStorage/Codex refresh file-byte proof are in `tests/auth_codex_credential_order.rs` in the app crate.

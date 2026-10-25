@@ -770,6 +770,18 @@ name = "example_working_message_test"
 path = "tests/example_working_message_test.rs"
 
 [[test]]
+name = "bun_entry"
+path = "tests/bun_entry.rs"
+
+[[test]]
+name = "auth_codex_credential_order"
+path = "tests/auth_codex_credential_order.rs"
+
+[[test]]
+name = "differential_model_resolver"
+path = "tests/differential_model_resolver.rs"
+
+[[test]]
 name = "rpc_entry"
 path = "tests/rpc_entry.rs"
 

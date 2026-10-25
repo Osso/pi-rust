@@ -2,13 +2,13 @@
 
 ## Q15c held-lock proof correction
 
-Actual frozen comparison (`q15c-auth-held-lock-source-proof.log`) proves a held lock exhausts ordinary synchronous read retries and yields the best-effort absent snapshot; release restores the credential. The old cross-process test incorrectly expected an asynchronous wait from read. It now compares real frozen withLockAsync and native modify under explicit release-file barriers, retaining credential equality, minimum wait and reverse ELOCKED checks. `q15c-auth-lock-and-runtime-green.log` GREEN6 includes three cross-process cases plus runtime overlay tests. No production lock behavior changed.
+Actual frozen comparison (`q15c-auth-held-lock-source-proof.log`) proves a held lock exhausts ordinary synchronous read retries and yields the best-effort absent snapshot; release restores the credential. The old cross-process test incorrectly expected an asynchronous wait from read. It now compares real frozen withLockAsync and the native async backend directly under explicit release-file barriers, retaining credential equality, minimum wait and reverse ELOCKED checks. `q15c-auth-lock-and-runtime-green.log` GREEN6 includes three cross-process cases plus runtime overlay tests. No production lock behavior changed.
 
 ## Q15c contract migration (2026-10-24)
 
-App CredentialStore modifier failures retain the shared AuthError callback value, not a new Error from `to_string()`; six actual-source cases RED/GREEN (`q15c-auth-store-modifier-rejection-{red,green}.log`).
+Historical adapter modifier-rejection proof (`q15c-auth-store-modifier-rejection-{red,green}.log`) is retired with that old-only API. Replacement cases exercise actual frozen/native InMemoryAuthStorageBackend callback rejection, preserving the raw value and unchanged storage.
 
-Frozen auth-storage backend withLockAsync and GetApiKeyOptions have no operation signal; removed old cancellation parameter/check/select paths. CredentialStore adapter now implements only bare read/modify/delete. Callback rejection carriers remain native. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
+Frozen auth-storage backend withLockAsync and GetApiKeyOptions have no operation signal; removed old cancellation parameter/check/select paths. The old-only CredentialStore adapter is removed in the settings/models lane. Callback rejection carriers remain native. [Current type contract](../../specs/auth-types.md). Historical operation-cancellation proof below is retired, not common-pin parity.
 
 verified: 2026-10-23
 
@@ -71,7 +71,7 @@ Frozen all-sync-fails behavior returns `new` with memory B/disk A. Approved beha
 
 ## Remaining boundaries / retained scaffolding
 
-- Legacy CredentialStore adapters remain separate from the frozen public get/reload API. The unconsumed old-only ReadOnlyAuthStorage and from_storage_at aliases are removed; no alternate read-only validation/coalescing contract is retained. Generic modify has no OAuth rotation rescue.
+- Old-only CredentialStore read/modify/delete, resolving reads, one-off read_stored_credential and its root export are removed. The public get/set/remove/reload and backend lock APIs are the only storage authorities; earlier ReadOnlyAuthStorage/from_storage_at aliases also remain removed.
 - In-memory async callbacks take independent snapshots without an async chain. auth_phase1_lossless compares overlapping public expired refreshes against frozen: both consume A and return new, persisting B. File backend locking is unchanged.
 - Full registry restore/order/error/model-filter and login/callback proofs remain pending. Copilot's old policy fallback still differs from frozen picker-only selection; provider protocol changes were excluded.
 - Node differential proves outbound JSON escapes, form USVString replacement, and header TypeError name/message/code (ERR_INVALID_CHAR) without mutating tokens. CallbackError.code preserves boundary error identity; stored/typed values remain lossless. Nonbuiltin provider response parser revalidation remains separate.
@@ -80,3 +80,17 @@ Frozen all-sync-fails behavior returns `new` with memory B/disk A. Approved beha
 ## Q18 native credential/config flow
 
 Config literal/template values, native env values, command cache and resolver return text use `JsString`. Names are scalar only after ASCII env-name grammar validation; unmatched units are no-match at that single parser site. Command text encodes at spawn/stdin only. Credential storage uses shared `JsValue` serde without scalar projection. Added config/raw credential tests in `raw_error_consumer_components`, **unexecuted** while coding-agent is compiler-blocked. Model registry call adaptation pending.
+
+## Old-only adapter retirement (2026-10-25)
+
+Parent approved deleting the old-only CredentialStore impl and read_stored_credential export. Both this lane and merged parent146eb5622 were searched: only native tests/root re-export consumed them; no production consumer was found. Tests now use actual frozen public get/getApiKey/set/remove, real concurrent synchronous sets, explicit reload snapshots and direct async backend lock callbacks. Reciprocal file-byte, release-barrier/minimum-wait/ELOCKED, private-mode, no-next and raw-rejection assertions are retained at those real boundaries. Creating a public file-backed AuthStorage creates missing auth.json as frozen does; get itself does not add credentials. The old no-create one-off helper contract is removed, not emulated. No production provider/refresh algorithm changed. Focused GREEN follows the deletion commit.
+
+## Provider credential order / Codex email (2026-10-25)
+
+Parent assigned the shared OAuthCredential carrier/order correction and the complete Codex credentialsFromToken idToken/email branch to this lane. RED `/tmp/settings-models-codex-order-red.log` compares actual frozen AuthStorage.getApiKey through the real builtin Codex refresh against native AuthStorage plus the real native Codex refresh with only HTTP/clock injected: file bytes differed (refresh/access instead of access/refresh). A native round-trip also lost interleaved extra positions. Separate RED `/tmp/settings-models-codex-email-red.log` proves dropped email.
+
+The canonical credential now carries only key-order metadata beside its existing typed values/extras, not another raw credential copy. to_js_value preserves captured order and appends newly added properties; Codex constructs access/refresh/expires/accountId/email in frozen order. AuthStorage uses an explicit type-first spread boundary for login, locked refresh and rotation rescue. Direct nonempty email wins; empty direct email falls through to profile.email; undecodable/absent id tokens omit email. Frozen atob byte-string decoding is retained. Actual-source wrapper cases compare full credential JSON and exact complete auth.json bytes, including unrelated records. Focused GREEN follows the commit.
+
+The old lossless rotation fixture hardcoded refresh-before-access even though its provider mutates an access-before-refresh input object in place. With real order preservation that expectation fails. The fixture now runs the matching actual frozen in-place refresh and compares exact returned credential JSON plus entire file bytes; no expected keys/fields/order are normalized or removed. This replaces the unsupported hardcoded order with a stronger source differential.
+
+Current lane GREEN: /tmp/settings-models-auth-adapter-green.log (17 public/reciprocal/backend cases); /tmp/settings-models-codex-order-green.log (7 actual-source wrapper cases + native key-order/email); /tmp/settings-models-auth-carrier-regressions-green.log (4 lossless +3 rotation/rescue cases). Targeted warning-mode clippy passes (`/tmp/settings-models-oauth-order-clippy.log`); no warnings on changed lines. Manual changed Rust/TS readability audit found no in-scope violations.

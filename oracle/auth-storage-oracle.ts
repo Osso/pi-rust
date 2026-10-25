@@ -28,6 +28,34 @@ async function main(): Promise<void> {
 			credentialJson?: string;
 			providerJson?: string;
 		};
+		if (request.op === "rotate-in-place") {
+			oauth.registerOAuthProvider({
+				id: "fake", name: "Synthetic in-place rotation",
+				login: async () => { throw new Error("unused login"); },
+				refreshToken: async (credential: Record<string, unknown>) => {
+					credential.refresh = "B\udfff";
+					credential.access = "new";
+					credential.expires = 4_000_000_000_000;
+					return credential;
+				},
+				getApiKey: (credential: { access: string }) => credential.access,
+			});
+			try {
+				const storage = api.AuthStorage.create(request.authPath);
+				await storage.getApiKey("fake");
+				return { credential: JSON.stringify(storage.get("fake")), file: readFileSync(request.authPath, "utf8") };
+			} finally { oauth.unregisterOAuthProvider("fake"); }
+		}
+		if (request.op === "backend-rejection") {
+			const backend = new api.InMemoryAuthStorageBackend();
+			backend.withLock(() => ({ result: undefined, next: "{}" }));
+			let thrown: unknown;
+			try {
+				await backend.withLockAsync(async () => { throw raw.reason; });
+			} catch (error) { thrown = error; }
+			const after = backend.withLock((current: string) => ({ result: JSON.parse(current) }));
+			return { thrown, after };
+		}
 		if (request.op === "rotation-all-sync-fail") {
 			const calls: string[] = [];
 			let syncs = 0;

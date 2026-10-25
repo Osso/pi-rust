@@ -17,3 +17,9 @@ Frozen `packages/coding-agent/src/cli/list-models.ts`, common pin4f9e6f8a4. Nati
 Proof: q15-list-models-red.log reproduces the cross-field single-token failure. q15-list-models-io-red.log records the missing IO boundary contract before implementation. q15-list-models-green-1.log GREEN2 tests/13 actual-frozen cases. Empty-warning truthiness, single-token search and native UTF-16 are repaired; no source errors or output fields are stripped. No AbortSignal parameter exists in this frozen module; the old traceability claim was stale.
 
 Shared number formatting, collation and Chalk implementations retain their own proof scopes. Targeted clippy/readability and final lane acceptance are not claimed by this checkpoint.
+
+## Whole-module revalidation (2026-10-25)
+
+All111 frozen lines compared: warning before availability failure; empty guidance/search; concatenated fuzzy key; provider/id locale order; UTF-16 widths; token thresholds/formatting; exact writes and flag cells. Added ordinary-redirection color proof: stdout is a regular file while stderr is a real pty. Frozen default Chalk uses stdout color capability, so its warning stays uncolored; native used stderr capability and incorrectly emitted yellow escapes. RED `/tmp/settings-models-list-color-red.log`; native now uses the same stdout color authority, retaining stderr as the warning destination. The pty proof applies only the documented ONLCR console-newline transform to the expected bytes; no ANSI stripping. It reuses the standalone resolver console harness to avoid another binary. No new dependency/API.
+
+Current lane GREEN: /tmp/settings-models-list-models-green.log (13 cases) and /tmp/settings-models-list-color-green.log (real pty). Targeted warning-mode clippy passes (`/tmp/settings-models-oauth-order-clippy.log`); no warnings on changed lines. Manual changed Rust/TS readability audit found no in-scope violations.
