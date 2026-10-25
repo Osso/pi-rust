@@ -4,7 +4,8 @@ mod oracle;
 use std::sync::{Arc, Mutex};
 
 use pi_ai::request::{
-    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, StreamOptions,
+    BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, ProviderRequestOptions, SimpleStreamOptions,
+    StreamOptions,
 };
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
@@ -101,6 +102,10 @@ fn compatibility_request_cases() -> Vec<(&'static str, &'static str)> {
         ("thinking-map-wire-unit", r#"{}"#),
         ("responses-thinking-map-unit", r#"{}"#),
         ("azure-thinking-map-unit", r#"{}"#),
+        ("anthropic-thinking-map-unit", r#"{"forceAdaptiveThinking":true}"#),
+        ("anthropic-thinking-map-empty", r#"{"forceAdaptiveThinking":true}"#),
+        ("anthropic-thinking-map-null", r#"{"forceAdaptiveThinking":true}"#),
+        ("anthropic-thinking-map-custom", r#"{"forceAdaptiveThinking":true}"#),
         ("store-null", r#"{"supportsStore":null}"#),
         ("store-zero", r#"{"supportsStore":0}"#),
         ("store-false", r#"{"supportsStore":false}"#),
@@ -189,21 +194,23 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         };
         let response = response_fixture(api, name != "old-finish-reason");
         let compat = js_json::parse_lossless(raw).unwrap();
-        let reasoning = matches!(
-            name,
-            "developer-null"
-                | "thinking-map-wire-unit"
-                | "responses-thinking-map-unit"
-                | "azure-thinking-map-unit"
-                | "old-chat-template-args"
-                | "old-token-budget"
-                | "kwargs-raw"
-                | "kwargs-string"
-                | "responses-old-reasoning"
-                | "responses-developer-zero"
-                | "anthropic-adaptive-zero"
-                | "anthropic-adaptive-true"
-        );
+        let reasoning = name.contains("thinking-map")
+            || matches!(
+                name,
+                "developer-null"
+                    | "thinking-map-wire-unit"
+                    | "responses-thinking-map-unit"
+                    | "azure-thinking-map-unit"
+                    | "anthropic-thinking-map-unit"
+                    | "old-chat-template-args"
+                    | "old-token-budget"
+                    | "kwargs-raw"
+                    | "kwargs-string"
+                    | "responses-old-reasoning"
+                    | "responses-developer-zero"
+                    | "anthropic-adaptive-zero"
+                    | "anthropic-adaptive-true"
+            );
         let tools=(name.starts_with("responses-") || name.starts_with("anthropic-") || matches!(name,"old-grammar-tools"|"old-deferred-tools"|"strict-zero")).then(||js_json!([{"name":"echo","description":"fixture tool","parameters":{"type":"object","properties":{"value":{"type":"string"}}},"constrainedSampling":{"type":"grammar","variants":{"openai_regex":".*"}}}]));
         let messages = if name.starts_with("anthropic-signature-") {
             js_json!([
@@ -237,7 +244,15 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         };
         let mut definition = js_json!({"id":"fixture-model","reasoning":reasoning,"compat":compat});
         if name.contains("thinking-map") {
-            definition["thinkingLevelMap"] = js_json::parse_lossless(r#"{"high":"\ud800"}"#).unwrap();
+            definition["thinkingLevelMap"] = if name.ends_with("-empty") {
+                js_json!({"high":""})
+            } else if name.ends_with("-null") {
+                js_json!({"high":null})
+            } else if name.ends_with("-custom") {
+                js_json!({"high":"provider-new-effort"})
+            } else {
+                js_json::parse_lossless(r#"{"high":"\ud800"}"#).unwrap()
+            };
         }
         let config = js_json!({"providers":{"local":{
             "api":api,"apiKey":"private-fixture-key","baseUrl":"https://fixture.invalid",
@@ -246,7 +261,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
         let path = directory.path().join(format!("{name}.json"));
         std::fs::write(&path, js_json::stringify_lossless(&config)).unwrap();
         let expected: JsValue =
-            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"api":api,"response":response,"streamOptions":stream_options,"tools":tools,"messages":messages}));
+            oracle.request(&js_json!({"id":name,"operation":"config_request","modelsPath":path.to_str().unwrap(),"api":api,"simple":name.starts_with("anthropic-thinking-map-"),"response":response,"streamOptions":stream_options,"tools":tools,"messages":messages}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         if name.starts_with("max-tokens-") {
             assert_eq!(expected["output"]["errorMessage"], JsValue::Null);
@@ -293,6 +308,17 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
             let mut stream = match api {
                 "openai-responses" => pi_ai::api::openai_responses::stream(model, context, options),
                 "azure-openai-responses" => pi_ai::api::azure_openai_responses::stream(model, context, options),
+                "anthropic-messages" if name.starts_with("anthropic-thinking-map-") => {
+                    pi_ai::api::anthropic_messages::stream_simple(
+                        model,
+                        context,
+                        SimpleStreamOptions {
+                            stream: options,
+                            reasoning: Some(pi_ai::types::ThinkingLevel::High),
+                            ..Default::default()
+                        },
+                    )
+                }
                 "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
                 "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
                 _ => unreachable!("fixture API must be named explicitly"),

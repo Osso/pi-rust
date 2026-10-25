@@ -111,7 +111,7 @@ async function main(): Promise<void> {
 				const api = await import(
 					new URL(`../../../ai/src/api/${request.api}.ts`, source).href
 				);
-				const stream = api.stream(
+				const stream = api[request.simple ? "streamSimple" : "stream"](
 					model,
 					{
 						systemPrompt: "fixture system",
@@ -124,6 +124,7 @@ async function main(): Promise<void> {
 						apiKey: auth.apiKey,
 						headers: auth.headers,
 						maxTokens: 11,
+						...(request.simple ? { reasoning: "high" } : {}),
 						...(request.streamOptions as Record<string, unknown> | undefined),
 					},
 				);
