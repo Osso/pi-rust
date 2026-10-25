@@ -60,6 +60,10 @@ async function main(): Promise<void> {
 		}
 		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "clearAgentActivity") {
+			const [path, sessionPath, agentId, updatedAt] = step.args as [string, string, string, string];
+			return api.updateMultiAgentAgentActivity(path, sessionPath, agentId, undefined, updatedAt);
+		}
 		if (step.op === "archiveCandidates") {
 			const [path, cutoff] = step.args as [string, string];
 			return api.archiveSessionsOlderThan(path, new Date(cutoff));

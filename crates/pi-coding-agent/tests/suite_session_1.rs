@@ -72,6 +72,8 @@ pub mod repin_session_manager;
 pub mod repin_storage_archive;
 #[path = "repin_storage_control_acquisition.rs"]
 pub mod repin_storage_control_acquisition;
+#[path = "repin_storage_control_agent_metadata.rs"]
+pub mod repin_storage_control_agent_metadata;
 #[path = "repin_storage_control_agent_wire.rs"]
 pub mod repin_storage_control_agent_wire;
 #[path = "repin_storage_control_callbacks.rs"]

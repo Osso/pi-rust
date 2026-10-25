@@ -2576,9 +2576,7 @@ pub fn update_multi_agent_agent_activity(
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
-    if let Some(last_activity) = last_activity {
-        metadata.insert("lastActivity".into(), last_activity.clone());
-    }
+    metadata.insert("lastActivity".into(), last_activity.cloned().unwrap_or(JsValue::Null));
     update_multi_agent_agent_metadata(&control_db_path, session_path, agent_id, &metadata, updated_at, None)
 }
 
@@ -2596,13 +2594,13 @@ pub fn update_multi_agent_agent_current_activity(
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
-    if let Some(model) = model {
-        metadata.insert("model".into(), model.clone());
-    }
     metadata.insert(
         "currentActivity".into(),
         current_activity.cloned().unwrap_or(JsValue::Null),
     );
+    if let Some(model) = model {
+        metadata.insert("model".into(), model.clone());
+    }
     update_multi_agent_agent_metadata(
         &control_db_path,
         session_path,

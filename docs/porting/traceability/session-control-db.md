@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Agent metadata clearing and insertion order (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-agent-metadata-red.log` reproduces two ordinary failures: clearing lastActivity retained its previous value, and a combined activity/model update wrote model before currentActivity in canonical JSON. The activity helper now supplies the existing deletion sentinel for None; combined metadata is built in frozen currentActivity-then-model order. Source seeds both DBs; tests compare complete returned values and stored bytes. No new sentinel/carrier or metadata algorithm.
+
 ## Attached acquisition lifecycle and legacy owner guards (2026-10-25)
 
 Actual-source terminal acquisition RED `/tmp/storage3-control-acquisition-red.log` returned invalid_agent for completed agents while native acquired ownership and advanced revision. The reader now propagates parsing failures and rejects non-recoverable lifecycles before ownership mutation, matching frozen ordering. Seven lifecycle states are tested with real registered supervisor processes and complete persisted agent/ownership comparisons.
