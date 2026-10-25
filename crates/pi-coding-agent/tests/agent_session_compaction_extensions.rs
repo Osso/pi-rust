@@ -1057,6 +1057,10 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
 
     let captured = env.captured.lock().expect("captured");
     assert_eq!(captured.compaction.len(), 1, "the cache must not regenerate");
+    assert_eq!(
+        captured.background,
+        ["background_compaction_start", "background_compaction_end"]
+    );
     let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
         compaction_entry(&env.session)
     else {
@@ -1064,6 +1068,46 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     };
     assert_eq!(entry.summary, "background extension summary");
     assert_eq!(entry.from_hook, Some(true));
+}
+
+#[tokio::test]
+async fn cancelled_background_compaction_still_emits_the_final_end_event() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|_| {
+            Some(CompactionEventResult {
+                cancel: Some(true),
+                compaction: None,
+            })
+        })),
+    )
+    .await;
+    env.faux
+        .set_responses(vec![faux_assistant_message("answer", Default::default()).into()]);
+    env.session
+        .prompt(&"x".repeat(320000), Default::default())
+        .await
+        .expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let captured = env.captured.lock().unwrap();
+    assert_eq!(captured.compaction.len(), 1, "one background preflight");
+    assert_eq!(
+        captured.background,
+        ["background_compaction_start", "background_compaction_end"]
+    );
+    assert!(
+        !env.session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+    );
 }
 
 #[path = "support/scripted_registry.rs"]

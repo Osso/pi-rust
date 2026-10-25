@@ -3854,21 +3854,31 @@ impl AgentSession {
     }
 
     async fn generate_background_compaction(&self, token: u64) {
-        let Some((preparation, branch_entries, abort, runner, model)) = lock(&self.inner.background_compaction_cache)
+        let Some(cache) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.token == token)
-            .map(|cache| {
-                (
-                    cache.preparation.clone(),
-                    cache.branch_entries.clone(),
-                    cache.abort.signal(),
-                    cache.runner.clone(),
-                    self.inner.agent.model(),
-                )
-            })
+            .cloned()
         else {
             return;
         };
+        let model = self.inner.agent.model();
+        let runner = cache.runner.clone();
+        let mut start = ExtensionEvent::BackgroundCompactionStart(
+            crate::core::extensions::types::BackgroundCompactionStartEvent {},
+        );
+        runner.emit(&mut start).await;
+        self.generate_background_compaction_inner(cache, model).await;
+        let mut end =
+            ExtensionEvent::BackgroundCompactionEnd(crate::core::extensions::types::BackgroundCompactionEndEvent {});
+        runner.emit(&mut end).await;
+    }
+
+    async fn generate_background_compaction_inner(&self, cache: BackgroundCompactionCache, model: Model) {
+        let token = cache.token;
+        let preparation = cache.preparation;
+        let branch_entries = cache.branch_entries;
+        let abort = cache.abort.signal();
+        let runner = cache.runner;
         let started_at = now_millis();
         let extension_compaction =
             match emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort).await
