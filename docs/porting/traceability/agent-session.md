@@ -442,3 +442,7 @@ Frozen :280–298/:980–986/:5192–5197/:5584–5588/:5617–5629 maps to the 
 ## Reload idle-compaction call site, 2026-10-25
 
 Frozen :5617–5646 emits reload startup/resources but does not call _scheduleIdleCompaction. Native added that call and compacted restored history on reload even when startup had no history/timer. Removed only the extra call; existing armed timers are not cancelled. The existing lifetime test now asserts the exact source result for reload (zero compactions), retains its startup/observer/error/aborted cases, and advances time after yielding so an added timer actually fires in RED. Native RED1/GREEN1; the earlier native-only reload-positive assertion was not source parity evidence.
+
+## Extension send dispatch and failures, 2026-10-25
+
+Frozen :5334–5353/:3907–3952 starts custom/user sends inline and reports rejected sends through the captured runner's runtime error event. Native deferred custom commits in an unpolled spawn and discarded both send results. The adapters now reuse the existing inline poll and report errors with exact runtime path/event/message fields. Native registered-extension RED/GREEN2 covers immediate agent+storage effects and a real before-run callback rejection. The first unknown-slash fixture was invalid because source sendUserMessage disables command handling; it is not rejection evidence. [Spec](../../specs/agent-session-extension-sends.md).
