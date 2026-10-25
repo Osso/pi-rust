@@ -27,10 +27,11 @@ Frozen `core/extensions/types.ts`, `core/event-bus.ts:19-23`, and their callers 
 - `tests/fallible_notifications.rs`: Error/code/raw/null UI rejection retention.
 - `tests/differential_event_bus_errors.rs`: actual frozen catch arguments versus native original thrown values.
 - `tests/event_bus.rs`: listener delivery, recovery, request claims and errors.
+- `tests/differential_question_queue.rs`: actual-source/native child history proves original raw notification throw logging, no failed delivery record and FIFO recovery to the captured session.
 
 ## Known gaps (current cycle)
 
-- Full consumer compile, local-catch behavioral regressions, queued-notify-throw runtime proof and final gates remain pending. This is not a whole-question-tool completion claim.
+- Workspace all-target compile is clean (0 errors/warnings); local-catch consumer regressions and remaining final gates are pending. This is not a whole-question-tool completion claim.
 
 ## Out of scope
 

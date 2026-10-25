@@ -24,6 +24,7 @@ struct Ui {
     pending: Mutex<Vec<Option<PanelSender>>>,
     notifications: Mutex<Vec<JsValue>>,
     entered: Notify,
+    notify_error: Option<pi_js_compat::callback_error::CallbackError>,
 }
 impl Ui {
     async fn wait_panels(&self, count: usize) {
@@ -70,8 +71,121 @@ impl ExtensionUiContext for Ui {
             .lock()
             .unwrap()
             .push(json!({"body":body,"kind":kind}));
+        if let Some(error) = &self.notify_error {
+            return Err(error.clone());
+        }
         Ok(())
     }
+}
+
+fn write_queue_session(root: &std::path::Path, name: &str, id: &str) -> JsString {
+    let path = root.join(name);
+    let header = json!({"type":"session","version":3,"id":id,"timestamp":"2026-10-24T00:00:00.000Z","cwd":"/repo"});
+    std::fs::write(&path, format!("{}\n", js_json::stringify_lossless(&header))).unwrap();
+    pi_js_compat::node_fs::decode_node_path(path.as_os_str())
+}
+
+#[test]
+fn queued_notification_throw_reaches_the_outer_catch_without_enqueuing_its_failure_body() {
+    let root = tempfile::tempdir().unwrap();
+    let first = write_queue_session(root.path(), "first.jsonl", "initial-session");
+    let second = write_queue_session(root.path(), "second.jsonl", "next-session");
+    let raw = JsString::from_utf16(vec![0xd800]);
+    let question = JsString::from("Question-") + &raw;
+    let mut answers = pi_js_compat::js_json::JsObject::new();
+    answers.insert(question.clone(), JsValue::String(JsString::from("answer-") + &raw));
+    let mut request = json!({"id":1,"db":pi_js_compat::node_fs::decode_node_path(root.path().join("source.sqlite").as_os_str()),"sessionFile":first,"nextSessionFile":second,"question":question,"metadata":{"raw":raw},"reason":raw,"notifyError":JsString::from_utf16(vec![0xdfff]),"answer":{"answers":JsValue::Object(answers),"cancelled":false}});
+    let mut oracle = oracle::TsOracle::spawn(
+        "question-notify-throw-oracle.ts",
+        "packages/coding-agent/src/core/tools/ask-questions.ts",
+    );
+    let expected = oracle.request(&request);
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(expected["output"]["beforeSecondCount"], json!(0));
+    request["db"] = json!(pi_js_compat::node_fs::decode_node_path(
+        root.path().join("native.sqlite").as_os_str()
+    ));
+    let stderr = root.path().join("native.stderr");
+    request["stderrPath"] = json!(pi_js_compat::node_fs::decode_node_path(stderr.as_os_str()));
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "queued_notify_throw_probe", "--ignored", "--nocapture"])
+        .env("PI_NOTIFY_THROW_REQUEST", js_json::stringify_lossless(&request))
+        .stderr(std::fs::File::create(&stderr).unwrap())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", std::fs::read_to_string(&stderr).unwrap());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let record = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("NATIVE_QUEUE_RESULT="))
+        .expect("child queue result");
+    let mut actual = js_json::parse_lossless(record).unwrap();
+    actual["consoleLines"] = json!(std::fs::read_to_string(&stderr).unwrap().lines().collect::<Vec<_>>());
+    assert_eq!(actual, expected["output"]);
+}
+
+#[tokio::test]
+#[ignore = "explicit private child probe capturing the outer delivery catch stderr"]
+async fn queued_notify_throw_probe() {
+    use pi_js_compat::{abort::AbortReason, callback_error::CallbackError};
+    let request =
+        js_json::parse_lossless(&std::env::var("PI_NOTIFY_THROW_REQUEST").expect("private probe request")).unwrap();
+    let path = request["sessionFile"].as_string().unwrap();
+    let manager = Arc::new(Mutex::new(
+        SessionManager::open(path, None, Some(&JsString::from("/repo"))).unwrap(),
+    ));
+    let db = request["db"].as_string().unwrap();
+    list_runtime_mailbox_messages(db).unwrap();
+    let ui = Arc::new(Ui {
+        notify_error: Some(CallbackError::from_rejection(AbortReason::Value(
+            request["notifyError"].clone(),
+        ))),
+        ..Default::default()
+    });
+    let context = tool_context::TestContextBuilder::new("/repo", manager.clone())
+        .mode(ExtensionMode::Tui)
+        .ui(ui.clone())
+        .control_db_path(db.clone())
+        .build()
+        .await
+        .1;
+    let params =
+        json!({"blocking":false,"questions":[{"question":request["question"]}],"metadata":request["metadata"]});
+    let mut queued = Vec::new();
+    for id in ["one", "two"] {
+        queued.push(
+            AskQuestionsTool::new()
+                .execute(id.into(), params.clone(), None, None, Some(context.clone()), None)
+                .await
+                .unwrap(),
+        );
+    }
+    ui.wait_panels(1).await;
+    manager
+        .lock()
+        .unwrap()
+        .set_session_file(request["nextSessionFile"].as_string().unwrap())
+        .unwrap();
+    ui.settle(0, Err(request["reason"].as_string().unwrap().clone()));
+    ui.wait_panels(2).await;
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if std::fs::read_to_string(request["stderrPath"].as_string().unwrap().to_utf8().unwrap())
+                .unwrap()
+                .contains("Failed question delivery handler (request one):")
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        }
+    })
+    .await
+    .expect("outer delivery catch log");
+    let before = list_runtime_mailbox_messages(db).unwrap().len();
+    ui.settle(1, Ok(request["answer"].clone()));
+    let messages=wait_messages(db,1).await.into_iter().map(|message|json!({"id":message.id,"recipient":message.recipient,"sender":message.sender,"kind":message.kind,"body":message.body,"storeRef":message.store_ref,"status":message.status})).collect::<Vec<_>>();
+    let actual = json!({"queued":queued,"notifications":ui.notifications.lock().unwrap().clone(),"entered":ui.pending.lock().unwrap().len(),"beforeSecondCount":before,"messages":messages});
+    println!("NATIVE_QUEUE_RESULT={}", js_json::stringify_lossless(&actual));
 }
 
 async fn wait_notifications(ui: &Ui) -> Vec<JsValue> {
