@@ -1429,9 +1429,14 @@ async fn context_members_read_live_runner_state() {
     assert_eq!(ctx.cwd().unwrap(), "/tmp/moved");
     assert_eq!(ctx.mode().unwrap(), ExtensionMode::Json);
     assert!(!ctx.has_ui().unwrap());
-    assert_eq!(ctx.model().unwrap().unwrap().id, "model-a");
+    // Frozen createContext captures getModel, unlike its other live callback members.
+    assert!(ctx.model().unwrap().is_none());
     assert_eq!(command.cwd().unwrap(), "/tmp/moved");
-    assert_eq!(command.model().unwrap().unwrap().id, "model-a");
+    assert!(command.model().unwrap().is_none());
+    let bound_context = runner.create_context();
+    assert_eq!(bound_context.model().unwrap().unwrap().id, "model-a");
+    *model.lock().unwrap() = Some(test_model("model-b"));
+    assert_eq!(bound_context.model().unwrap().unwrap().id, "model-b");
 }
 
 #[tokio::test]

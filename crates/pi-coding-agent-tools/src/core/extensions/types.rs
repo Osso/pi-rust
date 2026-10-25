@@ -1019,6 +1019,7 @@ pub struct ExtensionContext {
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
+    get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1027,11 +1028,13 @@ pub type ViewedSessionMutationTargetResolver =
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
+        let get_model = Arc::clone(&state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get_model);
         Self {
             tool_execution_started_at: None,
             tool_execution_agent_id: None,
             state,
             system_prompt_override: None,
+            get_model,
             viewed_session_target: None,
         }
     }
@@ -1161,7 +1164,8 @@ impl ExtensionContext {
         if let Some(target) = self.viewed_session_target()? {
             return Ok(target.model());
         }
-        self.callback(|state| Arc::clone(&state.get_model))
+        self.assert_active()?;
+        Ok((self.get_model)())
     }
 
     pub fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>> {

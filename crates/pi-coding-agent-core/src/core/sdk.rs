@@ -14,8 +14,8 @@ use pi_js_compat::js_json::JsString;
 
 use crate::config::get_agent_dir;
 use crate::core::agent_session::{
-    AgentSession, AgentSessionConfig, MultiAgentExecutionCapability, MultiAgentRuntimeRole, ToolDefinition,
-    model_thinking_level, thinking_level_from_model,
+    AgentSession, AgentSessionConfig, MultiAgentExecutionCapability, MultiAgentRuntimeRole,
+    ToolDefinition as AgentToolDefinition, model_thinking_level, thinking_level_from_model,
 };
 use crate::core::auth_guidance::format_no_models_available_message;
 use crate::core::auth_storage::AuthStorage;
@@ -31,6 +31,24 @@ use crate::core::session_manager::{SessionManager, get_default_session_dir};
 use crate::core::settings_manager::SettingsManager;
 use crate::core::tools::DEFAULT_ACTIVE_TOOL_NAMES;
 use crate::utils::paths::{PathInputOptions, node_join, resolve_path};
+
+pub use crate::core::agent_session_runtime::*;
+pub use crate::core::extensions::{
+    ExtensionApi, ExtensionCommandContext, ExtensionContext, ExtensionFactory, SlashCommandInfo, SlashCommandSource,
+    ToolDefinition,
+};
+pub use crate::core::prompt_templates::PromptTemplate;
+pub use crate::core::skills::Skill;
+pub use crate::core::tools::bash::create_bash_tool;
+pub use crate::core::tools::code_index::{create_outline_tool, create_references_tool, create_symbol_tool};
+pub use crate::core::tools::edit::create_edit_tool;
+pub use crate::core::tools::file_mutation_queue::with_file_mutation_queue;
+pub use crate::core::tools::find::create_find_tool;
+pub use crate::core::tools::grep::create_grep_tool;
+pub use crate::core::tools::ls::create_ls_tool;
+pub use crate::core::tools::read::create_read_tool;
+pub use crate::core::tools::write::create_write_tool;
+pub use crate::core::tools::{create_coding_tools, create_read_only_tools};
 
 /// `noTools` option.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -57,7 +75,7 @@ pub struct CreateAgentSessionOptions {
     pub tools: Option<Vec<String>>,
     pub exclude_tools: Option<Vec<String>>,
     pub permission_prompt_tool: Option<String>,
-    pub custom_tools: Vec<ToolDefinition>,
+    pub custom_tools: Vec<AgentToolDefinition>,
     /// Rust carrier for SDK custom definitions executed with the runner context.
     pub custom_tool_definitions: Vec<crate::core::extensions::types::ToolDefinition>,
     /// Override the built-in tool definitions.
