@@ -161,9 +161,14 @@ async function main(): Promise<void> {
 				if (!model) throw new Error("Source fixture model missing");
 				config = { ...(config as Record<string, unknown>), models: [model] };
 			}
+			const updates = request.updates;
+			if (updates !== undefined && !Array.isArray(updates))
+				throw new TypeError("Fixture updates must be an array");
 			let error = null;
 			try {
 				registry.registerProvider(request.provider, config);
+				for (const update of updates ?? [])
+					registry.registerProvider(request.provider, update);
 			} catch (failure) {
 				error = failure instanceof Error ? failure.message : String(failure);
 			}

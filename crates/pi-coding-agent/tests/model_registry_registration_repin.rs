@@ -38,6 +38,8 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
         "model-endpoint",
         "root-reconstruction",
         "empty-model-api",
+        "empty-provider-override",
+        "empty-provider-with-headers",
     ] {
         let mut definition = model_definition();
         match name {
@@ -51,15 +53,23 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
                 definition["unknownRoot"] = js_json!({"extra":"source drops this"});
             }
             "empty-model-api" => definition["api"] = JsValue::String("".into()),
-            "inherit-endpoint" => {}
+            "inherit-endpoint" | "empty-provider-override" | "empty-provider-with-headers" => {}
             _ => unreachable!(),
         }
         let config = js_json!({"api":"openai-completions","baseUrl":"https://provider.invalid","apiKey":"fixture-key","models":[definition]});
+        let update = if name == "empty-provider-override" {
+            Some(js_json!({"baseUrl":""}))
+        } else if name == "empty-provider-with-headers" {
+            Some(js_json!({"baseUrl":"","headers":{}}))
+        } else {
+            None
+        };
+        let updates = update.clone().into_iter().collect::<Vec<_>>();
         let expected: JsValue = oracle
-            .request(&js_json!({"id":name,"operation":"registration_snapshot","provider":PROVIDER,"config":config}));
+            .request(&js_json!({"id":name,"operation":"registration_snapshot","provider":PROVIDER,"config":config,"updates":updates}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
         let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
-        let error = registry
+        let mut error = registry
             .register_provider(
                 PROVIDER,
                 ProviderConfigInput {
@@ -76,6 +86,19 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
             )
             .err()
             .map(|error| error.message().clone());
+        if update.is_some() && error.is_none() {
+            error = registry
+                .register_provider(
+                    PROVIDER,
+                    ProviderConfigInput {
+                        base_url: Some("".into()),
+                        headers: (name == "empty-provider-with-headers").then(Default::default),
+                        ..Default::default()
+                    },
+                )
+                .err()
+                .map(|error| error.message().clone());
+        }
         let models = registry
             .get_all()
             .into_iter()

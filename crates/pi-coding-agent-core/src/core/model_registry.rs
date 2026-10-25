@@ -82,7 +82,7 @@ pub struct ProviderModelInput {
 
 impl From<Model> for ProviderModelInput {
     fn from(model: Model) -> Self {
-        // Frozen945-960 copies only these fields, not the input Model's root
+        // Frozen936-950 copies only these fields, not the input Model's root
         // properties, samplingParams or autoCompactionThreshold. No JSON copy.
         Self {
             id: model.id,
@@ -672,7 +672,9 @@ impl ModelRegistry {
                     }
                 }
             }
-        } else if config.base_url.is_some() || config.headers.is_some() {
+        } else if config.base_url.as_ref().is_some_and(|url| !url.is_empty()) || config.headers.is_some() {
+            // Frozen960 gates on truthiness; an empty URL only applies when
+            // a present headers object enters this branch, then966 uses ??.
             for model in &mut state.models {
                 if model.provider == provider {
                     if let Some(url) = &config.base_url {
@@ -685,7 +687,7 @@ impl ModelRegistry {
 }
 
 fn create_registered_model(provider: &str, input: &ProviderModelInput, config: &ProviderConfigInput) -> Model {
-    // Frozen940 uses || for api,943 uses ?? for endpoint,945-960 builds a new
+    // Frozen933 uses || for api,941 uses ?? for endpoint,936-950 builds a new
     // Model rather than cloning the registration input's additional fields.
     let api = input
         .api
