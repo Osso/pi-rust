@@ -1,6 +1,6 @@
 # agents-core traceability
 
-Agent-cap stop: see [successor handoff](../handoff-agents-core.md). Current merged code compiles under the workspace/all-target gate (`/tmp/agents-core-2-merged-check.log`). The final background construction-error UTF-16 fix has a frozen/native RED (`/tmp/agents-core-2-background-utf16-red.log`); its GREEN and final trace cleanup remain pending. Runtime coverage stays partial.
+Successor checkpoint: parent `5f1fa82a8` merged; locked inventory remains 686 rows / 186,679 lines. Background construction-error UTF-16 GREEN: `/tmp/agents-core-3-background-green.log`; 55 focused runtime/viewer/deterministic tests pass (`/tmp/agents-core-3-runtime.log`). Removed the source-absent `parent_agent_journal` module, dispatch journal wrappers/constants and four obsolete journal tests; historical journal maps below are retired, not current proof. The generic failed-message constructor remains an implementation helper for frozen emptyMessage/emptyParentRequest/emptyDirectMessage, not an old-source API contract. Removed a duplicate fixture type property exposed by strict no-emit checking; all three existing agents-core oracles pass with source compiler/type mappings and approved ES2024 target (`/tmp/agents-core-3-oracle-typecheck-green.log`). Workspace/all-target check and formatting pass (`/tmp/agents-core-3-cleanup-check.log`). Runtime remains partial until whole-module trace cleanup and acceptance.
 
 ## Runtime re-pin lane — 2026-10-25
 

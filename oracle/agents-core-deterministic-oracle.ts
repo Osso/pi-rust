@@ -42,7 +42,6 @@ type Case = {
 	message?: string;
 	parentId?: string;
 	params?: unknown;
-	message?: string;
 	prompt?: string;
 	sessionId?: string;
     storeSessionId?: string;
