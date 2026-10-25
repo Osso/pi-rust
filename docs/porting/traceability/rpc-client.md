@@ -1,55 +1,82 @@
 # RPC client traceability
 
-Pinned source: `packages/coding-agent/src/modes/rpc/rpc-client.ts` at commit `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen source: `packages/coding-agent/src/modes/rpc/rpc-client.ts` at [common pin4f9e6f8a4](../source-lock.json). [Contract](../../specs/rpc-client.md); [protocol declarations](rpc-types.md). Revalidation is in progress; this is not a whole-module acceptance claim. Command/revision/invalidation ledger: `/tmp/pi-rust-repin-lossless-interactive/rpc-client-proof-ledger.md`.
 
-Proof: `tests/rpc_client.rs` (14 cases) drives real `node` child scripts over stdio (no model/network); the
-in-module unit test injects the kill call to reach the forced-termination failure path, which the OS
-cannot produce (`SIGKILL` always terminates). The TypeScript test files `rpc-client-process-exit.test.ts`,
-`rpc-client-idle-events.test.ts`, and `rpc-client-clone.test.ts` are covered by these cases.
+## Coverage matrix
 
-| TypeScript source | Observable contract | Rust mapping and proof |
+| Frozen surface/lines | Native behavior | Proof level |
 |---|---|---|
-| `constructor(options = {})` | Defaults: `cliPath` `dist/cli.js`, `--mode rpc`, optional `--provider`/`--model`, `nodeArgs` before the entry point, extra `args` last | `RpcClientOptions`, `spawn_child` |
-| `start()` | Rejects `Client already started or stopping`; spawns `node`; collects stderr; waits 100 ms; rejects `RPC client stopped during startup. Stderr: …` or the exit error | `start`; `rejects_a_second_start`, `reports_startup_cancellation_when_stopped_during_startup`, `rejects_in_flight_request_when_child_exits` |
-| `start()` spawn failure | `Agent process error: spawn node ENOENT. Stderr: …` | `spawn_child` + `spawn_error_message` |
-| `stop()` / `stopProcess()` | Detaches the reader, rejects pending with `RPC client stopped. Stderr: …`, SIGTERM, SIGKILL after 1 s, rejects after another 1 s | `stop`, `stop_process`, `terminate`; `rejects_pending_request_when_stopped`, `sends_sigkill_after_sigterm_is_ignored_and_waits_for_exit`, unit test `stop_failure_retains_the_process_handle_and_reports_previous_failure` |
-| `stop()` retry state | Failed stop keeps the process, `start()` then reports `Client already started or stopping`, `send()` reports `Previous RPC stop failed: …`; a later stop retries and clears the state | unit test `stop_failure_retains_the_process_handle_and_reports_previous_failure` |
-| `onEvent(listener)` | Listener receives every non-correlated line in wire order; returns an unsubscribe function | `on_event` + `RpcEventSubscription` (unsubscribe on `unsubscribe()`/`Drop`); `delivers_unmatched_responses_as_events`, `sends_jsonl_commands_with_id_last_and_correlates_responses` |
-| `getStderr()` | Collected child stderr | `stderr()`; `collects_child_stderr` |
-| `send(command)` | Rejects while stopping/stopped/not started/exited; assigns `req_<n>`; appends `id` last; 30 s response timeout | `send`; `sends_jsonl_commands_with_id_last_and_correlates_responses` (exact line), `rejects_commands_sent_after_stop_begins` |
-| `handleLine(line)` | Ignores non-JSON; resolves a pending request when `type === "response"` and `id` is truthy and pending; otherwise emits an event | `ClientInner::handle_line`, `response_id`; `delivers_unmatched_responses_as_events`, `treats_responses_with_an_empty_id_as_events` |
-| `waitForIdle(timeout = 60000)` | Resolves on the first `agent_end` without `willRetry`; timeout `Timeout waiting for agent to become idle. Stderr: …` | `wait_for_idle`; `waits_through_retrying_agent_ends` |
-| `collectEvents(timeout = 60000)` | Collects through the final `agent_end`; timeout `Timeout collecting events. Stderr: …` | `collect_events`/`EventCollector`; `collects_retry_events_through_the_final_agent_end` |
-| `promptAndWait(message, images, timeout)` | Subscribes before prompting, then returns the collected events | `prompt_and_wait`; `collects_retry_events_through_the_final_agent_end` |
-| `prompt`/`steer`/`followUp`/`abort`/`interrupt`/`setThinkingLevel`/`setSteeringMode`/`setFollowUpMode`/`setAutoCompaction`/`setAutoRetry`/`abortRetry`/`abortBash`/`setSessionName` | Send only; a `success: false` response is ignored | same-named methods; `rejects_commands_sent_after_stop_begins` |
-| `newSession`, `getState`, `setModel`, `cycleModel`, `getAvailableModels`, `cycleThinkingLevel`, `getAvailableThinkingLevels`, `exportHtml`, `switchSession`, `fork`, `clone`, `getForkMessages`, `getEntries`, `getTree`, `getLastAssistantText`, `getMessages`, `getCommands` | `getData`: throw the response `error` on failure, otherwise return `data` | `response_data` + typed result structs; `surfaces_command_failure_messages`, `sends_jsonl_commands_with_id_last_and_correlates_responses` |
-| `clone()` | Sends `{ type: "clone" }` and returns `data.cancelled` | `clone_session`; `clone_sends_the_clone_command_and_returns_cancelled` |
-| `compact(customInstructions?)` | Sends `{ type: "compact", customInstructions }` (omitted when absent) and returns `data` | `compact` + `core::compaction::CompactionResult`; `compact_sends_custom_instructions_and_returns_the_result`, `compact_omits_absent_custom_instructions` |
-| `getSessionStats()` | Sends `{ type: "get_session_stats" }` and returns `data` | `get_session_stats` + `core::agent_session::SessionStats`; `get_session_stats_returns_the_stats_payload` |
-| `bash(command)` | Sends `{ type: "bash", command }` and returns `data` | `bash` + `core::bash_executor::BashResult`; `bash_sends_the_command_and_returns_the_result` |
+|26–43 options,80–155 start | Every option string stays JsString until Node's OS UTF-8 boundary; file/argv/cwd/env validation and JS own-key/inherited override ordering; executablePath;100ms check; original synchronous errors vs retained asynchronous failed-child identity | Actual-source/private-process RED→GREEN for missing executable, empty/NUL file, raw argv/cwd/env, mixed validation precedence, inherited/numeric env keys; native executable/argument-order proof. Final lifecycle audit open |
+|158–181 stop | One owned shared completion, not mutex-serialized retries; detach callbacks while preserving/draining live stdout; reject pending, TERM→KILL→failure; failed stop retains child and next send reports previous failure | Actual-source concurrent-stop source2/native4 RED→GREEN; real writing child's EPIPE RED→GREEN; existing native lifecycle tests retained for final gate |
+|119–135 exit/error/stdin | Process identity guards; once-only child error observer; first error wraps message/rejects pending, repeated error uses original native uncaught authority; queued FIFO writes don't block stop and EPIPE rejects every pending request | Real non-reading2MiB stdin and closed-stdin actual-source RED→GREEN. Once/permission and native wait-error proofs pending |
+|186–208 onEvent/stderr | Live listener-array iteration and synchronous unsubscribe; Result callbacks; raw JSON event values; per-chunk Node Buffer UTF-8 decoding | Source/native null, primitive, throwing listener, live removal and terminal-unsubscribe RED→GREEN. Unhandled stderr read error authority source/native GREEN |
+|523–545 handleLine | Parse raw JsValue; ignore non-JSON/null.type and caught listener throws; strict string correlation of generated ids; return matched envelopes without DTO conversion, otherwise forward original values | Actual-source raw envelopes (unknown fields/order/raw units/non-boolean success) and listener/primitive process cases GREEN |
+|586–627 send | req correlation, id appended last,30s response timer; source guard order and cached errors; FIFO byte delivery independent of response waits | Native wire-order/exit/stop tests; source/native write-backpressure and EPIPE cases GREEN. Request timeout/edge lifecycle audit open |
+|631–639 getData | Boolean(success), new Error(error) with undefined/default and ToPrimitive TypeError; raw/undefined-aware data before declared decoding; exact nullable field-access errors | Actual-source success truthiness/error construction GREEN; remaining typed return-boundary cases pending |
+|469–515 wait/collect/promptAndWait | First agent_end even with willRetry; remove terminal subscription during notification; binary64 ms through shared Node timer normalization; collection begins before prompt | First-end/live-unsubscribe and14 timer cases actual-source GREEN. Internal collection-promise lifetime audit remains open |
 
-## Exclusions and deviations
+## Every declared command method
 
-- Typed Rust APIs exclude invalid JavaScript runtime input types (decision 2026-08-12): response `data`
-  is deserialized into the declared Rust type instead of being cast unchecked. A malformed response line
-  rejects the pending request with `Malformed response: …` instead of resolving with an unchecked object;
-  missing/invalid `data` rejects with `Missing response data for <command>` / `Invalid response data for
-  <command>: …`. TypeScript would return `undefined` or a partial object.
-- `getAvailableModels()` returns `Vec<Model>`: TypeScript declares `ModelInfo[]` but returns the full
-  `Model` objects from `data.models` unchanged. Likewise `setModel()` returns the full `Model` although
-  its annotation is `{ provider, id }`. Rust models the actual wire data.
-- `onEvent()` returns an `RpcEventSubscription` guard (removal on `Drop`) instead of a closure; both
-  remove the listener.
-- `send()`/`stop()` futures start on first poll. Concurrent calls are serialized with `stop_gate` rather
-  than sharing one in-flight stop promise; `tokio::join!` reproduces the TypeScript ordering used by the
-  process-exit tests.
-- A child stdin write failure is reported as `Agent process stdin error: <io error>. Stderr: …`; Node's
-  `stdin.write` throws or emits `error` with its own message text.
-- `getLastAssistantText()` returns `Option<String>`; TypeScript's `string | null` and a missing `text`
-  both map to `None`.
-- `wait_for_idle`/`collect_events` take an explicit `Duration`; `DEFAULT_EVENT_TIMEOUT` is the TypeScript
-  60 s default.
-- Test seam: `RpcClient::with_kill` injects the signal sender so the stop-failure path can be tested.
-- `core::agent_session::SessionStats`, `SessionTokenStats`, and `ContextUsage` gained `Deserialize` so the
-  typed client can parse `get_session_stats` data (additive derive only).
-- No source bug found.
+The old-only `get_available_thinking_levels` method/DTO is removed. Each row below sends the literal source body; optional properties are omitted, never null-defaulted.
+
+| Methods | Wire/return contract | Proof |
+|---|---|---|
+|prompt, steer, followUp, abort, interrupt | Send-only; failed response.success is ignored by these wrappers | Native command/process tests; raw send process differential; whole RPC mode process matrix |
+|newSession | parentSession?, `{cancelled}` | Actual frozen-server getter fixture, independent fresh session |
+|getState | RpcSessionState with domain Model and all declared state fields | Actual frozen-server exact parsed wire-value comparison |
+|setModel, cycleModel, getAvailableModels | Declared ModelReference/ModelInfo, not over-strict full Model; raw strings and ordered unknown model properties | Partial-model actual-source RED→GREEN plus actual frozen-server responses |
+|setThinkingLevel, cycleThinkingLevel | Send-only level / nullable `{level}` | Protocol branches and actual frozen-server nullable getter |
+|setSteeringMode, setFollowUpMode | Literal queue mode | DTO command matrix, RPC server matrix |
+|compact, setAutoCompaction | customInstructions? / enabled; CompactionResult | Native compact payload tests; actual frozen-server compaction in its own persisted scenario |
+|setAutoRetry, abortRetry | enabled / send-only | DTO and RPC server matrix |
+|bash, abortBash | command / send-only; BashResult | Native payload test and actual frozen-server bash response |
+|getSessionStats | SessionStats | Native payload test and actual frozen-server response |
+|exportHtml | outputPath?; raw `{path}` | Actual frozen server lone-surrogate outputPath RED→JsString GREEN; full getter matrix |
+|switchSession, fork, clone | Literal paths/entry id; cancelled or text/cancelled records | Actual frozen-server success in independent fresh persisted scenarios; native clone wire assertion |
+|getForkMessages, getEntries, getTree | `.messages` projection / entries/tree with nullable raw leaf ids | Actual frozen-server getter matrix; raw entry/leaf actual-source RED, final GREEN pending |
+|getLastAssistantText, setSessionName | `.text` projection nullable raw text / send-only name | Actual frozen-server getter, DTO/server matrix |
+|getMessages, getCommands | `.messages` / `.commands` projection | Actual frozen-server getter values, including nonempty messages/commands |
+
+## Typed return-boundary gaps (main ruling2026-10-24)
+
+Every property emitted by the actual frozen server must decode without error or loss. `rpc_client_frozen_server` compares each typed result to its actual logged source response (the field selected by frozen first, where applicable). The first complete matrix passed atd8a1dc7e; the later raw export falsifier exposed/corrected client-only path String. No missing core response field was found in that matrix. Final transport-level rerun remains required.
+
+Foreign/malformed peer values that cannot inhabit the declared return type reject explicitly with Result. Successful decoding must reserialize to the same parsed value; unknown fields are never silently dropped. This approved(c) boundary is per getter:
+
+| Getter | Explicitly rejected nonrepresentable values |
+|---|---|
+|newSession, switchSession, clone | Missing/non-boolean cancelled; extras no frozen server emits |
+|getState | Missing/mistyped state fields, invalid shared enum/domain Model fields, foreign extras |
+|setModel | Missing/non-string provider/id; other properties remain raw and ordered |
+|cycleModel | Non-null malformed model reference/thinkingLevel/isScoped; foreign outer extras; model extras remain raw/ordered |
+|getAvailableModels | Missing/non-array models or missing/mistyped declared ModelInfo fields; model extras remain raw/ordered |
+|cycleThinkingLevel | Non-null malformed level or foreign extras |
+|compact | Missing/mistyped CompactionResult fields or foreign extras |
+|bash | Missing/mistyped BashResult fields or foreign extras |
+|getSessionStats | Missing/mistyped SessionStats/context/token fields or foreign extras |
+|exportHtml | Missing/non-string path or foreign extras; all UTF-16 string paths are represented |
+|fork | Missing/non-string text or non-boolean cancelled; foreign extras |
+|getForkMessages | Missing/non-array messages; malformed entryId/text items or foreign item extras |
+|getEntries, getTree | Invalid entry/tree records, non-string/non-null leafId or foreign extras; all UTF-16 leaf ids are represented |
+|getLastAssistantText | Missing text is rejected, not normalized to null; non-string/non-null text rejects |
+|getMessages | Invalid AgentMessage declared fields or foreign extras, including unrepresentable nested typed image/domain metadata |
+|getCommands | Missing/mistyped declared slash-command/sourceInfo fields or foreign extras |
+
+Missing/null data followed by a frozen local property access raises the exact TypeError before this boundary; successful missing direct data instead reaches the explicit typed Result error. Send-only methods perform no getData check. The server's own JsValue ingress and unknown echoes are not narrowed by these DTO rules.
+
+## Discrepancies and approved runtime/language boundaries
+
+| Classification | Exact scope |
+|---|---|
+|DISCREPANCY, preserved | Frozen handleLine :523–545 catches not just JSON parsing but null.type and every listener throw, silently skipping remaining listeners for that line. Native catches Result rejections here only; it does not route these observed errors uncaught. The shared JSONL data callback's uncaught boundary is different |
+|Approved language gap | Public Rust SDK futures start on first poll and dropping a caller-owned future cancels its continuation (main2026-10-24 reconfirms the pre-repin first-poll boundary in this document atb9297a4d, Exclusions and deviations). A queued request is still sent FIFO and its response stays correlated/discarded, not misrouted. Internal collectEvents promise lifetime is not covered by this gap |
+|Approved runtime gap | Child envp order is std Command's sorted order rather than Node insertion order; names/values and pre-spawn validation order remain exact. See [accepted shared-spawn item](child-process.md#open-shared-spawn-item) and AGENTS user decision2026-10-24. No backend or test exclusion added |
+|Approved timer gap | TimeoutOverflowWarning, TimeoutNegativeWarning and TimeoutNaNWarning are not emitted natively; normalization/error values match. Source warnings remain visible in proof logs; OS timer precision/interleavings retain the shared runtime boundary |
+|Approved injected-fault gap | EINVAL/ENOSYS for fixed valid TERM/KILL is unreachable on supported platforms without an injected/backend fault (main2026-10-24 ruling). Native stop returns the original immediate Result error and does not port Node's orphan termination timer after a synchronous throw |
+|Native-only proof/gap | A Tokio child wait failure has no frozen child-process callback counterpart. It must reject pending explicitly as a process error rather than disappear. Fault-injected boundary proof, not a claim to have produced a real kernel wait failure |
+|Permission proof limitation | Ordinary same-uid private children do not supply a real setuid-free EPERM setup here. Source Node handle-return injection and native KillFn EPERM injection prove once-error/repeated-uncaught behavior; no real-kernel permission-failure claim or ignored test is added |
+|Shared approved boundaries | JS stacks omitted, owned return values instead of JS aliasing, opaque scalar domain metadata, and host/runtime-dependent independent producer interleavings follow AGENTS. Built-in collection/wait consumers rely on live unsubscribe and are implemented explicitly |
+
+## Pending finalization
+
+No pair checkpoint is ready yet. Finish internal promise/error/lifecycle audit; publish exact per-command/branch proof and current full runtime/gates; then reconcile the two coverage rows. No push, deployment, live provider/state, new dependency or spawned agent is authorized.

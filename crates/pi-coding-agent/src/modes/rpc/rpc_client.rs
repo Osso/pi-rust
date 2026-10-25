@@ -313,6 +313,7 @@ struct SyncState {
     stderr: String,
     exit: Option<ExitInfo>,
     exit_error: Option<RpcClientError>,
+    process_error_listener: bool,
     active_generation: Option<u64>,
     stop_run: Option<Arc<StopCompletion>>,
     stop_error: Option<RpcClientError>,
@@ -343,6 +344,7 @@ impl StopCompletion {
 
 struct ProcessHandle {
     pid: u32,
+    generation: u64,
     exit: watch::Receiver<Option<ExitInfo>>,
 }
 
@@ -448,6 +450,7 @@ impl RpcClient {
                     stderr: String::new(),
                     exit: None,
                     exit_error: None,
+                    process_error_listener: false,
                     active_generation: None,
                     stop_run: None,
                     stop_error: None,
@@ -488,6 +491,7 @@ impl RpcClient {
     fn publish_spawn_failure(&self, generation: u64, error: &RpcClientError) {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
         sync.active_generation = Some(generation);
+        sync.process_error_listener = false;
         sync.exit_error = Some(error.clone());
     }
 
@@ -586,18 +590,45 @@ impl RpcClient {
             return Ok(());
         }
 
-        let pid = handle.pid;
-        let _ = (self.inner.kill)(pid, Signal::TERM);
+        self.signal_child(handle, Signal::TERM)
+            .map_err(RpcClientError::Native)?;
         if wait_for_exit(&mut handle.exit, TERMINATE_TIMEOUT).await {
             return Ok(());
         }
-        let _ = (self.inner.kill)(pid, Signal::KILL);
+        self.signal_child(handle, Signal::KILL)
+            .map_err(RpcClientError::Native)?;
         if wait_for_exit(&mut handle.exit, KILL_TIMEOUT).await {
             return Ok(());
         }
         Err(RpcClientError::StopFailed {
             stderr: self.inner.stderr(),
         })
+    }
+
+    fn signal_child(
+        &self,
+        handle: &ProcessHandle,
+        signal: Signal,
+    ) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+        let Err(error) = (self.inner.kill)(handle.pid, signal) else {
+            return Ok(());
+        };
+        if error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) {
+            return Ok(());
+        }
+        let synchronous = error.raw_os_error().is_some_and(|code| {
+            [
+                rustix::io::Errno::INVAL.raw_os_error(),
+                rustix::io::Errno::NOSYS.raw_os_error(),
+            ]
+            .contains(&code)
+        });
+        let native = pi_js_compat::node_fs::node_stream_error_record(&error, "kill").into();
+        if synchronous {
+            return Err(Box::new(native));
+        }
+        publish_process_error(&self.inner, handle.generation, native);
+        Ok(())
     }
 
     /// Subscribes to agent events. Dropping the subscription unsubscribes.
@@ -1222,6 +1253,10 @@ fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedPr
 }
 
 fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedProcess, process: &mut ProcessState) {
+    // Node installs these listeners in one stack before any child callback can run.
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    sync.active_generation = Some(generation);
+    sync.process_error_listener = true;
     let (exit_sender, exit_receiver) = watch::channel(None);
 
     let stderr_inner = Arc::clone(inner);
@@ -1244,6 +1279,7 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
 
     process.child = Some(ProcessHandle {
         pid: spawned.pid,
+        generation,
         exit: exit_receiver,
     });
     let (stdin_sender, stdin_receiver) = mpsc::unbounded_channel();
@@ -1254,9 +1290,7 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
         stdin_receiver,
     ));
     process.reader = Some(reader);
-    let mut sync = inner.sync.lock().expect("sync state poisoned");
     sync.stdin = Some(stdin_sender);
-    sync.active_generation = Some(generation);
 }
 
 async fn write_stdin(
@@ -1310,20 +1344,47 @@ fn publish_exit(
     sender: watch::Sender<Option<ExitInfo>>,
     status: std::io::Result<std::process::ExitStatus>,
 ) {
-    let Ok(status) = status else {
-        return;
+    let status = match status {
+        Ok(status) => status,
+        Err(error) => {
+            publish_process_error(
+                &inner,
+                generation,
+                pi_js_compat::node_fs::node_stream_error_record(&error, "wait").into(),
+            );
+            return;
+        }
     };
     let info = exit_info(&status);
-    let _ = sender.send(Some(info));
-
-    let mut sync = inner.sync.lock().expect("sync state poisoned");
-    if sync.active_generation == Some(generation) {
-        sync.exit = Some(info);
-        sync.stdin = None;
-        let error = process_exit_error(info, &sync.stderr);
-        sync.exit_error = Some(error.clone());
-        reject_pending(&mut sync, error);
+    {
+        let mut sync = inner.sync.lock().expect("sync state poisoned");
+        if sync.active_generation == Some(generation) {
+            sync.exit = Some(info);
+            sync.stdin = None;
+            let error = process_exit_error(info, &sync.stderr);
+            sync.exit_error = Some(error.clone());
+            reject_pending(&mut sync, error);
+        }
     }
+    let _ = sender.send(Some(info));
+}
+
+fn publish_process_error(inner: &Arc<ClientInner>, generation: u64, native: pi_js_compat::node_error::NativeNodeError) {
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    if sync.active_generation != Some(generation) {
+        return;
+    }
+    if !sync.process_error_listener {
+        drop(sync);
+        crate::utils::uncaught::throw_native_uncaught(native);
+    }
+    sync.process_error_listener = false;
+    let error = RpcClientError::ProcessError {
+        message: native.message,
+        stderr: sync.stderr.clone(),
+    };
+    sync.exit_error = Some(error.clone());
+    reject_pending(&mut sync, error);
 }
 
 async fn wait_for_exit(receiver: &mut watch::Receiver<Option<ExitInfo>>, timeout: Duration) -> bool {
@@ -1365,6 +1426,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn native_wait_failure_rejects_pending_requests_instead_of_disappearing() {
+        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+        let client = RpcClient::new(RpcClientOptions {
+            cli_path: Some(script.to_str().unwrap().into()),
+            ..Default::default()
+        });
+        client.start().await.unwrap();
+        let mut request = Box::pin(client.send(RpcCommandBody::GetState));
+        assert!(futures_util::poll!(request.as_mut()).is_pending());
+        let generation = client.inner.sync.lock().unwrap().active_generation.unwrap();
+        let (exit_sender, _exit_receiver) = watch::channel(None);
+        publish_exit(
+            Arc::clone(&client.inner),
+            generation,
+            exit_sender,
+            Err(std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error())),
+        );
+        let outcome = tokio::time::timeout(Duration::from_millis(100), request).await;
+        client.stop().await.unwrap();
+        let error = outcome
+            .expect("native wait failure must settle the pending request")
+            .unwrap_err();
+        assert_eq!(error.message(), "Agent process error: wait EIO. Stderr: ");
+    }
+
+    #[tokio::test]
+    async fn child_error_listener_observes_once_then_routes_the_original_error_uncaught() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-stream-errors-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"child_errors"}));
+        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+        let deny = Arc::new(AtomicBool::new(true));
+        let denied = deny.clone();
+        let client = Arc::new(RpcClient::with_kill(
+            RpcClientOptions {
+                cli_path: Some(script.to_str().unwrap().into()),
+                ..Default::default()
+            },
+            Arc::new(move |pid, signal| {
+                if denied.load(Ordering::SeqCst) {
+                    Err(std::io::Error::from_raw_os_error(
+                        rustix::io::Errno::PERM.raw_os_error(),
+                    ))
+                } else {
+                    kill_process(pid, signal)
+                }
+            }),
+        ));
+        client.start().await.unwrap();
+        let mut request = Box::pin(client.get_state());
+        assert!(futures_util::poll!(request.as_mut()).is_pending());
+        {
+            let process = client.inner.process.lock().await;
+            client
+                .signal_child(process.child.as_ref().unwrap(), Signal::TERM)
+                .unwrap();
+        }
+        let first = request.await.unwrap_err().value();
+        let task_client = client.clone();
+        let task = tokio::spawn(async move {
+            let process = task_client.inner.process.lock().await;
+            task_client
+                .signal_child(process.child.as_ref().unwrap(), Signal::KILL)
+                .unwrap();
+        });
+        let panic = task
+            .await
+            .expect_err("second child error must be uncaught")
+            .into_panic();
+        let second = panic
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .unwrap()
+            .value();
+        deny.store(false, Ordering::SeqCst);
+        client.stop().await.unwrap();
+        assert_eq!(pi_js_compat::js_json!({"first":first,"second":second}), expected);
+    }
+
+    #[tokio::test]
+    async fn injected_unreachable_signal_errors_return_native_errors_without_orphan_timers() {
+        for (errno, in_kill_phase) in [(rustix::io::Errno::INVAL, false), (rustix::io::Errno::NOSYS, true)] {
+            let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+            let injected = Arc::new(AtomicBool::new(true));
+            let inject = injected.clone();
+            let client = RpcClient::with_kill(
+                RpcClientOptions {
+                    cli_path: Some(script.to_str().unwrap().into()),
+                    ..Default::default()
+                },
+                Arc::new(move |pid, signal| {
+                    if !inject.load(Ordering::SeqCst) {
+                        return kill_process(pid, signal);
+                    }
+                    if in_kill_phase && signal == Signal::TERM {
+                        return Ok(());
+                    }
+                    Err(std::io::Error::from_raw_os_error(errno.raw_os_error()))
+                }),
+            );
+            client.start().await.unwrap();
+            let error = tokio::time::timeout(Duration::from_secs(2), client.stop())
+                .await
+                .unwrap()
+                .unwrap_err();
+            injected.store(false, Ordering::SeqCst);
+            client.stop().await.unwrap();
+            let value = error.value();
+            assert_eq!(value["name"], JsValue::String("Error".into()));
+            assert_eq!(value["syscall"], JsValue::String("kill".into()));
+            assert_eq!(value["errno"], JsValue::Number(-f64::from(errno.raw_os_error())));
+            assert_eq!(
+                value["code"],
+                JsValue::String(if in_kill_phase {
+                    "ENOSYS".into()
+                } else {
+                    "EINVAL".into()
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
     async fn stderr_read_errors_reach_the_shared_native_uncaught_authority() {
         let mut source = source_oracle::TsOracle::spawn(
             "rpc-stream-errors-oracle.mts",
@@ -1389,32 +1574,41 @@ mod tests {
             "rpc-client-oracle.mts",
             "packages/coding-agent/src/modes/rpc/rpc-client.ts",
         );
-        let expected = source.request(&pi_js_compat::js_json!({"operation":"stop_fail","reply":{}}));
-        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
-        let blocked = Arc::new(AtomicBool::new(true));
-        let calls = Arc::new(AtomicUsize::new(0));
-        let kill_blocked = blocked.clone();
-        let kill_calls = calls.clone();
-        let client = RpcClient::with_kill(
-            RpcClientOptions {
-                cli_path: Some(script.to_str().unwrap().into()),
-                ..Default::default()
-            },
-            Arc::new(move |pid, signal| {
-                if kill_blocked.load(Ordering::SeqCst) {
-                    kill_calls.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                } else {
-                    kill_process(pid, signal)
-                }
-            }),
-        );
-        client.start().await.unwrap();
-        let (first, second) = tokio::join!(client.stop(), client.stop());
-        let actual = pi_js_compat::js_json!({"ok":true,"value":{"calls":calls.load(Ordering::SeqCst),"errors":[first.err().map(|error|error.to_string()),second.err().map(|error|error.to_string())]}});
-        blocked.store(false, Ordering::SeqCst);
-        client.stop().await.unwrap();
-        assert_eq!(actual, expected);
+        for missing_pid in [false, true] {
+            let expected =
+                source.request(&pi_js_compat::js_json!({"operation":"stop_fail","reply":{},"missingPid":missing_pid}));
+            let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+            let blocked = Arc::new(AtomicBool::new(true));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let kill_blocked = blocked.clone();
+            let kill_calls = calls.clone();
+            let client = RpcClient::with_kill(
+                RpcClientOptions {
+                    cli_path: Some(script.to_str().unwrap().into()),
+                    ..Default::default()
+                },
+                Arc::new(move |pid, signal| {
+                    if kill_blocked.load(Ordering::SeqCst) {
+                        kill_calls.fetch_add(1, Ordering::SeqCst);
+                        if missing_pid {
+                            Err(std::io::Error::from_raw_os_error(
+                                rustix::io::Errno::SRCH.raw_os_error(),
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    } else {
+                        kill_process(pid, signal)
+                    }
+                }),
+            );
+            client.start().await.unwrap();
+            let (first, second) = tokio::join!(client.stop(), client.stop());
+            let actual = pi_js_compat::js_json!({"ok":true,"value":{"calls":calls.load(Ordering::SeqCst),"errors":[first.err().map(|error|error.to_string()),second.err().map(|error|error.to_string())]}});
+            blocked.store(false, Ordering::SeqCst);
+            client.stop().await.unwrap();
+            assert_eq!(actual, expected);
+        }
     }
 
     #[tokio::test]

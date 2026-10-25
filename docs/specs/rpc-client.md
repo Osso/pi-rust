@@ -4,7 +4,7 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 
 ## What it must do
 
-- [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors. A failed asynchronous spawn retains a process identity until stop; another start must reject, and stop then permits a fresh attempt. Concurrent stops share one termination attempt/result. Cancelling an already-polled waiter does not cancel the owned stop operation; caller-cancelled public SDK results follow the approved native cancellation boundary.
+- [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors. A failed asynchronous spawn retains a process identity until stop; another start must reject, and stop then permits a fresh attempt. Concurrent stops share one termination attempt/result. Cancelling an already-polled waiter does not cancel the owned stop operation; caller-cancelled public SDK results follow the approved native cancellation boundary. ESRCH is a non-emitted false kill result; other child errors consume the frozen once-error observer, and a repeated unhandled error reaches the shared native uncaught authority.
 - [ ] Preserve parsed external JSON envelopes, property presence, raw UTF-16 and unknown properties through correlation and event delivery. Queue request lines in FIFO order without awaiting OS stdin backpressure; asynchronous stdin errors use Node text and reject every pending request. Hold every option string as JsString until Node's OS UTF-8 conversion; validate raw file/argv/cwd/env strings and preserve synchronous native constructor/code fields without retaining a child.
 - [ ] Preserve complete UTF-16 error messages and native own fields through `RpcClientError::message/value`; `Display` performs only Node's actual OS UTF-8 encoding.
 - [ ] Apply frozen success truthiness and Error construction before decoding a declared getter result; distinguish missing data from explicit null.
@@ -33,9 +33,10 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 ## Known gaps (current cycle)
 
 - [ ] Whole-module revalidation is in progress; pre-repin proof is not current acceptance.
-- [ ] Shared child envp ordering remains the centrally tracked [shared-spawn final-gate item](../porting/traceability/child-process.md#open-shared-spawn-item). This client neither classifies the mismatch nor adds a backend or test exclusion.
 - [ ] Main approved explicit Result errors where an external value cannot inhabit a declared getter type, including foreign-server extras that no frozen server emits. Each native decoding must preserve its parsed value on reserialization or reject explicitly. This does not permit rejecting any actual frozen-server response; cross-process getter proof must cover those. Enumerate each getter and rejected field in traceability; frozen unchecked casts can return such mistyped values.
 
 ## Out of scope
 
 - Live providers, host state, and unapproved semantic deviations.
+- Accepted [shared child envp ordering gap](../porting/traceability/child-process.md#open-shared-spawn-item): native kernel environment ordering differs, without a new backend or test exclusion.
+- Injected EINVAL/ENOSYS for fixed TERM/KILL returns the native Result error without preserving Node's orphan timer; the codes are unreachable on supported platforms absent fault injection (main ruling2026-10-24).

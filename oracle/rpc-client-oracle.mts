@@ -60,6 +60,7 @@ type Request = {
 	keepWriting?: boolean;
 	blockInput?: boolean;
 	closeInput?: boolean;
+	missingPid?: boolean;
 	listenerRemovesItself?: boolean;
 	method?:
 		| "model"
@@ -175,16 +176,17 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 		}
 		if (request.operation === "stop_fail") {
 			const child = Reflect.get(client, "process") as {
-				kill(signal: string): boolean;
+				_handle: { kill(signal: number): number };
 			};
-			const kill = child.kill.bind(child);
+			const handle = child._handle;
+			const kill = handle.kill.bind(handle);
 			let calls = 0;
-			child.kill = () => {
+			handle.kill = () => {
 				calls++;
-				return true;
+				return request.missingPid ? -3 : 0;
 			};
 			const results = await Promise.allSettled([client.stop(), client.stop()]);
-			child.kill = kill;
+			handle.kill = kill;
 			const errors = results.map((result) =>
 				result.status === "rejected" && result.reason instanceof Error
 					? result.reason.message
