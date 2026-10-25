@@ -29,7 +29,7 @@ The provider supplies branch, executable, extension status and displayed-session
 ## Tests asserting this spec
 
 - Tools lib `core::footer_data_provider::{tests,tests_refresh,tests_runtime_watch}`: actual-source real watcher/poll/refresh/error/retry scenarios.
-- `differential_footer_provider.rs`, `footer_provider_numbers.rs`, `footer_git_process.rs`, `footer_branch_uncaught.rs`, `child_process_kill_signal.rs`: private source/native metadata, listener, number, process and uncaught boundaries.
+- `differential_footer_provider.rs`, `footer_provider_numbers.rs`, `footer_git_process.rs`, `child_process_kill_signal.rs`: private source/native metadata, listener, number, process and uncaught boundaries.
 - `readonly_session_manager.rs`, `footer_data_provider.rs`, `raw_footer_statuses.rs`, `footer_callable_status.rs`, `differential_footer.rs`, `differential_default_footer.rs`, `default_footer_extension.rs`: read isolation, raw text and current render/extension consumers.
 
 ## Known gaps (current cycle)
