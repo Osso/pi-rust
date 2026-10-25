@@ -4,11 +4,11 @@ Agent-session compaction exposes the frozen saved-entry event and controller lif
 
 ## What it must do
 
-- [ ] Await `session_compact` after saving/rebuilding context, before `compaction_end` and operation settlement.
-- [ ] Expose the saved entry, extension origin, reason and retry flag.
-- [ ] Preserve the tagged compaction entry in serialized extension events and accept/re-emit frozen event records.
-- [ ] Keep auto-compaction active through its completion event; keep manual cancellation active through its error event. Successful manual compaction clears its controller before completion.
-- [ ] Clear only the matching auto controller after completion or cancellation.
+- [x] Await `session_compact` after saving/rebuilding context, before `compaction_end` and operation settlement.
+- [x] Expose the saved entry, extension origin, reason and retry flag.
+- [x] Preserve the tagged compaction entry in serialized extension events and accept/re-emit frozen event records.
+- [x] Keep auto-compaction active through its completion event; keep manual cancellation active through its error event. Successful manual compaction clears its controller before completion.
+- [x] Clear compaction state after completion or cancellation.
 
 ## How it works
 
@@ -26,7 +26,7 @@ Agent-session compaction exposes the frozen saved-entry event and controller lif
 
 ## Known gaps (current cycle)
 
-- [ ] Runtime GREEN is pending; four corrected source/native cases currently provide RED evidence.
+The four lifecycle scenarios pass. Duplicate-summary selection follows the audited source lookup but is not in this runtime matrix.
 
 ## Out of scope
 

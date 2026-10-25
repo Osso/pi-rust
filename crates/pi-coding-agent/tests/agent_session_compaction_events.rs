@@ -106,11 +106,9 @@ async fn assert_saved_event_boundary(operation: &str) {
     .await
     .expect("operation finishes or reaches saved handler");
     let mut settled_before_release = !handler_started;
-    if handler_started {
-        if let Ok(result) = tokio::time::timeout(Duration::from_millis(100), &mut task).await {
-            completed = Some(result.expect("operation task"));
-            settled_before_release = true;
-        }
+    if handler_started && let Ok(result) = tokio::time::timeout(Duration::from_millis(100), &mut task).await {
+        completed = Some(result.expect("operation task"));
+        settled_before_release = true;
     }
     release.notify_one();
     let result = match completed {
