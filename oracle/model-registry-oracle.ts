@@ -12,7 +12,7 @@ import {
 async function main(): Promise<void> {
 	installScriptedFetch();
 	const source = pathToFileURL(process.argv[2]);
-	const { ModelRegistry } = await import(source.href);
+	const { ModelRegistry, clearApiKeyCache } = await import(source.href);
 	const { AuthStorage } = await import(new URL("auth-storage.ts", source).href);
 	serve(async (request) => {
 		if (request.operation === "oauth_throw") {
@@ -325,6 +325,26 @@ async function main(): Promise<void> {
 				key: key ?? null,
 				auth,
 				commandCount: readCommandCount(),
+			};
+		}
+		if (request.operation === "clear_alias_snapshot") {
+			if (
+				typeof request.command !== "string" ||
+				typeof request.witness !== "string"
+			)
+				throw new TypeError("Fixture command/witness must be strings");
+			const config = await import(
+				new URL("resolve-config-value.ts", source).href
+			);
+			const first = config.resolveConfigValue(request.command);
+			const second = config.resolveConfigValue(request.command);
+			const before = readFileSync(request.witness, "utf8").length;
+			clearApiKeyCache();
+			const third = config.resolveConfigValue(request.command);
+			return {
+				values: [first, second, third],
+				before,
+				after: readFileSync(request.witness, "utf8").length,
 			};
 		}
 		if (request.operation === "config_request") {

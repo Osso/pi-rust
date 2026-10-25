@@ -9,6 +9,7 @@ Consumer migration and acceptance remain open. This document is not a parity-com
 
 | Frozen behavior | Rust | Proof |
 |---|---|---|
+| clearApiKeyCache export (:350) | same shared command cache authority | `model_registry_clear_cache_repin`: actual frozen config resolver executes one command for two cached reads; registry alias clears it, then the next read executes again. Full values and witness counts1→2 match; no production change. `q15e-registry-clear-alias-2.log` |
 | live `hasConfiguredAuth`, `getAvailable`, `isUsingOAuth` | synchronous AuthStorage reads | `model_registry_frozen::registry_observes_live_storage_without_a_refresh`; actual frozen oracle, old facade behavioral RED at 3de3f9e2; targeted GREEN after source/binary-harness migration (1 test); all-target consumers pending |
 | `create` / `inMemory`, `refresh`, `getAll`, `find`, `getError` | owned registry / synchronous reload | implementation present; differential matrix pending |
 | custom model schema/defaults, overrides, mergeCompat, validation | internal schema + lossless JSON transformation | matrix pending |
