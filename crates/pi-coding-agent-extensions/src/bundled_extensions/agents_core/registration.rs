@@ -579,7 +579,11 @@ async fn background_command(
             (*agent, *ownership)
         }
         crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error } => {
-            prepared_runtime.child_session.dispose();
+            prepared_runtime
+                .child_session
+                .dispose()
+                .await
+                .map_err(HandlerError::new)?;
             notify(
                 ctx,
                 &format!("Could not create background job: {}", error.as_str()),

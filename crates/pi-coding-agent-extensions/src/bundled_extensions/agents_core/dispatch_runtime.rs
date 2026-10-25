@@ -345,7 +345,7 @@ async fn dispatch_reserved_agent_session(
     };
     if input.store.get_restore_generation() != restore_generation {
         child_session.abort();
-        child_session.dispose();
+        child_session.dispose().await?;
         return Ok(input
             .store
             .get_agent(&input.reserved_runtime.lifecycle.agent.id)
@@ -366,7 +366,7 @@ async fn dispatch_reserved_agent_session(
         }
         LifecycleCommandResult::Err { .. } => {
             child_session.abort();
-            child_session.dispose();
+            child_session.dispose().await?;
             return Ok(running_agent);
         }
     };
@@ -460,6 +460,8 @@ pub fn run_agent_session(
                 .store
                 .get_agent(&input.running_agent.id)
                 .unwrap_or_else(|| input.running_agent.clone());
+            drop(lease_loss_abort);
+            active_session.dispose().await?;
             return Ok(agent);
         }
         let abort_registration = register_store_abort_handler(&input);
@@ -477,7 +479,7 @@ pub fn run_agent_session(
         if let Some(handles) = input.handles.as_ref() {
             handles.lock().expect("handles").remove(&input.running_agent.id);
         }
-        active_session.dispose();
+        active_session.dispose().await?;
         agent
     })
 }

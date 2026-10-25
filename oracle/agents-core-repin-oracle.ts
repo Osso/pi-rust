@@ -13,6 +13,7 @@ type SettlementStore = {
 type SettlementModule = {
 	waitForActiveDescendants(store: SettlementStore, id: string, signal: AbortSignal): Promise<void>;
 };
+type ChildSessionModule = { bindProductionChildSession(session: unknown): { dispose(): Promise<void> } };
 type ChildResponseModule = {
 	readCurrentChildAssistantText(messages: unknown[], previous: ReadonlySet<unknown>): string | undefined;
 };
@@ -56,6 +57,27 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "childSessionDisposal": {
+            const {bindProductionChildSession} = await load<ChildSessionModule>("child-session.ts");
+            const events: string[] = [];
+            const session = {
+                sessionManager: {getBranch: () => []},
+                extensionRunner: {emit: async () => {
+                    events.push("shutdown");
+                    if (typeof request.shutdownError === "string") throw new Error(request.shutdownError);
+                }},
+                dispose: async () => {
+                    events.push("dispose");
+                    if (typeof request.disposeError === "string") throw new Error(request.disposeError);
+                },
+                setModel: async () => {}, setThinkingLevel: () => {}, cycleModel: async () => {},
+                prompt: async () => {},
+            };
+            let failure: string | null = null;
+            try { await bindProductionChildSession(session).dispose(); }
+            catch (error) { failure = error instanceof Error ? error.message : String(error); }
+            return {events, error: failure};
+        }
 		case "childResponse": {
 			const { readCurrentChildAssistantText } = await load<ChildResponseModule>("child-response.ts");
 			const messages = request.messages as unknown[];
