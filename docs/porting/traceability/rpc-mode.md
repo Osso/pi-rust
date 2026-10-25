@@ -31,10 +31,10 @@ dialog broker.
 | `set_thinking_level`, `cycle_thinking_level` | `null` data when cycling is unsupported | `handle_command`; differential |
 | `set_steering_mode`, `set_follow_up_mode` | Persisted queue modes | `handle_command`; differential |
 | `compact`, `set_auto_compaction`, `set_auto_retry` | Compaction result / settings writes; manual-compaction failures surface as an error response | `handle_command`; differential scenario `rpc_mode_reports_manual_compaction_failures` |
-| `bash` :584–589 | Call `executeBash` directly; no `user_bash` hook | `handle_command`; `rpc_audit_bash_does_not_emit_the_old_only_user_bash_hook` actual-source/native process RED before correction; GREEN pending |
+| `bash` :584–589 | Call `executeBash` directly; no `user_bash` hook | `input::dispatch_operation`; `rpc_audit_bash_does_not_emit_the_old_only_user_bash_hook` actual-source/native process RED before correction; GREEN at557de237 |
 | `get_session_stats`, `export_html`, `get_entries`, `get_tree`, `get_last_assistant_text`, `get_messages`, `get_commands`, `get_fork_messages`, `set_session_name` | Exact data shapes; `leafId: null` for empty sessions; `text` omitted when absent; `Entry not found: <id>`; `Session name cannot be empty` | `handle_command`; differential |
 | `handleInputLine` parse failure | `Failed to parse command: <V8 message>` | `js_json::parse`; differential malformed line |
-| `handleInputLine` unknown command | `Unknown command: <type>` (also `undefined` when `type` is not a string) | `deserialize_command` + `RpcResponse::error_optional`; differential |
+| `handleInputLine` unknown command | Echo the raw JSON tag/id and JS String error subject; ToPrimitive throws enter the command catch | `input::handle_command` and raw wire response; `rpc_external_unknown_command_echoes_original_json_values`, raw UTF16 and raw id tests |
 | `extension_ui_response` routing | Resolve the pending request and emit nothing | `route_extension_ui_response`; unit test |
 | `shutdown` | Cleanup, dispose, detach input, flush unless SIGTERM, `process.exit` | `shutdown` |
 | Input end | `shutdown(0)` | channel close → `shutdown`; differential exit code |
@@ -57,9 +57,7 @@ dialog broker.
 
 ## Exclusions and deviations
 
-- Typed command parsing replaces the TypeScript switch: a command whose JSON shape does not match its
-  variant rejects with the `serde_json` message instead of a JavaScript `TypeError` (decision
-  2026-08-12, invalid runtime input types excluded).
+- Superseded old typed-command parsing exclusion: external server ingress now uses literal JsValue dispatch. The 2026-10-24 per-field conversion/rejection ruling and complete field matrix below govern native core boundaries; client DTOs remain typed.
 - Input lines are handled on a `LocalSet` (one spawned task per line) because `export_to_html`
   holds a non-`Send` `Rc` renderer. Ordering of responses/events matches the differential.
 - `get_available_thinking_levels` returning an unknown-command error is a preserved source bug.
@@ -117,12 +115,20 @@ The parent approved replacing the server's typed command filter with literal `Js
 
 Image representability ruling (parent2026-10-24): reject, do not project or drop. `data` is base64 and `mimeType` is opaque; their unpaired-unit rejection follows the scalar approval. A lossless unknown-property carrier is a separate pi-ai item.
 
-| Field family (each of `prompt`, `steer`, `follow_up`) | Approved gap |
+| Field | Approved gap (2026-10-24 image representability ruling) |
 |---|---|
-| `<command>.images[].type` | Reject non-image/non-scalar tag |
-| `<command>.images[].data` | Reject non-string or unpaired units explicitly |
-| `<command>.images[].mimeType` | Reject non-string or unpaired units explicitly |
-| `<command>.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `prompt.images[].type` | Reject non-image/non-scalar tag |
+| `prompt.images[].data` | Reject non-string or unpaired units explicitly |
+| `prompt.images[].mimeType` | Reject non-string or unpaired units explicitly |
+| `prompt.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `steer.images[].type` | Reject non-image/non-scalar tag |
+| `steer.images[].data` | Reject non-string or unpaired units explicitly |
+| `steer.images[].mimeType` | Reject non-string or unpaired units explicitly |
+| `steer.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `follow_up.images[].type` | Reject non-image/non-scalar tag |
+| `follow_up.images[].data` | Reject non-string or unpaired units explicitly |
+| `follow_up.images[].mimeType` | Reject non-string or unpaired units explicitly |
+| `follow_up.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
 
 Implementation: `rpc_mode/input.rs`; no typed-command fallback remains. Tests: `rpc_external_unknown_command_echoes_original_json_values`, `rpc_external_model_lookup_uses_strict_raw_value_equality`, `rpc_external_local_trim_and_since_use_frozen_js_operations`, `rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping`, and falsey-images/export tests. Initial RPC-local RED2/2 is `rpc-mode-external-json-red.log`; GREEN pending.
 
@@ -154,3 +160,11 @@ Actual frozen-process oracle `oracle/rpc-dialog-order-oracle.mts` drives real ru
 ## No-op surface and Theme object overload
 
 The actual frozen RPC surface oracle executes ignored widget/header/footer/editor/autocomplete/custom/input factories (they must not run), working/render/tool-expansion no-ops and all synchronous getters. Both source setTheme(string) and setTheme(Theme) return `Theme switching not supported in RPC mode` (:306–310). Native previously inherited `UI not available` for the object overload; actual-source/native RED is `rpc-mode-ui-surface-behavior-red.log`. Both native entry points now use one rejection authority; no broader theme behavior change. GREEN pending. The first fixture attempt lacked normal entry-point theme initialization; it is not the behavioral RED.
+
+## Shutdown-request discrepancy
+
+| Classification | Frozen behavior | Native/proof |
+|---|---|---|
+| DISCREPANCY, preserve (parent2026-10-24) | `shutdownRequested` is polled only after input handling (:749–789); an async extension-command ctx.shutdown does not independently wake this check, so another command/EOF is needed | Literal flag/check retained; `rpc_extension_shutdown_request_is_checked_after_the_next_command` asserts the next get_state response and exit0 on both runtimes. Draft immediate-exit expectation failed on source itself (`rpc-mode-extension-shutdown-attribution.log`) and was never acceptance evidence |
+
+`rpc_switch_session_restores_the_original_session_and_rebinds_events` adds a valid persisted-session switch round-trip, asserting restored identity/message count; prior whole-command matrix covers new/fork/clone/error/query/settings paths. Effect-bearing ingress handlers are named `dispatch_*`; manual readability audit uses explicit field boundaries and domain-sized matches, not an opaque DTO conversion pipeline. Rust-code-analysis binary is unavailable on this host; no metric pass is claimed.

@@ -180,23 +180,25 @@ pub(super) async fn handle_command(state: &Arc<RpcState>, command: &JsValue) -> 
     }
     let session = state.current_session();
     let data = match tag {
-        Some(tag @ ("steer" | "follow_up" | "abort" | "interrupt")) => prompting(&session, command, tag).await?,
+        Some(tag @ ("steer" | "follow_up" | "abort" | "interrupt")) => {
+            dispatch_prompting(&session, command, tag).await?
+        }
         Some(tag @ ("new_session" | "switch_session" | "fork" | "clone")) => {
-            transition(state, &session, command, tag).await?
+            dispatch_transition(state, &session, command, tag).await?
         }
         Some(
             tag
             @ ("set_model" | "cycle_model" | "get_available_models" | "set_thinking_level" | "cycle_thinking_level"),
-        ) => model(&session, command, tag).await?,
+        ) => dispatch_model(&session, command, tag).await?,
         Some(
             tag @ ("set_steering_mode"
             | "set_follow_up_mode"
             | "set_auto_compaction"
             | "set_auto_retry"
             | "set_session_name"),
-        ) => settings(&session, command, tag)?,
+        ) => dispatch_settings(&session, command, tag)?,
         Some(tag @ ("compact" | "bash" | "abort_retry" | "abort_bash" | "export_html")) => {
-            operation(&session, command, tag).await?
+            dispatch_operation(&session, command, tag).await?
         }
         Some(
             tag @ ("get_state"
@@ -207,7 +209,7 @@ pub(super) async fn handle_command(state: &Arc<RpcState>, command: &JsValue) -> 
             | "get_last_assistant_text"
             | "get_messages"
             | "get_commands"),
-        ) => query(&session, command, tag)?,
+        ) => dispatch_query(&session, command, tag)?,
         _ => {
             let error = JsString::from("Unknown command: ") + string_value(raw_type)?;
             return command_response(command, false, Some(("error", JsValue::String(error)))).map(Some);
@@ -216,7 +218,11 @@ pub(super) async fn handle_command(state: &Arc<RpcState>, command: &JsValue) -> 
     command_response(command, true, data.map(|data| ("data", data))).map(Some)
 }
 
-async fn prompting(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
+async fn dispatch_prompting(
+    session: &AgentSession,
+    command: &JsValue,
+    tag: &str,
+) -> Result<Option<JsValue>, CallbackError> {
     match tag {
         "steer" | "follow_up" => {
             let field = format!("{tag}.message");
@@ -244,7 +250,7 @@ async fn prompting(session: &AgentSession, command: &JsValue, tag: &str) -> Resu
     Ok(None)
 }
 
-async fn transition(
+async fn dispatch_transition(
     state: &Arc<RpcState>,
     session: &AgentSession,
     command: &JsValue,
@@ -295,7 +301,11 @@ async fn transition(
     Ok(Some(result.1))
 }
 
-async fn model(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
+async fn dispatch_model(
+    session: &AgentSession,
+    command: &JsValue,
+    tag: &str,
+) -> Result<Option<JsValue>, CallbackError> {
     match tag {
         "set_model" => {
             let available = session
@@ -349,7 +359,7 @@ async fn model(session: &AgentSession, command: &JsValue, tag: &str) -> Result<O
     }
 }
 
-fn settings(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
+fn dispatch_settings(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
     match tag {
         "set_steering_mode" => session.set_steering_mode(core_field(
             command,
@@ -391,7 +401,11 @@ fn settings(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Opti
     Ok(None)
 }
 
-async fn operation(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
+async fn dispatch_operation(
+    session: &AgentSession,
+    command: &JsValue,
+    tag: &str,
+) -> Result<Option<JsValue>, CallbackError> {
     match tag {
         "compact" => {
             let custom = optional_core_field(command, "customInstructions", "compact.customInstructions", "a string")?;
@@ -431,7 +445,7 @@ async fn operation(session: &AgentSession, command: &JsValue, tag: &str) -> Resu
     }
 }
 
-fn query(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
+fn dispatch_query(session: &AgentSession, command: &JsValue, tag: &str) -> Result<Option<JsValue>, CallbackError> {
     let data = match tag {
         "get_state" => js_json::to_value(&session_state(session)).expect("state must serialize"),
         "get_session_stats" => js_json::to_value(&session.get_session_stats()).expect("stats must serialize"),

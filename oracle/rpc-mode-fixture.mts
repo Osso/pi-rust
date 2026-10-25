@@ -5,6 +5,7 @@ import { pathToFileURL } from "node:url";
 type FixtureResources = { getExtensions(): unknown };
 type RpcContext = {
 	mode: string;
+	shutdown(): void;
 	ui: {
 		notify(message: string, type?: "info" | "warning" | "error"): void;
 		setWidget(
@@ -60,6 +61,7 @@ export async function configureRpcResources(
 		pendingShutdown?: boolean;
 		uiProbe?: boolean;
 		fireProbe?: boolean;
+		shutdownCommand?: boolean;
 		uiTimeout?: number;
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
@@ -76,6 +78,12 @@ export async function configureRpcResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.shutdownCommand)
+				api.registerCommand("rpc-shutdown-fixture", {
+					handler: async (_args, context) => {
+						context.shutdown();
+					},
+				});
 			if (config.fireProbe)
 				api.registerCommand("rpc-fire-fixture", {
 					handler: async (_args, context) => {

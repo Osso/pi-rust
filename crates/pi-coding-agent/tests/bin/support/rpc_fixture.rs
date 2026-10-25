@@ -21,6 +21,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
     let ui_probe = config.get("uiProbe").and_then(JsValue::as_bool) == Some(true);
     let fire_probe = config.get("fireProbe").and_then(JsValue::as_bool) == Some(true);
+    let shutdown_command = config.get("shutdownCommand").and_then(JsValue::as_bool) == Some(true);
     let ui_timeout = config.get("uiTimeout").and_then(JsValue::as_f64);
     let early_signal = config
         .get("earlySignal")
@@ -32,6 +33,20 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
         });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if shutdown_command {
+            api.register_command(
+                "rpc-shutdown-fixture",
+                None,
+                None,
+                Arc::new(|_, context| {
+                    Box::pin(async move {
+                        context.shutdown()?;
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
         if fire_probe {
             let root = root.clone();
             api.register_command(

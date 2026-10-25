@@ -626,6 +626,64 @@ fn rpc_fire_and_forget_ui_methods_emit_exact_requests_without_editor_state() {
     }
 }
 
+#[test]
+fn rpc_extension_shutdown_request_is_checked_after_the_next_command() {
+    let (mut session, _root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"shutdownCommand":true}"#)]);
+    session.send_both(r#"{"id":"shutdown","type":"prompt","message":"/rpc-shutdown-fixture"}"#);
+    let (source, native) = session.response("shutdown");
+    session.assert_same(&source, &native);
+    let (source, native) = session.command(json!({"id":"exit-state","type":"get_state"}));
+    session.assert_same(&source, &native);
+    let normalizer = session.normalizer;
+    let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(10));
+    let (native, native_code, native_error) = session
+        .rust
+        .finish_with_exit_deadline(std::time::Duration::from_secs(10));
+    assert_eq!(source_code, 0);
+    assert_eq!(source_code, native_code);
+    assert_eq!(source.len(), native.len());
+    for (source, native) in source.iter().zip(&native) {
+        assert_eq!(normalizer.normalize(source), normalizer.normalize(native));
+    }
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_switch_session_restores_the_original_session_and_rebinds_events() {
+    let (mut session, _root) = Session::start();
+    let (source, native) = session.command(json!({"id":"saved-prompt","type":"prompt","message":"hello"}));
+    session.assert_same(&source, &native);
+    session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let (source_state, native_state) = session.command(json!({"id":"saved-state","type":"get_state"}));
+    session.assert_same(&source_state, &native_state);
+    let source_state: Value = serde_json::from_str(&source_state).unwrap();
+    let native_state: Value = serde_json::from_str(&native_state).unwrap();
+    let (source, native) = session.command(json!({"id":"fresh","type":"new_session"}));
+    session.assert_same(&source, &native);
+    session.ts.send(
+        &json!({"id":"restored","type":"switch_session","sessionPath":source_state["data"]["sessionFile"]}).to_string(),
+    );
+    session.rust.send(
+        &json!({"id":"restored","type":"switch_session","sessionPath":native_state["data"]["sessionFile"]}).to_string(),
+    );
+    let (source, native) = session.response("restored");
+    session.assert_same(&source, &native);
+    assert_eq!(
+        serde_json::from_str::<Value>(&source).unwrap()["data"]["cancelled"],
+        false
+    );
+    let (source, native) = session.command(json!({"id":"restored-state","type":"get_state"}));
+    session.assert_same(&source, &native);
+    let restored: Value = serde_json::from_str(&source).unwrap();
+    assert_eq!(restored["data"]["sessionId"], source_state["data"]["sessionId"]);
+    assert_eq!(restored["data"]["messageCount"], source_state["data"]["messageCount"]);
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));
