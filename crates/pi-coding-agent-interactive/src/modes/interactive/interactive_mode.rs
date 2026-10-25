@@ -1831,6 +1831,7 @@ enum ModeAction {
     ExternalEditor,
     FollowUp,
     Dequeue,
+    RefreshEditorBorder,
     CycleModel(CycleDirection),
     NewSession,
 }
@@ -6183,28 +6184,65 @@ impl InteractiveMode {
     }
 
     fn handle_editor_escape(&self) -> Result<(), CallbackError> {
-        if self.is_bash_mode.get() {
-            self.is_bash_mode.set(false);
-            self.update_editor_border_color();
+        if self.pending_compaction_summary_edit_id.borrow_mut().take().is_some() {
+            self.editor().borrow_mut().set_text(&JsString::default())?;
+            self.show_status("Compaction summary edit cancelled");
+            self.ui.request_render();
             return Ok(());
         }
         if self.cancel_selected_agent_turn() {
             return Ok(());
         }
         let session = self.session();
-        if session.is_streaming() || session.is_bash_running() || session.is_compacting() {
-            self.actions.borrow_mut().push_back(ModeAction::Shutdown);
+        if session.cancel_supervisor_review() {
+            self.stop_working_loader();
+            self.status_container.borrow_mut().clear();
+            self.ui.request_render();
             return Ok(());
         }
-        let now = js_now_millis();
-        if now - self.last_escape_time.get() < 500.0 {
-            self.actions.borrow_mut().push_back(ModeAction::Shutdown);
-        } else {
-            self.last_escape_time.set(now);
-            self.editor().borrow_mut().set_text(&JsString::from(""))?;
-            self.ui.request_render();
+        if session.is_streaming() {
+            if let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) {
+                tokio::task::spawn_local(async move {
+                    if let Err(error) = mode.cancel_streaming_and_submit_queued_messages().await {
+                        mode.show_error(&error.message);
+                    }
+                });
+            }
+            return Ok(());
+        }
+        if session.is_bash_running() {
+            session.abort_bash();
+            return Ok(());
+        }
+        if self.is_bash_mode.get() {
+            self.editor().borrow_mut().set_text(&JsString::default())?;
+            self.is_bash_mode.set(false);
+            self.update_editor_border_color();
+            return Ok(());
+        }
+        if self.editor().borrow().get_text()?.trim().is_empty() {
+            self.handle_empty_editor_escape();
         }
         Ok(())
+    }
+
+    fn handle_empty_editor_escape(&self) {
+        use crate::core::settings_manager::DoubleEscapeAction;
+        let action = self.settings(|settings| settings.get_double_escape_action());
+        if action == DoubleEscapeAction::None {
+            return;
+        }
+        let now = js_now_millis();
+        if now - self.last_escape_time.get() >= 500.0 {
+            self.last_escape_time.set(now);
+            return;
+        }
+        if action == DoubleEscapeAction::Tree {
+            self.show_tree_selector(None, Some(TreeFilterMode::UserOnly));
+        } else {
+            self.show_user_message_selector();
+        }
+        self.last_escape_time.set(0.0);
     }
 
     /// `InteractiveMode.stop`: releases the session subscription and stops the TUI.
@@ -6750,7 +6788,10 @@ impl InteractiveMode {
 
         let mode = Rc::clone(self);
         self.default_editor.borrow_mut().editor_mut().on_change = Some(Rc::new(move |text: &JsString| {
-            mode.is_bash_mode.set(text.trim_start().starts_with('!'));
+            let bash = text.trim_start().starts_with('!');
+            if mode.is_bash_mode.replace(bash) != bash {
+                mode.actions.borrow_mut().push_back(ModeAction::RefreshEditorBorder);
+            }
         }));
 
         let mode = Rc::clone(self);
@@ -7427,6 +7468,7 @@ impl InteractiveMode {
                             .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     });
                 }
+                ModeAction::RefreshEditorBorder => self.update_editor_border_color(),
                 ModeAction::Dequeue => self
                     .handle_dequeue()
                     .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
@@ -8498,11 +8540,26 @@ impl InteractiveMode {
     }
 
     async fn cancel_streaming_and_submit_queued_messages(&self) -> Result<(), CallbackError> {
-        let restored = self.restore_queued_messages_to_editor(true)?;
-        if restored > 0 {
-            self.show_status("Cancelled streaming; queued messages restored to editor");
+        let (steering, follow_up) = self.clear_all_queues();
+        let queued: Vec<_> = steering.into_iter().chain(follow_up).collect();
+        if queued.is_empty() {
+            self.update_pending_messages_display();
+            return self.session().abort().await.map_err(CallbackError::from);
         }
-        Ok(())
+        let queued_text = JsString::join(queued, "\n\n");
+        let current = self.editor().borrow().get_text()?;
+        let combined = JsString::join(
+            [queued_text, current]
+                .into_iter()
+                .filter(|text| !text.trim().is_empty()),
+            "\n\n",
+        );
+        self.editor().borrow_mut().set_text(&JsString::default())?;
+        self.update_pending_messages_display();
+        self.session()
+            .interrupt(&combined, pi_ai::types::InputSource::Interactive)
+            .await
+            .map_err(CallbackError::from)
     }
 
     async fn handle_bash_command(&self, command: JsString, exclude_from_context: bool) {
@@ -8646,26 +8703,87 @@ impl InteractiveMode {
         self.render_initial_messages();
     }
 
-    async fn flush_compaction_queue(&self, _will_retry: bool) {
+    async fn deliver_compaction_message(
+        &self,
+        message: &CompactionQueuedMessage,
+    ) -> Result<(), crate::core::agent_session::AgentSessionError> {
+        let session = self.session();
+        if self.is_extension_command(&message.text) {
+            session.prompt(&message.text, PromptOptions::default()).await
+        } else if message.mode == "followUp" {
+            session.follow_up(&message.text, &[]).await
+        } else {
+            session.steer(&message.text, &[]).await
+        }
+    }
+
+    fn restore_compaction_queue(&self, queued: Vec<CompactionQueuedMessage>, error: &JsString) {
+        self.session().clear_queue();
+        let count = queued.len();
+        *self.compaction_queued_messages.borrow_mut() = queued;
+        self.update_pending_messages_display();
+        self.show_error(&js_format!(
+            "Failed to send queued message{}: {}",
+            if count > 1 { "s" } else { "" },
+            error
+        ));
+    }
+
+    async fn flush_compaction_queue(&self, will_retry: bool) {
         let queued = std::mem::take(&mut *self.compaction_queued_messages.borrow_mut());
-        for message in queued {
-            if let Err(error) = self
-                .session()
-                .prompt(
-                    &message.text,
-                    PromptOptions {
-                        streaming_behavior: Some(if message.mode == "steer" {
-                            StreamingBehavior::Steer
-                        } else {
-                            StreamingBehavior::FollowUp
-                        }),
-                        ..PromptOptions::default()
-                    },
-                )
-                .await
-            {
-                self.show_error(error.message());
+        if queued.is_empty() {
+            return;
+        }
+        self.update_pending_messages_display();
+        let result: Result<(), crate::core::agent_session::AgentSessionError> = async {
+            if will_retry {
+                for message in &queued {
+                    self.deliver_compaction_message(message).await?;
+                }
+                self.update_pending_messages_display();
+                return Ok(());
             }
+            let first = queued
+                .iter()
+                .position(|message| !self.is_extension_command(&message.text));
+            let Some(first) = first else {
+                for message in &queued {
+                    self.session().prompt(&message.text, PromptOptions::default()).await?;
+                }
+                return Ok(());
+            };
+            for message in &queued[..first] {
+                self.session().prompt(&message.text, PromptOptions::default()).await?;
+            }
+            let session = self.session();
+            let prompt = queued[first].clone();
+            let restore = queued.clone();
+            let mode_id = self.ui_id.get();
+            tokio::task::spawn_local(async move {
+                let options = PromptOptions {
+                    streaming_behavior: Some(if prompt.mode == "steer" {
+                        StreamingBehavior::Steer
+                    } else {
+                        StreamingBehavior::FollowUp
+                    }),
+                    ..PromptOptions::default()
+                };
+                if let Err(error) = session.prompt(&prompt.text, options).await {
+                    if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                        mode.restore_compaction_queue(restore, error.message());
+                    }
+                }
+            });
+            tokio::task::yield_now().await;
+            for message in &queued[first + 1..] {
+                self.deliver_compaction_message(message).await?;
+            }
+            self.update_pending_messages_display();
+            Ok(())
+        }
+        .await;
+        if let Err(error) = result {
+            self.restore_compaction_queue(queued, error.message());
         }
     }
 
@@ -13238,6 +13356,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_event_display.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_audit_native.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
