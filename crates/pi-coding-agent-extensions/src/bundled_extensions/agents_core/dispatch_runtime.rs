@@ -451,7 +451,7 @@ pub fn run_agent_session(
             .unwrap_or_else(|| input.store.get_restore_generation());
         let active_session = match create_active_child_session(&input).await {
             Ok(session) => session,
-            Err(error) => return Ok(fail_child_session(&input, &error, restore_generation).await),
+            Err(error) => return fail_child_session(&input, &error, restore_generation).await,
         };
         let lease_loss_abort = register_lease_loss_abort(&input, Arc::clone(&active_session));
         lease_loss_abort.abort_if_lease_already_lost();
@@ -475,7 +475,7 @@ pub fn run_agent_session(
             handles.lock().expect("handles").remove(&input.running_agent.id);
         }
         active_session.dispose();
-        Ok(agent)
+        agent
     })
 }
 
@@ -591,7 +591,7 @@ async fn prompt_child_and_wait_for_descendants(
         &input.running_agent.id,
         Some(&input.reserved_runtime.abort_controller.signal()),
     )
-    .await;
+    .await?;
     Ok(())
 }
 
@@ -599,14 +599,14 @@ async fn complete_prompted_child_session(
     input: &RunAgentSessionInput,
     active_session: &Arc<dyn ChildAgentSession>,
     restore_generation: u64,
-) -> AgentSnapshot {
+) -> Result<AgentSnapshot, JsString> {
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
     ) {
-        return cancelled;
+        return Ok(cancelled);
     }
     loop {
         let summary = last_assistant_text(&active_session.messages());
@@ -630,7 +630,7 @@ async fn complete_prompted_child_session(
             terminal_lifecycle: "completed",
         });
         if completed.lifecycle != AgentLifecycle::SteeringPending {
-            return completed;
+            return Ok(completed);
         }
         if let Err(error) = drain_pending_steering(input, active_session).await {
             return fail_child_session(input, &error, restore_generation).await;
@@ -664,21 +664,21 @@ async fn fail_child_session(
     input: &RunAgentSessionInput,
     error: &pi_js_compat::js_json::JsString,
     restore_generation: u64,
-) -> AgentSnapshot {
-    wait_for_active_descendants(&input.store, &input.running_agent.id, None).await;
+) -> Result<AgentSnapshot, JsString> {
+    wait_for_active_descendants(&input.store, &input.running_agent.id, None).await?;
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
     ) {
-        return cancelled;
+        return Ok(cancelled);
     }
     let current = input
         .store
         .get_agent(&input.running_agent.id)
         .unwrap_or_else(|| input.running_agent.clone());
-    finalize_reserved_runtime(FinalizeReservedRuntimeInput {
+    Ok(finalize_reserved_runtime(FinalizeReservedRuntimeInput {
         agent: current,
         expected_restore_generation: Some(restore_generation),
         error: Some(AgentError {
@@ -689,51 +689,10 @@ async fn fail_child_session(
         reserved_runtime: Arc::clone(&input.reserved_runtime),
         store: Arc::clone(&input.store),
         terminal_lifecycle: "failed",
-    })
+    }))
 }
 
-async fn wait_for_active_descendants(
-    store: &MultiAgentStore,
-    agent_id: &JsString,
-    signal: Option<&pi_js_compat::abort::AbortSignal>,
-) {
-    let has_active_descendants = || {
-        store
-            .list_descendants(agent_id)
-            .iter()
-            .any(|agent| is_active_lifecycle(agent.lifecycle))
-    };
-    if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
-        return;
-    }
-    let notify = Arc::new(tokio::sync::Notify::new());
-    let listener = Arc::clone(&notify);
-    let subscription = store.subscribe_agent_updates(move |_previous, _current| {
-        listener.notify_waiters();
-        Ok(())
-    });
-    loop {
-        if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
-            break;
-        }
-        let notified = notify.notified();
-        tokio::pin!(notified);
-        let cancelled = async {
-            match signal {
-                Some(signal) => {
-                    signal.wait().await;
-                }
-                None => std::future::pending().await,
-            }
-        };
-        tokio::pin!(cancelled);
-        tokio::select! {
-            _ = &mut cancelled => break,
-            () = &mut notified => {}
-        }
-    }
-    drop(subscription);
-}
+pub use super::descendant_settlement::wait_for_active_descendants;
 
 fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapshot {
     if let Some(expected) = input.expected_restore_generation

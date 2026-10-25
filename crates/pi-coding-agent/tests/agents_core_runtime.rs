@@ -575,6 +575,69 @@ async fn child_runtime_rejects_orchestration_tools() {
 }
 
 #[tokio::test]
+async fn cancelling_parent_waits_for_descendants_even_after_abort() {
+    use pi_coding_agent::bundled_extensions::agents_core::dispatch_runtime::wait_for_active_descendants;
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    let mut parent = empty_agent("parent");
+    parent.lifecycle = AgentLifecycle::Cancelling;
+    let mut child = empty_agent("child");
+    child.parent_id = Some(parent.id.clone());
+    child.lifecycle = AgentLifecycle::Running;
+    store.publish_lifecycle_coordinator_snapshot(&parent).unwrap();
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let controller = pi_js_compat::abort::AbortController::new();
+    controller.abort(None);
+    let signal = controller.signal();
+    let waiting = wait_for_active_descendants(&store, &parent.id, Some(&signal));
+    tokio::pin!(waiting);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut waiting)
+            .await
+            .is_err()
+    );
+    child.lifecycle = AgentLifecycle::Completed;
+    child.revision += 1;
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn descendant_settlement_reconciles_persisted_newer_revision_without_local_event() {
+    use pi_coding_agent::bundled_extensions::agents_core::dispatch_runtime::wait_for_active_descendants;
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    use pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent;
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let mut child = empty_agent("child");
+    child.parent_id = Some("parent".into());
+    child.lifecycle = AgentLifecycle::Running;
+    child.revision = 1;
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    let parent_id = JsString::from("parent");
+    let waiting = wait_for_active_descendants(&store, &parent_id, None);
+    tokio::pin!(waiting);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut waiting)
+            .await
+            .is_err()
+    );
+    child.lifecycle = AgentLifecycle::Completed;
+    child.revision = 2;
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+        .await
+        .expect("250ms persisted poll")
+        .unwrap();
+    assert_eq!(store.get_agent(&child.id).unwrap().revision, 2);
+    assert_eq!(store.get_agent(&child.id).unwrap().lifecycle, AgentLifecycle::Completed);
+}
+
+#[tokio::test]
 async fn cancel_agent_requests_cancellation_for_owned_runtime() {
     let test = test_dir();
     let store = store_with_persistence(&test);

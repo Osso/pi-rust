@@ -3,6 +3,7 @@
 
 pub mod agent_model_tool;
 pub mod control_runtime;
+pub mod descendant_settlement;
 pub mod dispatch_runtime;
 pub mod lifecycle_runtime;
 pub mod mailbox_runtime;
