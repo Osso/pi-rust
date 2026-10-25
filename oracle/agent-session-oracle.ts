@@ -148,6 +148,20 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "navigation-auth") {
+		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
+		agent.state.model = { ...model, provider: "unconfigured-provider" };
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		try {
+			await session.navigateTree(first, { summarize: true });
+			return { success: true };
+		} catch (error) {
+			return { error: error.message };
+		} finally {
+			session.dispose();
+		}
+	}
 	if (["preflight-compaction", "compaction-lock"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));

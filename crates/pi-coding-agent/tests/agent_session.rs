@@ -872,6 +872,70 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
 }
 
 #[tokio::test]
+async fn navigate_tree_summary_requires_auth_before_calling_provider_like_frozen() {
+    let fixture = fixture().await;
+    let first = fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("first request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }))
+        .expect("user");
+    fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::Assistant(Box::new(faux_assistant_message(
+            "old answer",
+            Default::default(),
+        ))))
+        .expect("assistant");
+    let mut model = fixture.session.model();
+    model.provider = "unconfigured-provider".to_owned();
+    fixture.session.agent().set_model(model);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("unauthenticated summary", Default::default()).into(),
+    ]);
+    let package_dir = pi_coding_agent::config::get_package_dir().expect("package dir");
+    let mut oracle = tools_oracle::TsOracle::spawn_with_environment(
+        "agent-session-oracle.ts",
+        "packages/coding-agent/src/core/sdk.ts",
+        &[(
+            "PI_PACKAGE_DIR",
+            std::ffi::OsString::from(encode_node_utf8(&package_dir)),
+        )],
+    );
+    let expected = oracle.request(&json!({
+        "operation": "navigation-auth", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected["ok"], true, "oracle: {expected}");
+    assert!(
+        expected["value"]["error"]
+            .as_str()
+            .expect("auth error")
+            .contains("unconfigured-provider")
+    );
+    let result = fixture
+        .session
+        .navigate_tree(
+            &first,
+            NavigateTreeOptions {
+                summarize: Some(true),
+                ..Default::default()
+            },
+        )
+        .await;
+    let actual = match result {
+        Ok(_) => json!({"success": true}),
+        Err(error) => json!({"error": error.message()}),
+    };
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
 async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     let fixture = fixture().await;
     // Frozen agent-loop.ts:308 continues until end_turn; keep this fixture to one complete turn.

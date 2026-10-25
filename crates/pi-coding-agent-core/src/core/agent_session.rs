@@ -7165,9 +7165,8 @@ impl AgentSession {
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
-            let auth = self.get_compaction_request_auth(&model).await.map_err(|error| {
+            let auth = self.get_required_request_auth(&model).await.inspect_err(|_| {
                 *lock(&self.inner.branch_summary_abort_controller) = None;
-                error
             })?;
             let reserve_tokens = lock(&self.inner.settings_manager)
                 .get_branch_summary_settings()
