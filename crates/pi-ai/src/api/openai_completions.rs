@@ -27,7 +27,6 @@ use crate::types::{
     ThinkingContent, ThinkingFormat, Tool, ToolCall, Usage, UsageCost, spread_compat_properties,
 };
 use crate::utils::event_stream::{AssistantMessageEventSender, create_assistant_message_event_stream};
-use crate::utils::hash::short_hash;
 use crate::utils::headers::headers_to_record;
 use crate::utils::json_parse::parse_streaming_json;
 use crate::utils::provider_env::get_provider_env_value;
@@ -297,36 +296,30 @@ fn has_tool_history(messages: &[Message]) -> bool {
 // =============================================================================
 
 fn normalize_tool_call_id(id: &str, model: &Model) -> String {
-    if let Some(separator_index) = id.find('|') {
-        let call_id = sanitize_id_part(&id[..separator_index]);
-        let item_id = sanitize_id_part(&id[separator_index + 1..]);
-        let combined_id = if item_id.is_empty() {
-            call_id.clone()
-        } else {
-            format!("{call_id}_{item_id}")
-        };
-        if combined_id.len() <= 40 {
-            return combined_id;
-        }
-        let hash = short_hash(id).chars().take(8).collect::<String>();
-        let prefix_length = 40_usize.saturating_sub(hash.len()).saturating_sub(1).max(1);
-        let prefix = call_id.chars().take(prefix_length).collect::<String>();
-        return format!("{prefix}_{hash}");
+    if let Some((call_id, _)) = id.split_once('|') {
+        return sanitize_id_part(call_id).chars().take(40).collect();
     }
-    if model.provider == "openai" && id.len() > 40 {
-        return id.chars().take(40).collect();
+    if model.provider == "openai" && id.encode_utf16().count() > 40 {
+        return truncate_opaque_tool_id_or_reject(id);
     }
     id.to_owned()
 }
 
+fn truncate_opaque_tool_id_or_reject(id: &str) -> String {
+    let prefix = JsString::from(id).slice(0, 40);
+    prefix.to_utf8().unwrap_or_else(|error| {
+        pi_js_compat::callback_error::throw_callback_uncaught(CallbackError::new(format!(
+            "Provider metadata toolCallId: {error}"
+        )))
+    })
+}
+
 fn sanitize_id_part(part: &str) -> String {
-    part.chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                character
-            } else {
-                '_'
-            }
+    part.encode_utf16()
+        .map(|unit| {
+            char::from_u32(u32::from(unit))
+                .filter(|character| character.is_ascii_alphanumeric() || *character == '_' || *character == '-')
+                .unwrap_or('_')
         })
         .collect()
 }
@@ -344,7 +337,7 @@ pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedOpenA
     let transformed_messages =
         transform_messages_with(&context.messages, model, Some(&normalizer), now_millis() as f64);
 
-    if let Some(system_prompt) = context.system_prompt.as_ref() {
+    if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         let role = if model.reasoning && compat.supports_developer_role {
             "developer"
         } else {
@@ -525,7 +518,7 @@ pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedOpenA
                     let reasoning_details = tool_calls
                         .iter()
                         .filter_map(|tool_call| tool_call.thought_signature.as_deref())
-                        .filter_map(|signature| serde_json::from_str::<JsValue>(signature).ok())
+                        .filter_map(|signature| pi_js_compat::js_json::parse_lossless(signature).ok())
                         .filter(pi_js_compat::js_json::is_truthy)
                         .collect::<Vec<_>>();
                     if !reasoning_details.is_empty() {
@@ -574,10 +567,8 @@ pub fn convert_messages(model: &Model, context: &Context, compat: &ResolvedOpenA
                     let has_text = !text_result.is_empty();
                     let tool_result_text = if has_text {
                         text_result
-                    } else if has_images {
-                        "(see attached image)".into()
                     } else {
-                        "(no tool output)".into()
+                        "(see attached image)".into()
                     };
                     let mut tool_message = JsObject::new();
                     tool_message.insert("role".into(), JsValue::String("tool".into()));
@@ -900,17 +891,17 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
 
-    let mut tools_value = None;
-    if let Some(active_tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
-        tools_value = Some(convert_tools(active_tools, compat));
-        if compat.zai_tool_stream {
-            params.insert("tool_stream".into(), JsValue::Bool(true));
-        }
-    } else if has_tool_history(&context.messages) {
-        tools_value = Some(JsValue::Array(Vec::new()));
-    }
+    let active_tools = context.tools.as_deref().filter(|tools| !tools.is_empty());
+    let mut tools_value = match active_tools {
+        Some(tools) => Some(convert_tools(tools, compat)),
+        None if has_tool_history(&context.messages) => Some(JsValue::Array(Vec::new())),
+        None => None,
+    };
     if let Some(tools) = &tools_value {
         params.insert("tools".into(), tools.clone());
+    }
+    if active_tools.is_some() && compat.zai_tool_stream {
+        params.insert("tool_stream".into(), JsValue::Bool(true));
     }
 
     if let Some(cache_control) = &cache_control {
@@ -1121,6 +1112,7 @@ fn create_client(
 #[derive(Debug)]
 pub enum CompletionsFailure {
     Sdk(SdkError),
+    Callback(CallbackError),
     Request(Box<ProviderRequestError<CallbackError>>),
     Message(pi_js_compat::js_json::JsString),
 }
@@ -1131,25 +1123,36 @@ impl CompletionsFailure {
             Self::Sdk(error) => format_sdk_error(&error, None),
             Self::Request(error) => format_request_error(&error, None),
             Self::Message(message) => message,
+            Self::Callback(error) => super::openai_sdk::format_callback_error(&error, None),
         }
     }
 
-    fn raw_metadata(&self) -> Option<&pi_js_compat::js_json::JsString> {
-        let provider = match self {
-            Self::Sdk(SdkError::Provider(error)) => Some(error.as_ref()),
+    fn raw_metadata(&self) -> Option<JsString> {
+        match self {
+            Self::Sdk(SdkError::Provider(error)) => error.inner_error.as_deref().and_then(extract_raw_metadata),
             Self::Request(error) => match error.as_ref() {
-                ProviderRequestError::Provider(error) => Some(error),
+                ProviderRequestError::Provider(error) => error.inner_error.as_deref().and_then(extract_raw_metadata),
                 _ => None,
             },
+            Self::Callback(error) => {
+                let value = match error.thrown_value() {
+                    pi_js_compat::abort::AbortReason::Error(error)
+                    | pi_js_compat::abort::AbortReason::DomException(error) => error.value(),
+                    pi_js_compat::abort::AbortReason::Value(value) => value,
+                };
+                value.get("error").and_then(extract_raw_metadata)
+            }
             _ => None,
-        }?;
-        provider
-            .inner_error
-            .as_deref()
-            .and_then(|error| error.get("metadata"))
-            .and_then(|metadata| metadata.get("raw"))
-            .and_then(JsValue::as_string)
+        }
     }
+}
+
+fn extract_raw_metadata(error: &JsValue) -> Option<JsString> {
+    error
+        .get("metadata")
+        .and_then(|metadata| metadata.get("raw"))
+        .and_then(JsValue::as_string)
+        .cloned()
 }
 
 fn finish_block(
@@ -1580,7 +1583,7 @@ fn retry_options(options: &ProviderRequestOptions) -> ProviderRetryOptions {
             .filter(|retries| *retries > 0.0)
             .map(|retries| retries as usize)
             .unwrap_or(0),
-        max_retry_delay_ms: options.max_retry_delay_ms,
+        max_retry_delay_ms: Some(0.0),
         signal: options.signal.clone(),
     }
 }
@@ -1611,7 +1614,7 @@ async fn run_stream(
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await
-            .map_err(|error| CompletionsFailure::Message(super::openai_sdk::format_callback_error(&error, None)))?
+            .map_err(CompletionsFailure::Callback)?
     {
         params = next_params;
     }
@@ -1640,7 +1643,7 @@ async fn run_stream(
             model.clone(),
         )
         .await
-        .map_err(|error| CompletionsFailure::Message(super::openai_sdk::format_callback_error(&error, None)))?;
+        .map_err(CompletionsFailure::Callback)?;
     }
     sender.push(AssistantMessageEvent::Start {
         partial: output.clone(),
@@ -1710,7 +1713,7 @@ fn run_and_emit(
             } else {
                 StopReason::Error
             };
-            let raw_metadata = failure.raw_metadata().cloned();
+            let raw_metadata = failure.raw_metadata();
             let mut message = failure.format();
             if let Some(raw) = raw_metadata
                 && !message.contains(&raw)
@@ -1754,6 +1757,7 @@ pub fn stream_simple(
         Ok(api_key) => api_key,
         Err(message) => return Err(CallbackError::new(message)),
     };
+    let tool_choice = options.stream.extra.get("toolChoice").cloned();
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options
         .reasoning
@@ -1765,11 +1769,8 @@ pub fn stream_simple(
             .extra
             .insert("reasoningEffort".to_owned(), Value::String(reasoning_effort));
     }
-    if let Some(thinking_budgets) = options.thinking_budgets {
-        stream_options.extra.insert(
-            "thinkingBudgets".to_owned(),
-            serde_json::to_value(thinking_budgets).unwrap_or(Value::Null),
-        );
+    if let Some(tool_choice) = tool_choice {
+        stream_options.extra.insert("toolChoice".to_owned(), tool_choice);
     }
     Ok(run_and_emit(&model, &context, stream_options))
 }

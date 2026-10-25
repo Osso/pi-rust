@@ -21,9 +21,11 @@ Lane: `repin/ai-api`, `/home/osso/.worktrees/pi-rust-repin-baseline-triage`. Ref
 ## Current audit boundaries
 
 - Closed body audits: simple-options, transform-messages (parent63768e977), lazy, image API, Responses, Azure and shared Responses. Responses/Azure default malformed-SSE console output is covered by the shared-shim child-process proof.
-- Remaining assigned audits: Completions; Google shared/Generative/Vertex; Anthropic; Bedrock; Mistral. Their prior trace tables are not promoted by the bounded callback/acquisition work above.
+- Remaining assigned audits: Google shared/Generative/Vertex; Anthropic; Bedrock; Mistral. Their prior trace tables are not promoted by the bounded callback/acquisition work above.
 - Mechanical cross-lane edits: shared image callback uses JsValue; existing app lazy-acquisition and registry-compat fixtures; Codex shared-message conversion error propagation changes String→JsString without changing algorithms.
 
 Default SDK console RED `/tmp/ai-api-sse-console-red.log` → GREEN3-case child proof `/tmp/ai-api-sse-console-green-2.log`. The first renewal exposed a cached Node logger reference in the recording fixture, not a native failure; a stable recording proxy fixed that fixture without changing source. Final framing/Responses renewal runs after the associated commit.
 
 At028d18e0f, Responses/Azure/shared renewal:18 pass,one new auth-header case failed,one invoked-only helper ignored (`/tmp/ai-api-responses-green-2.log`). The source oracle's per-instance post-acquisition push hook missed a synchronous error already queued by stream(). The existing installed snapshot helper already clones every event at push; consuming those clones directly removes that incomplete second capture path. No provider assertion was removed or narrowed. Renewal after this fixture fix is required for the new early-auth cases.
+
+Completions whole-module audit: `/tmp/ai-api-completions-red-2.log` records four independent behavior/order failures. After the request/ID fixes, all five Completions tests pass (`/tmp/ai-api-completions-raw-red.log`), including35 original,4 scratch and6 new source cases with recursively ordered request JSON. That same command adds the40th callback-domain case: raw metadata suffix was genuinely RED only in Completions. A dedicated CallbackError enum variant now preserves its original raw metadata through the final catch. `/tmp/ai-api-responses-green-3.log` at e899b5268 is current GREEN19 for Responses/Azure/shared, with the single ignored stderr child invoked by its active process parent.

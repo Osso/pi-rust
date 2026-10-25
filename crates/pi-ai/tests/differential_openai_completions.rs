@@ -1,6 +1,8 @@
 #[path = "support/provider_normalize.rs"]
 pub mod provider_normalize;
 
+#[path = "support/json_compare.rs"]
+mod json_compare;
 #[path = "support/oracle.rs"]
 mod oracle;
 #[path = "support/recording_fetch.rs"]
@@ -33,6 +35,14 @@ fn model(provider: &str, id: &str, base_url: &str, reasoning: bool) -> Value {
         "cost": {"input": 1.0, "output": 2.0, "cacheRead": 0.5, "cacheWrite": 0.75},
         "contextWindow": 128000, "maxTokens": 4096
     })
+}
+
+fn assistant(content: Value, provider: &str, model_id: &str) -> Value {
+    let mut message = pi_ai::types::AssistantMessage::empty("openai-completions", provider, model_id, 1234.0);
+    message.stop_reason = pi_ai::types::StopReason::ToolUse;
+    let mut value = serde_json::to_value(message).unwrap();
+    value["content"] = content;
+    value
 }
 
 fn with_compat(mut model: Value, compat: Value) -> Value {
@@ -362,6 +372,19 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
         expected,
         &format!("openai-completions scenario {}", scenario.id),
     );
+    for (index, (actual, expected)) in actual["requests"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(expected["requests"].as_array().unwrap())
+        .enumerate()
+    {
+        json_compare::assert_json_eq_ordered(
+            &actual["body"],
+            &expected["body"],
+            &format!("scenario {} request {index} body", scenario.id),
+        );
+    }
     for key in &scenario.ordered_body_keys {
         let actual_field = actual["requests"][0]["body"].get(key);
         let expected_field = expected["requests"][0]["body"].get(key);
@@ -798,4 +821,84 @@ async fn tool_scratch_preserves_numeric_indices_and_failure_boundaries() {
         )
         .await;
     }
+}
+
+#[tokio::test]
+async fn completions_replay_ids_empty_prompt_and_empty_tool_result_match_frozen() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-oracle.ts",
+        "packages/ai/src/api/openai-completions.ts",
+    );
+    let base = model("openai", "test", "https://api.openai.com/v1", false);
+    let text = text_events("replay");
+    for (index, id) in [
+        "call_123|fc_456".to_owned(),
+        "call🙈end|fc_tail".to_owned(),
+        format!("call{}", "🙈".repeat(20)),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut call = assistant(
+            json!([{"type":"toolCall","id":id,"name":"read","arguments":{}}]),
+            "openai",
+            "test",
+        );
+        call["api"] = json!("openai-completions");
+        let result = json!({"role":"toolResult","toolCallId":id,"toolName":"read","content":[{"type":"text","text":"done"}],"isError":false,"timestamp":1234});
+        run_scenario(
+            &mut source,
+            Scenario::new(200 + index as i64, base.clone(), &text).context(json!({"messages":[call,result]})),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn completions_empty_prompt_and_tool_result_match_literal_source_placeholder() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-oracle.ts",
+        "packages/ai/src/api/openai-completions.ts",
+    );
+    let base = model("openai", "test", "https://api.openai.com/v1", false);
+    let text = text_events("empty");
+    let call = assistant(
+        json!([{"type":"toolCall","id":"call_empty","name":"read","arguments":{}}]),
+        "openai",
+        "test",
+    );
+    let result = json!({"role":"toolResult","toolCallId":"call_empty","toolName":"read","content":[],"isError":false,"timestamp":1234});
+    run_scenario(
+        &mut source,
+        Scenario::new(210, base, &text).context(json!({"systemPrompt":"","messages":[call,result]})),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn completions_simple_tool_choice_and_sdk_retry_ignore_old_budget_and_delay_options() {
+    let mut source = TsOracle::spawn(
+        "openai-responses-oracle.ts",
+        "packages/ai/src/api/openai-completions.ts",
+    );
+    let base = model("openai", "test", "https://api.openai.com/v1", true);
+    let text = text_events("options");
+    run_scenario(
+        &mut source,
+        Scenario::new(220, base.clone(), &text)
+            .extra(json!({"toolChoice":"required"}))
+            .reasoning("medium"),
+    )
+    .await;
+    let chunks = sse_chunks(&text, 100);
+    run_scenario(
+        &mut source,
+        Scenario::new(221, base, &text)
+            .stream(json!({"maxRetries":1,"maxRetryDelayMs":1}))
+            .responses(vec![
+                ScriptedResponse::json(429, r#"{"error":{"message":"retry"}}"#).with_header("retry-after-ms", "2"),
+                ScriptedResponse::sse(&chunks.iter().map(String::as_str).collect::<Vec<_>>()),
+            ]),
+    )
+    .await;
 }
