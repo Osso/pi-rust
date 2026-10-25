@@ -8,7 +8,7 @@ Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Inhe
 |---|---|---|
 | Transcript, archive, history, manager, raw migration and listing boundaries | `cargo test -j4 -p pi-coding-agent --test repin_session_storage -- --nocapture --skip storage_worker_hard90second` at `1785172c` | 30 PASS, one filtered; includes frame/UTF-8 errors, rollback/modes/plain precedence, scoped-empty metadata, resident predicate, legacy/raw HTML and tool migration. Not whole-module acceptance. |
 | First-message selector | `cargo test -j4 -p pi-coding-agent --test differential_session_search -- --nocapture` at `f0675811` | PASS; actual pinned source excludes subsequent-message text. Later storage changes do not touch this proof scope. |
-| Packaged native worker deadline | `cargo test -j4 -p pi-coding-agent --test repin_session_storage storage_worker_hard90second -- --nocapture` at `7b28b70b` | PASS in 90.10s: real FIFO-blocked worker killed/reaped, temporary state removed. Same-branch prior proof; worker boundary unchanged, not rerun. Does not prove release/SDK layout. |
+| Packaged native worker deadline | `cargo test -j4 -p pi-coding-agent --test repin_session_storage storage_worker_hard90second -- --nocapture` at `7b28b70b` | PASS in 90.10s: real FIFO-blocked worker killed/reaped, temporary state removed. Historical proof invalidated by approved in-process replacement; see [current spool trace](session-transcript-spool.md#in-process-worker-boundary-2026-10-25). |
 
 ## Current capability boundary
 
@@ -23,7 +23,7 @@ Provenance: `/tmp/pi-rust-repin-session-storage/REPORT.md` and `ledger.md`. Inhe
 | Public truncated-zstd stream | Frozen source emits unhandled `ZstdDecompress` `Z_BUF_ERROR` and exits; classification unresolved. Rust IO error is not an approved semantic deviation. |
 | Resident preparation/live cleanup; archive CLI, idle, deletion and mutable restore callers | Bundled archive/delete consumers now have [bounded proof](../session-archive-history-proof.md). Resident preparation, idle/archive CLI and mutable restore callers remain OPEN. |
 | Durable mailbox acceptance | OPEN: serialized markers, append, persist and fsync do not prove runtime claim/CAS/duplicate-suppression wiring. |
-| Packaged SDK/release worker layout | OPEN; private package test layout is not distribution proof. |
+| SDK archive decoding | Package-executable dependency removed; missing-package child differential passes with exact bytes/mode/cleanup. No release worker asset remains. |
 | Whole-module/final gate | OPEN; focused tests and targeted clippy passed, but no broad or final acceptance. Manual readability findings remain; numerical metrics unavailable. |
 
 Compatibility additions are provenance only, not blanket approval of these open boundaries. Existing [compatibility spec](../../specs/compatibility.md) remains outside this audit's edit ownership.
