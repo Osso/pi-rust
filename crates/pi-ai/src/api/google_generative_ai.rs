@@ -74,9 +74,16 @@ pub fn stream(model: Model, context: Context, options: StreamOptions) -> Assista
 }
 
 /// `streamSimple()`.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
-    let Some(api_key) = options.stream.request.api_key.clone() else {
-        return error_stream(&model, format!("No API key for provider: {}", model.provider));
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+    let Some(api_key) = options.stream.request.api_key.clone().filter(|key| !key.is_empty()) else {
+        return Err(crate::request::CallbackError::new(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let thinking = match options.reasoning {
@@ -107,7 +114,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             }
         }
     };
-    run_stream(
+    Ok(run_stream(
         model,
         context,
         GoogleOptions {
@@ -115,7 +122,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             tool_choice: None,
             thinking,
         },
-    )
+    ))
 }
 
 /// `ProviderStreams` adapter for `googleGenerativeAIApi()`.
@@ -138,7 +145,7 @@ impl ProviderStreams for GoogleGenerativeAiApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 

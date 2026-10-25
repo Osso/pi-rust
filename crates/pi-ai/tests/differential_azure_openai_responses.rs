@@ -309,6 +309,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
                 ..Default::default()
             },
         )
+        .expect("simple acquisition")
     } else {
         stream(model, context, options)
     };

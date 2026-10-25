@@ -31,7 +31,7 @@ Tests: module unit tests, `crates/pi-ai/tests/differential_azure_openai_response
 Same as `openai-responses`: timestamps, environment identity headers, and malformed-JSON text.
 
 ## Gaps
-- `streamSimple` API-key failure is an error stream instead of a synchronous throw.
+- Direct `streamSimple` API-key failure rejects acquisition; a lazy wrapper catches it asynchronously, matching frozen.
 - The pinned Azure SDK does not add `/deployments/{model}` for `/responses`; the URL is `/openai/v1/responses?api-version=...` and the deployment name is only `body.model`.
 
 ## Discrepancies
@@ -42,3 +42,7 @@ Same as `openai-responses`: timestamps, environment identity headers, and malfor
 Azure endpoint/resource/API-version/deployment values and environment map parsing now use native units. URL normalization applies the shared WHATWG boundary, and SDK URL/header conversion propagates through existing failure handling. Grammar property names remain the existing scalar metadata contract.
 
 [Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+
+## Direct Simple acquisition boundary (2026-10-25)
+
+`differential_simple_acquisition` invokes actual frozen modules and native ProviderStreams for missing/empty API keys across six APIs. All twelve cases were genuine RED: native returned a stream instead of rejecting acquisition. Direct stream_simple now returns Result and adapters propagate it; lazy acquisition continues through its existing catch. Mechanical consumer changes preserve valid-stream assertions. The remaining module audit is separate from this bounded proof.

@@ -472,7 +472,7 @@ pub fn stream_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> crate::utils::event_stream::AssistantMessageEventStream {
+) -> Result<crate::utils::event_stream::AssistantMessageEventStream, CallbackError> {
     let Some(api_key) = options
         .stream
         .request
@@ -480,7 +480,10 @@ pub fn stream_simple(
         .clone()
         .filter(|api_key| !api_key.is_empty())
     else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
+        return Err(CallbackError::new(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options
@@ -493,7 +496,7 @@ pub fn stream_simple(
             .extra
             .insert("reasoningEffort".to_owned(), Value::String(reasoning_effort));
     }
-    run_and_emit(&model, &context, stream_options)
+    Ok(run_and_emit(&model, &context, stream_options))
 }
 
 /// `ProviderStreams` adapter for `azureOpenAIResponsesApi()`.
@@ -516,7 +519,7 @@ impl ProviderStreams for AzureOpenAIResponsesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 

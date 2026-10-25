@@ -1607,15 +1607,22 @@ fn with_extra(mut options: StreamOptions, key: &str, value: Value) -> StreamOpti
     options
 }
 
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, CallbackError> {
     let api_key = options.stream.request.api_key.as_ref().filter(|key| !key.is_empty());
-    if let Err(message) = assert_request_auth(&model.provider, api_key, options.stream.request.headers.as_ref()) {
-        return crate::request::error_stream(&model, &message);
-    }
+    assert_request_auth(&model.provider, api_key, options.stream.request.headers.as_ref())
+        .map_err(CallbackError::new)?;
 
     let base = build_base_options(&model, &context, Some(&options), api_key);
     let Some(reasoning) = options.reasoning else {
-        return stream(model, context, with_extra(base, "thinkingEnabled", Value::Bool(false)));
+        return Ok(stream(
+            model,
+            context,
+            with_extra(base, "thinkingEnabled", Value::Bool(false)),
+        ));
     };
 
     if raw_compat(&model).is_true("forceAdaptiveThinking") {
@@ -1628,7 +1635,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             anthropic.effort = Some(effort);
             anthropic
         });
-        return spawn_stream(model, context, base, anthropic);
+        return Ok(spawn_stream(model, context, base, anthropic));
     }
 
     let (adjusted_max_tokens, adjusted_budget) = adjust_max_tokens_for_thinking(
@@ -1642,7 +1649,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
     let base = with_extra(base, "thinkingEnabled", Value::Bool(true));
     let mut base = with_extra(base, "thinkingBudgetTokens", js_number_value(thinking_budget));
     base.max_tokens = Some(max_tokens);
-    stream(model, context, base)
+    Ok(stream(model, context, base))
 }
 
 /// `anthropicMessagesApi()` from the provider runtime: a unit value implementing
@@ -1666,7 +1673,7 @@ impl ProviderStreams for AnthropicMessagesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 

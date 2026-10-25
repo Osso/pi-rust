@@ -158,3 +158,7 @@ Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary
 The shared `anthropic_sdk::Auth` variants and `SdkRequest` URL/header values are native. `execute` performs URL and ByteString conversion at `HttpRequest` construction and propagates conversion failures through the existing provider-request error path.
 
 [Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+
+## Direct Simple acquisition boundary (2026-10-25)
+
+`differential_simple_acquisition` invokes actual frozen modules and native ProviderStreams for missing/empty API keys across six APIs. All twelve cases were genuine RED: native returned a stream instead of rejecting acquisition. Direct stream_simple now returns Result and adapters propagate it; lazy acquisition continues through its existing catch. Mechanical consumer changes preserve valid-stream assertions. The remaining module audit is separate from this bounded proof.

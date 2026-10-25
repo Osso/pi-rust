@@ -90,6 +90,8 @@ pub mod differential_provider_reasons;
 pub mod differential_providers;
 #[path = "differential_retry.rs"]
 pub mod differential_retry;
+#[path = "differential_simple_acquisition.rs"]
+pub mod differential_simple_acquisition;
 #[path = "differential_simple_options.rs"]
 pub mod differential_simple_options;
 #[path = "differential_stainless_abort.rs"]

@@ -1745,14 +1745,14 @@ pub fn stream_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> crate::utils::event_stream::AssistantMessageEventStream {
+) -> Result<crate::utils::event_stream::AssistantMessageEventStream, CallbackError> {
     let api_key = match get_client_api_key(
         &model.provider,
         options.stream.request.api_key.as_ref(),
         options.stream.request.headers.as_ref(),
     ) {
         Ok(api_key) => api_key,
-        Err(message) => return crate::request::error_stream(&model, &message),
+        Err(message) => return Err(CallbackError::new(message)),
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options
@@ -1771,7 +1771,7 @@ pub fn stream_simple(
             serde_json::to_value(thinking_budgets).unwrap_or(Value::Null),
         );
     }
-    run_and_emit(&model, &context, stream_options)
+    Ok(run_and_emit(&model, &context, stream_options))
 }
 
 /// `ProviderStreams` adapter for `openAICompletionsApi()`.
@@ -1794,7 +1794,7 @@ impl ProviderStreams for OpenAICompletionsApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 

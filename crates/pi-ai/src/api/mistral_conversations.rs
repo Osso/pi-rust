@@ -20,7 +20,7 @@ use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
-use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
+use crate::request::{CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
     ImageContent, Message, Modality, Model, ModelThinkingLevel, StopReason, TextContent, ThinkingContent, Tool,
@@ -125,7 +125,7 @@ impl ProviderStreams for MistralConversationsApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 
@@ -245,10 +245,17 @@ fn done_reason(reason: StopReason) -> Option<DoneReason> {
 }
 
 /// Maps provider-agnostic `SimpleStreamOptions` to Mistral options.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, CallbackError> {
     let api_key = options.stream.request.api_key.clone().filter(|key| !key.is_empty());
     let Some(api_key) = api_key else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
+        return Err(CallbackError::new(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
     };
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
@@ -258,7 +265,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
     });
     let should_use_reasoning = model.reasoning && reasoning.is_some();
 
-    stream(
+    Ok(stream(
         model.clone(),
         context,
         MistralOptions {
@@ -269,7 +276,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             reasoning_effort: (should_use_reasoning && uses_reasoning_effort(&model))
                 .then(|| map_reasoning_effort(&model, reasoning.unwrap_or(ModelThinkingLevel::High))),
         },
-    )
+    ))
 }
 
 fn uses_reasoning_effort(model: &Model) -> bool {
