@@ -136,7 +136,7 @@ fn agent(id: &str, display_name: &str, lifecycle: AgentLifecycle) -> AgentSnapsh
 #[test]
 fn agent_selection_banner_renders_the_selected_agent() {
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-01-01T00:00:00.000Z".to_string())),
+        now: Some(Arc::new(|| Ok("2026-01-01T00:00:00.000Z".into()))),
     });
     store
         .publish_lifecycle_coordinator_snapshot(&agent("agent-1", "Scout", AgentLifecycle::WaitingForInput))

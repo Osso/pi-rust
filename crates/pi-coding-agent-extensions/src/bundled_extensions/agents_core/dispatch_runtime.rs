@@ -568,6 +568,7 @@ fn register_store_abort_handler(input: &RunAgentSessionInput) -> crate::core::mu
             if let Some(handles) = handles.as_ref() {
                 handles.lock().expect("handles").remove(&agent_id);
             }
+            Ok(())
         })
 }
 

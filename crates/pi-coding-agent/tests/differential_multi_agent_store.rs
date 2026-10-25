@@ -14,7 +14,7 @@ use pi_js_compat::{js_json, js_json as json};
 
 fn store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".into())),
+        now: Some(Arc::new(|| Ok("2026-06-21T00:00:00.000Z".into()))),
     })
 }
 

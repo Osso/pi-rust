@@ -239,7 +239,9 @@ pub fn request_agent_steering(
         .map_err(|error| HandlerError::new(error.message()))?;
     match steered {
         SteeringCommandResult::Ok { agent, message } => {
-            store.publish_lifecycle_coordinator_steering(&agent, &message);
+            store
+                .publish_lifecycle_coordinator_steering(&agent, &message)
+                .map_err(|error| HandlerError::from(pi_ai::request::CallbackError::from(error)))?;
             if let Some(runtime_handles) = runtime_handles {
                 runtime_handles
                     .wait_wake_listeners
