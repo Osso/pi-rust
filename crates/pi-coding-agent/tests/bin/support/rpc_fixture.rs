@@ -132,7 +132,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                         let selected = ui
                             .select(&"select".into(), &["one".into(), "two".into()], Some(&options))
                             .await
-                            .map_err(HandlerError::new)?;
+                            .map_err(HandlerError::from)?;
                         std::fs::write(
                             root.join("ui-selected.json"),
                             stringify_lossless(&pi_js_compat::js_json!({"value":selected})),
@@ -141,9 +141,12 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                         let confirmed = ui
                             .confirm(&"confirm".into(), &"message".into(), None)
                             .await
-                            .map_err(HandlerError::new)?;
-                        let input = ui.input(&"input".into(), None, None).await.map_err(HandlerError::new)?;
-                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::new)?;
+                            .map_err(HandlerError::from)?;
+                        let input = ui
+                            .input(&"input".into(), None, None)
+                            .await
+                            .map_err(HandlerError::from)?;
+                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::from)?;
                         let report = pi_js_compat::js_json!({"values":[selected,confirmed,input,editor]});
                         std::fs::write(root.join("ui-report.json"), stringify_lossless(&report)).unwrap();
                         Ok(())
