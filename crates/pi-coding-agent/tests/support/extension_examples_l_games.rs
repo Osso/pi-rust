@@ -284,7 +284,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
         log.lock().unwrap().push(json!(["append", kind, data]));
         Ok(())
     });
-    runner.bind_core(actions, fixture::context_actions(), None);
+    runner.bind_core(actions, fixture::context_actions(), None).unwrap();
     let log = trace.clone();
     let _error = runner.on_error(Arc::new(move |e| {
         log.lock().unwrap().push(json!(["error", e.event, e.error]))

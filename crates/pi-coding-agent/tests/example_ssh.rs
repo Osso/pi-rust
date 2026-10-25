@@ -82,7 +82,9 @@ async fn native(request: &Value) -> Value {
     )
     .unwrap();
     let mut runner = support::runner_for(vec![extension.clone()], cwd, runtime, Arc::new(model_registry));
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let ui = Arc::new(Ui {
         trace: Mutex::default(),
         theme: Arc::new(

@@ -171,16 +171,18 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
     let config = runtime.pending_provider_registrations()[0].config.clone();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, models.clone());
     let target = models.clone();
-    runner.bind_core(
-        support::actions(),
-        support::context_actions(),
-        Some(ProviderActions {
-            register_provider: Some(Arc::new(move |name, config| {
-                target.register_provider(name, config.clone())
-            })),
-            ..Default::default()
-        }),
-    );
+    runner
+        .bind_core(
+            support::actions(),
+            support::context_actions(),
+            Some(ProviderActions {
+                register_provider: Some(Arc::new(move |name, config| {
+                    target.register_provider(name, config.clone())
+                })),
+                ..Default::default()
+            }),
+        )
+        .unwrap();
     let first = &config.models.as_ref().unwrap()[0];
     assert!(
         models.find("gitlab-duo", &first.id).is_some(),

@@ -297,7 +297,7 @@ impl Harness {
             ..support::context_actions()
         };
 
-        runner.bind_core(extension_actions, context_actions, None);
+        runner.bind_core(extension_actions, context_actions, None).unwrap();
         runner.set_ui_context(Some(ui.clone() as Arc<dyn ExtensionUiContext>), ExtensionMode::Rpc);
         Self {
             runner,

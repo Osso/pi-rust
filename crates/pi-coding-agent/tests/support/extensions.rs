@@ -191,5 +191,5 @@ pub fn runner_for_session(
 }
 
 pub fn bind(runner: &mut ExtensionRunner) {
-    runner.bind_core(actions(), context_actions(), None);
+    runner.bind_core(actions(), context_actions(), None).unwrap();
 }

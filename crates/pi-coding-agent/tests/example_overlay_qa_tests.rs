@@ -475,7 +475,9 @@ async fn native(request: &Value) -> Value {
         .map(|(name, c)| json!([name, c.description]))
         .collect::<Vec<_>>();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, support::model_registry().await);
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let ui = Arc::new(Ui {
         scripts: Mutex::new(request["scripts"].as_array().unwrap().iter().cloned().collect()),
         calls: Arc::new(Mutex::new(Vec::new())),

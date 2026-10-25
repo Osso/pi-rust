@@ -273,7 +273,7 @@ pub async fn compare(
         log.lock().unwrap().push(json!(["user", message, options]));
         Ok(())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let log = trace.clone();
     let _errors = runner.on_error(Arc::new(move |error| {
         log.lock()

@@ -371,7 +371,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         log.lock().unwrap().push(json!(["sendUserMessage", content, options]));
         Ok(())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let log = trace.clone();
     runner.bind_command_context(Some(ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),

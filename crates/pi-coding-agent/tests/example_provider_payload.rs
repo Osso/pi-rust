@@ -48,7 +48,9 @@ async fn run_native(request: &Value) -> Value {
     .unwrap();
     let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let mut runner = support::runner_for(vec![extension], &cwd, runtime, Arc::new(model_registry));
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let errors = Arc::new(Mutex::new(Vec::<String>::new()));
     let error_log = errors.clone();
     let _subscription = runner.on_error(Arc::new(move |error| {

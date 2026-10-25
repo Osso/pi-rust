@@ -147,7 +147,9 @@ impl Harness {
             model_registry().await,
             None,
         );
-        runner.bind_core(actions(&calls), context_actions(&calls, control_db_path), None);
+        runner
+            .bind_core(actions(&calls), context_actions(&calls, control_db_path), None)
+            .unwrap();
         runner.bind_command_context(Some(command_actions(&calls)));
         runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
         Self {

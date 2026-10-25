@@ -172,7 +172,7 @@ async fn run_native(request: &Value) -> Value {
         actions_log.lock().unwrap().push(json!({"type":"getCommands"}));
         Ok(commands_snapshot.lock().unwrap().clone())
     });
-    runner.bind_core(actions, support::context_actions(), None);
+    runner.bind_core(actions, support::context_actions(), None).unwrap();
     runner.set_ui_context(Some(ui.clone()), ExtensionMode::Tui);
     let resolved = runner.get_command("commands").unwrap();
     let mut invocations = Vec::new();

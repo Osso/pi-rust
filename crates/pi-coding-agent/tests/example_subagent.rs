@@ -98,7 +98,7 @@ async fn runner(
         Some(serde_json::from_value(json!({"id":"inherited","provider":"fixture","api":"faux","baseUrl":"http://invalid","name":"fixture","reasoning":true,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":1000,"maxTokens":100})).unwrap())
     });
     context.get_thinking_level = Some(Arc::new(|| pi_agent_core::harness::ThinkingLevel::High));
-    runner.bind_core(support::actions(), context, None);
+    runner.bind_core(support::actions(), context, None).unwrap();
     runner.set_ui_context(Some(ui), ExtensionMode::Tui);
     runner
 }

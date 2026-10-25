@@ -587,7 +587,7 @@ async fn harness() -> Harness {
         restarted_for_context.store(true, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     });
-    runner.bind_core(actions, context_actions, None);
+    runner.bind_core(actions, context_actions, None).unwrap();
     Harness {
         runner,
         api: captured_api.lock().unwrap().take().expect("api captured"),

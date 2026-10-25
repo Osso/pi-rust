@@ -122,7 +122,9 @@ async fn native(request: &Value) -> Value {
     ))
     .unwrap();
     let mut runner = support::runner_for(vec![extension], "/fixture", runtime, Arc::new(models));
-    runner.bind_core(support::actions(), support::context_actions(), None);
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
     let trace: Trace = Arc::default();
     runner.set_ui_context(
         Some(Arc::new(Ui(trace.clone()))),

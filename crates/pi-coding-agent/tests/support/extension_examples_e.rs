@@ -113,7 +113,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .expect("fixture completion callback");
         }
     });
-    runner.bind_core(support::actions(), context, None);
+    runner.bind_core(support::actions(), context, None).unwrap();
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
     let error_log = errors.clone();
     runner.on_error(Arc::new(move |error| {

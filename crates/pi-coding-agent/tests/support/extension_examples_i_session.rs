@@ -326,7 +326,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["noModel"] != true {
         context.get_model = Arc::new(move || model.clone());
     }
-    runner.bind_core(support::actions(), context, None);
+    runner.bind_core(support::actions(), context, None).unwrap();
     let errors: Trace = Arc::default();
     let log = errors.clone();
     runner.on_error(Arc::new(move |e| log.lock().unwrap().push(json!([e.event, e.error]))));

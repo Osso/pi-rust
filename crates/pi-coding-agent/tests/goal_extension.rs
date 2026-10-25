@@ -277,7 +277,7 @@ async fn harness(name: &str, default_decision: GoalSupervisorResponse) -> Harnes
     context_actions.is_idle = Arc::new(move || idle_for_context.load(Ordering::SeqCst));
     let pending_for_context = Arc::clone(&pending);
     context_actions.has_pending_messages = Arc::new(move || pending_for_context.load(Ordering::SeqCst));
-    runner.bind_core(actions, context_actions, None);
+    runner.bind_core(actions, context_actions, None).unwrap();
 
     Harness {
         runner,

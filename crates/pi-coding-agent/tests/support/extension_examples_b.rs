@@ -277,7 +277,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     if request["hasModel"].as_bool().unwrap_or(true) {
         context.get_model = Arc::new(move || model.clone().flatten());
     }
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let errors = Arc::new(Mutex::new(Vec::<Value>::new()));
     let captured_errors = errors.clone();
     let _subscription = runner.on_error(Arc::new(move |error| {
