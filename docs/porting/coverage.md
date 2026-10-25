@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 658, `gap` 25, `partial` 2, `todo` 1.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 659, `gap` 25, `partial` 2, `todo` 0.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -378,7 +378,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/native/darwin/build.mjs` | 114 | — | gap | — | macOS xcrun/SDK addon build/prebuild packaging; approved Darwin addon boundary. [Trace](traceability/coding-agent-darwin-native.md). |
 | `coding-agent/native/darwin/src/process-info.c` | 174 | — | gap | — | macOS libproc/N-API process inspection addon; Linux native process inspection is separate. [Trace](traceability/coding-agent-darwin-native.md). |
 | `coding-agent/scripts/migrate-sessions.sh` | 93 | — | gap | — | User-approved waiver 2026-10-20: unpublished manual v0.30.0 repair script; superseded by ported automatic `migrate_sessions_from_agent_root` (`crates/pi-coding-agent/src/migrations.rs`, [traceability](traceability/migrations.md)).; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/architect/main.ts` | 309 | 22 | todo | `crates/pi-coding-agent/src/architect/main.rs` | re-pin delta; `openArchitectSession` via `prepare_resident_session_file` and native UTF-16 contracts ported 2026-10-22; remaining: pinned `AuthStorage`/`ModelRegistry` service wiring blocked on the SDK re-pin (Rust SDK takes `ModelRuntime`); old status: done; old Rust: `crates/pi-coding-agent/src/architect/main.rs`; Queue, settings, store, gating, cycle, stop handler, service loop, resident console server, session/extension wiring; 17 behavioral tests + request-cycle differential |
+| `coding-agent/src/architect/main.ts` | 309 | 22 | done | `crates/pi-coding-agent/src/architect/main.rs` | Whole common-pin audit; parent AuthStorage/ModelRegistry service wiring closes prior blocker. 18 native tests, existing frozen request-cycle and exact UTF-16 tests PASS. Renewal errors now propagate with a native 30s RED→GREEN regression. Frozen missing-sol catalog bug retained. [Traceability](traceability/architect.md#maints). |
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | done | `crates/pi-coding-agent/src/architect/observer.rs` | Observation diffs, bounded SQL snapshot, claim/renew/complete; 6 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/architect/project-spec.ts` | 70 | 22 | done | `crates/pi-coding-agent/src/architect/project_spec.rs` | Path containment, root discovery, `read_project_spec` tool registration and execution; 3 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | done | `crates/pi-coding-agent/src/architect/prompt.rs` | Exact system prompt and observation prompt; differential `differential_architect_prompt`; re-run vs 4f9e6f8a4 pending |

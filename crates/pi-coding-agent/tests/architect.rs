@@ -4,9 +4,9 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent::architect::main::{
-    ARCHITECT_EXCLUDED_TOOL_NAMES, ArchitectConsolePromptQueue, SentArchitectMessage, block_architect_global_broadcast,
-    complete_sent_architect_request, create_architect_console_snapshot, create_architect_settings_manager,
-    run_architect_cycle,
+    ARCHITECT_EXCLUDED_TOOL_NAMES, ArchitectConsolePromptQueue, REQUEST_CLAIM_RENEW_INTERVAL_MS, SentArchitectMessage,
+    block_architect_global_broadcast, complete_sent_architect_request, create_architect_console_snapshot,
+    create_architect_settings_manager, run_architect_cycle,
 };
 use pi_coding_agent::architect::observer::{
     ArchitectObservation, ArchitectObservationReason, ArchitectObserver, ArchitectSessionSnapshot,
@@ -547,6 +547,36 @@ impl pi_coding_agent::architect::main::ArchitectCycleObserver for FixedObserver 
         self.renewed.lock().unwrap().push(request_ids.to_vec());
         Ok(())
     }
+}
+
+struct FailingRenewalObserver;
+
+impl pi_coding_agent::architect::main::ArchitectCycleObserver for FailingRenewalObserver {
+    fn observe(&self) -> Result<Option<ArchitectObservation>, JsString> {
+        Ok(Some(ArchitectObservation {
+            requests: vec![request(4)],
+            reason: ArchitectObservationReason::ArchitectRequest,
+            sessions: vec![session()],
+        }))
+    }
+
+    fn renew_requests(&self, request_ids: &[i64]) -> Result<(), JsString> {
+        assert_eq!(request_ids, &[4]);
+        Err(JsString::from("renewal failed-") + JsString::from_utf16(vec![0xd800]))
+    }
+}
+
+#[tokio::test]
+async fn architect_cycle_reports_request_renewal_failure_during_prompt() {
+    let result = run_architect_cycle(Arc::new(FailingRenewalObserver), |_| async {
+        tokio::time::sleep(std::time::Duration::from_millis(REQUEST_CLAIM_RENEW_INTERVAL_MS + 100)).await;
+        Ok(())
+    })
+    .await;
+    assert_eq!(
+        result,
+        Err(JsString::from("renewal failed-") + JsString::from_utf16(vec![0xd800]))
+    );
 }
 
 #[tokio::test]
