@@ -16,7 +16,7 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 
 ## Verifier correction (2026-10-21)
 
-`queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. Several already-queued commands across disconnect are not yet independently proved.
+`queued_command_survives_disconnect_like_frozen` now completes one in-flight side effect after socket close, matching frozen. `frame_whitespace.rs` proves 31 code points for both ordinary and established-stream framing vs Node trim+JSON.parse. New actual-source all_queued_commands_finish_in_order_after_disconnect_like_frozen fixture sends three coalesced commands after the stream-ready handshake, disconnects after the first starts, and compares ordered completed side effects. Execution pending at implementation commit.
 
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
 
