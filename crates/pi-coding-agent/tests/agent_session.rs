@@ -874,9 +874,8 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
 #[tokio::test]
 async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     let fixture = fixture().await;
-    fixture.faux.set_responses(vec![
-        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
-    ]);
+    // Frozen agent-loop.ts:308 continues until end_turn; keep this fixture to one complete turn.
+    fixture.faux.set_responses(vec![completed_text_response("hello")]);
     fixture
         .session
         .prompt("first", PromptOptions::default())
@@ -924,10 +923,10 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
     use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry};
 
     let fixture = fixture().await;
-    fixture.faux.set_responses(vec![
-        faux_assistant_message("hello", FauxAssistantMessageOptions::default()).into(),
-        faux_assistant_message("hi", FauxAssistantMessageOptions::default()).into(),
-    ]);
+    // Frozen agent-loop.ts:308 continues until end_turn; give each prompt its own completed turn.
+    fixture
+        .faux
+        .set_responses(vec![completed_text_response("hello"), completed_text_response("hi")]);
     fixture
         .session
         .prompt("first", PromptOptions::default())
