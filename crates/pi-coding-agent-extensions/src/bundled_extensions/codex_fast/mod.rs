@@ -69,7 +69,12 @@ pub enum RequestedFastMode {
 }
 
 pub fn supports_fast_mode(model: Option<&Model>) -> bool {
-    model.is_some_and(|model| model.provider == "openai-codex" || model.provider == "openai-codex-gc")
+    model.is_some_and(|model| {
+        matches!(
+            model.provider.as_str(),
+            "openai-codex" | "openai-codex-gc" | "openai-codex-team"
+        )
+    })
 }
 
 pub fn requested_fast_mode(
@@ -108,18 +113,24 @@ fn update_fast_status(
     authority: &FastModeAuthority,
     model: Option<&Model>,
 ) -> Result<(), HandlerError> {
-    let service_tier = authority.service_tier();
-    let label = fast_mode_label(service_tier);
-    let status = if label == "ultra" { "fast ultra" } else { "fast" };
-    let text = if service_tier.is_some() && supports_fast_mode(model) {
-        Some(JsString::from(status))
-    } else {
-        None
-    };
-    ctx.ui()?.set_status(
-        &FAST_STATUS_KEY.into(),
-        text.map(crate::core::footer_data_provider::ExtensionStatus::Text),
-    )?;
+    let authority = authority.clone();
+    let model = model.cloned();
+    let status = crate::core::footer_data_provider::ExtensionStatus::Callback(Arc::new(move |view| {
+        let displayed_model = match view.as_ref() {
+            Some(view) => view.model.as_ref(),
+            None => model.as_ref(),
+        };
+        let tier = authority.service_tier();
+        if !supports_fast_mode(displayed_model) || tier.is_none() {
+            return Ok(None);
+        }
+        let text = match tier {
+            Some(FastServiceTier::Ultrafast) => "fast ultra",
+            _ => "fast",
+        };
+        Ok(Some(text.into()))
+    }));
+    ctx.ui()?.set_status(&FAST_STATUS_KEY.into(), Some(status))?;
     Ok(())
 }
 
@@ -293,7 +304,10 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
               -> BoxFuture<'static, Result<Option<JsValue>, HandlerError>> {
             let authority = authority.clone();
             Box::pin(async move {
-                if authority.service_tier().is_none() || !supports_fast_mode(ctx.model()?.as_ref()) {
+                let Some(tier) = authority.service_tier() else {
+                    return Ok(None);
+                };
+                if !supports_fast_mode(ctx.model()?.as_ref()) {
                     return Ok(None);
                 }
                 let JsValue::Object(mut payload) = event.payload else {
@@ -303,10 +317,7 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
                     )?;
                     return Ok(None);
                 };
-                payload.insert(
-                    "service_tier".into(),
-                    JsValue::String(authority.service_tier().expect("checked service tier").as_str().into()),
-                );
+                payload.insert("service_tier".into(), JsValue::String(tier.as_str().into()));
                 Ok(Some(JsValue::Object(payload)))
             })
         }

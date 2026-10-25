@@ -89,7 +89,6 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
         approval_required: Some(true),
         approval_kind: None,
         parameters: browser_cli_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

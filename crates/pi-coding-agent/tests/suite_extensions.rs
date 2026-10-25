@@ -8,6 +8,8 @@ pub mod bundled_extensions_gates;
 pub mod bundled_extensions_tools;
 #[path = "claude_bash_hook_extension.rs"]
 pub mod claude_bash_hook_extension;
+#[path = "codex_daybreak.rs"]
+pub mod codex_daybreak;
 #[path = "codex_usage_extension.rs"]
 pub mod codex_usage_extension;
 #[path = "differential_bundled_extensions.rs"]
@@ -52,6 +54,8 @@ pub mod example_subagent_agents;
 pub mod example_trigger_compact;
 #[path = "goal_extension.rs"]
 pub mod goal_extension;
+#[path = "loop_runtime.rs"]
+pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]
 pub mod lossless_extension_loader;
 #[path = "pyrun_extension.rs"]
@@ -60,3 +64,5 @@ pub mod pyrun_extension;
 pub mod raw_extension_dialogs;
 #[path = "raw_extension_ui_types.rs"]
 pub mod raw_extension_ui_types;
+#[path = "session_autoname.rs"]
+pub mod session_autoname;

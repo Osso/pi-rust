@@ -175,6 +175,7 @@ pub fn enqueue_detached_job_status_request(
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
+                "createdAt": crate::utils::iso_time::now_iso_string(),
                 "fromAgentId": input.requester_address.agent_id.clone().unwrap_or_else(|| "main".into()),
                 "id": message_id,
                 "kind": "system",
@@ -233,6 +234,7 @@ pub fn enqueue_detached_job_status_response(
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
+                "createdAt": crate::utils::iso_time::now_iso_string(),
                 "fromAgentId": input.identity.job_id,
                 "id": message_id,
                 "kind": "system",
@@ -340,5 +342,10 @@ fn safe_integer(value: &JsValue) -> Option<i64> {
 }
 
 fn command_identity_matches(command: &StoredCommand, current: &DetachedJobOwnershipIdentity) -> bool {
-    command.identity() == current
+    let candidate = command.identity();
+    let same_job = candidate.job_id == current.job_id && candidate.output_label == current.output_label;
+    let same_owner = candidate.owner == current.owner;
+    let same_process = candidate.process_identity.pid == current.process_identity.pid
+        && candidate.process_identity.start_time_ticks == current.process_identity.start_time_ticks;
+    same_job && same_owner && same_process
 }

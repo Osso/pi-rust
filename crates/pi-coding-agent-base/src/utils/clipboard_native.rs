@@ -103,10 +103,12 @@ pub fn has_display() -> bool {
 /// Disabled under Termux or without a display, matching the source's module
 /// initialization guard.
 pub fn clipboard() -> Option<Box<dyn ClipboardModule>> {
-    if pi_js_compat::process_env::get("TERMUX_VERSION").is_some() || !has_display() {
-        return None;
-    }
-    Some(Box::new(SystemClipboard))
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let enabled = ENABLED.get_or_init(|| {
+        let in_termux = non_empty(pi_js_compat::process_env::get("TERMUX_VERSION").as_deref());
+        !in_termux && has_display()
+    });
+    enabled.then(|| Box::new(SystemClipboard) as Box<dyn ClipboardModule>)
 }
 
 fn non_empty(value: Option<&str>) -> bool {

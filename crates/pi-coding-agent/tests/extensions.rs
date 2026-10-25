@@ -876,10 +876,7 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
         }))
         .unwrap();
         api.on_session_before_compact(h!(SessionBeforeCompactEvent, |_e, _c| {
-            Ok(Some(SessionBeforeCompactResult {
-                cancel: Some(true),
-                compaction: None,
-            }))
+            Ok(Some(SessionBeforeCompactResult { cancel: Some(true) }))
         }))
         .unwrap();
         let l3 = Arc::clone(&l);
@@ -1279,7 +1276,6 @@ fn tool_definition(name: &str, description: &str) -> ToolDefinition {
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -2136,7 +2132,6 @@ fn text_definition(
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

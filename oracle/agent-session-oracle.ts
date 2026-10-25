@@ -71,6 +71,7 @@ async function run(request) {
 	writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ faux: { type: "api_key", key: "faux-key" } }));
 	writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
 	const core = createFauxCore({
+		provider: request.operation === "quota-fallback" ? "openai-codex" : "faux",
 		api: "faux",
 		models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }],
 		tokenSize: { min: 1, max: 1 },
@@ -102,12 +103,34 @@ async function run(request) {
 			},
 		],
 	});
+	if (request.operation === "quota-fallback") {
+		for (const provider of ["openai-codex-gc", "openai-codex-team"]) {
+			authStorage.set(provider, { type: "api_key", key: "faux-key" });
+			modelRegistry.registerProvider(provider, {
+				apiKey: "faux-key", baseUrl: model.baseUrl, api: model.api,
+				models: [{ ...model, provider }],
+			});
+		}
+
+	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = SettingsManager.create(dir, agentDir);
+	const settingsManager = request.operation === "preflight-compaction"
+		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } })
+		: SettingsManager.create(dir, agentDir);
+	const requestedProviders = [];
+	if (request.operation === "quota-fallback") settingsManager.setRetryEnabled(false);
 	const agent = new Agent({
 		initialState: { systemPrompt: "", model, thinkingLevel: "off", tools: [] },
-		streamFn: (requestModel, context, options) => core.streamSimple(requestModel, context, options),
+		streamFn: (requestModel, context, options) => {
+			requestedProviders.push(requestModel.provider);
+			if (request.operation === "quota-fallback") {
+				const account = createFauxCore({ provider: requestModel.provider, api: "faux" });
+				account.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "usage limit" })]);
+				return account.streamSimple(requestModel, context, options);
+			}
+			return core.streamSimple(requestModel, context, options);
+		},
 		sessionId: sessionManager.getSessionId(),
 		steeringMode: settingsManager.getSteeringMode(),
 		followUpMode: settingsManager.getFollowUpMode(),
@@ -125,6 +148,76 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "preflight-compaction") {
+		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
+		for (let i = 0; i < 4; i++) {
+			sessionManager.appendMessage({ role: "user", content: `newer request ${i}`, timestamp: i + 1 });
+		}
+		sessionManager.appendMessage(fauxAssistantMessage("latest answer"));
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		settingsManager.setCompactionEnabled(false);
+		const runner = session.extensionRunner;
+		const emit = runner.emit.bind(runner);
+		runner.hasHandlers = (type) => type === "session_before_compact";
+		runner.emit = async (event) => event.type === "session_before_compact" ? {
+			compaction: { summary: "obsolete preflight summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
+		} : emit(event);
+		try {
+			const result = await session.compact("keep decisions");
+			return { summary: result.summary };
+		} catch (error) {
+			return { error: error.message };
+		} finally {
+			session.dispose();
+		}
+	}
+	if (request.operation === "idle-steer") {
+		agent.state.messages.push({ role: "user", content: "earlier request", timestamp: 0 });
+		let release;
+		let markStarted;
+		const gate = new Promise((resolve) => { release = resolve; });
+		const started = new Promise((resolve) => { markStarted = resolve; });
+		core.setResponses([async () => {
+			markStarted();
+			await gate;
+			return fauxAssistantMessage("steered");
+		}]);
+		const steering = session.steer("idle steer");
+		await started;
+		const returnedBeforeResponse = await Promise.race([
+			steering.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100)),
+		]);
+		release();
+		await steering;
+		await session.abort();
+		session.dispose();
+		return returnedBeforeResponse;
+	}
+	if (request.operation === "quota-fallback") {
+		await session.prompt("quota test");
+		const result = { requestedProviders, provider: session.model.provider };
+		session.dispose();
+		return result;
+	}
+	if (request.operation === "cycle-models") {
+		session.setScopedModels(request.scopes.map((scope) => ({
+			model: { ...model, ...scope },
+			thinkingLevel: "high",
+		})));
+		const results = [];
+		for (const direction of request.directions) {
+			const result = await session.cycleModel(direction);
+			results.push(result ? {
+				id: result.model.id,
+				name: result.model.name,
+				thinkingLevel: result.thinkingLevel,
+				isScoped: result.isScoped,
+			} : null);
+		}
+		session.dispose();
+		return results;
+	}
 	const events = [];
 	session.subscribe((rawEvent) => {
 		const event = structuredClone(rawEvent);

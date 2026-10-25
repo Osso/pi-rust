@@ -563,7 +563,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prompt_snippet:Some("Play a tic-tac-toe action (move_up/down/left/right or play) as Player O".into()),
         prompt_guidelines:Some(vec!["When it is your tic-tac-toe turn, decide the target cell first, then emit every move_* plus the final play as separate tic_tac_toe tool calls in a SINGLE assistant response. Never split them across responses or wait for intermediate results.".into(),"Never ask the user for the board. The board and your cursor position are included in the user's move message; use tic_tac_toe_see_board if you need them restated.".into()]),
         parameters:json!({"type":"object","properties":{"action":{"type":"string","enum":["move_up","move_down","move_left","move_right","play"],"description":"The single action to perform this call. Emit multiple tic_tac_toe calls in one response to string actions together."}},"required":["action"]}),
-        constrained_sampling:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
+        approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
         execute:Arc::new(move|_,params,_,_,_| {let game=state.clone();let api=api.clone();Box::pin(async move{execute_action(&api,&game,params["action"].as_string().expect("validated action")).await})}),
         render_call:Some(infallible_render_call(|args,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe "))+&theme.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("")))))),
         render_result:Some(infallible_render_result(|result,options,theme,context| {
@@ -575,7 +575,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(ToolDefinition {
         name:"tic_tac_toe_see_board".into(),label:"See Board".into(),description:"Return the current tic-tac-toe board state and YOUR cursor position (Player O). Takes no arguments. Use this if you need the current state restated mid-turn (for example after a failed play). The user's cursor is never exposed.".into(),
         prompt_snippet:Some("Inspect the tic-tac-toe board and your cursor".into()),prompt_guidelines:None,
-        parameters:json!({"type":"object","properties":{}}),constrained_sampling:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
+        parameters:json!({"type":"object","properties":{}}),approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(move|_,_,_,_,_| {let game=game.clone();Box::pin(async move{Ok(see_board(&game))})}),
         render_call:Some(infallible_render_call(|_,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe_see_board"))))),
         render_result:Some(infallible_render_result(|result,options,theme,_| {

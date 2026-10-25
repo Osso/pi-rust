@@ -1,9 +1,12 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 use std::ffi::OsString;
 
-use pi_coding_agent::core::experimental::{are_experimental_features_enabled, get_experimental_tool_sampling};
+use pi_coding_agent::core::experimental::are_experimental_features_enabled;
+use serde_json::json;
 
 const PREFIX: &str = "EXPERIMENTAL_PROBE:";
 
@@ -22,28 +25,27 @@ fn probe(value: Option<&str>) -> String {
 }
 
 #[test]
-fn returns_false_when_pi_experimental_is_unset() {
-    assert_eq!(probe(None), "false null");
-}
-
-#[test]
-fn returns_false_when_pi_experimental_is_empty() {
-    assert_eq!(probe(Some("")), "false null");
-}
-
-#[test]
-fn returns_true_when_pi_experimental_is_set_to_1() {
-    assert_eq!(probe(Some("1")), r#"true {"type":"json_schema","strict":"prefer"}"#);
-}
-
-#[test]
-fn returns_false_when_pi_experimental_is_set_to_0() {
-    assert_eq!(probe(Some("0")), "false null");
-}
-
-#[test]
-fn returns_false_when_pi_experimental_is_set_to_a_non_1_value() {
-    assert_eq!(probe(Some("true")), "false null");
+fn experimental_gate_matches_frozen_source() {
+    for value in [
+        None,
+        Some(""),
+        Some("0"),
+        Some("true"),
+        Some("1"),
+        Some(" 1"),
+        Some("01"),
+    ] {
+        let environment = [("PI_EXPERIMENTAL", OsString::from(value.unwrap_or_default()))];
+        let mut source = oracle::TsOracle::spawn_with_environment(
+            "experimental-oracle.mts",
+            "packages/coding-agent/src/core/experimental.ts",
+            &environment,
+        );
+        let response = source.request(&json!({ "id": 1, "cwd": "/tmp" }));
+        assert_eq!(response["ok"], true, "{response}");
+        let expected = response["output"].as_bool().unwrap().to_string();
+        assert_eq!(probe(value), expected, "PI_EXPERIMENTAL={value:?}");
+    }
 }
 
 #[test]
@@ -52,6 +54,5 @@ fn experimental_probe_child() {
     if !env_probe::in_probe() {
         return;
     }
-    let sampling = serde_json::to_string(&get_experimental_tool_sampling()).unwrap();
-    println!("{PREFIX}{} {sampling}", are_experimental_features_enabled());
+    println!("{PREFIX}{}", are_experimental_features_enabled());
 }

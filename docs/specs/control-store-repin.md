@@ -31,7 +31,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Retry missing-birth enqueues idempotently without accepting changed message identity.
 - [x] Claim before delivery; reject stale payload deletion; CAS-delete after explicit delivery and never consume foreign-host rows locally.
 - [x] Hide expired mailbox rows by creation age; delete dead claims with complete transcript acceptance rather than replaying.
-- [x] Scan raw receipt refs across all complete transcript records; propagate malformed complete-record errors and ignore partial final records.
+- [x] Scan raw receipt refs across all complete transcript records; propagate malformed complete-record errors and ignore partial final records. Preserve lossless SyntaxError and original Node read error constructor, message and filesystem fields.
 - [x] Preserve original mailbox birth through updates, delete terminal outbox acknowledgement rows, and accept identical terminal replay after peer acknowledgement removed the row.
 - [x] Expire in-memory mailbox at exactly24h, evict peer-deleted rows, and consume/remove while returning the original message snapshot.
 - [x] Enforce store terminal-notification suppression; preserve activity `detail` and publish model/current activity under exact DB ownership.

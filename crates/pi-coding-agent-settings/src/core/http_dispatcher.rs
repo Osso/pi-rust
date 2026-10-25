@@ -11,10 +11,6 @@ use pi_js_compat::string::js_trim;
 
 pub const DEFAULT_HTTP_IDLE_TIMEOUT_MS: u64 = 300_000;
 
-/// Node's 250 ms default can terminate valid connection attempts on high-latency
-/// routes; the source raises it to 2 s.
-const DEFAULT_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS: u64 = 2_000;
-
 pub const HTTP_IDLE_TIMEOUT_CHOICES: [(&str, u64); 5] = [
     ("30 sec", 30_000),
     ("1 min", 60_000),
@@ -100,9 +96,4 @@ pub fn configure_http_dispatcher(timeout_ms: f64) -> Result<Arc<dyn Fetch>, Stri
         idle_timeout: (normalized_timeout_ms > 0).then(|| Duration::from_millis(normalized_timeout_ms)),
     };
     fetch_with_options(options)
-}
-
-/// Milliseconds the source allows per connection attempt before trying the next address.
-pub const fn auto_select_family_attempt_timeout_ms() -> u64 {
-    DEFAULT_AUTO_SELECT_FAMILY_ATTEMPT_TIMEOUT_MS
 }

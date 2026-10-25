@@ -398,6 +398,7 @@ fn cancel_persisted_detached_runtime(
             ownership: authority.ownership,
             output_label: authority.output_label,
             reason: reason.cloned(),
+            suppress_terminal_notification: None,
         })
         .map_err(|error| HandlerError::new(error.message()))?;
     match cancelled {

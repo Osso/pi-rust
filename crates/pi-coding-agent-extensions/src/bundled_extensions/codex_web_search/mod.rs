@@ -293,7 +293,6 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
                 }
             }
         }),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

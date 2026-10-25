@@ -1825,7 +1825,6 @@ enum ModeAction {
     Dequeue,
     CycleModel(CycleDirection),
     NewSession,
-    Copy,
 }
 
 /// Shared, thread-safe counters used by the extension UI bridge.
@@ -6773,12 +6772,6 @@ impl InteractiveMode {
             }),
         );
         self.default_editor.borrow_mut().on_action(
-            "app.message.copy",
-            action(self, |mode| {
-                mode.actions.borrow_mut().push_back(ModeAction::Copy);
-            }),
-        );
-        self.default_editor.borrow_mut().on_action(
             "app.message.followUp",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::FollowUp);
@@ -7370,12 +7363,6 @@ impl InteractiveMode {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
                         mode.handle_clear_command().await;
-                    });
-                }
-                ModeAction::Copy => {
-                    let mode = Rc::clone(self);
-                    tokio::task::spawn_local(async move {
-                        mode.handle_copy_command().await;
                     });
                 }
                 ModeAction::CycleModel(direction) => {

@@ -721,7 +721,6 @@ async fn schema_argument_admission_matches_source_validation() {
         label: None,
         execution_mode: None,
         typebox_kind: true,
-        constrained_sampling: None,
     };
     let actual: Vec<_> = cases
         .iter()

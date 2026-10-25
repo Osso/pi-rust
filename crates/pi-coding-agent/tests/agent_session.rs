@@ -1116,10 +1116,13 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
                 pi_ai::providers::faux::faux_text("working"),
                 pi_ai::providers::faux::faux_tool_call(
                     "echo",
-                    (json!({"text": "hi"}).as_object().cloned().expect("arguments"))
-                        .into_iter()
-                        .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
-                        .collect::<pi_js_compat::js_json::JsObject>(),
+                    (json!({"text": "hi", "query": " inspect\n  files "})
+                        .as_object()
+                        .cloned()
+                        .expect("arguments"))
+                    .into_iter()
+                    .map(|(key, value)| (JsString::from(key), JsValue::from(value)))
+                    .collect::<pi_js_compat::js_json::JsObject>(),
                     Some("call-1".to_owned()),
                 ),
             ],
@@ -1138,6 +1141,12 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
         .expect("prompt");
 
     let activities = activities.lock().unwrap().clone();
+    assert!(
+        activities.iter().any(|activity| matches!(activity,
+            Some(AgentCurrentActivity::Tool { detail: Some(detail), .. }) if detail == "inspect files"
+        )),
+        "tool arguments must be summarized in published activity: {activities:?}"
+    );
     assert!(
         matches!(activities.first(), Some(Some(AgentCurrentActivity::Thinking { .. }))),
         "agent_start publishes thinking: {activities:?}"
@@ -1358,6 +1367,182 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
     assert!(content.contains("- session: other-session"), "{content_utf8}");
     assert!(content.contains("hello channel"), "{content_utf8}");
     assert_eq!(custom.get("display").and_then(JsValue::as_bool), Some(true));
+}
+
+#[tokio::test]
+async fn cycle_model_matches_frozen_for_unregistered_scope_and_changed_metadata() {
+    use pi_coding_agent::core::model_resolver::ScopedModel;
+
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    for scopes in [
+        vec![("faux-1", "Faux Model"), ("removed-from-catalog", "Saved Model")],
+        vec![("other", "Other"), ("faux-1", "Updated Display Name")],
+    ] {
+        let fixture = fixture().await;
+        let expected = oracle.request(&json!({
+            "operation": "cycle-models",
+            "dir": fixture._temp_dir.path().join("oracle").display().to_string(),
+            "scopes": scopes.iter().map(|(id, name)| json!({"id": id, "name": name})).collect::<Vec<_>>(),
+            "directions": ["forward", "backward"],
+        }));
+        assert_eq!(expected["ok"], true, "oracle: {expected}");
+        let model = fixture.session.model();
+        fixture.session.set_scoped_models(
+            scopes
+                .into_iter()
+                .map(|(id, name)| {
+                    let mut model = model.clone();
+                    model.id = id.to_owned();
+                    model.name = name.into();
+                    ScopedModel {
+                        model,
+                        thinking_level: Some(ThinkingLevel::High),
+                    }
+                })
+                .collect(),
+        );
+        let mut actual = Vec::new();
+        for direction in [CycleDirection::Forward, CycleDirection::Backward] {
+            let result = fixture.session.cycle_model(direction).await.expect("cycle");
+            actual.push(result.map(|result| {
+                json!({
+                    "id": result.model.id,
+                    "name": result.model.name,
+                    "thinkingLevel": result.thinking_level.as_str(),
+                    "isScoped": result.is_scoped,
+                })
+            }));
+        }
+        assert_eq!(json!(actual), expected["value"]);
+    }
+}
+
+#[tokio::test]
+async fn quota_fallback_visits_all_three_accounts_once_like_frozen() {
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        Some(Vec::new()),
+        FixtureOverrides {
+            faux_provider_id: Some("openai-codex".to_owned()),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.session.set_auto_retry_enabled(false);
+    let model = fixture.session.model();
+    for provider in ["openai-codex-gc", "openai-codex-team"] {
+        fixture
+            .session
+            .model_registry()
+            .register_provider(
+                provider,
+                pi_coding_agent::core::model_registry::ProviderConfigInput {
+                    api: Some(model.api.clone()),
+                    base_url: Some(model.base_url.clone()),
+                    api_key: Some("faux-key".into()),
+                    models: Some(vec![model.clone().into()]),
+                    ..Default::default()
+                },
+            )
+            .expect("fallback provider");
+    }
+    let providers = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requested = Arc::clone(&providers);
+    fixture
+        .session
+        .agent()
+        .set_stream_fn(Arc::new(move |model, context, options| {
+            requested.lock().unwrap().push(model.provider.clone());
+            let account = faux_provider(RegisterFauxProviderOptions {
+                provider: Some(model.provider.clone()),
+                api: Some(model.api.clone()),
+                ..Default::default()
+            });
+            account.set_responses(vec![
+                faux_assistant_message(
+                    "",
+                    FauxAssistantMessageOptions {
+                        stop_reason: Some(pi_ai::StopReason::Error),
+                        error_message: Some("usage limit".into()),
+                        ..Default::default()
+                    },
+                )
+                .into(),
+            ]);
+            let stream = account.provider.stream_simple(model, context, options);
+            Box::pin(async move { stream.map_err(pi_agent_core::agent::AgentError::from) })
+        }));
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "quota-fallback", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected["ok"], true, "oracle: {expected}");
+    assert_eq!(
+        expected["value"]["requestedProviders"],
+        json!(["openai-codex", "openai-codex-gc", "openai-codex-team"])
+    );
+    fixture
+        .session
+        .prompt("quota test", PromptOptions::default())
+        .await
+        .expect("prompt");
+    assert_eq!(
+        json!({"requestedProviders": *providers.lock().unwrap(), "provider": fixture.session.model().provider}),
+        expected["value"]
+    );
+}
+
+#[tokio::test]
+async fn idle_steer_returns_before_the_provider_turn_finishes() {
+    let fixture = fixture().await;
+    fixture
+        .session
+        .agent()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("earlier request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }));
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (started_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    fixture
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_context, _options, _state, _model| {
+                let (started, release) = (Arc::clone(&started_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("steered", Default::default()))
+                })
+            },
+        ))]);
+    let session = fixture.session.clone();
+    let mut steer = tokio::spawn(async move { session.steer("idle steer", &[]).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("provider started");
+    let returned = tokio::time::timeout(std::time::Duration::from_millis(100), &mut steer).await;
+    release.notify_one();
+    if returned.is_err() {
+        steer.await.expect("steer task").expect("steer result");
+    }
+    fixture.session.agent().wait_for_idle().await;
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "idle-steer", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": true}));
+    assert_eq!(
+        returned.is_ok(),
+        expected["value"].as_bool().expect("oracle result"),
+        "steer must return without waiting for the provider response"
+    );
 }
 
 #[tokio::test]
@@ -2571,7 +2756,6 @@ fn custom_grep_definition(
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {"pattern": {"type": "string"}}}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

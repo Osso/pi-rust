@@ -765,6 +765,10 @@ name = "example_working_message_test"
 path = "tests/example_working_message_test.rs"
 
 [[test]]
+name = "clipboard_native_process"
+path = "tests/clipboard_native_process.rs"
+
+[[test]]
 name = "experimental"
 path = "tests/experimental.rs"
 
@@ -1155,10 +1159,6 @@ path = "tests/differential_agent_session.rs"
 [[test]]
 name = "lossless_agent_session_paths"
 path = "tests/lossless_agent_session_paths.rs"
-
-[[test]]
-name = "session_autoname"
-path = "tests/session_autoname.rs"
 
 [[test]]
 name = "differential_tool_execution"

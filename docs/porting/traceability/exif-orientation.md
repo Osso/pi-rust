@@ -1,27 +1,19 @@
 # coding-agent exif-orientation traceability
 
-Pinned source: `packages/coding-agent/src/utils/exif-orientation.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen source: `packages/coding-agent/src/utils/exif-orientation.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`; whole 186-line module compared to `pi-coding-agent-base/src/utils/exif_orientation.rs`.
 
-Differential proof: request `27100` applies orientations 1-8 to JPEG (little- and big-endian TIFF) and WebP fixtures and compares width, height, and the full RGBA buffer against the pinned module. Focused tests: `crates/pi-coding-agent/tests/exif_orientation.rs`.
+| Symbols / branches | Proof |
+| --- | --- |
+| `readOrientationFromTiff`: initial/IFD/entry bounds, LE/BE, unsigned read32, tag search, valid 1–8/default | `suite_core_2::exif_orientation` LE/BE, invalid tag values, truncated/invalid-offset fixtures; frozen pixel differential |
+| `findJpegTiffOffset`: fill bytes, APP1 header/length, ordinary segment advance/bounds, missing/invalid marker | Native fill/empty/truncated fixtures and actual-source JPEG differential |
+| `findWebpTiffOffset`: RIFF chunks, unsigned size, even padding, next-offset bounds before EXIF, optional Exif header | Native empty/padded/truncated/unsigned-size fixtures; actual-source WebP differential |
+| `hasExifHeader`, `getExifOrientation`: JPEG/WebP dispatch, absent header/default 1 | Native nonimage/truncated/no-EXIF fixtures and differential |
+| `rotate90`, `applyExifOrientation`: all eight orientations, swapped dimensions, complete RGBA permutations | `suite_core_2::differential_image_pipeline::exif_orientation_matches_common_pin`: 25 identical-byte fixtures (8 LE JPEG +8 BE JPEG +8 WebP +no EXIF); 16 native tests, including nonsquare dimension swaps |
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `exif-orientation.ts:7-41` | `readOrientationFromTiff`: byte order, IFD offset, entry scan, 1-8 clamp | `read_orientation_from_tiff`; focused LE/BE matrix, out-of-range values, invalid signed IFD offset |
-| `exif-orientation.ts:43-72` | `findJpegTiffOffset`: marker walk, APP1 `Exif\0\0` header, segment stepping | `find_jpeg_tiff_offset`; focused fill-marker/empty-segment case, truncated segment, differential |
-| `exif-orientation.ts:74-99` | `findWebpTiffOffset`: RIFF chunk walk, optional `Exif\0\0` prefix, even padding | `find_webp_tiff_offset`; focused prefix/no-prefix, padding, empty/odd chunk, truncation |
-| `exif-orientation.ts:101-109` | `hasExifHeader` | `has_exif_header`; focused prefix cases |
-| `exif-orientation.ts:111-138` | `getExifOrientation`: JPEG `FF D8` / WebP `RIFF....WEBP` dispatch, default 1 | `read_exif_orientation`; focused non-image inputs, differential |
-| `exif-orientation.ts:140-160` | `rotate90` with a destination-index callback, dimensions swapped | `rotate_quarter_turn`; focused dimension swap, differential pixel buffers |
-| `exif-orientation.ts:163-196` | `applyExifOrientation` for orientations 2-8 (flips mutate, rotations return new) | `apply_exif_orientation` (takes ownership, returns the image); focused per-orientation permutation test, differential |
-| JS `Uint8Array` out-of-range reads | `undefined` coerces to 0 in bitwise reads | `byte_at`; focused truncated-segment cases |
+The current pin already contains unsigned TIFF/chunk reads and bounds checks. The old trace's claimed discrepancy against 532f7d12 is retired, not carried forward. Comments now identify the actual frozen behavior.
 
-## Discrepancies
+Rust takes/returns owned images rather than preserving JavaScript identity; common owned-return approval applies. Native out-of-range byte access matches bitwise zero coercion. Pathological input/numeric extremes remain outside the current parity bar.
 
-- **Pinned source bug (fixed upstream):** the pinned revision reads RIFF chunk sizes and little-endian TIFF offsets with `|`/`<<` (signed 32-bit) and advances JPEG/WebP scans without bounding the next offset. A crafted WebP chunk size such as `0xfffffff8` makes `findWebpTiffOffset` loop forever. The port matches upstream Pi `098356ef6` ("bound EXIF chunk scans and use unsigned offsets"): both `read32` results are unsigned, and both scans reject `nextOffset > bytes.length || nextOffset <= offset` (for WebP the check runs before the `EXIF` return). Covered by `upstream_chunk_bounds::*` and `negative_webp_chunk_sizes_do_not_hang`.
-- `applyExifOrientation` takes and returns the image by value instead of mutating or returning the same reference; callers no longer free the previous image.
-- `getExifOrientation` is exposed as `read_exif_orientation` so the parser branches can be tested directly (the source keeps it module-private).
+Native proof: `/tmp/settings-models-exif-native.log` (df894c797, parser unchanged by the following comment/test partition commit). Frozen differential rerun and targeted clippy recorded in `/tmp/settings-models-proof-ledger.md`.
 
-## Proof inventory
-
-- Focused cases: 16.
-- Differential request: `27100` (25 fixtures: per orientation 1-8 one little-endian JPEG, one big-endian JPEG, and one WebP, plus a JPEG without EXIF).
+Frozen differential GREEN: `/tmp/settings-models-exif-differential.log`, 02e7c6033. Targeted warning-mode clippy passes with no changed-line warnings; changed comments/test partition reviewed for readability.

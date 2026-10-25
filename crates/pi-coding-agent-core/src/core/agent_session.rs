@@ -1021,7 +1021,7 @@ struct Inner {
     supervisor_review_cancellation_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     retry_attempt: AtomicU64,
     retry_abort_controller: Mutex<Option<AbortController>>,
-    quota_fallback_attempted: AtomicBool,
+    quota_fallback_visited_providers: Mutex<HashSet<String>>,
     compaction_abort_controller: Mutex<Option<AbortController>>,
     auto_compaction_abort_controller: Mutex<Option<AbortController>>,
     compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
@@ -1087,6 +1087,7 @@ struct ActiveTool {
     started_at: String,
     tool_call_id: String,
     tool_name: String,
+    detail: Option<JsString>,
 }
 
 fn active_tool_activity(
@@ -1097,7 +1098,7 @@ fn active_tool_activity(
         started_at: tool.started_at.clone().into(),
         tool_call_id: tool.tool_call_id.clone().into(),
         tool_name: tool.tool_name.clone().into(),
-        detail: None,
+        detail: tool.detail.clone(),
     })
 }
 
@@ -1445,7 +1446,7 @@ impl AgentSession {
             supervisor_review_cancellation_handler: Mutex::new(None),
             retry_attempt: AtomicU64::new(0),
             retry_abort_controller: Mutex::new(None),
-            quota_fallback_attempted: AtomicBool::new(false),
+            quota_fallback_visited_providers: Mutex::new(HashSet::new()),
             compaction_abort_controller: Mutex::new(None),
             auto_compaction_abort_controller: Mutex::new(None),
             compaction_summary_materialization_abort_controller: Mutex::new(None),
@@ -3578,6 +3579,7 @@ impl AgentSession {
             tool_call_id,
             tool_name,
             started_at,
+            args,
             ..
         } = event
         {
@@ -3587,6 +3589,7 @@ impl AgentSession {
                     started_at: crate::utils::iso_time::format_iso_millis(*started_at as i64),
                     tool_call_id: tool_call_id.clone(),
                     tool_name: tool_name.clone(),
+                    detail: crate::core::agent_activity_detail::summarize_tool_arguments(args),
                 },
             ));
         }
@@ -3884,7 +3887,7 @@ impl AgentSession {
             signal: Some(abort.clone()),
         });
         match runner.emit(&mut event).await {
-            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, result.compaction),
+            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, None),
             _ => CompactionExtensionDecision::None,
         }
     }
@@ -4047,7 +4050,7 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
-                self.inner.quota_fallback_attempted.store(false, Ordering::SeqCst);
+                lock(&self.inner.quota_fallback_visited_providers).clear();
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
                     return;
@@ -4778,9 +4781,12 @@ impl AgentSession {
         self.validate_model_authentication().await?;
         self.queue_steer(&expanded, images, None).await;
         drop(guard);
-        if let Err(error) = self.run_agent_continuation().await {
-            eprintln!("Failed to continue idle steering: {error}");
-        }
+        let session = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = session.run_agent_continuation().await {
+                eprintln!("Failed to continue idle steering: {error}");
+            }
+        });
         Ok(())
     }
 
@@ -5083,10 +5089,19 @@ impl AgentSession {
         model: Model,
         thinking_level: Option<ThinkingLevel>,
     ) -> Result<(), AgentSessionError> {
+        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
+        self.select_model(model, ModelSelectSource::Set, thinking_level).await
+    }
+
+    async fn select_model(
+        &self,
+        model: Model,
+        source: ModelSelectSource,
+        thinking_level: ThinkingLevel,
+    ) -> Result<(), AgentSessionError> {
         if !self.inner.model_registry.has_configured_auth(&model)? {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
-        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
         let effective = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
             &model,
             model_thinking_level(thinking_level),
@@ -5102,8 +5117,7 @@ impl AgentSession {
                 .set_default_model_and_provider(&model.provider, &model.id);
         }
         self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
-            .await;
+        self.emit_model_select(&model, Some(&previous_model), source).await;
         Ok(())
     }
 
@@ -5131,9 +5145,11 @@ impl AgentSession {
 
     async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Result<Vec<ScopedModel>, AgentSessionError> {
         let available_models = self.inner.model_registry.get_available()?;
-        let covers_every_model = available_models
-            .iter()
-            .all(|model| models.iter().any(|scoped| &scoped.model == model));
+        let covers_every_model = available_models.iter().all(|model| {
+            models
+                .iter()
+                .any(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(model)))
+        });
         if covers_every_model {
             return Ok(Vec::new());
         }
@@ -5145,19 +5161,8 @@ impl AgentSession {
         direction: CycleDirection,
         models: &[ScopedModel],
     ) -> Result<Option<ModelCycleResult>, AgentSessionError> {
-        let available_ids: HashSet<String> = self
-            .inner
-            .model_registry
-            .get_available()?
-            .iter()
-            .map(|model| format!("{}\0{}", model.provider, model.id))
-            .collect();
-        let available_scoped: Vec<&ScopedModel> = models
-            .iter()
-            .filter(|scoped| available_ids.contains(&format!("{}\0{}", scoped.model.provider, scoped.model.id)))
-            .collect();
         let mut authed = Vec::new();
-        for scoped in available_scoped {
+        for scoped in models {
             if self.inner.model_registry.has_configured_auth(&scoped.model)? {
                 authed.push(scoped.clone());
             }
@@ -5168,7 +5173,7 @@ impl AgentSession {
         let current_model = self.inner.agent.model();
         let mut current_index = authed
             .iter()
-            .position(|scoped| scoped.model == current_model)
+            .position(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(&current_model)))
             .unwrap_or(0);
         let length = authed.len();
         current_index = match direction {
@@ -5177,16 +5182,8 @@ impl AgentSession {
         };
         let next = authed[current_index].clone();
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
-        let previous_model = self.inner.agent.model();
-        self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.session_manager)
-            .set_session_model(&JsString::from(&next.model.provider), &JsString::from(&next.model.id))
-            .map_err(AgentSessionError::from)?;
-        lock_settings_manager(&self.inner.settings_manager)
-            .set_default_model_and_provider(&next.model.provider, &next.model.id);
-        self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
-            .await;
+        self.select_model(next.model.clone(), ModelSelectSource::Cycle, thinking_level)
+            .await?;
         Ok(Some(ModelCycleResult {
             model: next.model,
             thinking_level: self.thinking_level(),
@@ -5322,41 +5319,44 @@ impl AgentSession {
         &self,
         message: &AssistantMessage,
     ) -> Result<Option<Model>, pi_js_compat::node_error::NativeNodeError> {
-        if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
-            return Ok(None);
-        }
-        let Some(error_message) = message.error_message.as_ref() else {
-            return Ok(None);
-        };
-        if !quota_exhaustion(error_message) {
+        use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
+
+        if !is_quota_exhaustion_error(message) {
             return Ok(None);
         }
         let current_model = self.inner.agent.model();
         if message.provider != current_model.provider || message.model != current_model.id {
             return Ok(None);
         }
-        let Some(paired) = codex_provider_pair(&message.provider) else {
+        let Some((_, providers)) = CODEX_FALLBACK_PROVIDERS
+            .iter()
+            .find(|(provider, _)| *provider == message.provider)
+        else {
             return Ok(None);
         };
-        let Some(fallback) = self.inner.model_registry.find(paired, &message.model) else {
-            return Ok(None);
-        };
-        Ok(self
-            .inner
-            .model_registry
-            .has_configured_auth(&fallback)?
-            .then_some(fallback))
+        for provider in providers {
+            if lock(&self.inner.quota_fallback_visited_providers).contains(*provider) {
+                continue;
+            }
+            if let Some(fallback) = self.inner.model_registry.find(*provider, &message.model)
+                && self.inner.model_registry.has_configured_auth(&fallback)?
+            {
+                return Ok(Some(fallback));
+            }
+        }
+        Ok(None)
     }
 
     async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let Some(fallback_model) = self.find_quota_fallback_model(message)? else {
             return Ok(false);
         };
-        self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
+        lock(&self.inner.quota_fallback_visited_providers).insert(message.provider.clone());
         let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
             self.inner.agent.truncate_messages(messages.len() - 1);
         }
+        let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(fallback_model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(
@@ -5364,6 +5364,8 @@ impl AgentSession {
                 &JsString::from(&fallback_model.id),
             )
             .map_err(AgentSessionError::from)?;
+        self.emit_model_select(&fallback_model, Some(&previous_model), ModelSelectSource::Fallback)
+            .await;
         Ok(true)
     }
 
@@ -5782,33 +5784,6 @@ fn validate_multi_agent_runtime_role(
         )));
     }
     Ok(())
-}
-
-fn codex_provider_pair(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openai-codex" => Some("openai-codex-gc"),
-        "openai-codex-gc" => Some("openai-codex"),
-        _ => None,
-    }
-}
-
-fn quota_exhaustion(message: &JsString) -> bool {
-    let lowercase = message.to_lowercase();
-    const NEEDLES: [&str; 7] = [
-        "gousagelimiterror",
-        "freeusagelimiterror",
-        "usage limit",
-        "available balance",
-        "insufficient_quota",
-        "out of budget",
-        "quota exceeded",
-    ];
-    if NEEDLES.iter().any(|needle| lowercase.contains(*needle)) {
-        return true;
-    }
-    lowercase.contains("billing limit")
-        || lowercase.contains("billing quota")
-        || lowercase.contains("billing exhausted")
 }
 
 // =============================================================================
@@ -7587,7 +7562,6 @@ fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core
         approval_required: Some(definition.approval_required),
         approval_kind: definition.approval_kind,
         parameters: definition.parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

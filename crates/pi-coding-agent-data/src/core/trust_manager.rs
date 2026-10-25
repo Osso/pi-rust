@@ -230,7 +230,7 @@ fn read_trust_file(path: &JsString) -> Result<JsObject, TrustError> {
     let read_error =
         |message: JsString| TrustError::new(js_format!("Failed to read trust store {}: {}", path, message));
     let bytes = std::fs::read(&encoded_path)
-        .map_err(|error| read_error(pi_js_compat::node_fs::node_read_error(&error, path).into()))?;
+        .map_err(|error| read_error(pi_js_compat::node_fs::node_read_error(&error, path)))?;
     // `readFileSync(path, "utf-8")` decodes with replacement.
     let content = JsString::from(String::from_utf8_lossy(&bytes).as_ref());
     let parsed = js_json::parse_lossless(content).map_err(|error| read_error(error.message().clone()))?;

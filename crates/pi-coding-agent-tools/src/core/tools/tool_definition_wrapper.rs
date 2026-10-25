@@ -85,7 +85,6 @@ pub fn create_tool_definition_from_agent_tool(tool: Arc<dyn AgentTool>) -> ToolD
         approval_required: None,
         approval_kind: None,
         parameters: tool.parameters().clone(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: Some(Arc::new(move |args: &JsValue| {
             prepare_arguments_tool

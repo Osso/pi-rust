@@ -47,7 +47,6 @@ fn register_echo_tool(
         parameters: json!({"type":"object","properties":{"message":{"type":"string","description":"Message to echo"}},"required":["message"]}),
         approval_required: None,
         approval_kind: None,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
