@@ -336,28 +336,6 @@ fn supervisor_file_access_block() -> BeforeToolCallResult {
     }
 }
 
-#[cfg(test)]
-mod lossless_path_tests {
-    use super::*;
-
-    #[test]
-    fn realpath_encodes_existing_prefix_but_keeps_missing_suffix_units() {
-        let directory = tempfile::tempdir().unwrap();
-        let root = JsString::from(directory.path().to_str().unwrap()) + "/root-" + JsString::from_utf16(vec![0xd800]);
-        let disk = pi_js_compat::js_json::encode_node_utf8(&root);
-        std::fs::create_dir(&disk).unwrap();
-        let suffix = JsString::from("/missing-") + JsString::from_utf16(vec![0xdfff]);
-        let actual = resolve_existing_path(&(root.clone() + &suffix)).unwrap();
-        let canonical = std::fs::canonicalize(disk).unwrap();
-        assert_eq!(actual, JsString::from(canonical.to_str().unwrap()) + &suffix);
-        assert!(is_path_within_root(&actual, &resolve_existing_path(&root).unwrap()));
-        assert!(!is_path_within_root(
-            &(JsString::from("/outside-") + JsString::from_utf16(vec![0xdfff])),
-            &resolve_existing_path(&root).unwrap()
-        ));
-    }
-}
-
 fn resolve_existing_path(path: &JsString) -> Option<JsString> {
     let resolved = node_resolve("", path).ok()?;
     let mut suffix = Vec::new();
@@ -1203,4 +1181,26 @@ fn install_stop_signals(
         }
         signal.abort(None);
     }))
+}
+
+#[cfg(test)]
+mod lossless_path_tests {
+    use super::*;
+
+    #[test]
+    fn realpath_encodes_existing_prefix_but_keeps_missing_suffix_units() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = JsString::from(directory.path().to_str().unwrap()) + "/root-" + JsString::from_utf16(vec![0xd800]);
+        let disk = pi_js_compat::js_json::encode_node_utf8(&root);
+        std::fs::create_dir(&disk).unwrap();
+        let suffix = JsString::from("/missing-") + JsString::from_utf16(vec![0xdfff]);
+        let actual = resolve_existing_path(&(root.clone() + &suffix)).unwrap();
+        let canonical = std::fs::canonicalize(disk).unwrap();
+        assert_eq!(actual, JsString::from(canonical.to_str().unwrap()) + &suffix);
+        assert!(is_path_within_root(&actual, &resolve_existing_path(&root).unwrap()));
+        assert!(!is_path_within_root(
+            &(JsString::from("/outside-") + JsString::from_utf16(vec![0xdfff])),
+            &resolve_existing_path(&root).unwrap()
+        ));
+    }
 }
