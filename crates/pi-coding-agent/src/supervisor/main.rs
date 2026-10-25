@@ -1,8 +1,6 @@
 //! Port of `packages/coding-agent/src/supervisor/main.ts`.
 //!
-//! Session creation, extension loading, and console wiring are blocked on the Rust extension API
-//! and agent-session slices; the portable configuration, gating, prompt-queue, request-loop, and
-//! response-reading contracts are ported here.
+//! Supervisor sessions, stateless instruction review, durable requests, and resident console runtime.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -943,7 +941,13 @@ pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
 ) -> Result<CreateAgentSessionResult, JsString> {
     let models = require_supervisor_models(&options.model_registry)?;
-    let model = models[0].clone();
+    create_supervisor_session_for_model(options, models[0].clone()).await
+}
+
+async fn create_supervisor_session_for_model(
+    options: CreateSupervisorSessionOptions,
+    model: Model,
+) -> Result<CreateAgentSessionResult, JsString> {
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
     create_agent_session(CreateAgentSessionOptions {
@@ -958,6 +962,7 @@ pub async fn create_supervisor_session(
                 .collect(),
         ),
         model: Some(model),
+        auth_storage: Some(options.model_registry.auth_storage().clone()),
         model_registry: Some(options.model_registry),
         resource_loader: Some(options.resource_loader),
         session_manager: Some(options.session_manager),
@@ -1076,34 +1081,71 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
     let kb_dir = pi_js_compat::process_env::get("PI_KB_DIR")
         .map(JsString::from)
         .unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.into());
-    let control_db_path = JsString::from(crate::core::session_control_db::get_control_db_path(
+    let control_db_path = crate::core::session_control_db::get_control_db_path(
         &crate::config::get_user_state_root().map_err(pi_ai::request::CallbackError::from)?,
-    ));
+    );
     let session_manager = open_supervisor_session(&agent_dir, &kb_dir, &control_db_path)?;
-    let model_registry = ModelRegistry::create(
-        crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json")))
-            .map_err(pi_ai::request::CallbackError::from)?,
-        Some(node_join(&agent_dir, "models.json")),
-    )?;
-    let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
-    let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
-    let session = create_supervisor_session(CreateSupervisorSessionOptions {
-        agent_dir,
-        kb_dir: kb_dir.clone(),
-        model_registry,
-        resource_loader,
-        session_manager,
-        settings_manager,
-    })
-    .await?
-    .session;
+    let session = create_supervisor_agent_session(&agent_dir, &kb_dir, session_manager).await?;
+    let review = create_supervisor_instruction_reviewer(create_supervisor_instruction_evaluator(&agent_dir)?);
     let wake_server = Arc::new(SupervisorRequestWakeServer::new(&control_db_path));
     let console_prompts = Arc::new(Mutex::new(SupervisorConsolePromptQueue::new()));
-    let console_server = Arc::new(ResidentConsoleServer::new(ResidentConsoleServerOptions {
+    let console_server =
+        create_supervisor_console_server(session.clone(), kb_dir, &control_db_path, console_prompts.clone());
+    wake_server.start().await?;
+    console_server.start().await?;
+    let loop_result = run_supervisor_runtime_loop(
+        control_db_path,
+        session.clone(),
+        console_prompts,
+        wake_server.clone(),
+        review,
+    )
+    .await;
+    console_server.close().await?;
+    wake_server.close().await?;
+    session.abort().await.map_err(pi_ai::request::CallbackError::from)?;
+    loop_result
+}
+
+async fn create_supervisor_agent_session(
+    agent_dir: &JsString,
+    kb_dir: &JsString,
+    session_manager: SessionManager,
+) -> Result<AgentSession, pi_ai::request::CallbackError> {
+    let model_registry = ModelRegistry::create(
+        crate::core::auth_storage::AuthStorage::create(Some(&node_join(agent_dir, "auth.json")))
+            .map_err(pi_ai::request::CallbackError::from)?,
+        Some(node_join(agent_dir, "models.json")),
+    )?;
+    let model = require_supervisor_models(&model_registry)?[0].clone();
+    let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    let resource_loader = create_supervisor_resource_loader(agent_dir, kb_dir, Arc::clone(&settings_manager)).await?;
+    Ok(create_supervisor_session_for_model(
+        CreateSupervisorSessionOptions {
+            agent_dir: agent_dir.clone(),
+            kb_dir: kb_dir.clone(),
+            model_registry,
+            resource_loader,
+            session_manager,
+            settings_manager,
+        },
+        model,
+    )
+    .await?
+    .session)
+}
+
+fn create_supervisor_console_server(
+    session: AgentSession,
+    kb_dir: JsString,
+    control_db_path: &JsString,
+    console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
+) -> ResidentConsoleServer<SessionEntry, AgentSessionEvent> {
+    ResidentConsoleServer::new(ResidentConsoleServerOptions {
         socket_path: js_format!("{}.supervisor-console.sock", control_db_path),
         service: ResidentConsoleService::Supervisor,
         host: Arc::new(SupervisorConsoleHost {
-            session: session.clone(),
+            session,
             cwd: kb_dir,
             generation: std::process::id() as u64,
             managed_by: if pi_js_compat::process_env::get(crate::supervisor::ensure_running::SUPERVISOR_AUTOSTART_ENV)
@@ -1113,47 +1155,58 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
             } else {
                 ResidentConsoleManagedBy::External
             },
-            prompts: Arc::clone(&console_prompts),
+            prompts: console_prompts,
             control_db_path: control_db_path.clone(),
         }),
-    }));
-    wake_server.start().await?;
-    console_server.start().await?;
-    let controller = pi_js_compat::abort::AbortController::new();
-    let signal = controller.signal();
-    install_stop_signals(&controller);
-    let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: pi_ai::utils::random_uuid::random_uuid()?.into(),
-        console_prompts,
-        control_db_path,
-        session: Arc::new(session.clone()),
-        signal,
-        wake_server: Arc::clone(&wake_server),
-        claim_next_request: None,
-        process_request: None,
     })
-    .await;
-    console_server.close().await?;
-    wake_server.close().await?;
-    session.abort().await.map_err(pi_ai::request::CallbackError::from)?;
-    loop_result.map_err(pi_ai::request::CallbackError::from)
 }
 
-fn install_stop_signals(signal: &pi_js_compat::abort::AbortController) {
+async fn run_supervisor_runtime_loop(
+    control_db_path: JsString,
+    session: AgentSession,
+    console_prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
+    wake_server: Arc<SupervisorRequestWakeServer>,
+    review: SupervisorInstructionReviewer,
+) -> Result<(), pi_ai::request::CallbackError> {
+    let controller = pi_js_compat::abort::AbortController::new();
+    let signal = controller.signal();
+    let stop_signals = install_stop_signals(&controller)?;
+    let loop_result = async {
+        run_supervisor_request_loop(RunSupervisorRequestLoopInput {
+            claim_token: pi_ai::utils::random_uuid::random_uuid()?.into(),
+            console_prompts,
+            control_db_path,
+            session: Arc::new(session),
+            signal,
+            wake_server,
+            claim_next_request: None,
+            process_request: Some(Arc::new(move |path, request, session| {
+                let review = review.clone();
+                Box::pin(async move { process_supervisor_request(&path, request, session, Some(review)).await })
+            })),
+        })
+        .await
+        .map_err(pi_ai::request::CallbackError::from)
+    }
+    .await;
+    controller.abort(None);
+    stop_signals.abort();
+    loop_result
+}
+
+fn install_stop_signals(
+    signal: &pi_js_compat::abort::AbortController,
+) -> Result<tokio::task::JoinHandle<()>, pi_ai::request::CallbackError> {
     let signal = signal.clone();
-    tokio::spawn(async move {
-        let mut interrupt = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt()) {
-            Ok(signal) => signal,
-            Err(_) => return,
-        };
-        let mut terminate = match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
-            Ok(signal) => signal,
-            Err(_) => return,
-        };
+    let mut interrupt = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())
+        .map_err(|error| pi_ai::request::CallbackError::new(error.to_string()))?;
+    let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+        .map_err(|error| pi_ai::request::CallbackError::new(error.to_string()))?;
+    Ok(tokio::spawn(async move {
         tokio::select! {
             _ = interrupt.recv() => {}
             _ = terminate.recv() => {}
         }
         signal.abort(None);
-    });
+    }))
 }

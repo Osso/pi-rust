@@ -6,6 +6,8 @@
 mod differential_supervisor_identity;
 #[path = "differential_supervisor_instruction_evaluator.rs"]
 mod differential_supervisor_instruction_evaluator;
+#[path = "differential_supervisor_service_lifecycle.rs"]
+mod differential_supervisor_service_lifecycle;
 
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
