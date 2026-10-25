@@ -3157,7 +3157,7 @@ pub struct ExtensionCommandContextActions {
 #[derive(Clone, Default)]
 pub struct ProviderActions {
     pub register_provider: Option<RegisterProviderCallback>,
-    pub unregister_provider: Option<StrCallback>,
+    pub unregister_provider: Option<UnregisterProviderCallback>,
 }
 
 /// Commands owned by the runtime, addressable like extension prompt commands.

@@ -23,7 +23,7 @@ use pi_agent_core::harness::messages::{
 };
 use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_agent_core::harness::types::ThinkingLevel;
-use pi_ai::request::{BoxFuture, now_millis};
+use pi_ai::request::{BoxFuture, CallbackError, now_millis};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, ImageContent, InputSource, Model, ProviderHeaders, ProviderRetryEvent,
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
