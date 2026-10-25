@@ -64,7 +64,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
     } else {
         js_format!("{} ", title)
     };
-    let mut text = theme.fg(ThemeColor::ToolTitle, &theme.bold(&title));
+    let mut text = theme.fg(ThemeColor::ToolTitle, theme.bold(&title));
     if name == "bash" {
         let command = args["command"].as_string().cloned().unwrap_or_else(JsString::default);
         let command = if command.encode_utf16().count() > 80 {
@@ -72,16 +72,16 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
         } else {
             command.to_owned()
         };
-        text.push_str(&theme.fg(ThemeColor::Accent, &command));
+        text.push_str(theme.fg(ThemeColor::Accent, &command));
         if truthy(&args["timeout"]) {
-            text.push_str(&theme.fg(
+            text.push_str(theme.fg(
                 ThemeColor::Dim,
                 &js_format!(" (timeout: {}s)", number_text(&args["timeout"])),
             ));
         }
         return text;
     }
-    text.push_str(&theme.fg(
+    text.push_str(theme.fg(
         ThemeColor::Accent,
         args["path"].as_string().cloned().unwrap_or_else(JsString::default),
     ));
@@ -91,7 +91,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
             .filter(|key| truthy(&args[*key]))
             .map(|key| js_format!("{}={}", key, number_text(&args[key])))
             .collect::<Vec<_>>();
-        text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({})", JsString::join(parts, ", "))));
+        text.push_str(theme.fg(ThemeColor::Dim, &js_format!(" ({})", JsString::join(parts, ", "))));
     }
     if name == "write" {
         let count = args["content"]
@@ -100,7 +100,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
             .unwrap_or_else(JsString::default)
             .split('\n')
             .count();
-        text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
+        text.push_str(theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
     }
     text
 }
@@ -151,7 +151,7 @@ fn render_read(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsStr
     let lines = content.split('\n').collect::<Vec<_>>();
     let mut text = theme.fg(ThemeColor::Success, &js_format!("{} lines", lines.len()));
     if let Some(truncation) = truncation(result) {
-        text.push_str(&theme.fg(
+        text.push_str(theme.fg(
             ThemeColor::Warning,
             &js_format!(" (truncated from {})", number_text(&truncation["totalLines"])),
         ));
@@ -176,10 +176,7 @@ fn render_bash(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsStr
         .map(|captures| {
             let digits = captures.get(1).expect("exit-code digits group").text();
             let digits = digits.to_utf8().expect("regex captures only ASCII digits");
-            match digits.parse::<f64>() {
-                Ok(value) => value,
-                Err(_) => f64::INFINITY,
-            }
+            digits.parse::<f64>().unwrap_or(f64::INFINITY)
         });
     let count = output.split('\n').filter(|line| !(line).trim().is_empty()).count();
     let mut text = match exit_code {
@@ -189,9 +186,9 @@ fn render_bash(result: &AgentToolResult, expanded: bool, theme: &Theme) -> JsStr
         ),
         _ => theme.fg(ThemeColor::Success, "done"),
     };
-    text.push_str(&theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
+    text.push_str(theme.fg(ThemeColor::Dim, &js_format!(" ({} lines)", count)));
     if truncation(result).is_some() {
-        text.push_str(&theme.fg(ThemeColor::Warning, " [truncated]"));
+        text.push_str(theme.fg(ThemeColor::Warning, " [truncated]"));
     }
     if expanded {
         let lines = output.split('\n').collect::<Vec<_>>();

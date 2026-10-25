@@ -54,8 +54,8 @@ pub fn entry_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_command("status-card", Some("Render a durable status card that is not sent to the LLM".into()),None,Arc::new(move |args,_| {
         let api = api.clone();
         Box::pin(async move {
-            let message=(&args).trim();
-            api.append_entry(&JsString::from("status-card"),Some(JsValue::from(json!({"message":if message.is_empty() {JsString::from("Status card")} else {message},"timestamp":js_now_millis() as i64}))))?;
+            let message=args.trim();
+            api.append_entry(&JsString::from("status-card"),Some(json!({"message":if message.is_empty() {JsString::from("Status card")} else {message},"timestamp":js_now_millis() as i64})))?;
             Ok(())
         })
     })).map_err(HandlerError::new)

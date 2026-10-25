@@ -100,7 +100,7 @@ impl Loader {
         let controller_signal = self.controller.clone();
         loader.set_on_abort(Some(Rc::new(move || {
             controller_signal.abort(None);
-            done.call(Some(JsValue::from(Value::Null)));
+            done.call(Some(Value::Null));
         })));
         loader
     }
@@ -156,7 +156,7 @@ async fn run_handoff(args: JsString, ctx: ExtensionCommandContext) -> Result<(),
         &convert_to_llm(&messages).map_err(|error| HandlerError::new(error.message()))?,
         &|value| {
             truncate_for_summary(
-                &JsString::from(pi_js_compat::js_json::stringify_lossless(value)),
+                JsString::from(pi_js_compat::js_json::stringify_lossless(value)),
                 TOOL_CALL_ARGUMENT_MAX_CHARS,
             )
         },
@@ -274,7 +274,7 @@ async fn complete_draft(
             Value::Null
         }
     };
-    done.call(Some(JsValue::from(result)));
+    done.call(Some(result));
 }
 
 async fn edit_draft_and_replace(
@@ -297,7 +297,7 @@ async fn edit_draft_and_replace(
     };
     let result = ctx
         .new_session(Some(NewSessionOptions {
-            parent_session: parent_session.map(JsString::from),
+            parent_session: parent_session,
             with_session: Some(Arc::new(move |replacement| {
                 let edited = edited.clone();
                 Box::pin(async move {

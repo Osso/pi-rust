@@ -88,12 +88,12 @@ fn is_interactive(command: &JsString, env: &Environment) -> bool {
         if excluded.contains(&cmd) {
             continue;
         }
-        if command == cmd || command.starts_with(&format!("{cmd} ")) || command.starts_with(&format!("{cmd}\t")) {
+        if command == cmd || command.starts_with(format!("{cmd} ")) || command.starts_with(format!("{cmd}\t")) {
             return true;
         }
         if command.contains('|') {
             let tail = command.split('|').last().expect("split yields a final command").trim();
-            if tail == cmd || tail.starts_with(&format!("{cmd} ")) {
+            if tail == cmd || tail.starts_with(format!("{cmd} ")) {
                 return true;
             }
         }

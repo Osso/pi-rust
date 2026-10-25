@@ -83,7 +83,7 @@ async fn drive(
     options: &SimpleStreamOptions,
     output: &mut Value,
 ) -> Result<(), JsString> {
-    let key = options.stream.request.api_key.clone().unwrap_or_else(JsString::default);
+    let key = options.stream.request.api_key.clone().unwrap_or_default();
     let oauth = oauth_key(&key);
     let beta = "fine-grained-tool-streaming-2025-05-14,interleaved-thinking-2025-05-14";
     let mut headers = ProviderHeaders::new();

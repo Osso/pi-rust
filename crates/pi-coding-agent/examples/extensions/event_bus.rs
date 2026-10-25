@@ -51,7 +51,7 @@ pub fn event_bus_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(move |args, _ctx| {
             let events = events.clone();
             Box::pin(async move {
-                let message = (&args).trim();
+                let message = args.trim();
                 let message = if message.is_empty() {
                     JsString::from("hello")
                 } else {

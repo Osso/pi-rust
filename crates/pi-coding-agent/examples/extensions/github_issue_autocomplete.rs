@@ -226,12 +226,7 @@ impl AutocompleteProvider for Provider {
             }
             self.current
                 .clone()
-                .get_suggestions(
-                    lines.into_iter().map(JsString::from).collect::<Vec<_>>(),
-                    line,
-                    col,
-                    options,
-                )
+                .get_suggestions(lines.into_iter().collect::<Vec<_>>(), line, col, options)
                 .await
         })
     }

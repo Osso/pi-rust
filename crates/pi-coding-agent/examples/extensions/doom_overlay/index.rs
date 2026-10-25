@@ -45,7 +45,7 @@ pub fn doom_overlay_extension(
                 }
                 let ui = ctx.ui()?;
                 ui.notify(&JsString::from("Loading DOOM..."), Some(NotifyType::Info))?;
-                let args = (&args).trim();
+                let args = args.trim();
                 let wad = if args.is_empty() {
                     ensure_wad().await
                 } else {
@@ -94,10 +94,10 @@ async fn show_game(
         engine
     } else {
         ui.notify(&js_format!("Loading DOOM from {}...", wad), Some(NotifyType::Info))?;
-        let engine = Arc::new(Mutex::new(load_engine(JsString::from(wad.clone())).await?));
+        let engine = Arc::new(Mutex::new(load_engine(wad.clone()).await?));
         *active.lock().unwrap() = Active {
             engine: Some(engine.clone()),
-            wad: Some(JsString::from(wad)),
+            wad: Some(wad),
         };
         engine
     };

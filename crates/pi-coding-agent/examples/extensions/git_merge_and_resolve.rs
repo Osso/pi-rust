@@ -26,7 +26,7 @@ async fn find_conflicts(api: &ExtensionApi, cwd: &JsString) -> Result<Vec<Confli
     let mut blocks = Vec::new();
     for file in js_trim(&result.stdout).split('\n') {
         // The pinned example ignores per-file read failures.
-        let Ok(contents) = tokio::fs::read(std::path::Path::new(&encode_node_utf8(&cwd)).join(file)).await else {
+        let Ok(contents) = tokio::fs::read(std::path::Path::new(&encode_node_utf8(cwd)).join(file)).await else {
             continue;
         };
         let mut start = None;

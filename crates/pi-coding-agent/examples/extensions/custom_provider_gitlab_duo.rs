@@ -392,7 +392,7 @@ mod native_direct_token_tests {
             .direct_token(&JsString::from("access"))
             .await
             .expect("direct token");
-        assert_eq!(JsString::from(token.token).units(), &[0xd800]);
+        assert_eq!(token.token.units(), &[0xd800]);
         assert_eq!(
             token.headers["X-Raw"].as_ref().expect("header value").units(),
             &[0xdc00]

@@ -33,7 +33,7 @@ impl ExtensionUiComponent for CustomHeader {
 fn pi_mascot(theme: &Theme) -> Vec<JsString> {
     let eye = js_format!("█{}", theme.fg(ThemeColor::Dim, "▌"));
     let eyes = js_format!("     {}  {}", eye, eye);
-    let bar = js_format!("  {}", theme.fg(ThemeColor::Accent, &"█".repeat(14)));
+    let bar = js_format!("  {}", theme.fg(ThemeColor::Accent, "█".repeat(14)));
     let leg = js_format!(
         "     {}    {}",
         theme.fg(ThemeColor::Accent, "██"),
