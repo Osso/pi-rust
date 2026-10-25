@@ -17,7 +17,7 @@ struct ObservedStorage {
     files: FileSettingsStorage,
     writes: mpsc::Sender<(SettingsScope, Result<String, String>)>,
     finished: mpsc::Sender<()>,
-    panic_on_write: bool,
+    fail_on_write: bool,
 }
 
 impl SettingsStorage for ObservedStorage {
@@ -27,14 +27,19 @@ impl SettingsStorage for ObservedStorage {
         apply: &mut dyn FnMut(Option<&str>) -> Option<String>,
     ) -> Result<(), SettingsFailure> {
         let mut output = None;
+        let mut injected = false;
         let result = self.files.with_lock(scope, &mut |current| {
             let next = apply(current);
-            if next.is_some() && std::mem::take(&mut self.panic_on_write) {
-                panic!("injected settings write panic");
+            if next.is_some() && std::mem::take(&mut self.fail_on_write) {
+                injected = true;
+                return None;
             }
             output = next.clone();
             next
         });
+        if injected {
+            return Err(SettingsFailure::new("injected settings write failure"));
+        }
         let event = match (&result, output) {
             (Err(error), _) => Some(Err(error.to_string())),
             (Ok(()), Some(text)) => Some(Ok(text)),
@@ -63,10 +68,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> (Self, SharedSettingsManager) {
-        Self::with_panicking_write(false)
+        Self::with_failing_write(false)
     }
 
-    fn with_panicking_write(panic_on_write: bool) -> (Self, SharedSettingsManager) {
+    fn with_failing_write(fail_on_write: bool) -> (Self, SharedSettingsManager) {
         let temp = TempDir::new().unwrap();
         let project = temp.path().join("project");
         let agent = temp.path().join("agent");
@@ -84,7 +89,7 @@ impl Fixture {
                 files,
                 writes: writes_tx,
                 finished: finished_tx,
-                panic_on_write,
+                fail_on_write,
             }),
             SettingsManagerCreateOptions::default(),
         );
@@ -205,8 +210,8 @@ fn automatic_write_failure_is_recorded_and_later_scope_still_drains() {
 }
 
 #[test]
-fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drain() {
-    let (fixture, manager) = Fixture::with_panicking_write(true);
+fn failing_write_is_recorded_without_dropping_later_snapshots_or_latching_drain() {
+    let (fixture, manager) = Fixture::with_failing_write(true);
     {
         let mut guard = lock_settings_manager(&manager);
         guard.set_default_model("panics");
@@ -222,7 +227,7 @@ fn panicking_write_is_recorded_without_dropping_later_snapshots_or_latching_drai
     let errors = lock_settings_manager(&manager).drain_errors();
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].scope, SettingsScope::Global);
-    assert!(errors[0].message.contains("injected settings write panic"));
+    assert!(errors[0].message.contains("injected settings write failure"));
     assert!(lock_settings_manager(&manager).drain_errors().is_empty());
     lock_settings_manager(&manager).set_default_model("third");
     assert_eq!(fixture.write().1["defaultModel"], "third");

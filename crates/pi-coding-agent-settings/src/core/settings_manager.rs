@@ -4,7 +4,6 @@
 //! Shared mutation guards schedule a FIFO drain on release; `flush` synchronously settles earlier writes.
 
 use std::fs;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -133,7 +132,8 @@ pub struct SettingsFailure {
 }
 
 impl SettingsFailure {
-    pub(crate) fn new(message: impl Into<JsString>) -> Self {
+    /// Failure reported by a [`SettingsStorage`] implementation.
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
             config: None,
@@ -1126,18 +1126,8 @@ impl SettingsManager {
     pub fn flush(&mut self) {
         for pending in std::mem::take(&mut self.pending_writes) {
             // Like the source task catch, failure need not roll back storage to continue later snapshots.
-            let result = catch_unwind(AssertUnwindSafe(|| self.persist_pending_settings(&pending)));
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(error)) => self.record_error(pending.scope, error.message()),
-                Err(payload) => {
-                    let message = payload
-                        .downcast_ref::<&str>()
-                        .copied()
-                        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-                        .unwrap_or("non-string panic payload");
-                    self.record_error(pending.scope, format!("Settings write panicked: {message}"));
-                }
+            if let Err(error) = self.persist_pending_settings(&pending) {
+                self.record_error(pending.scope, error.message());
             }
         }
     }
