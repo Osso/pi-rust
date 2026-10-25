@@ -9,6 +9,20 @@ import {
 	setFetchScript,
 } from "./scripted-fetch.ts";
 
+function snapshotRejection(error: unknown): unknown {
+	if (!(error instanceof Error)) return { kind: "value", value: error };
+	return {
+		kind: "error",
+		value: {
+			name: error.name,
+			message: error.message,
+			...Object.fromEntries(
+				Object.entries(error).filter(([key]) => key !== "stack"),
+			),
+		},
+	};
+}
+
 function createStreamRejection(
 	kind: unknown,
 	value: unknown,
@@ -450,7 +464,10 @@ async function main(): Promise<void> {
 			return { callbackCount, rejection };
 		}
 		if (request.operation === "registration_agent_throw") {
-			const provider = "registry-agent-throw";
+			const provider =
+				request.consumer === "loop" || request.consumer === "continue"
+					? `registry-agent-${request.consumer}-throw`
+					: "registry-agent-throw";
 			let callbackCount = 0;
 			const thrown = createStreamRejection(
 				request.kind,
@@ -459,13 +476,52 @@ async function main(): Promise<void> {
 			);
 			registry.registerProvider(provider, {
 				...(request.config as Record<string, unknown>),
-				api: "registry-agent-throw-api",
+				api: `${provider}-api`,
 				apiKey: "config-key",
 				streamSimple: () => {
 					callbackCount++;
 					throw thrown;
 				},
 			});
+			if (request.consumer === "loop" || request.consumer === "continue") {
+				const { agentLoop, agentLoopContinue } = await import(
+					new URL("../../../agent-core/src/agent-loop.ts", source).href
+				);
+				const before = Date.now();
+				const prompt = {
+					role: "user",
+					content: [{ type: "text", text: "prompt" }],
+					timestamp: Date.now(),
+				};
+				const context = { systemPrompt: "", messages: [], tools: [] };
+				const config = {
+					model: registry.find(provider, "one"),
+					apiKey: "stream-key",
+					convertToLlm: (messages: unknown[]) => messages,
+				};
+				const stream =
+					request.consumer === "loop"
+						? agentLoop([prompt], context, config)
+						: agentLoopContinue({ ...context, messages: [prompt] }, config);
+				const events: unknown[] = [];
+				let iteration: unknown = null;
+				try {
+					for await (const event of stream) events.push(event);
+				} catch (error) {
+					iteration = snapshotRejection(error);
+				}
+				let result: unknown = null;
+				try {
+					await stream.result();
+				} catch (error) {
+					result = snapshotRejection(error);
+				}
+				registry.unregisterProvider(provider);
+				return {
+					clock: { before, after: Date.now() },
+					snapshot: { callbackCount, events, iteration, result },
+				};
+			}
 			const { Agent } = await import(
 				new URL("../../../agent-core/src/agent.ts", source).href
 			);

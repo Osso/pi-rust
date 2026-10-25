@@ -7,7 +7,7 @@ Preserve the frozen `packages/ai/src/compat.ts`, `api/lazy.ts`, `types.ts` and a
 - [ ] Raw/simple registered callbacks, missing API/environment lookup failures and API mismatches reject stream acquisition through the existing CallbackError authority before a stream is returned.
 - [ ] Preserve native Error class/properties and arbitrary thrown values, including lone UTF-16 units, without text projection or an alternate dispatch API.
 - [ ] Lazy adapters return their outer stream immediately; only their frozen async setup catch converts an inner module acquisition failure into an assistant error event.
-- [ ] Agent.runWithLifecycle catches acquisition failure after unchanged async-loop propagation at the frozen boundary and emit the exact assistant/event/state outcome rather than losing the rejection or failing outside that catch.
+- [ ] Agent.runWithLifecycle catches acquisition failure after unchanged async-loop propagation at the frozen boundary and emit the exact assistant/event/state outcome rather than losing the rejection or failing outside that catch. Low-level agentLoop/Continue exports have no conversion catch: iteration and result must reject with the original value.
 - [ ] Successful provider request/event behavior and optional deferred methods remain unchanged.
 
 ## How it works
@@ -28,7 +28,7 @@ Preserve the frozen `packages/ai/src/compat.ts`, `api/lazy.ts`, `types.ts` and a
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/model_registry_stream_throw_probe.rs`: four actual-source raw/simple × TypeError/raw-value acquisition cases GREEN at9256b49b. Existing uncaught process-authority targets also pass after pure move0863de71. `model_registry_agent_stream_throw.rs` adds default Agent end-to-end events/state and conversion-rejection cleanup: behavioral RED on raw-value failure text and conversion rejection; TypeError control GREEN. Native catch conversion and finally cleanup are implemented; renewed GREEN pending. Positive dispatch/lazy controls remain pending.
+`crates/pi-coding-agent/tests/model_registry_stream_throw_probe.rs`: four actual-source raw/simple × TypeError/raw-value acquisition cases GREEN at9256b49b. Existing uncaught process-authority targets also pass after pure move0863de71. `model_registry_agent_stream_throw.rs` adds default Agent end-to-end events/state and conversion-rejection cleanup: behavioral RED on raw-value failure text and conversion rejection; TypeError control GREEN. Native Agent catch conversion and finally cleanup are GREEN atbcf84da0 for all three cases. The same target now adds six low-level loop/continue cases: RED q15e-low-level-stream-rejection-red-2 exposes a StreamFailure text projection; current low-level proof remains pending. Positive dispatch/lazy controls remain pending.
 
 ## Known gaps (current cycle)
 

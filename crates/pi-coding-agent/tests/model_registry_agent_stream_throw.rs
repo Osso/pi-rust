@@ -59,16 +59,16 @@ fn normalize_timestamps(value: &mut JsValue, before: f64, after: f64) {
     }
 }
 
-async fn native_snapshot(kind: &str, value: &JsString) -> JsValue {
+fn register_failure(kind: &str, value: &JsString, provider: &str) -> (ModelRegistry, Arc<AtomicUsize>) {
     let registry = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
     let calls = Arc::new(AtomicUsize::new(0));
     let callback_calls = calls.clone();
     let failure = failure(kind, value);
     registry
         .register_provider(
-            "registry-agent-throw",
+            provider,
             ProviderConfigInput {
-                api: Some("registry-agent-throw-api".into()),
+                api: Some(format!("{provider}-api")),
                 base_url: Some("https://fixture.invalid".into()),
                 api_key: Some("config-key".into()),
                 models: Some(vec![js_json::from_value::<ProviderModelInput>(&definition()).unwrap()]),
@@ -80,6 +80,11 @@ async fn native_snapshot(kind: &str, value: &JsString) -> JsValue {
             },
         )
         .unwrap();
+    (registry, calls)
+}
+
+async fn native_snapshot(kind: &str, value: &JsString) -> JsValue {
+    let (registry, calls) = register_failure(kind, value, "registry-agent-throw");
     let agent = Agent::new(AgentOptions {
         initial_state: Some(AgentInitialState {
             model: registry.find("registry-agent-throw", "one"),
@@ -150,6 +155,111 @@ async fn registered_throw_reaches_default_agent_catch_with_exact_events_and_stat
         }
         actual_cases.push((kind, native_snapshot(kind, &value).await));
         expected_cases.push((kind, expected));
+    }
+    assert_eq!(actual_cases, expected_cases);
+}
+
+fn stream_rejection(error: pi_ai::utils::event_stream::StreamFailure) -> JsValue {
+    match CallbackError::from_error(error.message().clone(), error).thrown_value() {
+        AbortReason::Error(error) | AbortReason::DomException(error) => {
+            js_json!({"kind":"error","value":error.value()})
+        }
+        value => js_json!({"kind":"value","value":value.value()}),
+    }
+}
+
+async fn native_loop_snapshot(consumer: &str, kind: &str, value: &JsString) -> JsValue {
+    use pi_agent_core::agent::{AgentContext, AgentLoopConfig, AgentMessage, agent_loop, agent_loop_continue};
+    let provider = format!("registry-agent-{consumer}-throw");
+    let (registry, calls) = register_failure(kind, value, &provider);
+    let before = pi_ai::request::now_millis() as f64;
+    let prompt: AgentMessage =
+        js_json::from_value(&js_json!({"role":"user","content":[{"type":"text","text":"prompt"}],"timestamp":before}))
+            .unwrap();
+    let context = AgentContext {
+        system_prompt: "".into(),
+        messages: Vec::new(),
+        tools: Some(Vec::new()),
+    };
+    let mut config = AgentLoopConfig::new(
+        registry.find(&provider, "one").unwrap(),
+        Arc::new(|messages| {
+            Box::pin(async move {
+                Ok(messages
+                    .into_iter()
+                    .map(|message| match message {
+                        AgentMessage::User(user) => pi_ai::types::Message::User(user),
+                        _ => panic!("fixture contains only user input"),
+                    })
+                    .collect())
+            })
+        }),
+    );
+    config.stream_options.stream.request.api_key = Some("stream-key".into());
+    let mut stream = if consumer == "loop" {
+        agent_loop(vec![prompt], context, config, None, None)
+    } else {
+        agent_loop_continue(
+            AgentContext {
+                messages: vec![prompt],
+                ..context
+            },
+            config,
+            None,
+            None,
+        )
+        .unwrap()
+    };
+    let mut events = Vec::new();
+    let mut iteration = JsValue::Null;
+    while let Some(event) = stream.next().await {
+        match event {
+            Ok(event) => events.push(event),
+            Err(error) => {
+                iteration = stream_rejection(error);
+                break;
+            }
+        }
+    }
+    let result = stream_rejection(stream.result().await.expect_err("acquisition must fail"));
+    registry.unregister_provider(&provider).unwrap();
+    let mut snapshot =
+        js_json!({"callbackCount":calls.load(Ordering::SeqCst),"events":events,"iteration":iteration,"result":result});
+    normalize_timestamps(&mut snapshot, before, pi_ai::request::now_millis() as f64);
+    snapshot
+}
+
+#[tokio::test]
+async fn low_level_default_loops_preserve_registered_rejection_without_text_conversion() {
+    let mut source = oracle::TsOracle::spawn(
+        "model-registry-oracle.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+    );
+    let value = JsString::from("loop-") + JsString::from_utf16(vec![0xd800]);
+    let mut actual_cases = Vec::new();
+    let mut expected_cases = Vec::new();
+    for consumer in ["loop", "continue"] {
+        for kind in ["error", "value", "conversion"] {
+            let response = source.request(&js_json!({"operation":"registration_agent_throw","consumer":consumer,"kind":kind,"value":value,"config":{"baseUrl":"https://fixture.invalid","models":[definition()]}}));
+            assert_eq!(response["ok"], JsValue::Bool(true), "{response:?}");
+            let output = &response["output"];
+            let mut expected = output["snapshot"].clone();
+            normalize_timestamps(
+                &mut expected,
+                output["clock"]["before"].as_f64().unwrap(),
+                output["clock"]["after"].as_f64().unwrap(),
+            );
+            assert_eq!(expected["callbackCount"], js_json!(1));
+            assert_eq!(expected["iteration"], expected["result"]);
+            let actual = tokio::time::timeout(
+                std::time::Duration::from_secs(5),
+                native_loop_snapshot(consumer, kind, &value),
+            )
+            .await
+            .expect("loop settles");
+            actual_cases.push((consumer, kind, actual));
+            expected_cases.push((consumer, kind, expected));
+        }
     }
     assert_eq!(actual_cases, expected_cases);
 }
