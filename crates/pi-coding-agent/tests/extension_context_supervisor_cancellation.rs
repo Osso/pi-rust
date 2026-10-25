@@ -29,12 +29,12 @@ async fn extension_context_supervisor_cancellation_binds_and_unregisters_exact_o
     actions.register_supervisor_review_cancellation = Some(Arc::new(move |handler| {
         *registration_owner.lock().unwrap() = Some(handler.clone());
         let owner = registration_owner.clone();
-        Arc::new(move || {
+        Ok(Arc::new(move || {
             let mut current = owner.lock().unwrap();
             if current.as_ref().is_some_and(|current| Arc::ptr_eq(current, &handler)) {
                 *current = None;
             }
-        })
+        }) as Arc<dyn Fn() + Send + Sync>)
     }));
     runner.bind_core(support::actions(), actions, None).unwrap();
     let context = runner.create_context();
@@ -59,6 +59,20 @@ async fn extension_context_supervisor_cancellation_binds_and_unregisters_exact_o
             .register_supervisor_review_cancellation(Arc::new(|| {}))
             .is_err()
     );
+}
+
+#[tokio::test]
+async fn extension_context_dropped_session_registration_returns_error() {
+    let directory = tempfile::tempdir().unwrap();
+    let fixture = agent_session_fixture::fixture(directory.path(), pi_agent_core::harness::ThinkingLevel::Off).await;
+    fixture.session.bind_extensions(Default::default()).await.unwrap();
+    let context = fixture.session.extension_runner().create_context();
+    drop(fixture);
+    let error = match context.register_supervisor_review_cancellation(Arc::new(|| {})) {
+        Ok(_) => panic!("registration after session drop must fail"),
+        Err(error) => error,
+    };
+    assert_eq!(error.message, "Agent session is no longer available");
 }
 
 #[tokio::test]

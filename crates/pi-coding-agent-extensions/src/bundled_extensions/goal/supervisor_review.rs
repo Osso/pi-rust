@@ -104,41 +104,51 @@ pub fn review_goal_with_resident_supervisor(
         let kb_dir = JsString::from(
             pi_js_compat::process_env::get("PI_KB_DIR").unwrap_or_else(|| DEFAULT_SUPERVISOR_KB_DIR.to_owned()),
         );
-        let control_db_path = JsString::from(get_control_db_path(&get_user_state_root().map_err(HandlerError::from)?));
-        let cwd = input.ctx.cwd()?;
-        let session = input.ctx.session_manager()?;
-        let sender_session_id = session.get_session_id().clone();
-        let project_id = resolve_supervisor_project_for_cwd(&cwd, &kb_dir).map_err(HandlerError::new)?;
-        let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
-            control_db_path,
-            kind: request_kind(input.kind),
-            payload: input.payload,
-            project_id,
-            sender_session_id,
-            timeout_ms: GOAL_REVIEW_TIMEOUT_MS as f64,
-            signal: None,
-            max_attempts: Some(f64::from(GOAL_REVIEW_MAX_ATTEMPTS)),
-            poll_interval_ms: None,
-            retry_delay_ms: Some(GOAL_REVIEW_RETRY_DELAY_MS),
-            retry_jitter_ratio: None,
-        })
-        .await
-        .map_err(|error| HandlerError::new(error.to_string()))?;
-        match response {
-            SupervisorResponseKind::Complete { .. }
-            | SupervisorResponseKind::Continue { .. }
-            | SupervisorResponseKind::Pause { .. }
-            | SupervisorResponseKind::Wait { .. }
-            | SupervisorResponseKind::Set { .. }
-            | SupervisorResponseKind::Error { .. } => {
-                let value =
-                    pi_js_compat::js_json::to_value(&response).map_err(|error| HandlerError::new(error.to_string()))?;
-                pi_js_compat::js_json::from_value(&value).map_err(|error| HandlerError::new(error.to_string()))
+        let controller = pi_js_compat::abort::AbortController::new();
+        let cancellation = controller.clone();
+        let unregister = input.ctx.register_supervisor_review_cancellation(Arc::new(move || {
+            cancellation.abort(None);
+        }))?;
+        let result = async {
+            let control_db_path = get_control_db_path(&get_user_state_root().map_err(HandlerError::from)?);
+            let cwd = input.ctx.cwd()?;
+            let session = input.ctx.session_manager()?;
+            let sender_session_id = session.get_session_id().clone();
+            let project_id = resolve_supervisor_project_for_cwd(&cwd, &kb_dir).map_err(HandlerError::new)?;
+            let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
+                control_db_path,
+                kind: request_kind(input.kind),
+                payload: input.payload,
+                project_id,
+                sender_session_id,
+                timeout_ms: GOAL_REVIEW_TIMEOUT_MS as f64,
+                signal: Some(controller.signal()),
+                max_attempts: Some(f64::from(GOAL_REVIEW_MAX_ATTEMPTS)),
+                poll_interval_ms: None,
+                retry_delay_ms: Some(GOAL_REVIEW_RETRY_DELAY_MS),
+                retry_jitter_ratio: None,
+            })
+            .await
+            .map_err(|error| HandlerError::new(error.to_string()))?;
+            match response {
+                SupervisorResponseKind::Complete { .. }
+                | SupervisorResponseKind::Continue { .. }
+                | SupervisorResponseKind::Pause { .. }
+                | SupervisorResponseKind::Wait { .. }
+                | SupervisorResponseKind::Set { .. }
+                | SupervisorResponseKind::Error { .. } => {
+                    let value = pi_js_compat::js_json::to_value(&response)
+                        .map_err(|error| HandlerError::new(error.to_string()))?;
+                    pi_js_compat::js_json::from_value(&value).map_err(|error| HandlerError::new(error.to_string()))
+                }
+                _ => Ok(GoalSupervisorResponse::Error {
+                    reason: format!("Invalid goal review response: {}", response.kind_name()).into(),
+                    display_id: None,
+                }),
             }
-            _ => Ok(GoalSupervisorResponse::Error {
-                reason: format!("Invalid goal review response: {}", response.kind_name()).into(),
-                display_id: None,
-            }),
         }
+        .await;
+        unregister();
+        result
     })
 }

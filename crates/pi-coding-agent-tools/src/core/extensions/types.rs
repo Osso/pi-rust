@@ -847,8 +847,11 @@ pub type SetSandboxProfileCallback =
     Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
 
 pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
-pub type RegisterSupervisorReviewCancellation =
-    Arc<dyn Fn(SupervisorReviewCancellationHandler) -> SupervisorReviewCancellationHandler + Send + Sync>;
+pub type RegisterSupervisorReviewCancellation = Arc<
+    dyn Fn(SupervisorReviewCancellationHandler) -> Result<SupervisorReviewCancellationHandler, CallbackError>
+        + Send
+        + Sync,
+>;
 
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
@@ -929,7 +932,7 @@ impl ExtensionContextState {
             is_project_trusted_fn: Arc::new(|| true),
             get_signal_fn: Arc::new(|| None),
             abort_fn: Arc::new(|| {}),
-            register_supervisor_review_cancellation_fn: Arc::new(|_| Arc::new(|| {})),
+            register_supervisor_review_cancellation_fn: Arc::new(|_| Ok(Arc::new(|| {}))),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
             restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
@@ -1131,7 +1134,7 @@ impl ExtensionContext {
         handler: SupervisorReviewCancellationHandler,
     ) -> Result<SupervisorReviewCancellationHandler, HandlerError> {
         let register = self.read(|state| state.register_supervisor_review_cancellation_fn.clone())?;
-        Ok(register(handler))
+        register(handler).map_err(HandlerError::from)
     }
 
     pub fn no_supervisor(&self) -> Result<bool, HandlerError> {

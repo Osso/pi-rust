@@ -13,6 +13,54 @@ use pi_js_compat::js_json::{JsObject, JsValue as Value};
 use std::sync::{Arc, Mutex};
 
 #[tokio::test]
+async fn goal_resident_supervisor_review_cancels_and_unregisters_like_frozen() {
+    use pi_coding_agent::bundled_extensions::goal::supervisor_review::review_goal_with_resident_supervisor;
+    let mut ts = oracle::TsOracle::spawn(
+        "goal-supervisor-review-oracle.ts",
+        "packages/coding-agent/extensions/goal/src/supervisor-review.ts",
+    );
+    let expected =
+        ts.request(&json!({"id":1, "operation":"resident", "cases":[{"standalone":false}, {"standalone":true}]}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let mut actual = Vec::new();
+    for standalone in [false, true] {
+        let directory = tempfile::tempdir().unwrap();
+        let mut harness = bundled::Harness::new(
+            Vec::new(),
+            pi_coding_agent::core::extensions::create_extension_runtime(),
+            bundled::HarnessOptions::new(directory.path().to_str().unwrap()),
+        )
+        .await;
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let record = events.clone();
+        let mut actions = support::context_actions();
+        actions.get_no_supervisor = Some(Arc::new(move || standalone));
+        actions.register_supervisor_review_cancellation = Some(Arc::new(move |handler| {
+            record.lock().unwrap().push("register");
+            handler();
+            let record = record.clone();
+            Ok(Arc::new(move || record.lock().unwrap().push("unregister")) as Arc<dyn Fn() + Send + Sync>)
+        }));
+        harness.runner.bind_core(support::actions(), actions, None).unwrap();
+        let reviewed = tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            review_goal_with_resident_supervisor(GoalReviewInput {
+                ctx: harness.context(),
+                kind: GoalReviewKind::GoalIdleReview,
+                payload: JsObject::new(),
+            }),
+        )
+        .await
+        .expect("cancelled review must not poll the resident supervisor");
+        actual.push(match reviewed {
+            Ok(result) => json!({"result":result,"events":events.lock().unwrap().clone()}),
+            Err(error) => json!({"error":error.message,"events":events.lock().unwrap().clone()}),
+        });
+    }
+    assert_eq!(json!(actual), expected["output"]);
+}
+
+#[tokio::test]
 async fn goal_supervisor_review_groups_waiting_and_final_status_like_frozen() {
     let directory = tempfile::tempdir().unwrap();
     let harness = bundled::Harness::new(
