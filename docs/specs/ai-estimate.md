@@ -4,10 +4,10 @@ Port frozen `packages/ai/src/utils/estimate.ts` at `4f9e6f8a4`. [Traceability](.
 
 ## What it must do
 
-- [ ] Count UTF-16 units, round up at four units per token and assign each image 4800 units.
-- [ ] Count assistant text, thinking and tool-call names plus JSON arguments; estimate user and tool-result content alike.
-- [ ] Use the latest positive assistant usage in array order, skipping aborted/error responses; add estimated trailing messages. Use reported total tokens or the sum of input, output and cache components.
-- [ ] Without usable usage, estimate all messages; context inputs also include the system prompt and complete enumerable tool definitions. Use JavaScript JSON number formatting when counting tool definitions.
+- [x] Count UTF-16 units, round up at four units per token and assign each image 4800 units.
+- [x] Count assistant text, thinking and tool-call names plus JSON arguments; estimate user and tool-result content alike.
+- [x] Use the latest positive assistant usage in array order, skipping aborted/error responses; add estimated trailing messages. Use reported total tokens or the sum of input, output and cache components.
+- [x] Without usable usage, estimate all messages; context inputs also include the system prompt and complete enumerable tool definitions. Use JavaScript JSON number formatting when counting tool definitions.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Port frozen `packages/ai/src/utils/estimate.ts` at `4f9e6f8a4`. [Traceability](.
 
 ## Known gaps (current cycle)
 
-Focused current-revision proof is pending.
+None within the approved scope; the excluded cases are recorded below.
 
 ## Out of scope
 
