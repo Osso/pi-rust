@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 483, `gap` 21, `partial` 50, `todo` 132.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 483, `gap` 23, `partial` 50, `todo` 130.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -197,7 +197,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/sanitize-unicode.ts` | 25 | 0 | done | `crates/pi-ai/src/utils/sanitize_unicode.rs` | Surrogate repair over UTF-16 units plus typed identity API; differential.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/typebox-helpers.ts` | 24 | 0 | done | `crates/pi-ai/src/utils/typebox_helpers.rs` | `StringEnum` builder plus explicit TypeBox-origin newtype ([traceability](traceability/typebox-helpers.md)).; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/validation.ts` | 324 | 2 | todo | `crates/pi-ai/src/utils/validation.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/utils/validation.rs`; Full hand-written TypeBox-compatible validator, coercions, error messages; 25 behavioral + 67 differential cases ([traceability](traceability/validation.md)). |
-| `ai/vitest.config.ts` | 9 | — | todo | — | re-pin delta; old status: gap; old Rust: —; User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
+| `ai/vitest.config.ts` | 9 | — | gap | — | Test-only Vitest configuration is not ported; explicit user waiver revalidated 2026-10-25. [Trace](traceability/ai-vitest-config.md). |
 
 ## coding-agent (458 files, 123087 lines)
 
@@ -660,7 +660,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | done | `crates/pi-coding-agent-base/src/utils/tools_manager.rs` | Whole common-pin PATH-only lookup/ensure; old managed-bin/config/HOME/HTTP/download/install code and tests removed. Eight frozen lookup/console/probe cases +explicit default-maxBuffer runtime-gap case, Android native unit, caller7/0 and workspace all-target0/0. Typed invalid tool values excluded. [Map](traceability/tools-manager.md). |
 | `coding-agent/src/utils/version-check.ts` | 80 | 1 | todo | `crates/pi-coding-agent-base/src/utils/version_check.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-base/src/utils/version_check.rs`; Differential 676 semver pairs + 676 newer checks + error fixtures; injected-Fetch release tests |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent-base/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup); re-run vs 4f9e6f8a4 pending |
-| `coding-agent/vitest.config.ts` | 35 | — | todo | — | re-pin delta; old status: gap; old Rust: —; User-approved JS-toolchain waiver 2026-10-20: no runtime behavior. Rust tests run via Cargo and `run-tests.sh`. |
+| `coding-agent/vitest.config.ts` | 35 | — | gap | — | Test-only Vitest configuration is not ported; explicit user waiver revalidated 2026-10-25. [Trace](traceability/coding-agent-vitest-config.md). |
 
 ## orchestrator (13 files, 1987 lines)
 
