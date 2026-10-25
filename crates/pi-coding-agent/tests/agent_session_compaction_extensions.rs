@@ -61,6 +61,7 @@ fn settings(compaction: serde_json::Value) -> Settings {
 struct Captured {
     before: Vec<SessionBeforeCompactEvent>,
     compaction: Vec<CompactionEvent>,
+    background: Vec<&'static str>,
 }
 
 impl Captured {
@@ -68,6 +69,7 @@ impl Captured {
         Arc::new(Mutex::new(Self {
             before: Vec::new(),
             compaction: Vec::new(),
+            background: Vec::new(),
         }))
     }
 }
@@ -151,9 +153,12 @@ async fn env_with(
     let captured = Captured::new();
     let before_capture = Arc::clone(&captured);
     let compaction_capture = Arc::clone(&captured);
+    let background_capture = Arc::clone(&captured);
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
         let before_capture = Arc::clone(&before_capture);
         let compaction_capture = Arc::clone(&compaction_capture);
+        let background_start_capture = Arc::clone(&background_capture);
+        let background_end_capture = Arc::clone(&background_capture);
         let before = before.clone();
         let compaction_hook = compaction_hook.clone();
         let registered = (|| -> Result<(), String> {
@@ -184,6 +189,20 @@ async fn env_with(
                         'static,
                         Result<Option<CompactionEventResult>, HandlerError>,
                     >
+            })?;
+            api.on_background_compaction_start(move |_event, _ctx| {
+                let captured = Arc::clone(&background_start_capture);
+                Box::pin(async move {
+                    captured.lock().unwrap().background.push("background_compaction_start");
+                    Ok(())
+                }) as pi_ai::request::BoxFuture<'static, Result<(), HandlerError>>
+            })?;
+            api.on_background_compaction_end(move |_event, _ctx| {
+                let captured = Arc::clone(&background_end_capture);
+                Box::pin(async move {
+                    captured.lock().unwrap().background.push("background_compaction_end");
+                    Ok(())
+                }) as pi_ai::request::BoxFuture<'static, Result<(), HandlerError>>
             })?;
             Ok(())
         })();
@@ -811,6 +830,40 @@ async fn next_turn_refresh_compacts_percentage_context_before_returning_snapshot
         json!({"ok": true, "value": {"compactions": 1, "hasSummary": true}})
     );
     assert_eq!(actual, expected["value"]);
+}
+
+#[test]
+fn background_compaction_event_wire_tags_match_actual_frozen_emission() {
+    use pi_coding_agent::core::extensions::types::ExtensionEvent;
+    let dir = tempfile::tempdir().expect("fixture dir");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"operation": "background-events", "dir": dir.path().display().to_string()}));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": ["background_compaction_start", "compaction", "background_compaction_end"]})
+    );
+    for name in ["background_compaction_start", "background_compaction_end"] {
+        let wire = json!({"type": name});
+        let event: ExtensionEvent = serde_json::from_value(wire.clone()).expect("frozen event must be representable");
+        assert_eq!(event.event_type(), name);
+        assert_eq!(serde_json::to_value(event).expect("event serialization"), wire);
+    }
+}
+
+#[tokio::test]
+async fn background_compaction_handler_registration_and_dispatch_preserve_order() {
+    let env = env_with(json!({"enabled": false}), None, None).await;
+    let runner = env.session.extension_runner();
+    for name in ["background_compaction_start", "background_compaction_end"] {
+        assert!(runner.has_handlers(name));
+        let mut event = serde_json::from_value(json!({"type": name})).expect("background event");
+        runner.emit(&mut event).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background,
+        ["background_compaction_start", "background_compaction_end"]
+    );
 }
 
 #[tokio::test]

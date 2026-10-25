@@ -1854,6 +1854,12 @@ pub struct CompactionEvent {
     pub signal: Option<AbortSignal>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionStartEvent {}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionEndEvent {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionSourceEvent {
@@ -2323,6 +2329,8 @@ pub enum ExtensionEvent {
     SessionBeforeFork(SessionBeforeForkEvent),
     SessionBeforeCompact(SessionBeforeCompactEvent),
     Compaction(CompactionEvent),
+    BackgroundCompactionStart(BackgroundCompactionStartEvent),
+    BackgroundCompactionEnd(BackgroundCompactionEndEvent),
     SessionCompactionSource(SessionCompactionSourceEvent),
     SessionCompact(SessionCompactEvent),
     SessionShutdown(SessionShutdownEvent),
@@ -2365,6 +2373,8 @@ impl ExtensionEvent {
             Self::SessionBeforeFork(_) => "session_before_fork",
             Self::SessionBeforeCompact(_) => "session_before_compact",
             Self::Compaction(_) => "compaction",
+            Self::BackgroundCompactionStart(_) => "background_compaction_start",
+            Self::BackgroundCompactionEnd(_) => "background_compaction_end",
             Self::SessionCompactionSource(_) => "session_compaction_source",
             Self::SessionCompact(_) => "session_compact",
             Self::SessionShutdown(_) => "session_shutdown",
@@ -2808,6 +2818,8 @@ pub struct ExtensionHandlers {
     pub session_before_fork: Vec<HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>>,
     pub session_before_compact: Vec<HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>>,
     pub compaction: Vec<HandlerHandle<CompactionEvent, CompactionEventResult>>,
+    pub background_compaction_start: Vec<HandlerHandle<BackgroundCompactionStartEvent, ()>>,
+    pub background_compaction_end: Vec<HandlerHandle<BackgroundCompactionEndEvent, ()>>,
     pub session_compaction_source: Vec<HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>>,
     pub session_compact: Vec<HandlerHandle<SessionCompactEvent, ()>>,
     pub session_shutdown: Vec<HandlerHandle<SessionShutdownEvent, ()>>,
@@ -2849,7 +2861,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 34] {
+    fn event_lists_empty(&self) -> [bool; 36] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2859,6 +2871,8 @@ impl ExtensionHandlers {
             self.session_before_fork.is_empty(),
             self.session_before_compact.is_empty(),
             self.compaction.is_empty(),
+            self.background_compaction_start.is_empty(),
+            self.background_compaction_end.is_empty(),
             self.session_compaction_source.is_empty(),
             self.session_compact.is_empty(),
             self.session_shutdown.is_empty(),
@@ -3211,6 +3225,20 @@ impl ExtensionApi {
         handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
+    }
+
+    pub fn on_background_compaction_start(
+        &self,
+        handler: impl Handler<BackgroundCompactionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_start, handler)
+    }
+
+    pub fn on_background_compaction_end(
+        &self,
+        handler: impl Handler<BackgroundCompactionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_end, handler)
     }
 
     pub fn on_session_compaction_source(
