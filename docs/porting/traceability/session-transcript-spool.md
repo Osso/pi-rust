@@ -18,7 +18,7 @@ Logs: `/tmp/pi-rust-repin-storage/spool-mkdtemp-{red,green-attempt}.log`, `share
 
 The plain-path matrix covers existing/missing/other/empty pass-through and already-removed private directories. A real callback that replaces its directory with a regular file reproduces a separate ENOTDIR RED; type-aware recursive cleanup now removes the replacement like frozen, instead of assuming a directory.
 
-Consumer audit: tool migration and orchestrator storage use `node_rm_error`, so their non-permission filesystem failures now use the same Node rm authority rather than unlink errors. Their force/exists guards still skip missing files; nonrecursive EISDIR and permission messages stay unchanged. Bash spill and clipboard-temp cleanup do not call this adapter, so this shared mapping causes no behavior change there; no out-of-scope consumer changes were made.
+Consumer audit: frozen `packages/coding-agent/src/core/session-tool-output.ts:326-327` uses `rmSync(tempPath,{force:true})` in `finally`; frozen `packages/orchestrator/src/storage.ts:27-32` checks existence then uses `rmSync(machinePath)` (not unlink). Native tool migration and orchestrator storage use `node_rm_error`, so their non-permission filesystem failures now use the same Node rm authority rather than unlink errors. Their force/exists guards still skip missing files; nonrecursive EISDIR and permission messages stay unchanged. Bash spill and clipboard-temp cleanup do not call this adapter, so this shared mapping causes no behavior change there; no out-of-scope consumer changes were made.
 
 ## Open Worker parity boundary — PARTIAL
 
