@@ -65,7 +65,7 @@ fn fixture(owner_session_id: &str) -> Fixture {
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),
         create_agent_id: Arc::new(|| Ok("unused".into())),
-        now: Arc::new(|| NOW.into()),
+        now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: current_identity(),
         session_path: session_path.clone().into(),
     }));
