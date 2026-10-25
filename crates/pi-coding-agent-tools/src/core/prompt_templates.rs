@@ -291,6 +291,6 @@ pub fn expand_prompt_template(text: impl Into<JsString>, templates: &[PromptTemp
     let Some(template) = templates.iter().find(|template| name == template.name) else {
         return text;
     };
-    let args = JsString::from_utf16(units[end..].to_vec()).trim();
+    let args = JsString::from_utf16(units[end..].to_vec()).trim_start();
     substitute_args(&template.content, &parse_command_args(args))
 }

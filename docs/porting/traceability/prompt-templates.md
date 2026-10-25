@@ -52,3 +52,8 @@ unpaired UTF-16 units (literal or escaped) fails explicitly in
 `parse_yaml_frontmatter`. No replacement, silent omission, or partial YAML. This
 is an approved parity gap, not pending interim behavior. Native body text outside
 YAML remains lossless.
+
+
+## Verifier fix 2026-10-25
+
+`expand_prompt_template` trimmed both ends of the argument tail; frozen `prompt-templates.ts:275-280` (`\s+([\s\S]*)`) drops only leading whitespace. `/greet "hello ` with `[$1]` now yields `[hello ]` like frozen. Native regression `prompt_templates::keeps_trailing_whitespace_inside_unclosed_quoted_argument` (RED `[hello]` → GREEN).

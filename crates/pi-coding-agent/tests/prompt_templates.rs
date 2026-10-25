@@ -64,3 +64,11 @@ fn expands_matching_templates_and_leaves_others_untouched() {
     assert_eq!(expand_prompt_template("/missing arg", &templates), "/missing arg");
     assert_eq!(expand_prompt_template("plain text", &templates), "plain text");
 }
+
+#[test]
+fn keeps_trailing_whitespace_inside_unclosed_quoted_argument() {
+    // Frozen prompt-templates.ts:275-280 passes the captured tail untrimmed.
+    let templates = vec![template("greet", "[$1]")];
+    assert_eq!(expand_prompt_template("/greet \"hello ", &templates), "[hello ]");
+    assert_eq!(expand_prompt_template("/greet   world", &templates), "[world]");
+}
