@@ -7,9 +7,9 @@ use pi_ai::types::Model;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use crate::core::agent_session::{AgentSession, WorkingDirectoryRecoveryHandlers};
-use crate::core::agent_session_services::{
-    AgentSessionRuntimeDiagnostic, AgentSessionServices, create_agent_session_from_services,
-    create_agent_session_services,
+pub use crate::core::agent_session_services::{
+    AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
+    CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
 use crate::core::extensions::emit_session_shutdown_event;
 use crate::core::extensions::runner::EmitResult;
@@ -22,7 +22,7 @@ use crate::core::extensions::types::{
 use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
 use crate::core::session_cwd::{assert_session_cwd_exists, find_nearest_existing_cwd};
-use crate::core::session_errors::SessionImportFileNotFoundError;
+pub use crate::core::session_errors::SessionImportFileNotFoundError;
 use crate::core::session_manager::{SessionManager, SharedSessionManager};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 

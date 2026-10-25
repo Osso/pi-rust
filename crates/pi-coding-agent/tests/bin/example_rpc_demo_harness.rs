@@ -3,7 +3,6 @@ mod example;
 use pi_coding_agent::core::{
     agent_session::AgentSession,
     agent_session_runtime::*,
-    agent_session_services::*,
     auth_storage::AuthStorage,
     extensions::*,
     model_registry::ModelRegistry,
