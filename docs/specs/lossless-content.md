@@ -13,6 +13,7 @@ Approved 2026-10-21: shared JS message text and arbitrary JSON properties retain
 - [x] Native environment names remain String; values remain JsString until the OS boundary. Lone-surrogate names are a typed exclusion, not a value-text exclusion. Invalid names never create or alias entries; Node first-NUL prefix aliasing is excluded by the approved runtime-oddity rule ([proof](../porting/traceability/process-env.md)). Human labels retain their separate UTF-16 authority.
 - [x] User and thinking text use the same UTF-16 authority.
 - [x] Core custom-message text uses the same UTF-16 authority; coding-agent consumers remain pending.
+- [x] Plan-mode generated todo text retains split surrogate units through status/widgets, progress and execution/completion messages, JSONL persistence and restoration ([proof](../porting/traceability/example-plan-mode.md)).
 - [x] Tool-call arguments and complete/partial JSON argument parsing use lossless object/value authorities.
 - [x] Core `AgentTool` and coding extension/context definitions retain native UTF-16 label/description through provider context and definition conversion.
 - [x] Human `Tool.description` preserves unmatched UTF-16 units through all nine chat API request bodies, whole-Tool serialization and token estimators; it is not opaque scalar metadata.
