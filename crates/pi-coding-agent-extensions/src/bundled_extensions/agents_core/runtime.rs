@@ -462,12 +462,7 @@ impl MultiAgentPiRequestHandler {
             Ok("messages.send") => {
                 let params: super::mailbox_runtime::SendAgentMessageParams =
                     js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
-                let result = super::mailbox_runtime::send_agent_message(
-                    &self.runtime.store,
-                    &params,
-                    Some(ctx),
-                    self.runtime.options.on_session_message_sent.as_ref(),
-                )?;
+                let result = super::mailbox_runtime::send_agent_message(&self.runtime.store, &params, Some(ctx), None)?;
                 Ok(result.details.unwrap_or(Value::Null))
             }
             _ => Ok(Value::Null),
