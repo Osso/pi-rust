@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Prompt-history migration return limits (2026-10-25)
+
+Actual source/native RED `/tmp/storage3-control-history-red.log` shows ordinary negative migration limits returned every native legacy entry instead of frozen `slice(0, limit)`. Both prepared-empty and successful-insert returns now use the existing JS slice-index authority; persisted rows and subsequent SQLite LIMIT behavior remain unchanged. `repin_storage_control_history` covers six limits on four nonempty entries and four whitespace-only entries, comparing first return, complete stored rows and second return. Four entries prove the positive two-entry limit is not a single-page-only check. No new carrier or fallback.
+
 ## Original callback throws (2026-10-25)
 
 Actual frozen `withControlDb`/`withImmediateTransaction` baseline `/tmp/storage3-control-callback-source.log` preserves original throws and leaves the inserted row committed outside a transaction, rolled back inside one. API RED `/tmp/storage3-control-callback-api-red.log` could not represent CallbackError in ControlDbError. Main approved extending the existing shared SQLite error with one boxed callback source and From conversion, without new signatures or carriers. The existing CallbackError source walker restores original Error identity/properties and non-Error values; no new coercion or panic wrapper. The current eight-case fixture includes coded TypeError and retains existing null/string/object proof only. The eight-case source/native matrix passes at27f88577b (`/tmp/storage3-control-callback-green.log`); all-target workspace check and protected strict fixture types pass. The current60 control/public/differential/reciprocal/schema/concurrent tests also pass (`/tmp/storage3-audit-control_db.log`). Export correspondence audit finds all127 frozen exported functions represented by135 native public functions; this is correspondence, not behavioral acceptance.

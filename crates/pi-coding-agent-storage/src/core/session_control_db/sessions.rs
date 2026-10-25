@@ -1194,20 +1194,13 @@ pub fn read_or_migrate_prompt_history(
             return Ok(Vec::new());
         }
         let prepared_rows = prepare_prompt_history_migration_rows(legacy_entries);
+        let legacy_end = pi_js_compat::number::js_slice_index(limit as f64, legacy_entries.len());
         if prepared_rows.is_empty() {
-            return Ok(legacy_entries
-                .iter()
-                .take(usize::try_from(limit).unwrap_or(usize::MAX))
-                .cloned()
-                .collect());
+            return Ok(legacy_entries[..legacy_end].to_vec());
         }
         let inserted = insert_prompt_history_migration_rows(db, &prepared_rows)?;
         if inserted == prepared_rows.len() as i64 {
-            return Ok(legacy_entries
-                .iter()
-                .take(usize::try_from(limit).unwrap_or(usize::MAX))
-                .cloned()
-                .collect());
+            return Ok(legacy_entries[..legacy_end].to_vec());
         }
         if inserted == 0 {
             return read_prompt_history_rows(db, limit);
