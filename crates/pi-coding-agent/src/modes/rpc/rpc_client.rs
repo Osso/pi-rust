@@ -1534,7 +1534,17 @@ mod tests {
             broken_stderr(),
         );
         let source = wait_and_clean_private_child(source);
-        assert_eq!(source.status.code(), Some(1));
+        let node_default = std::process::Command::new("node")
+            .args(["-e", "process.stderr.write('uncaught broken fd2');"])
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(broken_stderr())
+            .spawn()
+            .unwrap();
+        let node_default = wait_and_clean_private_child(node_default);
+        println!("actual Node unhandled write with broken fd2: {:?}", node_default.status);
+        assert_eq!(node_default.status.code(), Some(1));
+        assert_eq!(source.status.code(), node_default.status.code());
         let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
         assert_eq!(expected["code"], JsValue::String("EPIPE".into()));
         let output_path = root.path().join("uncaught.json");
@@ -1553,13 +1563,14 @@ mod tests {
             .unwrap();
         let native = wait_and_clean_private_child(native);
         assert_eq!(
-            native.status.code(),
-            Some(1),
-            "native must report the unobserved write failure"
-        );
-        assert_eq!(
             js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
             expected
+        );
+        assert_eq!(
+            native.status.code(),
+            node_default.status.code(),
+            "native fatal status {:?} must match actual Node",
+            native.status
         );
     }
 

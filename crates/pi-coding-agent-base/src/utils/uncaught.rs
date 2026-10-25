@@ -17,6 +17,7 @@ use pi_js_compat::{
 };
 use std::any::Any;
 use std::cell::Cell;
+use std::io::Write as _;
 use std::sync::{Arc, Mutex};
 
 /// Node's default label for a plain `Error`.
@@ -147,7 +148,12 @@ pub fn install_uncaught_handler() {
         {
             handler(info.payload());
         }
-        eprintln!("{}", encode_node_utf8(&format_uncaught(info.payload())));
+        // Node still exits1 when the fatal diagnostic sink itself is broken.
+        let _ = writeln!(
+            std::io::stderr(),
+            "{}",
+            encode_node_utf8(&format_uncaught(info.payload()))
+        );
         std::process::exit(1);
     }));
 }
