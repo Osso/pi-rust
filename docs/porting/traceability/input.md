@@ -12,6 +12,10 @@ Tests: `crates/pi-tui/tests/input.rs` (every listed TS test ported),
 `crates/pi-tui/tests/differential_input.rs` (13 scripted edit/render scenarios
 against the pinned TypeScript component).
 
+## Final-gate fixture isolation (2026-10-25)
+
+Consolidation `e60b2edbe` moved this differential into `suite_core` with terminal negotiation fixtures. Those fixtures set the process-global Kitty flag, suppressing legacy Alt+d/Alt+y while the fresh frozen oracle starts with Kitty disabled (`keys.ts:25,1162–1165`). The unchanged 13-case assertion failed in the composed suite but passed alone (`/tmp/pi-repin-final-gate/tui-input-isolated.log`). Restore the differential's standalone Cargo target so both sides start with the same terminal state. Production, oracle, cases, and assertions remain unchanged; neither failure is in the documented baseline flake list.
+
 ## Exported symbols
 
 | TypeScript export | Rust item | Tests |

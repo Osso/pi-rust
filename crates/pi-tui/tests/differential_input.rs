@@ -1,4 +1,5 @@
-use crate::shared_oracle as oracle;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::cell::RefCell;

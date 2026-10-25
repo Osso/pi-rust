@@ -11,8 +11,6 @@ mod shared_virtual_terminal;
 pub mod autocomplete_close_abort;
 #[path = "differential_fuzzy.rs"]
 pub mod differential_fuzzy;
-#[path = "differential_input.rs"]
-pub mod differential_input;
 #[path = "differential_kill_ring.rs"]
 pub mod differential_kill_ring;
 #[path = "differential_native_modifiers.rs"]
