@@ -627,6 +627,12 @@ Frozen clipboard-image.ts:162 and interactive-mode.ts:3842/:7328 call tmpdir/os.
 
 Queue7 callback boundary: frozen :2091–2112 editor get/set rejections belong to the extension command, not the UI-owner drain. `live_compaction_navigation_returns_original_editor_rejections` reproduces owner escape/drop-response in `live-compaction-rejection-red-genuine.log`; the native navigation response now carries the original CallbackError. Fixture setup failures in earlier red attempts are not parity evidence. No panic/catch-unwind transport.
 
+## Help and startup notices (2026-10-25)
+
+[Contract](../../specs/interactive-help-notices.md). The actual frozen hotkeys/key-display helpers already match default/custom configurations and three shortcut description states; no string/table rewrite is needed. Real handler RED `help-notices-red.log` proves cached-only `/changelog`, an empty last-version treated as an upgrade, and PI_OFFLINE empty-string treated as offline. Native now reads all changelog entries per command, uses the frozen bordered title/Markdown layout, normalizes/reverses entries, and keeps truthiness guards literal. `help-notices-next.log` additionally proves empty cached startup Markdown incorrectly rendered borders; it now renders nothing after setting the once-only flag.
+
+The private injected-fetch comparison exposed the separately approved [User-Agent runtime token](pi-user-agent.md#runtime-gap), not a telemetry defect. The test explicitly validates/replaces only the Node/Bun runtime token with `rust`; all other header bytes, URL/method, settings and full frames stay compared. Native failure and source Promise rejection are both observed without live requests. Real settings, keybinding managers, Markdown/Text/Container components and package/changelog files drive17 cases; full frames are captured at widths25/120. This is group-level proof, not whole-mode acceptance.
+
 ## Name and inventory commands (2026-10-25)
 
 [Contract](../../specs/interactive-display-commands.md). Actual-source/native RED `display-commands-red.log` shows `/name` usage as Error instead of Warning and inventory output as dimmed ad-hoc lists instead of the frozen table. Native now preserves current-name/help, stored-name success, JSON-quoted normalization warnings, repeated removal, and error propagation. It no longer updates terminal titles directly; normal session-info event ownership remains unchanged. Tools/extensions append plain Text using the shared formatter authority rather than coalescing statuses.

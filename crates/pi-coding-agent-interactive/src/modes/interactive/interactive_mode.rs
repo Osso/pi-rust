@@ -6671,7 +6671,7 @@ fn changelog_display_for(
         };
     }
     let entries = crate::utils::changelog::parse_changelog(&changelog_path.display().to_string());
-    let Some(last_version) = last_version else {
+    let Some(last_version) = last_version.filter(|version| !version.is_empty()) else {
         return ChangelogDisplay {
             markdown: None,
             update_version: true,
@@ -7603,7 +7603,7 @@ impl InteractiveMode {
             value if value == "session" => self.handle_session_command(),
             value if value == "tools" => self.handle_tools_command(),
             value if value == "extensions" => self.handle_extensions_command(),
-            value if value == "changelog" => self.handle_changelog_command(),
+            value if value == "changelog" => self.handle_changelog_command()?,
             value if value == "fork" => self.show_user_message_selector(),
             value if value == "clone" => self.handle_clone_command().await?,
             value if value == "tree" => self.show_tree_selector(None, None),
@@ -9205,7 +9205,7 @@ impl InteractiveMode {
     }
 
     fn report_install_telemetry(&self, version: &JsString) {
-        if std::env::var_os("PI_OFFLINE").is_some() {
+        if pi_js_compat::process_env::get("PI_OFFLINE").is_some_and(|value| !value.is_empty()) {
             return;
         }
         if !crate::core::telemetry::is_install_telemetry_enabled(&self.session().settings_manager(), None) {
@@ -9238,7 +9238,12 @@ impl InteractiveMode {
         }
         self.startup_notices_shown.set(true);
 
-        let Some(markdown) = self.changelog_markdown.borrow().clone() else {
+        let Some(markdown) = self
+            .changelog_markdown
+            .borrow()
+            .clone()
+            .filter(|markdown| !markdown.is_empty())
+        else {
             return;
         };
         if !self.chat_container.borrow().children().is_empty() {
@@ -9312,7 +9317,10 @@ impl InteractiveMode {
     }
 
     fn handle_hotkeys_command(&self) {
-        let hotkeys = self.read_hotkeys_markdown();
+        self.append_markdown_command("Keyboard Shortcuts", self.read_hotkeys_markdown().trim());
+    }
+
+    fn append_markdown_command(&self, title: &str, markdown: JsString) {
         let border_color = Rc::new(|text: &JsString| with_theme(|theme| theme.fg(ThemeColor::Border, text)));
         let mut chat = self.chat_container.borrow_mut();
         chat.add_child(component(Spacer::new(1)));
@@ -9320,13 +9328,13 @@ impl InteractiveMode {
             border_color.clone(),
         )));
         chat.add_child(component(Text::new(
-            with_theme(|theme| theme.bold(theme.fg(ThemeColor::Accent, "Keyboard Shortcuts"))),
+            with_theme(|theme| theme.bold(theme.fg(ThemeColor::Accent, title))),
             1,
             0,
         )));
         chat.add_child(component(Spacer::new(1)));
         chat.add_child(component(pi_tui::components::markdown::Markdown::with_shared_theme(
-            hotkeys.trim().to_owned(),
+            markdown,
             1,
             1,
             self.markdown_theme(),
@@ -9340,24 +9348,26 @@ impl InteractiveMode {
         self.ui.request_render();
     }
 
-    fn handle_changelog_command(&self) {
-        match self.changelog_markdown.borrow().clone() {
-            Some(markdown) => {
-                self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
-                self.chat_container.borrow_mut().add_child(component(
-                    pi_tui::components::markdown::Markdown::with_shared_theme(
-                        markdown,
-                        1,
-                        0,
-                        self.markdown_theme(),
-                        None,
-                        pi_tui::components::markdown::MarkdownOptions::default(),
-                    ),
-                ));
-                self.ui.request_render();
-            }
-            None => self.show_status("No changelog available"),
-        }
+    fn handle_changelog_command(&self) -> Result<(), CallbackError> {
+        let path = crate::config::get_changelog_path().map_err(CallbackError::from)?;
+        let mut entries = crate::utils::changelog::parse_changelog(&encode_node_utf8(&path));
+        entries.reverse();
+        let markdown = if entries.is_empty() {
+            "No changelog entries found.".into()
+        } else {
+            JsString::join(
+                entries.iter().map(|entry| {
+                    let version = format!("{}.{}.{}", entry.major, entry.minor, entry.patch);
+                    JsString::from(crate::utils::changelog::normalize_changelog_links_for_entry(
+                        &entry.content,
+                        &version,
+                    ))
+                }),
+                "\n\n",
+            )
+        };
+        self.append_markdown_command("What's New", markdown);
+        Ok(())
     }
 
     async fn handle_cd_command(&self, text: JsString) {
@@ -13114,6 +13124,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_display_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_help_notices.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
