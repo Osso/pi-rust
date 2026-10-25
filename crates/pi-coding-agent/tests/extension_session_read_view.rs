@@ -122,6 +122,69 @@ async fn runner_diagnostics_stringify_native_rejections_like_frozen() {
 }
 
 #[test]
+fn core_and_sdk_barrels_forward_frozen_public_contracts() {
+    use pi_coding_agent::core::sdk::{
+        ExtensionApi, ExtensionCommandContext, ExtensionContext, ExtensionFactory, PromptTemplate, Skill,
+        SlashCommandInfo, SlashCommandSource, ToolDefinition, create_agent_session_runtime, create_bash_tool,
+        create_coding_tools, create_edit_tool, create_find_tool, create_grep_tool, create_ls_tool, create_outline_tool,
+        create_read_only_tools, create_read_tool, create_references_tool, create_symbol_tool, create_write_tool,
+        with_file_mutation_queue,
+    };
+    use pi_coding_agent::core::{
+        AgentToolResult, AgentToolUpdateCallback, BashExecutorOptions, BashResult, ExecOptions, ExecResult,
+        ExtensionHandler, ModelRequestEndEvent, ModelRequestStartEvent, execute_bash_with_operations,
+    };
+    let _: Option<(
+        AgentToolUpdateCallback,
+        BashExecutorOptions,
+        BashResult,
+        ExecOptions,
+        ExecResult,
+        ModelRequestEndEvent,
+        ModelRequestStartEvent,
+        ExtensionApi,
+        ExtensionCommandContext,
+        ExtensionContext,
+        ExtensionFactory,
+        PromptTemplate,
+        Skill,
+        SlashCommandInfo,
+        SlashCommandSource,
+        ToolDefinition,
+    )> = None;
+    let _ = (
+        execute_bash_with_operations,
+        create_agent_session_runtime,
+        create_bash_tool,
+        create_coding_tools,
+        create_edit_tool,
+        create_find_tool,
+        create_grep_tool,
+        create_ls_tool,
+        create_outline_tool,
+        create_read_only_tools,
+        create_read_tool,
+        create_references_tool,
+        create_symbol_tool,
+        create_write_tool,
+        with_file_mutation_queue,
+    );
+    let _: Option<
+        std::sync::Arc<dyn ExtensionHandler<pi_coding_agent::core::extensions::types::SessionStartEvent, ()>>,
+    > = None;
+    let result = AgentToolResult {
+        content: vec![],
+        details: Some(pi_js_compat::js_json::JsValue::Null),
+        is_error: None,
+        terminate: None,
+    };
+    assert_eq!(
+        pi_js_compat::js_json::to_value(&result).unwrap(),
+        js_json!({"content":[],"details":null})
+    );
+}
+
+#[test]
 fn extension_barrel_forwards_tool_and_source_contracts() {
     use pi_coding_agent::core::extensions::{
         AgentToolResult, BuildSystemPromptOptions, ExecOptions, ExecResult, KeybindingsManager, SlashCommandInfo,
