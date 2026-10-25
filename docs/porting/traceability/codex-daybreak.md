@@ -19,3 +19,5 @@ Source: `packages/coding-agent/extensions/codex-daybreak/src/index.ts` at common
 - RED: `/tmp/bundled-daybreak-red.log`: missing first-party registration after invoking the real frozen oracle.
 - Tests use private in-memory session branches and no provider calls. The oracle loads unmodified frozen source.
 - Gap: pathological input shapes/runtime races/OS faults follow the shared user-observable parity bar; ordinary object payloads remain exact UTF-16 and insertion ordered.
+
+- GREEN at `013dbdc71`: all 13 frozen differential cases pass (`/tmp/bundled-daybreak-green.log`). Both new TS oracles pass strict no-emit with the pinned compiler inside the mandatory sandbox (`/tmp/bundled-new-oracles-types.log`). New Rust/TS lines reviewed against the readability checklists. The first-party registration assertion exposed its missing expected `/daybreak` name; its expected list is updated without changing production behavior.

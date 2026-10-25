@@ -418,6 +418,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "approvals",
             "sandbox",
+            "daybreak",
             "fast",
             "usage",
             "debug",

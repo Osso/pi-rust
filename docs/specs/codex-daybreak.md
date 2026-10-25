@@ -4,10 +4,10 @@ The bundled Daybreak extension follows the [common source pin](../porting/source
 
 ## What it must do
 
-- [ ] Register `/daybreak` with exact command text; support blue/off/query/usage, main-thread restrictions, selection notifications and editor clearing.
-- [ ] Restore the last recognized session custom entry and update active/inactive status on session start and model selection.
-- [ ] For supported Codex providers and eligible request model ids, merge `access_programs.cyber = daybreak_blue`; preserve other request properties and raw UTF-16 values.
-- [ ] Keep the program off by default and leave unsupported or child requests unchanged; warn on nonobject payloads only after the frozen guards pass.
+- [x] Register `/daybreak` with exact command text; support blue/off/query/usage, main-thread restrictions, selection notifications and editor clearing.
+- [x] Restore the last recognized session custom entry and update active/inactive status on session start and model selection.
+- [x] For supported Codex providers and eligible request model ids, merge `access_programs.cyber = daybreak_blue`; preserve other request properties and raw UTF-16 values.
+- [x] Keep the program off by default and leave unsupported or child requests unchanged; warn on nonobject payloads only after the frozen guards pass.
 
 ## How it works
 
@@ -25,7 +25,7 @@ The bundled Daybreak extension follows the [common source pin](../porting/source
 
 ## Known gaps (current cycle)
 
-- [ ] Execute targeted differential GREEN after the implementation commit.
+No behavioral gap remains in the mapped module; extension-wide clippy is blocked by existing errors in other modules.
 
 ## Out of scope
 
