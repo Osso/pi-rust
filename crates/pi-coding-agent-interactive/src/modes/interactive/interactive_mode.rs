@@ -8973,7 +8973,7 @@ impl InteractiveMode {
             if child_pid != 0
                 && let Some(child_pid) = rustix::process::Pid::from_raw(child_pid as i32)
             {
-                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::KILL);
+                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::TERM);
             }
             if let Some(loader) = abort_loader.upgrade() {
                 loader.borrow_mut().dispose();
