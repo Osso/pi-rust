@@ -148,6 +148,9 @@ pub enum RpcClientError {
         message: String,
         stderr: String,
     },
+    StdinNotWritable {
+        stderr: String,
+    },
     NotStarted,
     Stopping {
         stderr: String,
@@ -210,6 +213,9 @@ impl fmt::Display for RpcClientError {
             ),
             Self::StdinError { message, stderr } => {
                 write!(formatter, "Agent process stdin error: {message}. Stderr: {stderr}")
+            }
+            Self::StdinNotWritable { stderr } => {
+                write!(formatter, "Agent process stdin is not writable. Stderr: {stderr}")
             }
             Self::NotStarted => formatter.write_str("Client not started"),
             Self::Stopping { stderr } => write!(formatter, "RPC client is stopping. Stderr: {stderr}"),
@@ -304,6 +310,7 @@ struct SyncState {
     stop_error: Option<RpcClientError>,
     next_request_id: u64,
     pending: HashMap<String, oneshot::Sender<Result<JsValue, RpcClientError>>>,
+    stdin: Option<mpsc::UnboundedSender<String>>,
     listeners: Vec<Listener>,
     next_listener_id: u64,
 }
@@ -333,14 +340,12 @@ struct ProcessHandle {
 
 struct PendingRequest {
     id: String,
-    line: String,
     receiver: oneshot::Receiver<Result<JsValue, RpcClientError>>,
 }
 
 #[derive(Default)]
 struct ProcessState {
     child: Option<ProcessHandle>,
-    stdin: Option<ChildStdin>,
     reader: Option<JsonlLineReader>,
 }
 
@@ -440,6 +445,7 @@ impl RpcClient {
                     stop_error: None,
                     next_request_id: 0,
                     pending: HashMap::new(),
+                    stdin: None,
                     listeners: Vec::new(),
                     next_listener_id: 0,
                 }),
@@ -539,15 +545,6 @@ impl RpcClient {
             sync.stop_run = None;
         }
         completion.ready.notify_waiters();
-        if Arc::strong_count(completion) == 1
-            && let Err(error) = result
-        {
-            let callback = match error {
-                RpcClientError::Native(error) => pi_ai::request::CallbackError::from(*error),
-                error => pi_ai::request::CallbackError::from_error(error.to_string().into(), error),
-            };
-            crate::utils::uncaught::throw_callback_uncaught(callback);
-        }
     }
 
     async fn stop_process(&self) -> Result<(), RpcClientError> {
@@ -565,9 +562,10 @@ impl RpcClient {
 
         let result = self.terminate(&mut process).await;
         if result.is_ok() {
-            process.stdin = None;
             process.child = None;
-            self.inner.sync.lock().expect("sync state poisoned").active_generation = None;
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            sync.stdin = None;
+            sync.active_generation = None;
         }
         result
     }
@@ -625,7 +623,6 @@ impl RpcClient {
     pub async fn send(&self, body: RpcCommandBody) -> Result<JsValue, RpcClientError> {
         let command_type = body.command_type();
         let request = self.begin_request(body)?;
-        self.write_request_line(&request).await?;
         self.await_request_response(request, command_type).await
     }
 
@@ -653,6 +650,16 @@ impl RpcClient {
             return Err(error);
         }
 
+        let stdin = match sync.stdin.as_ref().filter(|stdin| !stdin.is_closed()).cloned() {
+            Some(stdin) => stdin,
+            None => {
+                let error = RpcClientError::StdinNotWritable {
+                    stderr: sync.stderr.clone(),
+                };
+                sync.exit_error = Some(error.clone());
+                return Err(error);
+            }
+        };
         sync.next_request_id += 1;
         let id = format!("req_{}", sync.next_request_id);
         let command = RpcCommand::new(body, Some(id.as_str().into()));
@@ -661,32 +668,15 @@ impl RpcClient {
         })?;
         let (sender, receiver) = oneshot::channel();
         sync.pending.insert(id.clone(), sender);
-        Ok(PendingRequest { id, line, receiver })
-    }
-
-    async fn write_request_line(&self, request: &PendingRequest) -> Result<(), RpcClientError> {
-        let write_result = {
-            let mut process = self.inner.process.lock().await;
-            match process.stdin.as_mut() {
-                Some(stdin) => stdin.write_all(request.line.as_bytes()).await,
-                None => Err(std::io::Error::new(
-                    std::io::ErrorKind::NotConnected,
-                    "stdin is not available",
-                )),
-            }
-        };
-        let Err(error) = write_result else {
-            return Ok(());
-        };
-
-        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        sync.pending.remove(&request.id);
-        let error = RpcClientError::StdinError {
-            message: error.to_string(),
-            stderr: sync.stderr.clone(),
-        };
-        sync.exit_error = Some(error.clone());
-        Err(error)
+        if stdin.send(line).is_err() {
+            let error = RpcClientError::StdinNotWritable {
+                stderr: sync.stderr.clone(),
+            };
+            sync.exit_error = Some(error.clone());
+            reject_pending(&mut sync, error.clone());
+            return Err(error);
+        }
+        Ok(PendingRequest { id, receiver })
     }
 
     async fn await_request_response(
@@ -1248,9 +1238,40 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
         pid: spawned.pid,
         exit: exit_receiver,
     });
-    process.stdin = Some(spawned.stdin);
+    let (stdin_sender, stdin_receiver) = mpsc::unbounded_channel();
+    tokio::spawn(write_stdin(
+        Arc::clone(inner),
+        generation,
+        spawned.stdin,
+        stdin_receiver,
+    ));
     process.reader = Some(reader);
-    inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    sync.stdin = Some(stdin_sender);
+    sync.active_generation = Some(generation);
+}
+
+async fn write_stdin(
+    inner: Arc<ClientInner>,
+    generation: u64,
+    mut writer: ChildStdin,
+    mut lines: mpsc::UnboundedReceiver<String>,
+) {
+    while let Some(line) = lines.recv().await {
+        if let Err(error) = writer.write_all(line.as_bytes()).await {
+            let mut sync = inner.sync.lock().expect("sync state poisoned");
+            if sync.active_generation != Some(generation) {
+                return;
+            }
+            let failure = sync.exit_error.clone().unwrap_or_else(|| RpcClientError::StdinError {
+                message: encode_node_utf8(&pi_js_compat::node_fs::node_stream_error_record(&error, "write").message),
+                stderr: sync.stderr.clone(),
+            });
+            sync.exit_error = Some(failure.clone());
+            reject_pending(&mut sync, failure);
+            return;
+        }
+    }
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {
@@ -1290,6 +1311,7 @@ fn publish_exit(
     let mut sync = inner.sync.lock().expect("sync state poisoned");
     if sync.active_generation == Some(generation) {
         sync.exit = Some(info);
+        sync.stdin = None;
         let error = process_exit_error(info, &sync.stderr);
         sync.exit_error = Some(error.clone());
         reject_pending(&mut sync, error);

@@ -20,6 +20,7 @@ type Client = {
 	newSession(): Promise<unknown>;
 	getLastAssistantText(): Promise<unknown>;
 	getStderr(): string;
+	getState(): Promise<unknown>;
 	getEntries(): Promise<unknown>;
 	getTree(): Promise<unknown>;
 	getForkMessages(): Promise<unknown>;
@@ -43,7 +44,9 @@ type Request = {
 		| "timeout"
 		| "spawn_error"
 		| "stop_fail"
-		| "stop_writing";
+		| "stop_writing"
+		| "blocked_write"
+		| "pipe_error";
 	reply: unknown;
 	executable?: string;
 	cliPath?: string;
@@ -55,6 +58,8 @@ type Request = {
 	idleTimeout?: boolean;
 	listenerFault?: boolean;
 	keepWriting?: boolean;
+	blockInput?: boolean;
+	closeInput?: boolean;
 	listenerRemovesItself?: boolean;
 	method?:
 		| "model"
@@ -112,6 +117,11 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
 			PI_RPC_WRITING: request.keepWriting ? "1" : "0",
+			PI_RPC_BLOCK_INPUT: request.closeInput
+				? "close"
+				: request.blockInput
+					? "1"
+					: "0",
 			...request.envOverrides,
 		},
 	});
@@ -130,6 +140,34 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			return { ok: true, value: [first, second, await startOutcome(client)] };
 		}
 		await client.start();
+		if (request.operation === "pipe_error") {
+			const first = client.getState().then(
+				() => null,
+				(error) => (error instanceof Error ? error.message : String(error)),
+			);
+			await new Promise((resolve) => setTimeout(resolve, 300));
+			const second = client.getState().then(
+				() => null,
+				(error) => (error instanceof Error ? error.message : String(error)),
+			);
+			return { ok: true, value: await Promise.all([first, second]) };
+		}
+		if (request.operation === "blocked_write") {
+			const results = await Promise.allSettled([
+				client.prompt("x".repeat(2 * 1024 * 1024)),
+				client.stop(),
+			]);
+			return {
+				ok: true,
+				value: results.map((result) =>
+					result.status === "fulfilled"
+						? null
+						: result.reason instanceof Error
+							? result.reason.message
+							: String(result.reason),
+				),
+			};
+		}
 		if (request.operation === "stop_writing") {
 			await client.stop();
 			await new Promise((resolve) => setTimeout(resolve, 100));

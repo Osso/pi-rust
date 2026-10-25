@@ -48,6 +48,16 @@ async fn native(request: &JsValue) -> JsValue {
             "0".into()
         },
     );
+    options.env.insert(
+        "PI_RPC_BLOCK_INPUT".into(),
+        if request.get("closeInput").and_then(JsValue::as_bool) == Some(true) {
+            "close".into()
+        } else if request.get("blockInput").and_then(JsValue::as_bool) == Some(true) {
+            "1".into()
+        } else {
+            "0".into()
+        },
+    );
     let client = RpcClient::new(options);
     let removal = std::sync::Arc::new(std::sync::Mutex::new(None));
     if request.get("listenerRemovesItself").and_then(JsValue::as_bool) == Some(true) {
@@ -77,7 +87,32 @@ async fn native(request: &JsValue) -> JsValue {
         return pi_js_compat::js_json!({"ok":true,"value":[first,second,third]});
     }
     client.start().await.unwrap();
-    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"stop_writing".into()) {
+    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"pipe_error".into()) {
+        let results = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(client.get_state(), async {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                client.get_state().await
+            })
+        })
+        .await;
+        match results {
+            Ok((first, second)) => Ok(
+                pi_js_compat::js_json!({"ok":true,"value":[first.err().map(|error|error.to_string()),second.err().map(|error|error.to_string())]}),
+            ),
+            Err(_) => Ok(pi_js_compat::js_json!({"blocked":true})),
+        }
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"blocked_write".into()) {
+        let results = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(client.prompt("x".repeat(2 * 1024 * 1024), None), client.stop())
+        })
+        .await;
+        match results {
+            Ok((sent, stopped)) => Ok(
+                pi_js_compat::js_json!({"ok":true,"value":[sent.err().map(|error|error.to_string()),stopped.err().map(|error|error.to_string())]}),
+            ),
+            Err(_) => Ok(pi_js_compat::js_json!({"blocked":true})),
+        }
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"stop_writing".into()) {
         client.stop().await.unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
         Ok(pi_js_compat::js_json!({"ok":true,"value":{"stderr":client.stderr()}}))
@@ -184,6 +219,24 @@ async fn start_outcome(client: &RpcClient) -> JsValue {
         Err(RpcClientError::Native(error)) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
     }
+}
+
+#[tokio::test]
+async fn rpc_client_stdin_error_uses_node_text_and_rejects_every_pending_request() {
+    // Frozen :129-135 observes async stdin errors and rejects the whole pending map.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"pipe_error","closeInput":true,"reply":{}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
+}
+
+#[tokio::test]
+async fn rpc_client_stop_is_not_blocked_by_stdin_write_backpressure() {
+    // Frozen send :616 invokes buffered stdin.write synchronously; stop remains independent.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"blocked_write","blockInput":true,"reply":{}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
 }
 
 #[tokio::test]
