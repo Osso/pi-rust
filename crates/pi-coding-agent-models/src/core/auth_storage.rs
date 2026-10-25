@@ -26,10 +26,10 @@ const AUTH_LOCK_STALE_MS: u64 = 30_000;
 #[derive(Debug, Clone, PartialEq)]
 pub enum StorageError {
     Failure {
-        error: pi_ai::request::CallbackError,
+        error: Box<pi_ai::request::CallbackError>,
         cause: Option<Arc<StorageError>>,
     },
-    Aborted(pi_ai::request::CallbackError),
+    Aborted(Box<pi_ai::request::CallbackError>),
 }
 
 impl StorageError {
@@ -48,16 +48,19 @@ impl StorageError {
         self.callback().thrown_value()
     }
     fn from_callback(error: pi_ai::request::CallbackError) -> Self {
-        Self::Failure { error, cause: None }
+        Self::Failure {
+            error: Box::new(error),
+            cause: None,
+        }
     }
     pub fn into_callback(self) -> pi_ai::request::CallbackError {
         match self {
-            Self::Failure { error, .. } | Self::Aborted(error) => error,
+            Self::Failure { error, .. } | Self::Aborted(error) => *error,
         }
     }
     fn from_auth(error: AuthError) -> Self {
         match error {
-            AuthError::Aborted(error) => Self::Aborted(*error),
+            AuthError::Aborted(error) => Self::Aborted(error),
             AuthError::Failed(error) => Self::from_callback(*error),
         }
     }
@@ -92,7 +95,7 @@ impl std::error::Error for StorageError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Failure { cause, .. } => cause.as_deref().map(|error| error as &dyn std::error::Error),
-            Self::Aborted(error) => Some(error),
+            Self::Aborted(error) => Some(error.as_ref()),
         }
     }
 }
@@ -759,12 +762,12 @@ impl AuthStorage {
                                 let reason =
                                     stringify_auth_rejection(error.callback()).map_err(StorageError::from_callback)?;
                                 let wrapped = StorageError::Failure {
-                                    error: pi_ai::request::CallbackError::new(js_format!(
+                                    error: Box::new(pi_ai::request::CallbackError::new(js_format!(
                                         "Authentication failed for \"{}\": {}. Run '/login {}' to re-authenticate.",
                                         provider_id,
                                         reason,
                                         provider_id
-                                    )),
+                                    ))),
                                     cause: Some(Arc::new(error)),
                                 };
                                 return Err(wrapped);

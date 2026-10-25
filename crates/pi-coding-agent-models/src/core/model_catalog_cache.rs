@@ -610,17 +610,17 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
             primary.message
         ));
         wrapped = wrapped.with_cause(primary.clone().into());
-        if let Err(cleanup) = tokio::fs::remove_file(&temporary).await {
-            if cleanup.kind() != std::io::ErrorKind::NotFound {
-                let cleanup = fs_error(&cleanup, "unlink", &temporary);
-                if cleanup.message != primary.message {
-                    wrapped.message = pi_js_compat::js_format!(
-                        "{}; cannot remove temporary cache {}: {}",
-                        wrapped.message,
-                        temporary.display().to_string(),
-                        cleanup.message
-                    );
-                }
+        if let Err(cleanup) = tokio::fs::remove_file(&temporary).await
+            && cleanup.kind() != std::io::ErrorKind::NotFound
+        {
+            let cleanup = fs_error(&cleanup, "unlink", &temporary);
+            if cleanup.message != primary.message {
+                wrapped.message = pi_js_compat::js_format!(
+                    "{}; cannot remove temporary cache {}: {}",
+                    wrapped.message,
+                    temporary.display().to_string(),
+                    cleanup.message
+                );
             }
         }
         return Err(wrapped);
