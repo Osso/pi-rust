@@ -72,6 +72,10 @@ both lifecycle timeouts plus U3 UTF-8 error. Restored final tests: subagent
 `/tmp/pi-rust-ext-examples-n/ledger.md`; numbered logs in the same directory.
 Only per-example Cargo test targets and formatting; no broad checks or live state.
 
+## Shared acquisition Result migration (2026-10-24)
+
+Custom Anthropic and GitLab registered callbacks wrap their existing synchronously returned outer streams in Ok; neither callback adds a catch. GitLab inner backend acquisition now propagates Result into its existing async catch at frozen index.ts:347–369. Parent approved correcting only that catch to Error.message/String(error) and native AssistantMessage construction, with a negative proof; conversion-rejection routing must be established from actual source before using the uncaught authority. This correction/proof is pending.
+
 ## GitLab Duo
 
 Embed `examples/extensions/custom_provider_gitlab_duo.rs` and register

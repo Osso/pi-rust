@@ -246,7 +246,7 @@ pub fn gitlab_duo_extension_with_backends(
             api: Some("gitlab-duo-api".into()),
             models: Some(catalog()),
             stream_simple: Some(Arc::new(move |model, context, options| {
-                stream.stream_simple(model, context, options.unwrap_or_default())
+                Ok(stream.stream_simple(model, context, options.unwrap_or_default()))
             })),
             oauth: Some(ExtensionOAuthConfig {
                 name: "GitLab Duo".into(),
@@ -322,7 +322,7 @@ impl GitlabDuo {
                     backends.anthropic.stream_simple(inner_model, context, options)
                 } else {
                     backends.openai.stream_simple(inner_model, context, options)
-                };
+                }?;
                 while let Some(event) = stream.next().await {
                     tx.push(event.map_err(|e| CallbackError::new(e.to_string()))?);
                 }
