@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Runtime-registration probe rejection (2026-10-25)
+
+Actual frozen baseline `/tmp/storage3-control-registration-source.log` preserves a coded TypeError from the injected live-process probe before replacement. Native API RED `/tmp/storage3-control-registration-api-red.log` accepted only bool. The existing registration option now returns Result<bool,CallbackError>; the existing ControlDbError source preserves it and aborts before listener/health mutation. The test compares full original error/call count and unchanged listener/health records. Default process probing is unchanged; no new carrier or callback family.
+
 ## Mailbox eligibility callback rejection (2026-10-25)
 
 Actual frozen baseline `/tmp/storage3-control-eligibility-source.log` invokes the predicate twice, preserves its coded TypeError and leaves all three messages pending. Native API RED `/tmp/storage3-control-eligibility-api-red.log` could return only bool. Eligibility now returns Result<bool,CallbackError> through the existing ControlDbError callback source; failure aborts candidate collection before any claim. Tests throw at the first/second predicate and check exact original error/call count plus all unclaimed rows. Mechanical Ok adapters cover AgentSession, wait/question relay and existing fixtures; no outside-lane algorithm change or new carrier.

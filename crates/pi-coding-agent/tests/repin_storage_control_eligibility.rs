@@ -71,3 +71,57 @@ fn eligibility_rejection_preserves_original_error_and_leaves_all_rows_unclaimed(
         assert_eq!(pending, 3, "predicate failure must not claim an earlier eligible row");
     }
 }
+
+#[test]
+fn runtime_replacement_probe_rejection_preserves_listener_state_and_original_error() {
+    use pi_coding_agent::core::session_control_db::{
+        RuntimeMailboxRegistrationOptions, read_runtime_mailbox_listener, read_session_health,
+    };
+    use std::sync::Arc;
+    let root = tempfile::tempdir().unwrap();
+    let source_db = root.path().join("source.sqlite");
+    let native_db = JsString::from(root.path().join("native.sqlite").to_str().unwrap());
+    let recipient = RuntimeMailboxAddress {
+        session_id: "recipient".into(),
+        agent_id: None,
+    };
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let response=source.request(&json!({"id":1,"steps":[{"op":"registerSelf","args":[source_db,recipient,null]},{"op":"registerThrow","args":[source_db,recipient]}]}));
+    let expected = &response["output"][1]["value"];
+    register_runtime_mailbox_listener(&native_db, &recipient, std::process::id(), None, Default::default()).unwrap();
+    let before = read_runtime_mailbox_listener(&native_db, &recipient).unwrap();
+    let health_before = read_session_health(&native_db, &recipient.session_id).unwrap();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let called = Arc::clone(&calls);
+    let result = register_runtime_mailbox_listener(
+        &native_db,
+        &recipient,
+        std::process::id(),
+        None,
+        RuntimeMailboxRegistrationOptions {
+            runtime_instance_id: Some("replacement".into()),
+            reconcile_runtime_replacement: None,
+            is_runtime_process_alive: Some(Arc::new(move |_| {
+                called.fetch_add(1, Ordering::SeqCst);
+                Err(CallbackError::from(
+                    NativeNodeError::from_constructor(NativeErrorClass::TypeError, "runtime probe failed")
+                        .with_property("code", JsValue::String("FIXTURE".into())),
+                ))
+            })),
+        },
+    );
+    let error = CallbackError::from(result.unwrap_err()).thrown_value();
+    let error = match error {
+        AbortReason::Error(error) | AbortReason::DomException(error) => error.value(),
+        AbortReason::Value(value) => value,
+    };
+    assert_eq!(
+        JsValue::from(json!({"calls":calls.load(Ordering::SeqCst),"ok":false,"error":error})),
+        JsValue::from(expected.clone())
+    );
+    assert_eq!(read_runtime_mailbox_listener(&native_db, &recipient).unwrap(), before);
+    assert_eq!(
+        read_session_health(&native_db, &recipient.session_id).unwrap(),
+        health_before
+    );
+}

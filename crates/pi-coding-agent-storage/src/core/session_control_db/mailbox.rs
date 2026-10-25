@@ -2,7 +2,6 @@
 
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
-use std::sync::Arc;
 
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -1133,12 +1132,11 @@ fn assert_runtime_replacement_allowed(
             }
         }
     }
-    let is_runtime_process_alive: Arc<dyn Fn(u32) -> bool + Send + Sync> = registration
-        .options
-        .is_runtime_process_alive
-        .clone()
-        .unwrap_or_else(|| Arc::new(super::is_process_alive));
-    if !is_runtime_process_alive(existing_owner_pid) {
+    let owner_alive = match &registration.options.is_runtime_process_alive {
+        Some(probe) => probe(existing_owner_pid)?,
+        None => super::is_process_alive(existing_owner_pid),
+    };
+    if !owner_alive {
         return Ok(());
     }
     let session_id = &registration.recipient.session_id;

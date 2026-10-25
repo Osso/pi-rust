@@ -36,6 +36,21 @@ async function main(): Promise<void> {
 	};
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "registerThrow") {
+			const [path, recipient] = step.args as [string, unknown];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("runtime probe failed"), { code: "FIXTURE" });
+			try {
+				api.registerRuntimeMailboxListener(path, recipient, process.pid, undefined, {
+					runtimeInstanceId: "replacement",
+					isRuntimeProcessAlive: () => { calls++; throw failure; },
+				});
+				return { calls, ok: true };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
 		if (step.op === "takeThrow") {
 			const [path, recipient, throwAt] = step.args as [string, unknown, number];
 			let calls = 0;
