@@ -115,7 +115,7 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = request.operation === "preflight-compaction"
+	const settingsManager = ["preflight-compaction", "compaction-lock"].includes(request.operation)
 		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
@@ -148,7 +148,7 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
-	if (request.operation === "preflight-compaction") {
+	if (["preflight-compaction", "compaction-lock"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -159,6 +159,35 @@ async function run(request) {
 		settingsManager.setCompactionEnabled(false);
 		const runner = session.extensionRunner;
 		const emit = runner.emit.bind(runner);
+		if (request.operation === "compaction-lock") {
+			sessionManager.appendMessage({ role: "user", content: "unfinished request", timestamp: 10 });
+			agent.state.messages = sessionManager.buildSessionContext().messages;
+			settingsManager.setRetryEnabled(false);
+			runner.hasHandlers = (type) => type === "compaction";
+			runner.emit = async (event) => event.type === "compaction" ? {
+				compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
+			} : emit(event);
+			let release;
+			let markStarted;
+			const gate = new Promise((resolve) => { release = resolve; });
+			const started = new Promise((resolve) => { markStarted = resolve; });
+			core.setResponses([async () => {
+				markStarted();
+				await gate;
+				return fauxAssistantMessage("resumed answer");
+			}]);
+			const compacting = session.compact();
+			await started;
+			const accepted = await Promise.race([
+				session.prompt("new input", { streamingBehavior: "followUp" }).then(() => true),
+				new Promise((resolve) => setTimeout(() => resolve(false), 100)),
+			]);
+			release();
+			await session.abort();
+			await compacting;
+			session.dispose();
+			return accepted;
+		}
 		runner.hasHandlers = (type) => type === "session_before_compact";
 		runner.emit = async (event) => event.type === "session_before_compact" ? {
 			compaction: { summary: "obsolete preflight summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },

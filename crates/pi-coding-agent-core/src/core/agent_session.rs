@@ -6053,14 +6053,13 @@ impl AgentSession {
         custom_instructions: Option<&JsString>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let guard = self.inner.turn_start_lock.lock().await;
-        let result = self.compact_inner(custom_instructions).await;
-        drop(guard);
-        result
+        self.compact_inner(custom_instructions, guard).await
     }
 
     async fn compact_inner(
         &self,
         custom_instructions: Option<&JsString>,
+        guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
         let compaction_started_during_tool_execution =
@@ -6101,7 +6100,8 @@ impl AgentSession {
                 })));
                 self.reconnect_to_agent();
                 if should_continue {
-                    self.continue_after_manual_compaction(was_running_agent_turn).await?;
+                    self.continue_after_manual_compaction(was_running_agent_turn, guard)
+                        .await?;
                 }
                 Ok(compaction_result)
             }
@@ -6122,14 +6122,22 @@ impl AgentSession {
         }
     }
 
-    async fn continue_after_manual_compaction(&self, remove_tool_use_assistant: bool) -> Result<(), AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
+    async fn continue_after_manual_compaction(
+        &self,
+        remove_tool_use_assistant: bool,
+        guard: tokio::sync::MutexGuard<'_, ()>,
+    ) -> Result<(), AgentSessionError> {
+        let result = if self.is_streaming() {
+            Err(error(
                 "Agent is already processing. Wait for completion before continuing.",
-            ));
-        }
-        self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
-        self.run_agent_continuation().await
+            ))
+        } else {
+            self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
+            drop(guard);
+            self.run_agent_continuation().await
+        };
+        self.flush_pending_bash_messages();
+        result
     }
 
     /// Runs the `session_before_compact` preflight and the `compaction` provider
