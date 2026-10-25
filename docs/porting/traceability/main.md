@@ -1,5 +1,7 @@
 # main.ts traceability
 
+Baseline process-fixture repair (2026-10-25): private package directories copy the pinned package.json, including version and piConfig, instead of inventing version 0.84.1 and omitting the application name. The source/native version output and child-process AI_AGENT name are compared without normalization.
+
 ## Empty-session startup sweep (4f9e6f8a4)
 
 Frozen :1063 calls [empty-session cleanup](empty-session-cleanup.md) after selecting controlDbPath, before createSessionManager, only when !noSupervisor. Native now uses the same placement. Actual CLI process RED reached --name validation without any runtime/provider work: source removed an orphan empty-main row, native retained it (`empty-cleanup-startup-red.log`). GREEN `empty-cleanup-startup-green-final.log`: ordinary startup sweeps before --name validation; valid --no-supervisor --no-session startup passes parsing/session setup and preserves the row until unknown-provider validation. No provider request occurs, no wider main acceptance inferred.

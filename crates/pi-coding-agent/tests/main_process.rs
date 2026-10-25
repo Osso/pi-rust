@@ -74,7 +74,7 @@ fn fixture(lock: &SourceLock) -> Fixture {
     }
     std::fs::write(
         package_dir.join("package.json"),
-        r#"{"name":"@earendil-works/pi-coding-agent","version":"0.84.1"}"#,
+        std::fs::read(lock.worktree.join("packages/coding-agent/package.json")).expect("frozen package.json"),
     )
     .expect("package.json");
     copy_directory(
@@ -86,7 +86,6 @@ fn fixture(lock: &SourceLock) -> Fixture {
         &PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme"),
         &package_dir.join("src/modes/interactive/theme"),
     );
-    let _ = lock;
     Fixture {
         _temp: temp,
         work,
