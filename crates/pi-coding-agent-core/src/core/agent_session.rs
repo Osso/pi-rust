@@ -5338,8 +5338,11 @@ impl AgentSession {
         }
         let levels = self.get_available_thinking_levels();
         let current = self.thinking_level();
-        let index = levels.iter().position(|level| *level == current).unwrap_or(0);
-        let next = levels[(index + 1) % levels.len()];
+        let next_index = levels
+            .iter()
+            .position(|level| *level == current)
+            .map_or(0, |index| (index + 1) % levels.len());
+        let next = levels[next_index];
         self.set_thinking_level(next)?;
         Ok(Some(next))
     }

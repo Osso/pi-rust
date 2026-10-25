@@ -6,6 +6,8 @@ mod image_fixtures;
 mod manual_tool_compaction;
 #[path = "agent_session_prompt_images.rs"]
 mod prompt_images;
+#[path = "agent_session_thinking_cycle.rs"]
+mod thinking_cycle;
 #[path = "support/oracle.rs"]
 mod tools_oracle;
 
