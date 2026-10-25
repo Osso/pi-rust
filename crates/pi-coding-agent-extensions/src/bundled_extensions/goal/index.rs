@@ -39,8 +39,8 @@ use super::goal_types::{
     ReviewedGoalResponse,
 };
 use super::rendering::{
-    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller, render_supervisor_message,
-    render_supervisor_status_entry, send_supervisor_instructions,
+    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller,
+    create_supervisor_status_entry_renderer, render_supervisor_message, send_supervisor_instructions,
 };
 use super::supervisor_review::{review_goal_with_resident_supervisor, with_supervisor_review_status};
 use super::wait_countdown::create_wait_countdown_refresher;
@@ -289,15 +289,12 @@ async fn review_goal_set_objective(
 
 fn decision_reason(decision: &GoalSupervisorResponse) -> JsString {
     match decision {
-        GoalSupervisorResponse::Approve { reason }
-        | GoalSupervisorResponse::Reject { reason }
-        | GoalSupervisorResponse::Complete { reason }
-        | GoalSupervisorResponse::Pause { reason }
-        | GoalSupervisorResponse::Wait { reason }
+        GoalSupervisorResponse::Complete { reason, .. }
+        | GoalSupervisorResponse::Pause { reason, .. }
+        | GoalSupervisorResponse::Wait { reason, .. }
         | GoalSupervisorResponse::Set { reason, .. }
-        | GoalSupervisorResponse::Error { reason } => reason.clone().into(),
-        GoalSupervisorResponse::Continue { reason, .. } => reason.clone().into(),
-        GoalSupervisorResponse::Advisory { answer } => answer.clone().into(),
+        | GoalSupervisorResponse::Error { reason, .. }
+        | GoalSupervisorResponse::Continue { reason, .. } => reason.clone(),
     }
 }
 
@@ -464,14 +461,15 @@ async fn apply_completion_decision(
         ));
     }
     let reason = decision_reason(&decision);
-    let _ = append_status(
+    append_status(
         ctx.clone(),
         &(JsString::from("Completion report rejected: ") + &reason + "\n\nSubmitted report:\n" + completion_report),
         None,
-    );
+        decision.display_id(),
+    )?;
     if matches!(decision, GoalSupervisorResponse::Continue { .. }) {
         let instructions = decision_instructions(&decision);
-        send_supervisor_instructions(pi, &instructions)?;
+        send_supervisor_instructions(pi, &instructions, decision.display_id())?;
         let mut details = Map::new();
         details.insert("instructions".into(), Value::String(instructions.clone()));
         return Ok(text_result(
@@ -687,7 +685,7 @@ fn continue_goal_from_idle_decision(
             ..goal.clone()
         },
     )?;
-    send_supervisor_instructions(pi, instructions)
+    send_supervisor_instructions(pi, instructions, None)
 }
 
 async fn apply_goal_idle_decision(
@@ -699,27 +697,27 @@ async fn apply_goal_idle_decision(
     append_status: &AppendSupervisorStatus,
 ) -> Result<(), HandlerError> {
     match decision {
-        GoalSupervisorResponse::Complete { reason } => {
+        GoalSupervisorResponse::Complete { reason, .. } => {
             complete_goal_from_idle_decision(&goal, &JsString::from(&reason), ctx)
         }
-        GoalSupervisorResponse::Pause { reason } => {
-            let _ = append_status(ctx.clone(), &(JsString::from("Goal waiting: ") + &reason), None);
+        GoalSupervisorResponse::Pause { reason, .. } => {
+            append_status(ctx.clone(), &(JsString::from("Goal waiting: ") + &reason), None, None)?;
             Ok(())
         }
-        GoalSupervisorResponse::Wait { reason } => on_wait(JsString::from("Waiting: ") + &reason).await,
-        GoalSupervisorResponse::Error { reason } => on_wait(JsString::from("Goal review failed: ") + &reason).await,
+        GoalSupervisorResponse::Wait { reason, .. } => on_wait(JsString::from("Waiting: ") + &reason).await,
+        GoalSupervisorResponse::Error { reason, .. } => on_wait(JsString::from("Goal review failed: ") + &reason).await,
         GoalSupervisorResponse::Continue { instructions, .. } => {
             continue_goal_from_idle_decision(&goal, &JsString::from(&instructions), ctx, pi)
         }
         GoalSupervisorResponse::Set { reason, .. } => {
-            let _ = append_status(
+            append_status(
                 ctx.clone(),
                 &(JsString::from("Goal review failed: unexpected set decision: ") + &reason),
                 None,
-            );
+                None,
+            )?;
             Ok(())
         }
-        _ => Ok(()),
     }
 }
 
@@ -788,13 +786,15 @@ fn create_completion_scheduler(
     );
     let pi_for_continue = pi.clone();
     let on_continue = Arc::new(move |instructions: &JsString| {
-        let _ = send_supervisor_instructions(&pi_for_continue, instructions);
+        send_supervisor_instructions(&pi_for_continue, instructions, None).unwrap_or_else(|error| {
+            crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message)
+        });
     });
     let on_status = {
         let append_status = Arc::clone(append_status);
         Arc::new(
             move |ctx: ExtensionContext, message: &JsString, review_at: Option<&str>| {
-                append_status(ctx, message, review_at)
+                append_status(ctx, message, review_at, None)
             },
         )
     };
@@ -938,7 +938,7 @@ fn create_goal_extension_runtime(
         create_error_status_scheduler(super::error_status_scheduling::ErrorStatusSchedulingOptions {
             on_status: {
                 let append_status = Arc::clone(&append_status);
-                Arc::new(move |ctx, message| append_status(ctx, &JsString::from(message), None))
+                Arc::new(move |ctx, message| append_status(ctx, &JsString::from(message), None, None))
             },
         });
     let clear_slot: Arc<std::sync::Mutex<Option<ClearSessionSchedules>>> = Arc::new(std::sync::Mutex::new(None));
@@ -1185,7 +1185,7 @@ fn register_agent_goal_handlers(
                         schedule_retry: |goal| empty_for_retry.schedule(ctx.clone(), goal),
                         schedule_error_status: |message: &str| error_for_status.schedule(ctx.clone(), &message.into()),
                         report_skipped: |message: &str| {
-                            let _ = status_for_report.append(ctx_for_report.clone(), message, None);
+                            let _ = status_for_report.append(ctx_for_report.clone(), message, None, None);
                         },
                     })
                 }
@@ -1366,7 +1366,8 @@ fn show_goal(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
 
 /// `goalExtension`.
 pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) -> Result<(), HandlerError> {
-    let status = create_supervisor_status_controller(pi, create_wait_countdown_refresher());
+    let refresher = create_wait_countdown_refresher();
+    let status = create_supervisor_status_controller(pi, refresher.clone());
     let review_goal = options
         .review_goal
         .unwrap_or_else(|| Arc::new(|input| review_goal_with_resident_supervisor(input)));
@@ -1374,7 +1375,7 @@ pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) 
     let evidence = create_goal_review_evidence_controller(supervisor_review);
     pi.register_entry_renderer(
         super::rendering::SUPERVISOR_STATUS_TYPE,
-        Arc::new(render_supervisor_status_entry),
+        create_supervisor_status_entry_renderer(refresher),
     )
     .map_err(HandlerError::new)?;
     pi.register_message_renderer("supervisor", Arc::new(render_supervisor_message))

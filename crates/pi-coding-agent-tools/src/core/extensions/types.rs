@@ -846,6 +846,10 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 pub type SetSandboxProfileCallback =
     Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
 
+pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
+pub type RegisterSupervisorReviewCancellation =
+    Arc<dyn Fn(SupervisorReviewCancellationHandler) -> SupervisorReviewCancellationHandler + Send + Sync>;
+
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
@@ -866,6 +870,7 @@ pub struct ExtensionContextState {
     pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_signal_fn: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
+    pub(super) register_supervisor_review_cancellation_fn: RegisterSupervisorReviewCancellation,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
     pub(super) restart_fn: RestartHandler,
@@ -924,6 +929,7 @@ impl ExtensionContextState {
             is_project_trusted_fn: Arc::new(|| true),
             get_signal_fn: Arc::new(|| None),
             abort_fn: Arc::new(|| {}),
+            register_supervisor_review_cancellation_fn: Arc::new(|_| Arc::new(|| {})),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
             restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
@@ -1118,6 +1124,14 @@ impl ExtensionContext {
 
     pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
+    }
+
+    pub fn register_supervisor_review_cancellation(
+        &self,
+        handler: SupervisorReviewCancellationHandler,
+    ) -> Result<SupervisorReviewCancellationHandler, HandlerError> {
+        let register = self.read(|state| state.register_supervisor_review_cancellation_fn.clone())?;
+        Ok(register(handler))
     }
 
     pub fn no_supervisor(&self) -> Result<bool, HandlerError> {
@@ -3015,6 +3029,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_no_supervisor: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub register_supervisor_review_cancellation: Option<RegisterSupervisorReviewCancellation>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,

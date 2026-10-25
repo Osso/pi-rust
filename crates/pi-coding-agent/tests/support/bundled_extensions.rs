@@ -265,6 +265,7 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: None,
         get_multi_agent_requires_agent_id: None,
         get_multi_agent_store: None,

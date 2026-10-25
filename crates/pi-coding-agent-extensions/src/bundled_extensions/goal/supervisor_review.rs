@@ -19,12 +19,35 @@ const GOAL_REVIEW_RETRY_DELAY_MS: f64 = 1_000.0;
 const GOAL_REVIEW_TIMEOUT_MS: i64 = 60_000;
 const WAITING_FOR_SUPERVISOR_STATUS: &str = "Waiting for Supervisor…";
 
-fn supervisor_review_error_reason(error: &str) -> String {
-    let trimmed = pi_js_compat::string::js_trim(error);
-    if !trimmed.is_empty() {
-        return trimmed.to_owned();
+fn supervisor_review_error_reason(error: &HandlerError) -> JsString {
+    if !error.message.trim().is_empty() {
+        return error.message.clone();
     }
-    "Unknown Supervisor review error".to_owned()
+    let reason = (JsString::from("Error: ") + &error.message).trim();
+    if error.message.is_empty() {
+        return "Error".into();
+    }
+    if reason.is_empty() {
+        "Unknown Supervisor review error".into()
+    } else {
+        reason
+    }
+}
+
+fn review_result_message(result: &GoalSupervisorResponse) -> JsString {
+    match result {
+        GoalSupervisorResponse::Continue { instructions, .. } => instructions.clone(),
+        GoalSupervisorResponse::Complete { reason, .. } => JsString::from("Goal complete: ") + reason,
+        GoalSupervisorResponse::Set { objective, .. } => JsString::from("Goal set: ") + objective,
+        GoalSupervisorResponse::Pause { reason, .. } => JsString::from("Goal waiting: ") + reason,
+        GoalSupervisorResponse::Wait { reason, .. } => JsString::from("Waiting: ") + reason,
+        GoalSupervisorResponse::Error { reason, .. }
+            if reason == crate::supervisor::client::SUPERVISOR_REQUEST_CANCELLED_REASON =>
+        {
+            "Supervisor review cancelled.".into()
+        }
+        GoalSupervisorResponse::Error { reason, .. } => JsString::from("Goal review failed: ") + reason,
+    }
 }
 
 /// `withSupervisorReviewStatus`.
@@ -36,13 +59,26 @@ pub fn with_supervisor_review_status(
         let append_status = Arc::clone(&append_status);
         let review_goal = Arc::clone(&review_goal);
         Box::pin(async move {
-            let _ = append_status(input.ctx.clone(), &WAITING_FOR_SUPERVISOR_STATUS.into(), None);
-            match review_goal(input).await {
-                Ok(response) => Ok(response),
-                Err(error) => Ok(GoalSupervisorResponse::Error {
-                    reason: supervisor_review_error_reason(&error.to_string()).into(),
-                }),
-            }
+            let display_id: JsString = pi_ai::utils::random_uuid::random_uuid()
+                .map_err(HandlerError::from)?
+                .into();
+            let ctx = input.ctx.clone();
+            append_status(
+                ctx.clone(),
+                &WAITING_FOR_SUPERVISOR_STATUS.into(),
+                None,
+                Some(&display_id),
+            )?;
+            let mut result = match review_goal(input).await {
+                Ok(response) => response,
+                Err(error) => GoalSupervisorResponse::Error {
+                    reason: supervisor_review_error_reason(&error),
+                    display_id: None,
+                },
+            };
+            append_status(ctx, &review_result_message(&result), None, Some(&display_id))?;
+            result.set_display_id(display_id);
+            Ok(result)
         }) as BoxFuture<'static, Result<GoalSupervisorResponse, HandlerError>>
     })
 }
@@ -94,9 +130,14 @@ pub fn review_goal_with_resident_supervisor(
             | SupervisorResponseKind::Pause { .. }
             | SupervisorResponseKind::Wait { .. }
             | SupervisorResponseKind::Set { .. }
-            | SupervisorResponseKind::Error { .. } => Ok(response),
+            | SupervisorResponseKind::Error { .. } => {
+                let value =
+                    pi_js_compat::js_json::to_value(&response).map_err(|error| HandlerError::new(error.to_string()))?;
+                pi_js_compat::js_json::from_value(&value).map_err(|error| HandlerError::new(error.to_string()))
+            }
             _ => Ok(GoalSupervisorResponse::Error {
                 reason: format!("Invalid goal review response: {}", response.kind_name()).into(),
+                display_id: None,
             }),
         }
     })

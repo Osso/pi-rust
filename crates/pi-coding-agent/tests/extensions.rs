@@ -1105,6 +1105,7 @@ async fn context_live_scenario(temp_dir: &str) -> Value {
                 get_multi_agent_parent_session_id: Some(Arc::new(move || {
                     parent_getter.lock().unwrap().clone().map(JsString::from)
                 })),
+                register_supervisor_review_cancellation: None,
                 get_no_supervisor: None,
                 get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
                 ..support::context_actions()
