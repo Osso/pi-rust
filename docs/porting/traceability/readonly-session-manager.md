@@ -1,11 +1,21 @@
 # Readonly session manager
 
-Common-pin source: `coding-agent/src/core/readonly-session-manager.ts`45lines. Native storage-layer module `readonly_session_manager.rs`, forwarded by existing core exports. Footer prerequisite approved2026-10-24.
+Common-pin `coding-agent/src/core/readonly-session-manager.ts`45lines. [Contract](../../specs/readonly-session-manager.md). Native storage-layer `readonly_session_manager.rs` is forwarded through existing core exports. Whole prerequisite approved2026-10-24.
 
-| Export/branch | Native representation | Proof |
+| Frozen export/branch | Native behavior | Proof |
 |---|---|---|
-| createReadonlySessionManager21methods | Private Arc/Mutex session; scalar/optional getters cloned; object/list/tree getters owned | Missing API compile RED→owned snapshot/live/goal test GREEN at8dd3b1de; actual-source differential now added |
-| readIsolatedTree | Underlying native get_tree already creates owned nodes/entries; no extra JS structuredClone pass | Returned tree entry mutation cannot reach stored state, test pending |
-| setSessionGoalJson/clearSessionGoalJson | Only explicit mutators forwarded; original Result errors retained | In-memory goal forwarding fixture; disk errors inherited, bounded proof pending |
+| createReadonlySessionManager | Private live Arc/Mutex session; no exposed backing handle or structural mutators | Missing API and unsafe footer-field compile RED→GREEN; live post-construction append and footer override read |
+| getCwd/getSessionDir/getSessionId/getSessionFile/getLeafId/getLabel/getSessionName/hasSessionNameState/isSubagentSession/getSubagentName | Current cloned scalar/optional values | Real frozen SessionManager wrapper vs native values, readonly target first case |
+| getLeafEntry/getEntry/getBranch/buildContextEntries/getHeader/getEntries | Isolated owned read values, including nested arbitrary JSON | Source mutates every object result; native snapshot/header/tree mutation cannot affect stored entry; native values compared with source |
+| readIsolatedTree/getTree | Existing native get_tree already creates owned nodes/entries; no redundant structuredClone pass | Root-isolation proof GREEN; added128-descendant mutation case pending final run |
+| getSessionGoalJson/getSessionGoalJsonForSession/setSessionGoalJson/clearSessionGoalJson | Only explicit mutators forwarded; live state and original Result errors | Source/native in-memory goal read/write/clear GREEN; added invalid-directory database failure compares complete native error values, pending final run |
 
-No aliasing deviation: frozen already promises isolated snapshots. No public backing handle or structural session mutator. Footer override formerly exposed the mutable SessionManager mutex; typed override test is compile RED against that public boundary. It now holds only ReadonlySessionManager, with real-footer/default-footer/interactive construction sites mechanically adapted. Source/runtime and consumer gates remain pending; not a done row yet.
+Footer override now stores this view instead of a mutable SessionManager mutex. Core/default/interactive footer adapters read snapshots; they do not regain a backing handle. The old type-erased/native mutable override gap is retired by this runtime change, not by a documentation waiver.
+
+## Approved typed input boundary
+
+| Gap | Classification/evidence |
+|---|---|
+| Arbitrary structural ReadonlySessionManager implementations | Parent2026-10-24 approves a typed-context exclusion: native factory accepts concrete Arc<Mutex<SessionManager>>, not a21-method custom backend. Every built-in frozen footer caller supplies a real SessionManager/its readonly projection; no built-in consumer passes a custom structural manager. No trait/backend extensibility is added |
+
+Frozen already promises mutable isolated snapshots; this module does not need an aliasing deviation. Broader native owned-reference conventions remain in AGENTS. Final consumer/static/coverage gates are pending; current proof ledger is `/tmp/pi-rust-repin-lossless-interactive/footer-provider-proof-ledger.md`.

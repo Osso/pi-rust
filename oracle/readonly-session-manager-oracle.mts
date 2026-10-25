@@ -2,11 +2,12 @@ import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
 type Entry = { data: { nested: { value: number } } };
+type TreeNode = { entry: Entry; children: TreeNode[] };
 type View = {
 	getEntry(id: string): Entry;
 	getEntries(): Entry[];
 	getLeafEntry(): Entry;
-	getTree(): { entry: Entry; children: unknown[] }[];
+	getTree(): TreeNode[];
 	getBranch(): Entry[];
 	buildContextEntries(): Entry[];
 	getHeader(): { cwd: string };
@@ -40,6 +41,24 @@ const storage = (await import(
 for await (const _line of createInterface({ input: process.stdin })) {
 	const manager = storage.SessionManager.inMemory("/private/repo");
 	const view = wrapper.createReadonlySessionManager(manager);
+	const request = JSON.parse(_line) as { depth?: number };
+	if (request.depth !== undefined) {
+		for (let index = 0; index < request.depth; index++)
+			manager.appendCustomEntry("probe", { nested: { value: index } });
+		const pending = view.getTree();
+		let count = 0;
+		while (pending.length > 0) {
+			const node = pending.pop();
+			if (!node) throw new Error("missing tree node");
+			node.entry.data.nested.value = -1;
+			pending.push(...node.children);
+			count++;
+		}
+		process.stdout.write(
+			`${JSON.stringify({ depth: count, isolated: manager.getEntries().every((entry, index) => entry.data.nested.value === index) })}\n`,
+		);
+		continue;
+	}
 	const id = manager.appendCustomEntry("probe", { nested: { value: 1 } });
 	const snapshots = [
 		view.getEntry(id),

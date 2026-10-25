@@ -1,7 +1,7 @@
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
 import fs from "node:fs";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -11,11 +11,12 @@ import { pathToFileURL } from "node:url";
 type Callback = (error: Error | null, stdout: string) => void;
 class FakeWatcher extends EventEmitter {
 	active = true;
-	constructor(
-		readonly path: string,
-		readonly listener: () => void,
-	) {
+	readonly path: string;
+	readonly listener: () => void;
+	constructor(path: string, listener: () => void) {
 		super();
+		this.path = path;
+		this.listener = listener;
 	}
 	close() {
 		this.active = false;

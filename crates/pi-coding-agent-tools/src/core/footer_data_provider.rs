@@ -563,31 +563,33 @@ impl FooterDataProvider {
             self.state.refresh_pending.store(true, Ordering::SeqCst);
             return Ok(());
         }
-        let next_branch = self.state.resolve_branch_async().await;
-        if self.state.disposed.load(Ordering::SeqCst) {
-            self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-            return Ok(());
-        }
-        let previous = lock(&self.state.cached_branch).replace(next_branch.clone());
+        let result = self.publish_refreshed_branch().await;
         self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-        let result = if previous.is_some_and(|previous| previous != next_branch) {
-            self.state.notify_branch_change()
-        } else {
-            Ok(())
-        };
-        if self.state.refresh_pending.swap(false, Ordering::SeqCst) && !self.state.disposed.load(Ordering::SeqCst) {
+        if !self.state.disposed.load(Ordering::SeqCst) && self.state.refresh_pending.swap(false, Ordering::SeqCst) {
             self.schedule_refresh();
         }
         result
     }
 
+    async fn publish_refreshed_branch(&self) -> Result<(), CallbackError> {
+        let next_branch = self.state.resolve_branch_async().await;
+        if self.state.disposed.load(Ordering::SeqCst) {
+            return Ok(());
+        }
+        let previous = lock(&self.state.cached_branch).replace(next_branch.clone());
+        if previous.is_some_and(|previous| previous != next_branch) {
+            self.state.notify_branch_change()?;
+        }
+        Ok(())
+    }
+
     fn clear_git_watchers(&self) {
         drop(lock(&self.state.head_watcher).take());
-        drop(lock(&self.state.reftable_watcher).take());
-        drop(lock(&self.state.reftable_tables_list_watcher).take());
         if let Some(timer) = lock(&self.state.poll_timer).take() {
             timer.abort();
         }
+        drop(lock(&self.state.reftable_watcher).take());
+        drop(lock(&self.state.reftable_tables_list_watcher).take());
         if let Some(timer) = lock(&self.state.git_watcher_retry_timer).take() {
             timer.abort();
         }
@@ -617,69 +619,67 @@ impl FooterDataProvider {
             return;
         };
         let poll_git_head = should_poll_git_head(&paths.repo_dir);
-        let head_dir = node_dirname(&paths.head_path);
+        self.watch_head_directory(&paths.head_path);
+        if poll_git_head {
+            self.start_head_polling(paths.head_path.clone());
+        }
+        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
+            return;
+        }
+        self.watch_reftable_paths(&paths.common_git_dir);
+    }
 
-        let head_provider = self.clone();
-        let head_watcher = (self.state.watch)(
+    fn watcher_error_handler(&self) -> FooterWatchFailure {
+        let provider = self.clone();
+        Arc::new(move || provider.handle_git_watcher_error())
+    }
+
+    fn watch_head_directory(&self, head_path: &JsString) {
+        let head_dir = node_dirname(head_path);
+        let provider = self.clone();
+        let watcher = (self.state.watch)(
             Path::new(&encode_node_utf8(&head_dir)),
-            Box::new(move |_kind: WatchEventKind, filename: Option<PathBuf>| {
+            Box::new(move |_, filename| {
                 let matches = filename
                     .as_ref()
                     .is_none_or(|path| path.file_name().is_some_and(|name| name == "HEAD"));
                 if matches {
-                    head_provider.schedule_refresh();
+                    provider.schedule_refresh();
                 }
             }),
-            {
-                let provider = self.clone();
-                Arc::new(move || provider.handle_git_watcher_error())
-            },
+            self.watcher_error_handler(),
         );
-        *lock(&self.state.head_watcher) = head_watcher;
-        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
-            return;
-        }
+        *lock(&self.state.head_watcher) = watcher;
+    }
 
-        let reftable_dir = node_join(&paths.common_git_dir, "reftable");
-        if Path::new(&encode_node_utf8(&reftable_dir)).exists() {
-            let reftable_provider = self.clone();
-            let reftable_watcher = (self.state.watch)(
-                Path::new(&encode_node_utf8(&reftable_dir)),
-                Box::new(move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
-                    reftable_provider.schedule_refresh();
-                }),
-                {
-                    let provider = self.clone();
-                    Arc::new(move || provider.handle_git_watcher_error())
-                },
-            );
-            *lock(&self.state.reftable_watcher) = reftable_watcher;
-            if lock(&self.state.reftable_watcher).is_none() {
-                return;
-            }
-
-            let tables_list = node_join(&reftable_dir, "tables.list");
-            if Path::new(&encode_node_utf8(&tables_list)).exists() {
-                let list_provider = self.clone();
-                let list_watcher = (self.state.watch)(
-                    Path::new(&encode_node_utf8(&tables_list)),
-                    Box::new(move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
-                        list_provider.schedule_refresh();
-                    }),
-                    {
-                        let provider = self.clone();
-                        Arc::new(move || provider.handle_git_watcher_error())
-                    },
-                );
-                *lock(&self.state.reftable_tables_list_watcher) = list_watcher;
-            }
-        }
-
-        if !poll_git_head {
-            return;
-        }
+    fn watch_refresh_path(&self, path: &JsString) -> Option<FooterWatchHandle> {
         let provider = self.clone();
-        let head_path = paths.head_path.clone();
+        (self.state.watch)(
+            Path::new(&encode_node_utf8(path)),
+            Box::new(move |_, _| provider.schedule_refresh()),
+            self.watcher_error_handler(),
+        )
+    }
+
+    fn watch_reftable_paths(&self, common_git_dir: &JsString) {
+        let directory = node_join(common_git_dir, "reftable");
+        if !Path::new(&encode_node_utf8(&directory)).exists() {
+            return;
+        }
+        let watcher = self.watch_refresh_path(&directory);
+        *lock(&self.state.reftable_watcher) = watcher;
+        if lock(&self.state.reftable_watcher).is_none() {
+            return;
+        }
+        let tables = node_join(&directory, "tables.list");
+        if Path::new(&encode_node_utf8(&tables)).exists() {
+            let watcher = self.watch_refresh_path(&tables);
+            *lock(&self.state.reftable_tables_list_watcher) = watcher;
+        }
+    }
+
+    fn start_head_polling(&self, head_path: JsString) {
+        let provider = self.clone();
         let handle = self.runtime.spawn(async move {
             let mut head_stamp = file_stamp(&head_path);
             let mut ticker = tokio::time::interval(Duration::from_millis(GIT_FILE_POLL_INTERVAL_MS));

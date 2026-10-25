@@ -85,6 +85,82 @@ fn readonly_manager_returns_isolated_reads_and_forwards_live_state_and_goal_muta
     assert_eq!(actual, expected);
 }
 
+#[test]
+fn readonly_tree_descendant_reads_are_isolated_and_errors_are_forwarded_unchanged() {
+    let mut source = oracle::TsOracle::spawn(
+        "readonly-session-manager-oracle.mts",
+        "packages/coding-agent/src/core/readonly-session-manager.ts",
+    );
+    let expected = source.request(&js_json!({"depth":128}));
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&"/private/repo".into()), None).unwrap(),
+    ));
+    for index in 0..128 {
+        manager
+            .lock()
+            .unwrap()
+            .append_custom_entry(&"probe".into(), Some(js_json!({"nested":{"value":index}})))
+            .unwrap();
+    }
+    let view = create_readonly_session_manager(manager.clone());
+    let original = view.get_entries();
+    let mut pending = view.get_tree();
+    let mut count = 0;
+    while let Some(mut node) = pending.pop() {
+        if let SessionEntry::Known(KnownSessionEntry::Custom(entry)) = &mut node.entry {
+            let value = entry
+                .data
+                .as_mut()
+                .unwrap()
+                .get_mut("nested")
+                .unwrap()
+                .get_mut("value")
+                .unwrap();
+            *value = JsValue::Number(-1.0);
+        } else {
+            panic!("expected custom snapshot");
+        }
+        pending.append(&mut node.children);
+        count += 1;
+    }
+    assert_eq!(
+        js_json!({"depth":count,"isolated":view.get_entries()==original}),
+        expected
+    );
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().to_str().unwrap().into();
+    let sessions = root.path().join("sessions").to_str().unwrap().into();
+    let invalid = root.path().join("database-directory");
+    std::fs::create_dir(&invalid).unwrap();
+    let mut session = SessionManager::create(&cwd, Some(&sessions), None).unwrap();
+    session
+        .set_metadata_control_db_path(Some(&invalid.to_str().unwrap().into()), Default::default())
+        .unwrap_err();
+    let manager = Arc::new(Mutex::new(session));
+    let view = create_readonly_session_manager(manager.clone());
+    let file = view.get_session_file().unwrap();
+    assert_eq!(
+        view.get_session_goal_json().unwrap_err(),
+        manager.lock().unwrap().get_session_goal_json().unwrap_err()
+    );
+    assert_eq!(
+        view.get_session_goal_json_for_session(&file).unwrap_err(),
+        manager
+            .lock()
+            .unwrap()
+            .get_session_goal_json_for_session(&file)
+            .unwrap_err()
+    );
+    assert_eq!(
+        view.set_session_goal_json(&"{}".into()).unwrap_err(),
+        manager.lock().unwrap().set_session_goal_json(&"{}".into()).unwrap_err()
+    );
+    assert_eq!(
+        view.clear_session_goal_json().unwrap_err(),
+        manager.lock().unwrap().clear_session_goal_json().unwrap_err()
+    );
+}
+
 #[tokio::test]
 async fn footer_override_exposes_the_live_isolated_session_view() {
     use pi_coding_agent::core::footer_data_provider::{FooterDataProvider, FooterSessionOverride};

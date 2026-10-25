@@ -1,14 +1,21 @@
 import childProcess from "node:child_process";
-import { mkdtemp, mkdir, writeFile, unlink, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, unlink, writeFile } from "node:fs/promises";
 import { syncBuiltinESMExports } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+
 let branch = "main";
 let executions = 0;
 let hold = false;
 let release: (() => void) | undefined;
+function takePendingGitCompletion(): () => void {
+	const finish = release;
+	release = undefined;
+	if (!finish) throw new Error("missing blocked git completion");
+	return finish;
+}
 Reflect.set(childProcess, "spawnSync", () => ({ status: 0, stdout: branch }));
 Reflect.set(
 	childProcess,
@@ -117,9 +124,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 				provider.setCwd(next);
 			}
 			branch = "last";
-			const finish = release;
-			if (!finish) throw new Error("missing blocked git completion");
-			finish();
+			takePendingGitCompletion()();
 		}
 		await delay(1700);
 		const final = { branch: provider.getGitBranch(), changes, executions };
