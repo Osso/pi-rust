@@ -269,12 +269,8 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         )
         .collect();
     assert!(
-        journal_types.iter().any(|name| name == "agent_start"),
-        "{journal_types:?}"
-    );
-    assert!(
-        journal_types.iter().any(|name| name == "agent_complete"),
-        "{journal_types:?}"
+        journal_types.is_empty(),
+        "frozen runtime writes no parent agent journal: {journal_types:?}"
     );
 }
 

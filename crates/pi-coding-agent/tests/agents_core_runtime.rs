@@ -1198,7 +1198,10 @@ async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() 
         let start = tokio::time::Instant::now();
         let result = cancel_owned_agent_runtime(&store, &handles, &agent.id, None).await;
         if let Some(error) = failure {
-            assert_eq!(result.err().expect("source rejects failed dispatch").message, error);
+            let Err(actual) = result else {
+                panic!("source rejects failed dispatch");
+            };
+            assert_eq!(actual.message, error);
         } else {
             assert!(result.is_ok());
             assert_eq!(start.elapsed(), std::time::Duration::from_millis(17));

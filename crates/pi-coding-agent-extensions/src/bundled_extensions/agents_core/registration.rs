@@ -758,33 +758,36 @@ fn start_background_dispatch(
         ctx,
         created_session,
     );
-    notify_background_dispatch(promise, &background.handles, &background.ownerships, ctx);
+    super::dispatch_runtime::release_ownership_after_dispatch(
+        &background.dispatches,
+        &background.ownerships,
+        &agent.id,
+    );
+    notify_background_dispatch(promise, &background.handles, ctx);
     background.store.get_agent(&agent.id).unwrap_or(agent)
 }
 
 fn notify_background_dispatch(
     promise: BoxFuture<'static, Result<AgentSnapshot, pi_js_compat::js_json::JsString>>,
     handles: &BackgroundSessionHandles,
-    ownerships: &Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     ctx: &ExtensionCommandContext,
 ) {
     let handles = Arc::clone(handles);
-    let ownerships = Arc::clone(ownerships);
     let ctx = ctx.clone();
     tokio::spawn(async move {
-        if let Ok(agent) = promise.await {
-            handles.lock().expect("sessions").remove(&agent.id);
-            ownerships.lock().expect("ownerships").remove(&agent.id);
-            // Frozen runtime.ts:412-422 has no catch on the notification's promise continuation.
-            let ui = ctx
-                .ui()
-                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error.into()));
-            ui.notify(
-                &format_agent_status(&agent),
-                Some(background_notification_level(&agent)),
-            )
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
-        }
+        let agent = promise.await.unwrap_or_else(|error| {
+            crate::utils::uncaught::throw_callback_uncaught(pi_js_compat::callback_error::CallbackError::new(error))
+        });
+        handles.lock().expect("sessions").remove(&agent.id);
+        // Frozen runtime.ts:412-422 has no catch on the notification's promise continuation.
+        let ui = ctx
+            .ui()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error.into()));
+        ui.notify(
+            &format_agent_status(&agent),
+            Some(background_notification_level(&agent)),
+        )
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
     });
 }
 

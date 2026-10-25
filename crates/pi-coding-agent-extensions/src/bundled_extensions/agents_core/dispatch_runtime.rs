@@ -257,11 +257,15 @@ pub fn start_tool_dispatch(input: &StartToolDispatchInput) -> AgentSnapshot {
     let agent_id = input.agent.id.clone();
     let waiting = Arc::clone(&input.waiting_desktop_notifications);
     tokio::spawn(async move {
-        if let Some(dispatch) = dispatch {
-            let _ = dispatch.await;
-        }
+        let error = match dispatch {
+            Some(dispatch) => dispatch.await.err(),
+            None => None,
+        };
         unsubscribe();
         close_waiting_desktop_notification_when_not_waiting(&store, &agent_id, &waiting);
+        if let Some(error) = error {
+            crate::utils::uncaught::throw_callback_uncaught(pi_js_compat::callback_error::CallbackError::new(error));
+        }
     });
     input
         .store

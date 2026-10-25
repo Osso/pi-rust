@@ -263,82 +263,6 @@ impl WaitAgentsWakeWatcher {
     }
 }
 
-#[cfg(test)]
-mod tracked_read_failure_tests {
-    use super::*;
-    use crate::core::multi_agent_store::MultiAgentStoreOptions;
-
-    #[test]
-    fn tracked_terminal_wake_preserves_captured_agent_order() {
-        let directory = tempfile::tempdir().unwrap();
-        let db_path: JsString = directory.path().join("control.db").to_str().unwrap().into();
-        let session_path: JsString = "/fixture/session".into();
-        read_multi_agent_state(&db_path, &session_path).unwrap();
-        let db = crate::core::sqlite::create_sqlite_database(&db_path.to_utf8().unwrap()).unwrap();
-        let mut agents = (0..32)
-            .map(|id| super::super::shared::empty_agent(&format!("agent_{id}")))
-            .collect::<Vec<_>>();
-        for agent in &agents {
-            db.execute(
-                "INSERT INTO multi_agent_agents(session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
-                [
-                    session_path.to_utf8().unwrap(),
-                    agent.id.to_utf8().unwrap(),
-                    pi_js_compat::js_json::stringify_lossless(&json!(agent)),
-                    "1970-01-01T00:00:00.000Z".to_owned(),
-                ],
-            )
-            .unwrap();
-        }
-        drop(db);
-        for _ in 0..16 {
-            agents.reverse();
-            let watcher = WaitAgentsWakeWatcher::new(WaitAgentsWakeWatcherOptions {
-                deadline: None,
-                active_agents: agents.clone(),
-                control_db_path: db_path.clone(),
-                recipient: None,
-                session_path: session_path.clone(),
-                signal: None,
-                store: Arc::new(MultiAgentStore::new(Default::default())),
-                wait_wake_listeners: Default::default(),
-            });
-            let Some(WaitNotificationsWake::Agent { agent }) = watcher.read_tracked_terminal_wake() else {
-                panic!("terminal wake required")
-            };
-            assert_eq!(agent.id, agents[0].id);
-        }
-    }
-
-    #[test]
-    fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
-        let directory = tempfile::tempdir().unwrap();
-        let blocked_db: JsString = directory.path().to_str().unwrap().into();
-        let session_path: JsString = "/fixture/session".into();
-        let agent_ids = vec![JsString::from("agent_1")];
-        let expected = read_multi_agent_agents(&blocked_db, &session_path, &agent_ids).unwrap_err();
-        let watcher = WaitAgentsWakeWatcher {
-            deadline: None,
-            control_db_path: blocked_db,
-            recipient: None,
-            session_path,
-            signal: None,
-            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
-            tracked_agent_ids: agent_ids.into_iter().collect(),
-            wait_wake_listeners: WaitWakeListeners::default(),
-        };
-        for wake in [
-            watcher.settle_for_terminal_agent_or_check_coordination(),
-            watcher.on_notified(&Mutex::new(None)),
-        ] {
-            let Some(WaitNotificationsWake::Error { message }) = wake else {
-                panic!("tracked DB failure must become an error wake, not an absent agent");
-            };
-            assert_eq!(&message, expected.message());
-        }
-    }
-}
-
 pub async fn wait_notifications_runtime(
     store: &Arc<MultiAgentStore>,
     runtime_handles: &super::runtime::MultiAgentRuntimeHandles,
@@ -664,4 +588,80 @@ fn consume_pending_terminal_notifications(
             "messages": messages,
         }),
     )))
+}
+
+#[cfg(test)]
+mod tracked_read_failure_tests {
+    use super::*;
+    use crate::core::multi_agent_store::MultiAgentStoreOptions;
+
+    #[test]
+    fn tracked_terminal_wake_preserves_captured_agent_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let db_path: JsString = directory.path().join("control.db").to_str().unwrap().into();
+        let session_path: JsString = "/fixture/session".into();
+        read_multi_agent_state(&db_path, &session_path).unwrap();
+        let db = crate::core::sqlite::create_sqlite_database(&db_path.to_utf8().unwrap()).unwrap();
+        let mut agents = (0..32)
+            .map(|id| super::super::shared::empty_agent(format!("agent_{id}")))
+            .collect::<Vec<_>>();
+        for agent in &agents {
+            db.execute(
+                "INSERT INTO multi_agent_agents(session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+                [
+                    session_path.to_utf8().unwrap(),
+                    agent.id.to_utf8().unwrap(),
+                    pi_js_compat::js_json::stringify_lossless(&json!(agent)),
+                    "1970-01-01T00:00:00.000Z".to_owned(),
+                ],
+            )
+            .unwrap();
+        }
+        drop(db);
+        for _ in 0..16 {
+            agents.reverse();
+            let watcher = WaitAgentsWakeWatcher::new(WaitAgentsWakeWatcherOptions {
+                deadline: None,
+                active_agents: agents.clone(),
+                control_db_path: db_path.clone(),
+                recipient: None,
+                session_path: session_path.clone(),
+                signal: None,
+                store: Arc::new(MultiAgentStore::new(Default::default())),
+                wait_wake_listeners: Default::default(),
+            });
+            let Some(WaitNotificationsWake::Agent { agent }) = watcher.read_tracked_terminal_wake() else {
+                panic!("terminal wake required")
+            };
+            assert_eq!(agent.id, agents[0].id);
+        }
+    }
+
+    #[test]
+    fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked_db: JsString = directory.path().to_str().unwrap().into();
+        let session_path: JsString = "/fixture/session".into();
+        let agent_ids = vec![JsString::from("agent_1")];
+        let expected = read_multi_agent_agents(&blocked_db, &session_path, &agent_ids).unwrap_err();
+        let watcher = WaitAgentsWakeWatcher {
+            deadline: None,
+            control_db_path: blocked_db,
+            recipient: None,
+            session_path,
+            signal: None,
+            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+            tracked_agent_ids: agent_ids.into_iter().collect(),
+            wait_wake_listeners: WaitWakeListeners::default(),
+        };
+        for wake in [
+            watcher.settle_for_terminal_agent_or_check_coordination(),
+            watcher.on_notified(&Mutex::new(None)),
+        ] {
+            let Some(WaitNotificationsWake::Error { message }) = wake else {
+                panic!("tracked DB failure must become an error wake, not an absent agent");
+            };
+            assert_eq!(&message, expected.message());
+        }
+    }
 }
