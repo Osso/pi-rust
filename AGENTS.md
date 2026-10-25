@@ -10,6 +10,8 @@
 - Approved TS+Rust fix (2026-10-24): editor bottom scroll indicator (editor.ts:883-889) is truncated to width like the top one; frozen untruncated line crashes the TUI width check.
 - Common-pin approval (2026-10-21): opaque provider IDs/names, type/stop tags and signatures may remain Unicode scalars; reject unpaired units explicitly, never replace. Human text/errors and arbitrary argument JSON are excluded.
 - Login prompt answers (API keys, OAuth codes/redirect URLs, domains, account ids, method choices) stay native to their auth.json/HTTP boundaries with Node-exact failures; not covered by the opaque-scalar approval (decision 2026-10-22).
+- Pre-repin waivers carried to 4f9e6f8a4 (user 2026-10-25): Vitest configs (agent-core x2, ai, coding-agent, tui), ai generate-test-image, Doom build.sh/doom.js/doomgeneric_pi.c, gondolin and sandbox examples (third-party runtimes), mac-system-theme example, Darwin native build/process-info/runtime-process-darwin, migrate-sessions.sh, highlight-js-lib-index.d.ts.
+- theme-schema.json is not installed with the binary: editor-only metadata, no runtime reader (approved gap 2026-10-25).
 - Approved gap (2026-10-22): the syntax highlighter omits the highlight.js Mathematica and R grammars (callback-based); their code renders unhighlighted.
 - All pre-repin approvals below are **to re-validate against 4f9e6f8a4**; retain them pending user review, not as new-pin parity evidence.
 - Control DB v15 and metadata-authoritative names formerly followed approved `c248b0067` (2026-10-20), now an ancestor of the common pin.
