@@ -51,7 +51,7 @@ async fn oauth_manual_code_probe() {
                     login:Arc::new(move |callbacks| {
                         let entered=login_entered.clone(); let release=login_release.clone(); let captured=captured.clone(); let submitted=login_submitted.clone();
                         Box::pin(async move {
-                            callbacks.on_auth(pi_ai::OAuthAuthInfo {url:"https://fixture.invalid/auth".into(),instructions:None});
+                            callbacks.on_auth(pi_ai::OAuthAuthInfo {url:"https://fixture.invalid/auth".into(),instructions:None})?;
                             entered.notify_one(); release.notified().await;
                             if callback_server {
                                 submitted.notified().await;

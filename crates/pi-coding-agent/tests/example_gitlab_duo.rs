@@ -122,10 +122,11 @@ struct Interaction {
     code: String,
 }
 impl OAuthLoginCallbacks for Interaction {
-    fn on_auth(&self, info: OAuthAuthInfo) {
+    fn on_auth(&self, info: OAuthAuthInfo) -> Result<(), CallbackError> {
         self.calls.lock().unwrap().push(json!({"type":"auth","url":info.url}));
+        Ok(())
     }
-    fn on_device_code(&self, _: OAuthDeviceCodeInfo) {
+    fn on_device_code(&self, _: OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
         panic!("unexpected device code");
     }
     fn on_select(&self, _: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {

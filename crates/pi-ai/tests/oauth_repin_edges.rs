@@ -233,6 +233,82 @@ async fn copilot_only_models_fetch_has_a_request_signal() {
 }
 
 #[tokio::test]
+async fn codex_body_failures_use_the_response_side_catch_policy() {
+    struct Body;
+    impl pi_ai::request::HttpBody for Body {
+        fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+            Box::pin(async {
+                Some(Err(CallbackError::from_rejection(AbortReason::Value(JsValue::Bool(
+                    false,
+                )))))
+            })
+        }
+    }
+    struct BrokenBody(u16);
+    impl Fetch for BrokenBody {
+        fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            let status = self.0;
+            Box::pin(async move {
+                Ok(HttpResponse {
+                    status,
+                    status_text: "Server Error".into(),
+                    headers: vec![],
+                    body: Box::new(Body),
+                })
+            })
+        }
+    }
+    for status in [200, 500] {
+        let error = OpenAICodexOAuth::with_runtime(runtime(Arc::new(BrokenBody(status)), 0.0))
+            .refresh(OAuthCredential::new("r", "a", 0.0))
+            .await
+            .unwrap_err()
+            .into_callback();
+        if status == 200 {
+            assert_eq!(error.thrown_value(), AbortReason::Value(JsValue::Bool(false)));
+        } else {
+            assert_eq!(error.message, "OpenAI Codex token refresh failed (500): Server Error");
+        }
+    }
+}
+
+#[tokio::test]
+async fn anthropic_json_error_details_use_the_syntax_error_brand() {
+    let error = AnthropicOAuth::with_runtime(runtime(
+        RecordingFetch::new(vec![ScriptedResponse::json(200, "bad")]),
+        0.0,
+    ))
+    .refresh(OAuthCredential::new("r", "a", 0.0))
+    .await
+    .unwrap_err();
+    assert!(error.detail().unwrap().contains("; details=SyntaxError: "));
+}
+
+#[tokio::test]
+async fn manual_non_error_rejection_is_wrapped_as_an_error() {
+    use pi_ai::auth::{AuthEvent, AuthInteraction, AuthPrompt};
+    struct Interaction;
+    impl AuthInteraction for Interaction {
+        fn signal(&self) -> AbortSignal {
+            AbortSignal::default()
+        }
+        fn prompt(&self, _: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
+            Box::pin(async { Err(CallbackError::from_rejection(AbortReason::Value(JsValue::Bool(false)))) })
+        }
+        fn notify(&self, _: AuthEvent) -> Result<(), CallbackError> {
+            Ok(())
+        }
+    }
+    let _port = lock_callback_port().await;
+    let error = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), 0.0))
+        .login(Arc::new(Interaction))
+        .await
+        .unwrap_err()
+        .into_callback();
+    assert_eq!(error, CallbackError::new("false"));
+}
+
+#[tokio::test]
 async fn invalid_token_json_keeps_syntax_error_identity() {
     let provider = OpenAICodexOAuth::with_runtime(runtime(
         RecordingFetch::new(vec![ScriptedResponse::json(200, "not json")]),

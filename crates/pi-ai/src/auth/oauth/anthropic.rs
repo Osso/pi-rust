@@ -239,12 +239,13 @@ async fn exchange_authorization_code(
             wrap_request_error(prefix, error)
         })?;
 
-    let token_data: pi_js_compat::js_json::JsValue =
-        pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
-            CallbackError::new(format!(
-                "Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
-            ))
-        })?;
+    let token_data: pi_js_compat::js_json::JsValue = crate::auth::oauth::support::parse_response_json(&response_body)
+        .map_err(|error| {
+        wrap_request_error(
+            format!("Token exchange returned invalid JSON. url={TOKEN_URL}; body={response_body}; details="),
+            error,
+        )
+    })?;
     credential_from_token(&token_data, runtime.now())
 }
 
@@ -324,7 +325,6 @@ async fn login_anthropic(
         settle: wait_settle,
     } = wait;
     let mut receiver = Box::pin(receiver);
-    let interaction_signal = interaction.signal();
     let result = loop {
         tokio::select! {
             biased;
@@ -332,17 +332,19 @@ async fn login_anthropic(
                 break response.ok().flatten();
             }
             response = &mut prompt, if manual.is_none() => {
-                manual = Some(response);
+                manual = Some(response.map_err(crate::auth::oauth::support::normalize_manual_rejection));
                 settle_wait(&wait_settle, None);
             }
-            _ = interaction_signal.wait() => {
-                settle_wait(&wait_settle, None);
-            }
+
         }
     };
 
     if result.is_none() && manual.is_none() {
-        manual = Some(prompt.await);
+        manual = Some(
+            prompt
+                .await
+                .map_err(crate::auth::oauth::support::normalize_manual_rejection),
+        );
     }
     if let Some(Err(error)) = &manual {
         server.close();
@@ -439,10 +441,11 @@ async fn refresh_anthropic(
             error,
         )
     })?;
-    let data: pi_js_compat::js_json::JsValue = pi_js_compat::js_json::parse_lossless(&response_body).map_err(|error| {
-        CallbackError::new(format!(
-            "Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details=Error: {error}"
-        ))
+    let data = crate::auth::oauth::support::parse_response_json(&response_body).map_err(|error| {
+        wrap_request_error(
+            format!("Anthropic token refresh returned invalid JSON. url={TOKEN_URL}; body={response_body}; details="),
+            error,
+        )
     })?;
     let access = data
         .get("access_token")

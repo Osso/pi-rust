@@ -26,9 +26,9 @@ async fn oauth_prompt_device_and_progress_boundaries_match_frozen() {
                         let entered=login_entered.clone(); let release=login_release.clone(); let captured=captured.clone();
                         let message=message.clone();let progress=progress.clone();let placeholder=placeholder.clone();
                         Box::pin(async move {
-                            callbacks.on_device_code(pi_ai::OAuthDeviceCodeInfo {user_code:"ABCD".into(),verification_uri:"https://fixture.invalid/device".into(),interval_seconds:Some(0.0),expires_in_seconds:Some(-0.0)});
+                            callbacks.on_device_code(pi_ai::OAuthDeviceCodeInfo {user_code:"ABCD".into(),verification_uri:"https://fixture.invalid/device".into(),interval_seconds:Some(0.0),expires_in_seconds:Some(-0.0)})?;
                             entered.notify_one();release.notified().await;
-                            callbacks.on_progress(&progress);
+                            callbacks.on_progress(&progress)?;
                             entered.notify_one();release.notified().await;
                             let result=callbacks.on_prompt(pi_ai::OAuthPrompt {message,placeholder,allow_empty:Some(false)}).await;
                             let value=match result {Ok(value)=>serde_json::json!({"ok":value.units()}),Err(error)=>serde_json::json!({"error":error.message.units()})};
