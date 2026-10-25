@@ -2,6 +2,12 @@
 
 Ported to `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`.
 
+## Whole-module audit under lighter proof (2026-10-25)
+
+User policy `e380ab815`: no further frozen differential/frame corpus expansion. Audit the complete7938-line module, retain existing behavioral coverage, and give each found discrepancy one native regression. Persistence/IPC/wire changes retain their separate frozen proof.
+
+Input/queue audit found incorrect Escape routing, missing bash-border refresh, restore-instead-of-interrupt behavior, and dropped compaction input on prompt rejection. Native regressions are `native_audit_escape_preserves_plain_input_and_cancels_edits`, `native_audit_bash_input_refreshes_editor_border`, `native_audit_interrupt_submits_combined_queued_input`, and `native_audit_compaction_flush_restores_rejected_prompt_queue`. Corrected RED uses installed callbacks and a real authentication rejection, not an extension-command exception (AgentSession intentionally catches those). All four pass in `native-audit-input-final.log`; the two other original failures are retained in `native-audit-input-red.log`, corrected baseline failures in `native-audit-input-corrected-red.log`. Frozen execution-error boundaries, queue restore text/order and callbacks are retained without a new public API or carrier. Remaining event/loader, child/extension and transition completeness audit is in progress.
+
 ## Interleaved event display checkpoint (2026-10-25)
 
 [Contract](../../specs/interactive-event-display.md). The actual frozen/native initialized modes consume twelve matching event steps: assistant start, invisible tool-call start, visible text with an interleaved tool snapshot, completed tool-use message; empty retry failure; compaction start/manual cancellation; compaction start/empty error; and three provider retry/fallback records. Complete chat/tail/status frames at widths25/120 and cumulative terminal-progress calls are compared, with real component renderers and private sessions. This is handler-boundary proof, not an agent-loop or whole-mode differential.
