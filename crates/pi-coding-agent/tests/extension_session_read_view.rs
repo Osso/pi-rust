@@ -265,24 +265,22 @@ async fn core_and_sdk_barrels_forward_frozen_public_contracts() {
         AgentToolResult, AgentToolUpdateCallback, BashExecutorOptions, BashResult, ExecOptions, ExecResult,
         ExtensionHandler, ModelRequestEndEvent, ModelRequestStartEvent, execute_bash_with_operations,
     };
-    let _: Option<(
-        AgentToolUpdateCallback,
-        BashExecutorOptions,
-        BashResult,
-        ExecOptions,
-        ExecResult,
-        ModelRequestEndEvent,
-        ModelRequestStartEvent,
-        ExtensionApi,
-        ExtensionCommandContext,
-        ExtensionContext,
-        ExtensionFactory,
-        PromptTemplate,
-        Skill,
-        SlashCommandInfo,
-        SlashCommandSource,
-        ToolDefinition,
-    )> = None;
+    let _: Option<AgentToolUpdateCallback> = None;
+    let _: Option<BashExecutorOptions> = None;
+    let _: Option<BashResult> = None;
+    let _: Option<ExecOptions> = None;
+    let _: Option<ExecResult> = None;
+    let _: Option<ModelRequestEndEvent> = None;
+    let _: Option<ModelRequestStartEvent> = None;
+    let _: Option<ExtensionApi> = None;
+    let _: Option<ExtensionCommandContext> = None;
+    let _: Option<ExtensionContext> = None;
+    let _: Option<ExtensionFactory> = None;
+    let _: Option<PromptTemplate> = None;
+    let _: Option<Skill> = None;
+    let _: Option<SlashCommandInfo> = None;
+    let _: Option<SlashCommandSource> = None;
+    let _: Option<ToolDefinition> = None;
     let _ = (
         execute_bash_with_operations,
         create_agent_session_runtime,
@@ -349,16 +347,14 @@ fn extension_barrel_forwards_tool_and_source_contracts() {
         pi_js_compat::js_json::to_value(&result).unwrap(),
         js_json!({"content":[],"details":null})
     );
-    let _: Option<(
-        ToolExecutionMode,
-        SourceInfo,
-        SlashCommandInfo,
-        SlashCommandSource,
-        ExecOptions,
-        ExecResult,
-        BuildSystemPromptOptions,
-        KeybindingsManager,
-    )> = None;
+    let _: Option<ToolExecutionMode> = None;
+    let _: Option<SourceInfo> = None;
+    let _: Option<SlashCommandInfo> = None;
+    let _: Option<SlashCommandSource> = None;
+    let _: Option<ExecOptions> = None;
+    let _: Option<ExecResult> = None;
+    let _: Option<BuildSystemPromptOptions> = None;
+    let _: Option<KeybindingsManager> = None;
 }
 
 #[test]

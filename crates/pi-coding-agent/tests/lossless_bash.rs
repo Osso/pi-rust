@@ -5,9 +5,11 @@ use pi_coding_agent::core::tools::bash::{BashExecOptions, BashExecResult, BashOp
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use std::sync::{Arc, Mutex};
 
+type RecordedCall = (JsString, JsString, IndexMap<JsString, Option<JsString>>);
+
 #[derive(Default)]
 struct RecordingOperations {
-    calls: Mutex<Vec<(JsString, JsString, IndexMap<JsString, Option<JsString>>)>>,
+    calls: Mutex<Vec<RecordedCall>>,
 }
 impl BashOperations for RecordingOperations {
     fn exec<'a>(

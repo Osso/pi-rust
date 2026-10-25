@@ -101,7 +101,6 @@ fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
             max: Some(1.0),
         }),
         tokens_per_second: Some(1_000_000.0),
-        ..Default::default()
     })
 }
 

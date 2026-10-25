@@ -106,7 +106,6 @@ async fn run_rust(dir: &str) -> Value {
             max: Some(1.0),
         }),
         tokens_per_second: Some(1_000_000.0),
-        ..Default::default()
     });
     faux.set_responses(vec![
         faux_assistant_message(

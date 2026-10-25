@@ -753,18 +753,19 @@ async fn config_command_passes_one_resolved_resource_set_and_ignores_old_local_f
         let outcome = execute_config_command(&args(&flags), &effects).await.unwrap().unwrap();
         assert_eq!(outcome.exit_code, Some(0));
     }
-    let requests = effects.config_requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0], requests[1]);
-    let mut paths: Vec<_> = requests[0].extensions.iter().map(|r| r.path.clone()).collect();
-    paths.sort();
-    let mut expected: Vec<JsString> = vec![
-        global_path.display().to_string().into(),
-        project_path.display().to_string().into(),
-    ];
-    expected.sort();
-    assert_eq!(paths, expected);
-    drop(requests);
+    {
+        let requests = effects.config_requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+        let mut paths: Vec<_> = requests[0].extensions.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        let mut expected: Vec<JsString> = vec![
+            global_path.display().to_string().into(),
+            project_path.display().to_string().into(),
+        ];
+        expected.sort();
+        assert_eq!(paths, expected);
+    }
     assert!(
         execute_config_command(&args(&["install", "x"]), &effects)
             .await

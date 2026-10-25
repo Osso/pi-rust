@@ -178,7 +178,8 @@ fn lone_units_are_inert_starters_in_all_four_normalization_forms() {
         vec![0x1100, 0xd800, 0x1161],
         vec![0xd800, 0x0301, 0x0323, 0xdfff],
     ];
-    let normalizers: [(&str, fn(&JsString) -> JsString); 4] = [
+    type Normalizer = fn(&JsString) -> JsString;
+    let normalizers: [(&str, Normalizer); 4] = [
         ("nfc", normalize_nfc),
         ("nfd", normalize_nfd),
         ("nfkc", normalize_nfkc),

@@ -179,7 +179,7 @@ fn cancelled_peer_request_stays_cancelled_and_rejects_completion() {
         .to_owned();
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let deadline =
-        pi_coding_agent::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 + 3600_000);
+        pi_coding_agent::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 + 3_600_000);
     let id=call(&mut ts,"postSupervisorRequest",json!([db,{"senderSessionId":"sender","projectId":"p","kind":"supervisor_advisory","payload":{},"deadlineAt":deadline}])).as_f64().unwrap() as i64;
     let claim = claim_next_supervisor_request(&db, &JsString::from("claim"))
         .unwrap()

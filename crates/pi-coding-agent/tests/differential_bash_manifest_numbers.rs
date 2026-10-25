@@ -46,7 +46,7 @@ fn detached_bash_manifest_preserves_fractional_and_existing_integer_timeouts() {
             .into();
         write_detached_bash_launch_manifest(&path, &data).unwrap();
         let text = std::fs::read_to_string(path.to_utf8().unwrap()).unwrap();
-        if JsString::from(text.clone()) != *expected["output"][index].as_string().unwrap() {
+        if expected["output"][index].as_string().unwrap() != text.as_str() {
             failures.push(json!({"case":index,"actual":text,"expected":expected["output"][index]}));
         }
     }

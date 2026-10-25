@@ -92,7 +92,7 @@ fn every_generated_grammar_matches_the_pinned_highlight_js() {
             ));
         }
     }
-    timings.sort_by(|left, right| right.0.cmp(&left.0));
+    timings.sort_by_key(|entry| std::cmp::Reverse(entry.0));
     for (duration, key) in timings.iter().take(5) {
         eprintln!("grammar wall time {key}: {duration:?}");
     }

@@ -1299,7 +1299,6 @@ fn update_compaction_summary_rewrites_and_restores_on_failure() {
                 from_hook: Some(true),
                 duration_ms: Some(321.0),
                 provider_native: Some(provider_native),
-                ..Default::default()
             },
         )
         .unwrap();

@@ -65,13 +65,13 @@ fn reason_data(reason: &AbortReason) -> Value {
     json!({"dom":matches!(reason,AbortReason::DomException(_)),"name":error.name,"message":error.message,"code":value.get("code").and_then(JsValue::as_f64).map(|code|code as i64)})
 }
 enum View {
-    Bare(CancellableLoader),
+    Bare(Box<CancellableLoader>),
     Bordered(BorderedLoader),
 }
 impl View {
     fn component(&mut self) -> &mut dyn Component {
         match self {
-            Self::Bare(value) => value,
+            Self::Bare(value) => value.as_mut(),
             Self::Bordered(value) => value,
         }
     }
@@ -103,7 +103,7 @@ fn native(request: &Value) -> Value {
     let mut view = if request["bare"] == true {
         let spinner = captured.clone();
         let message = captured.clone();
-        View::Bare(CancellableLoader::new(
+        View::Bare(Box::new(CancellableLoader::new(
             request_render,
             Rc::new(move |text| spinner.fg(ThemeColor::Accent, text)),
             Rc::new(move |text| message.fg(ThemeColor::Muted, text)),
@@ -112,7 +112,7 @@ fn native(request: &Value) -> Value {
                 frames: Some(vec![]),
                 interval_ms: None,
             }),
-        ))
+        )))
     } else {
         View::Bordered(BorderedLoader::new(
             request_render,

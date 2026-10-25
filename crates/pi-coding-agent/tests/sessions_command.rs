@@ -236,7 +236,7 @@ fn default_archive_compresses_the_file_and_relocates_metadata() {
     write_session_metadata(&db, &metadata).unwrap();
     let archived = Defaults.archive_older_than(&db, "2026-01-01T00:00:00.000Z").unwrap();
     let expected: JsString = format!("{}.zst", source.display()).into();
-    assert_eq!(archived, [expected.clone()]);
+    assert_eq!(archived.as_slice(), std::slice::from_ref(&expected));
     assert!(!source.exists());
     assert_eq!(read_session_transcript_bytes(&expected).unwrap(), bytes);
     assert!(read_session_metadata(&db, metadata.session_path).unwrap().is_none());

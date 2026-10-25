@@ -86,6 +86,7 @@ fn spill_failure_probe() {
         let (_runner, context) = tool_context::TestContextBuilder::new("/tmp", session).build().await;
         let blocked = std::env::temp_dir();
         let mut oracle = oracle::TsOracle::spawn_with_environment("tool-definition-wrapper-oracle.ts", "packages/coding-agent/src/core/tools/tool-definition-wrapper.ts", &[("TMPDIR", blocked.parent().unwrap().as_os_str().to_owned())]);
+        let output_log_pattern = regex::Regex::new("pi-tool-[0-9a-f]{16}\\.log").unwrap();
         for catches in [true, false] {
             let expected = oracle.request(&pi_js_compat::js_json!({"id": 2, "operation": "spill-failure", "catch": catches, "tmpdir": blocked.to_str().unwrap()}));
             assert_eq!(expected["ok"], pi_js_compat::js_json!(true), "{expected:?}");
@@ -108,7 +109,7 @@ fn spill_failure_probe() {
             let actual = tool.execute("call".into(), pi_js_compat::js_json!({}), None, Arc::new(|_| Ok(())), None).await;
             let mut actual = match actual { Ok(result) => pi_js_compat::js_json!({"result": result}), Err(error) => {
                 let message = encode_node_utf8(&error.message);
-                let normalized = regex::Regex::new("pi-tool-[0-9a-f]{16}\\.log").unwrap().replace_all(&message, "pi-tool-<id>.log").into_owned();
+                let normalized = output_log_pattern.replace_all(&message, "pi-tool-<id>.log").into_owned();
                 pi_js_compat::js_json!({"error": normalized})
             }};
             actual.as_object_mut().unwrap().insert("trace".into(), json::to_value(&*trace.lock().unwrap()).unwrap());

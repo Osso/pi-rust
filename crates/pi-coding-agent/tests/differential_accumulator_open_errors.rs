@@ -26,7 +26,7 @@ fn last_error(output: &Output) -> Value {
         .filter(|line| line.contains("\"event\""))
         .map(|line| serde_json::from_str::<Value>(&line[line.find('{').unwrap()..]).unwrap())
         .filter_map(|frame| frame.get("error").cloned())
-        .last()
+        .fold(None, |_, error| Some(error))
         .expect("original native error frame");
     if let Some(path) = error["path"].as_str().map(str::to_owned) {
         assert!(path.contains("/pi-acc"), "{error}");

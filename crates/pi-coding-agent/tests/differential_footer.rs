@@ -54,11 +54,13 @@ fn display_model(value: &Value, base: &Model) -> Option<Model> {
 }
 fn append(manager: &Arc<Mutex<SessionManager>>, value: &Value) {
     let values = value["usage"].as_array().unwrap();
-    let mut usage = Usage::default();
-    usage.input = number(&values[0]);
-    usage.output = number(&values[1]);
-    usage.cache_read = number(&values[2]);
-    usage.cache_write = number(&values[3]);
+    let mut usage = Usage {
+        input: number(&values[0]),
+        output: number(&values[1]),
+        cache_read: number(&values[2]),
+        cache_write: number(&values[3]),
+        ..Default::default()
+    };
     usage.cost.total = number(&values[4]);
     let message = if value["kind"] == "assistant" {
         let mut message = AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
