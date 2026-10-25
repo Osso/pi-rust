@@ -108,6 +108,89 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
 }
 
 #[test]
+fn extension_resource_metadata_path_errors_match_frozen() {
+    use pi_coding_agent::core::package_manager::{MetadataOrigin, PathMetadata, SourceScope};
+    use pi_coding_agent::core::resource_loader::{
+        DefaultResourceLoader, DefaultResourceLoaderOptions, ExtendedResourcePath, ResourceExtensionPaths,
+    };
+    use serde_json::json;
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("prompt.md");
+    std::fs::write(&path, "prompt content").unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(
+        &json!({"id":3,"operation":"extend_path","root":root.path(),"path":path,"baseDir":"file://remote/resources"}),
+    );
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: root.path().to_str().unwrap().into(),
+        agent_dir: root.path().to_str().unwrap().into(),
+        ..Default::default()
+    })
+    .unwrap();
+    let error = loader
+        .extend_resources(ResourceExtensionPaths {
+            prompt_paths: vec![ExtendedResourcePath {
+                path: path.to_str().unwrap().into(),
+                metadata: PathMetadata {
+                    source: "extension".into(),
+                    scope: SourceScope::Temporary,
+                    origin: MetadataOrigin::TopLevel,
+                    base_dir: Some("file://remote/resources".into()),
+                },
+            }],
+            ..Default::default()
+        })
+        .err();
+    assert_eq!(json!({"id":3,"error":error}), expected);
+}
+
+#[tokio::test]
+async fn inline_factory_errors_use_frozen_non_error_fallback_text() {
+    use pi_ai::request::CallbackError;
+    use pi_coding_agent::core::extensions::types::HandlerError;
+    use pi_coding_agent::core::resource_loader::{
+        DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension,
+    };
+    use pi_js_compat::{abort::AbortReason, js_json};
+    use std::sync::Arc;
+    let root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let values = vec![js_json!("string rejection"), js_json!({"why":"failed"}), js_json!(null)];
+    let expected = oracle
+        .request(&js_json!({"id":4,"operation":"factory_errors","root":root.path().to_str().unwrap(),"values":values}));
+    let factories = values
+        .into_iter()
+        .map(|value| InlineExtension::Factory {
+            factory: Arc::new(move |_| {
+                let error = HandlerError::from(CallbackError::from_rejection(AbortReason::Value(value.clone())));
+                Box::pin(async move { Err(error) })
+            }),
+            extension_path: None,
+        })
+        .collect();
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: root.path().to_str().unwrap().into(),
+        agent_dir: root.path().to_str().unwrap().into(),
+        no_extensions: true,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        no_context_files: true,
+        extension_factories: factories,
+        ..Default::default()
+    })
+    .unwrap();
+    loader.reload().await.unwrap();
+    assert_eq!(js_json!({"id":4,"errors":loader.get_extensions().errors}), expected);
+}
+
+#[test]
 fn extension_resources_propagate_invalid_path_errors() {
     use pi_coding_agent::core::package_manager::{MetadataOrigin, PathMetadata, SourceScope};
     use pi_coding_agent::core::resource_loader::{

@@ -113,6 +113,10 @@ written but unexecuted. These are source-drift removals, not approved deviations
 
 Actual frozen reload publishes extension/skill/prompt/theme/context stages in order, and earlier successful updates remain visible after a later failure. Native previously built an atomic replacement snapshot: prompt overrides saw the old skill set, and a rule-read error discarded new skills. Reload now publishes each stage without retaining state locks across callbacks. Rule reads report Node scandir/read text instead of Rust OS Display text. RED `/tmp/ext-api2-resource-state-red.log`: callback observations `[[],[first]]` and retained first differ from frozen `[[first],[second]]` and retained second; native EISDIR text also differs. Focused GREEN pending.
 
+## Resource path/factory catch audit (2026-10-25)
+
+Source metadata baseDir normalization can fail before resource loading; native previously swallowed this and accepted `file://remote/resources`. Path resolution, path merging, disabled filtering, normalized discovered entries and pre-trust path reconciliation now propagate Result without unresolved-input fallbacks. Inline factory catch policy is deliberately different from runner catches: frozen :1063 uses Error.message or literal `failed to load extension`, not String(non-Error). Native now preserves that exact policy. Actual frozen/native RED `/tmp/ext-api2-resource-path-red.log` reproduces both defects; focused GREEN pending.
+
 ## Constructor error carrier
 
 [Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.

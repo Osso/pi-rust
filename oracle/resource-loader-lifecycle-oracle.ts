@@ -8,6 +8,19 @@ async function main(): Promise<void> {
 	const { SettingsManager } = await import(pathToFileURL(join(dirname(process.argv[2]), "settings-manager.ts")).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
+		if (request.operation === "extend_path") {
+			const loader = new DefaultResourceLoader({ cwd: request.root, agentDir: request.root, settingsManager: SettingsManager.inMemory() });
+			let error: string | null = null;
+			try { loader.extendResources({ promptPaths: [{ path: request.path, metadata: { source: "extension", scope: "temporary", origin: "top-level", baseDir: request.baseDir } }] }); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
+			process.stdout.write(`${JSON.stringify({ id: request.id, error })}\n`);
+			continue;
+		}
+		if (request.operation === "factory_errors") {
+			const loader = new DefaultResourceLoader({ cwd: request.root, agentDir: request.root, settingsManager: SettingsManager.inMemory(), noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true, extensionFactories: request.values.map((value: unknown) => () => { throw value; }) });
+			await loader.reload();
+			process.stdout.write(`${JSON.stringify({ id: request.id, errors: loader.getExtensions().errors })}\n`);
+			continue;
+		}
 		const skillDir = join(request.root, "skill");
 		mkdirSync(skillDir, { recursive: true });
 		const writeSkill = (name: string) => writeFileSync(join(skillDir, "SKILL.md"), `---\nname: ${name}\ndescription: fixture\n---\n${name} body\n`);
