@@ -229,11 +229,11 @@ async fn image_auth_failure_reads_the_exact_native_models_error_message() {
     let expected =
         source.request(&pi_js_compat::js_json!({"operation":"imageMessage","message":message,"model":model}));
     assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
-    let before = pi_ai::request::now_millis();
+    let before = pi_ai::request::now_millis() as f64;
     let result = models
         .generate_images(model, pi_ai::types::ImagesContext { input: vec![] }, Default::default())
         .await;
-    let after = pi_ai::request::now_millis();
+    let after = pi_ai::request::now_millis() as f64;
     assert!(result.timestamp >= before && result.timestamp <= after);
     let mut actual = pi_js_compat::js_json::to_value(&result).unwrap();
     actual
