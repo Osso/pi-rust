@@ -1,5 +1,19 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Whole-module audit checkpoint (2026-10-25)
+
+The1467-line common-pin module's exports, public/private methods and realistic branches are mapped below and in the storage-3 correction sections. The store row is done; shared control-DB schema/group acceptance remains separate.
+
+| Capability | Current proof |
+|---|---|
+| Subscription lifetime, live dispatch, local catch/log, one-shot abort | Six live-membership scenarios; nine throw subprocess cases; original abort callback matrix |
+| Snapshot publication, selected/active views, descendants and lifecycle guards |28 store/repin behavior tests; complete operation script including empty-parent rejection |
+| Metadata, slot ordering/conflicts, models/current activity and copied values | Operation script, source slot matrix, model/activity ownership fixtures,33 copy/path/exact-JSON scenarios |
+| Mailbox construction, expiry, delivery/failure/consumption and lifecycle notices | Public/canonical byte matrix, controlled creation-age/peer-deletion cases, native lossless mailbox six-test group |
+| Persistence binding, restore/reset, counters, original callbacks/errors | Source single-clock/partial-state matrix, TS-written/native-read records, native writes/TS readback, three restore/persistence regressions |
+
+Current all-target workspace check passes at27f88577b (same store implementation as29853940a); warning-mode storage Clippy and protected fixture types pass. Exact outputs are in `/tmp/storage3-proof-ledger.md`. Runtime/adversarial/numeric exclusions and owned-return behavior follow the standing approvals; no new waiver.
+
 ## Storage-3 snapshot JSON ordering (2026-10-25)
 
 Actual-source RED `/tmp/storage3-store-agent-wire-red.log` shows root account position and nested copyAccount order loss. Main approved order-only metadata in the existing AgentNode and mechanical constructor initialization. `key_order` holds original root and spread-copied child key sequences, never duplicate JSON values. Snapshot copying appends the frozen optional-field copy order, even when a value is currently absent, so later metadata publication retains those positions. Fixed-copy account/result/worker/transcript/event-stream DTOs emit frozen constructor order; permission/model/activity/error/slot/worktree preserve input order. Main-thread snapshots retain their distinct constructor/permission order. Value equality ignores order metadata; wire tests assert exact JSON strings. Replacement metadata clears only the replaced child's prior order. At29853940a the three copy tests pass33 source/native scenarios (20 path/reference outcomes and13 root/nested JSON wire cases); `/tmp/storage3-store-agent-wire-green.log`. Intersecting operation script, five repin-store, three persistence/reset and six lossless-mailbox regressions pass. Warning-mode storage Clippy passes75 inherited diagnostics with zero changed-line warnings; protected strict fixture types pass. The initial Biome check flagged import sorting only, corrected without semantic changes.
@@ -100,7 +114,7 @@ Every other public method maps to the snake_case Rust method of the same name:
 `allocateAgentIdForLifecycleCoordinator`, `prepareSteeringMessageForLifecycleCoordinator`,
 `publishLifecycleCoordinatorSnapshot`, `publishTerminalOutboxSnapshot`,
 `publishLifecycleCoordinatorSteering`, `publishLifecycleCoordinatorSteeringDelivery`,
-`publishAgentCurrentActivity`, `selectAgentView(WithStatus)`, `selectActiveAgentTarget(WithStatus)`,
+`publishAgentCurrentActivity`, `publishAgentModel`, `selectAgentView(WithStatus)`, `selectActiveAgentTarget(WithStatus)`,
 `selectAgentSlot(WithStatus)`, `selectActiveAgentSlotTarget(WithStatus)`, `getSelectedAgentId`,
 `clearSelectedAgentView`, `getAgent`, `listAgents`, `listDescendants`, `listMailboxMessages`,
 `listPendingMailboxMessagesForAgent`, `markMailboxMessageDelivered`, `markMailboxMessageFailed`,
@@ -117,7 +131,7 @@ Every other public method maps to the snake_case Rust method of the same name:
 |---|---|---|
 | Active lifecycle = `running`, `steering_pending`, `waiting_for_input`, `cancelling` | `is_active_lifecycle` | `active_counts_follow_core_lifecycle_state` |
 | Slot selection: pinned slot first, else active agent order | `find_agent_for_slot_selection` | `slot_fallback_uses_active_agent_order`, `pinned_slots_preserve_metadata_and_conflict_with_occupants` |
-| Revision fences on metadata mutations | `pin_agent_slot`, `clear_agent_slot`, `update_agent_transcript`, `send_mailbox_message` | `rejects_stale_lifecycle_mutations_and_returns_current_snapshot` |
+| Revision fences on metadata mutations | `pin_agent_slot`, `clear_agent_slot`, `send_mailbox_message` | `rejects_stale_lifecycle_mutations_and_returns_current_snapshot` |
 | Direct messages only between parent/child or main thread children | `can_send_direct_message`, `is_main_thread_child` | `direct_mailbox_messages_require_a_parent_child_relationship` |
 | Terminal snapshots record one notification per lifecycle | `retry_or_record_terminal_notification` | `completion_and_failure_notifications_can_be_consumed` |
 | Waiting-for-input notifications recorded once | `record_waiting_for_input_notification` | `waiting_for_input_notifications_are_recorded_once` |
@@ -126,11 +140,11 @@ Every other public method maps to the snake_case Rust method of the same name:
 | Persisted counters shared across store instances | `allocate_counter` + `write_multi_agent_counters` | `persisted_counters_are_shared_across_store_instances` |
 | Persisted metadata updates survive reopen | `persist_agent_metadata` | `persisted_metadata_updates_survive_reopen` |
 | Abort handlers fire once and unregister on drop | `abort_agent_handle` + `AbortSubscription` drop | `abort_handlers_fire_once_and_unregister_on_drop` |
-| Listeners on restored sessions are dropped by restore | `invalidate_in_flight_dispatches` / restore | `listeners_registered_on_restored_sessions_are_dropped_by_restore` |
+| Restore drops lifecycle/transition listeners but retains update subscribers | `restore_from_session_manager` | `restore_clears_source_listener_sets_but_keeps_update_subscribers` |
 
 ## Differential coverage
 
-`crates/pi-coding-agent/tests/differential_multi_agent_store.rs` drives 28 operations against
+`crates/pi-coding-agent/tests/differential_multi_agent_store.rs` drives the complete current operation script against
 `oracle/multi-agent-store-oracle.ts` with a fixed clock: publishing running/completed snapshots,
 listing/descendant queries, view and active-target selection, pinned-slot conflict, slot clear,
 transcript update, parent contact, mailbox send/pending/deliver, outbound session record,
