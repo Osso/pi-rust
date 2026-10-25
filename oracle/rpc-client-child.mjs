@@ -1,5 +1,6 @@
-import { createInterface } from "node:readline";
 import { closeSync } from "node:fs";
+import { createInterface } from "node:readline";
+
 const reply = JSON.parse(process.env.PI_RPC_CLIENT_REPLY);
 if (process.env.PI_RPC_STARTUP_SIGNAL)
 	process.kill(process.pid, process.env.PI_RPC_STARTUP_SIGNAL);

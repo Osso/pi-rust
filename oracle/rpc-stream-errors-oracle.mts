@@ -108,5 +108,5 @@ for await (const line of createInterface({ input: process.stdin })) {
 		request.operation === "stderr" || request.operation === "child_errors"
 			? await stderr(api as ClientApi, request.operation)
 			: await jsonl(api as JsonlApi, request.operation);
-	process.stdout.write(JSON.stringify(result) + "\n");
+	process.stdout.write(`${JSON.stringify(result)}\n`);
 }

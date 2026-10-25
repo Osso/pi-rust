@@ -242,8 +242,8 @@ fn serializes_command_bodies_with_ts_field_order_and_omits_undefined_fields() {
     assert_eq!(
         serialize_command(
             RpcCommandBody::SetModel {
-                provider: "anthropic".to_owned(),
-                model_id: "m".to_owned(),
+                provider: "anthropic".into(),
+                model_id: "m".into(),
             },
             None,
         ),

@@ -1,7 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { constants as osConstants } from "node:os";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { constants as osConstants, tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -363,7 +362,7 @@ async function main() {
 	const lines = createInterface({ input: process.stdin });
 	for await (const line of lines) {
 		const request = JSON.parse(line) as Request;
-		process.stdout.write(JSON.stringify(await execute(api, request)) + "\n");
+		process.stdout.write(`${JSON.stringify(await execute(api, request))}\n`);
 	}
 }
 await main();

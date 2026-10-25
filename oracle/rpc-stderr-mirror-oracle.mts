@@ -8,7 +8,7 @@ process.once("uncaughtException", (error: Error) => {
 	for (const field of ["code", "errno", "syscall"]) {
 		if (field in error) record[field] = Reflect.get(error, field);
 	}
-	process.stdout.write(JSON.stringify(record) + "\n", () => process.exit(1));
+	process.stdout.write(`${JSON.stringify(record)}\n`, () => process.exit(1));
 });
 const api = (await import(pathToFileURL(process.argv[2]).href)) as {
 	RpcClient: new (options: {
@@ -34,7 +34,7 @@ if (process.env.PI_RPC_MIRROR_DISCARD === "1") {
 	}
 	const stderr = client.getStderr();
 	await client.stop();
-	process.stdout.write(JSON.stringify({ response, stderr }) + "\n", () =>
+	process.stdout.write(`${JSON.stringify({ response, stderr })}\n`, () =>
 		process.exit(0),
 	);
 } else {
