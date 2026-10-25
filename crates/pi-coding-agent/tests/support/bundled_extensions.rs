@@ -277,7 +277,6 @@ pub fn context_actions(calls: &Arc<Mutex<Calls>>, control_db_path: Option<String
 }
 
 pub fn command_actions(calls: &Arc<Mutex<Calls>>) -> ExtensionCommandContextActions {
-    let sandbox_calls = Arc::clone(calls);
     let selector_calls = Arc::clone(calls);
     let approval_calls = Arc::clone(calls);
     let restart_calls = Arc::clone(calls);
@@ -299,10 +298,6 @@ pub fn command_actions(calls: &Arc<Mutex<Calls>>) -> ExtensionCommandContextActi
         restart: Arc::new(move |options| {
             restart_calls.lock().unwrap().restart.push(options);
             Box::pin(async { Ok(()) })
-        }),
-        set_sandbox_profile: Arc::new(move |profile, scope| {
-            sandbox_calls.lock().unwrap().sandbox_profile.push((profile, scope));
-            Ok(())
         }),
     }
 }

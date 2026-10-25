@@ -11,13 +11,24 @@ async function main(): Promise<void> {
 	const { ModelRegistry } = await load("model-registry.ts");
 	const { AuthStorage } = await load("auth-storage.ts");
 	const { createEventBus } = await load("event-bus.ts");
+	const { SettingsManager } = await load("settings-manager.ts");
+	const { initTheme } = await load("../modes/interactive/theme/theme.ts");
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const runtime = createExtensionRuntime();
 		const extensions = request.values ? await Promise.all(request.values.map((value: unknown, index: number) => loadExtensionFromFactory((api: { on: (event: string, handler: () => never) => void }) => api.on("session_start", () => { throw value; }), "/tmp", createEventBus(), runtime, `<inline:${index}>`))) : [];
-		const runner = new ExtensionRunner(extensions, runtime, "/tmp", SessionManager.inMemory("/tmp"), ModelRegistry.inMemory(AuthStorage.inMemory()));
+		const settings = request.operation === "sandbox" ? SettingsManager.inMemory() : undefined;
+		const runner = new ExtensionRunner(extensions, runtime, "/tmp", SessionManager.inMemory("/tmp"), ModelRegistry.inMemory(AuthStorage.inMemory()), settings);
 		let output: unknown;
-		if (request.values) {
+		if (request.operation === "sandbox") {
+			initTheme("dark", false);
+			const results: unknown[] = [];
+			for (const action of request.actions) {
+				if (action.reset) runner.bindCommandContext();
+				try { runner.createCommandContext().setSandboxProfile(action.profile, action.scope); results.push(null); } catch (error) { results.push(error instanceof Error ? error.message : String(error)); }
+			}
+			output = { results, profile: settings.getExplicitSandboxProfile() ?? null };
+		} else if (request.values) {
 			const errors: unknown[] = [];
 			runner.onError((error: { error: string }) => errors.push(error.error));
 			await runner.emit({ type: "session_start", reason: "startup" });

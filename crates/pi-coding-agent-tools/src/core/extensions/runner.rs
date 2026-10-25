@@ -15,13 +15,74 @@ use serde::{Deserialize, Serialize};
 use crate::core::detached_job_runner::DetachedJobLifecycleController;
 use crate::core::diagnostics::{ResourceDiagnostic, ResourceDiagnosticType};
 use crate::core::model_registry::ModelRegistry;
+use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope, is_sandbox_platform_supported};
 use crate::core::session_manager::SharedSessionManager;
-use crate::core::settings_manager::SettingsManager;
+use crate::core::settings_manager::{SettingsManager, SettingsScope};
 use crate::core::source_info::{SourceInfo, SourceOrigin, SourceScope};
 use crate::core::system_prompt::BuildSystemPromptOptions;
 
 use super::extension_runtime::ExtensionRuntime;
 use super::types::*;
+
+pub(super) fn persist_sandbox_profile(
+    manager: &SharedSessionManager,
+    settings: &Arc<Mutex<SettingsManager>>,
+    profile: Option<SandboxProfileName>,
+    scope: SandboxProfileScope,
+) -> Result<Option<SandboxProfileName>, HandlerError> {
+    if scope == SandboxProfileScope::Session {
+        let persisted = crate::core::session_manager::lock_session_manager(manager)
+            .set_session_sandbox_profile(profile)
+            .map_err(CallbackError::from)?;
+        if !persisted {
+            return Err(HandlerError::new(
+                "Session sandbox profiles require a persisted session",
+            ));
+        }
+        lock(settings).set_session_sandbox_profile(profile);
+    } else {
+        let profile = profile
+            .ok_or_else(|| HandlerError::new("Only session sandbox profiles can inherit configured settings"))?;
+        let scope = if scope == SandboxProfileScope::Global {
+            SettingsScope::Global
+        } else {
+            SettingsScope::Project
+        };
+        lock(settings)
+            .set_sandbox_profile(profile, scope)
+            .map_err(CallbackError::from)?;
+    }
+    Ok(lock(settings).get_explicit_sandbox_profile())
+}
+
+pub(super) fn update_sandbox_status(
+    ui: &dyn ExtensionUiContext,
+    profile: Option<SandboxProfileName>,
+) -> Result<(), HandlerError> {
+    use crate::modes::interactive::theme::ThemeColor;
+    let platform = crate::utils::pi_user_agent::node_platform_name(std::env::consts::OS);
+    let full_access = profile.is_none() || profile == Some(SandboxProfileName::FullAccess);
+    let (color, text) = if !full_access && !is_sandbox_platform_supported(platform) {
+        (
+            ThemeColor::Error,
+            pi_js_compat::js_format!("bwrap unsupported on {}", platform),
+        )
+    } else {
+        match profile {
+            None | Some(SandboxProfileName::FullAccess) => (ThemeColor::Muted, JsString::from("bwrap: full access")),
+            Some(profile) => (
+                ThemeColor::Accent,
+                pi_js_compat::js_format!("bwrap: {}", profile.as_str()),
+            ),
+        }
+    };
+    let styled = ui.theme().fg(color, &text);
+    ui.set_status(
+        &"bwrap".into(),
+        Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
+    )
+    .map_err(HandlerError::from)
+}
 
 const RESERVED_KEYBINDINGS_FOR_EXTENSION_CONFLICTS: &[&str] = &[
     "app.interrupt",
@@ -452,8 +513,6 @@ impl ExtensionRunner {
         let Some(actions) = actions else {
             state.show_approval_selector_handler = Arc::new(|| Ok(()));
             state.show_sandbox_selector_handler = Arc::new(|| Ok(()));
-            state.set_sandbox_profile_handler =
-                Arc::new(|_, _| Err(HandlerError::new("Sandbox profile settings are unavailable")));
             state.wait_for_idle_fn = Arc::new(|| Box::pin(async {}));
             state.new_session_handler =
                 Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) }));
@@ -473,7 +532,6 @@ impl ExtensionRunner {
         };
         state.show_approval_selector_handler = actions.show_approval_selector;
         state.show_sandbox_selector_handler = actions.show_sandbox_selector;
-        state.set_sandbox_profile_handler = actions.set_sandbox_profile;
         state.wait_for_idle_fn = actions.wait_for_idle;
         state.new_session_handler = actions.new_session;
         state.fork_handler = actions.fork;
@@ -481,6 +539,14 @@ impl ExtensionRunner {
         state.switch_session_handler = actions.switch_session;
         state.reload_handler = actions.reload;
         state.restart_fn = actions.restart;
+    }
+
+    pub fn set_sandbox_profile(
+        &self,
+        profile: Option<SandboxProfileName>,
+        scope: SandboxProfileScope,
+    ) -> Result<(), HandlerError> {
+        self.create_command_context().set_sandbox_profile(profile, scope)
     }
 
     /// Update the working directory reported by live contexts.

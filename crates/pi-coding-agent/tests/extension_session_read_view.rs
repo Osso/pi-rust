@@ -8,6 +8,59 @@ use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lo
 use pi_js_compat::js_json;
 
 #[tokio::test]
+async fn command_sandbox_setter_uses_constructor_settings_without_command_binding_like_frozen() {
+    use pi_coding_agent::core::{
+        permissions::presets::{SandboxProfileName, SandboxProfileScope},
+        settings_manager::SettingsManager,
+    };
+    use std::sync::{Arc, Mutex};
+    pi_coding_agent::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "extensions-boundary-oracle.ts",
+        "packages/coding-agent/src/core/extensions/runner.ts",
+    );
+    let expected = oracle.request(&js_json!({"id":3,"operation":"sandbox","actions":[{"profile":"full-access","scope":"global"},{"scope":"global"},{"profile":"workspace-write","scope":"session"},{"profile":"read-only","scope":"global","reset":true}]}));
+    let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
+        Default::default(),
+        Default::default(),
+    )));
+    let mut runner = ExtensionRunner::new(
+        Vec::new(),
+        support::runtime(),
+        "/tmp",
+        support::session_manager("/tmp"),
+        support::model_registry().await,
+        Some(Arc::clone(&settings)),
+    );
+    let mut results = Vec::new();
+    for (profile, scope, reset) in [
+        (Some(SandboxProfileName::FullAccess), SandboxProfileScope::Global, false),
+        (None, SandboxProfileScope::Global, false),
+        (
+            Some(SandboxProfileName::WorkspaceWrite),
+            SandboxProfileScope::Session,
+            false,
+        ),
+        (Some(SandboxProfileName::ReadOnly), SandboxProfileScope::Global, true),
+    ] {
+        if reset {
+            runner.bind_command_context(None);
+        }
+        results.push(
+            runner
+                .create_command_context()
+                .set_sandbox_profile(profile, scope)
+                .err()
+                .map(|error| error.message),
+        );
+    }
+    assert_eq!(
+        js_json!({"id":3,"output":{"results":results,"profile":settings.lock().unwrap().get_explicit_sandbox_profile()}}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn context_model_captures_the_bound_getter_but_reads_its_current_value_like_frozen() {
     use pi_ai::types::Model;
     use pi_coding_agent::core::extensions::types::ExtensionContextActions;

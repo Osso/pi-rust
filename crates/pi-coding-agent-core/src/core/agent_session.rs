@@ -5893,49 +5893,9 @@ impl AgentSession {
         profile: Option<SandboxProfileName>,
         scope: SandboxProfileScope,
     ) -> Result<(), AgentSessionError> {
-        if scope == SandboxProfileScope::Session {
-            let persisted = self.session_manager().set_session_sandbox_profile(profile)?;
-            if !persisted {
-                return Err(error("Session sandbox profiles require a persisted session"));
-            }
-            self.settings_manager().set_session_sandbox_profile(profile);
-        } else {
-            let Some(profile) = profile else {
-                return Err(error("Only session sandbox profiles can inherit configured settings"));
-            };
-            let settings_scope = match scope {
-                SandboxProfileScope::Global => SettingsScope::Global,
-                SandboxProfileScope::Project => SettingsScope::Project,
-                SandboxProfileScope::Session => unreachable!(),
-            };
-            self.settings_manager()
-                .set_sandbox_profile(profile, settings_scope)
-                .map_err(|failure| error(failure.message().clone()))?;
-        }
-
-        let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
-        let full_access = effective_profile.is_none() || effective_profile == Some(SandboxProfileName::FullAccess);
-        let status_text = if full_access {
-            "bwrap: full access".to_owned()
-        } else {
-            format!("bwrap: {}", effective_profile.expect("checked above").as_str())
-        };
-        let ui = lock(&self.inner.extension_ui_context)
-            .clone()
-            .unwrap_or_else(|| Arc::new(NoOpUiContext));
-        let color = if full_access {
-            ThemeColor::Muted
-        } else {
-            ThemeColor::Accent
-        };
-        let theme = crate::modes::interactive::theme::try_current_theme()
-            .map_err(|theme_error| error(theme_error.message()))?;
-        let styled = theme.fg(color, &status_text);
-        ui.set_status(
-            &"bwrap".into(),
-            Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
-        )?;
-        Ok(())
+        self.extension_runner()
+            .set_sandbox_profile(profile, scope)
+            .map_err(|error| AgentSessionError::from(pi_ai::request::CallbackError::from(error)))
     }
 
     pub fn auth_storage(&self) -> &crate::core::auth_storage::AuthStorage {

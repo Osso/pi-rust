@@ -7123,14 +7123,6 @@ impl InteractiveMode {
                     Ok(())
                 })
             },
-            set_sandbox_profile: {
-                let session = session.clone();
-                Arc::new(move |profile, scope| {
-                    session
-                        .set_sandbox_profile(profile, scope)
-                        .map_err(|error| HandlerError::new(error.to_string()))
-                })
-            },
             wait_for_idle: {
                 let session = session.clone();
                 Arc::new(move || {

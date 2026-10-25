@@ -76,9 +76,7 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
 
 ## Gaps
 
-- None. `setSandboxProfile` is bound through
-  `ExtensionCommandContextActions::set_sandbox_profile` (the session persists it
-  and updates the bwrap status); `relocate`/`relocateAfterToolResult` are
+- None. `setSandboxProfile` uses constructor-provided settings/session state directly and updates the current UI's bwrap status; `relocate`/`relocateAfterToolResult` are
   callbacks with the source default errors; `getDetachedJobLifecycle` is bound
   through `ExtensionRunner::bind_detached_job_lifecycle`.
 
@@ -101,6 +99,12 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
   `null` replacement means the scenario proves chaining and null replacement,
   not no-return mutation.
 - `emitInput` compares images by value, not reference.
+
+## Sandbox setter audit (2026-10-25)
+
+Frozen runner.ts:949–973 owns the sandbox setter independently of command-action binding. Native had incorrectly put the algorithm on AgentSession behind a native-only command-action callback. Moved the existing persistence/status algorithm into the runner/context authority; AgentSession delegates there. Removed the native-only callback field and its mechanical host/fixture initializers. Uses the current UI theme, source scope errors and unsupported-platform status; resets of command bindings do not remove settings capability. Runner instance identity and background-event variants are untouched.
+
+Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/ext-api2-sandbox-red.log`: all native calls incorrectly reported missing settings. GREEN pending. [Contract](../../specs/extension-sandbox-profile.md).
 
 ## Frozen context/error audit (2026-10-25)
 

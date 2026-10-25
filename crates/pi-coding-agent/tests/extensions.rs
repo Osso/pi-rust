@@ -1352,7 +1352,6 @@ async fn command_context_passes_fork_options_through() {
     runner.bind_command_context(Some(ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
-        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(move |entry_id, options| {
