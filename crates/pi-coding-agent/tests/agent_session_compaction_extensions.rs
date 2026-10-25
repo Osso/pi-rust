@@ -127,6 +127,22 @@ fn seed_compactable_session(manager: &mut SessionManager) {
             faux_assistant_message("assistant response to compact", FauxAssistantMessageOptions::default()),
         )))
         .expect("older assistant message");
+    for index in 0..4 {
+        manager
+            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+                role: pi_ai::UserRole::Tag,
+                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
+                input_source: None,
+                provider_native: None,
+                timestamp: f64::from(index + 1),
+            }))
+            .expect("newer user");
+    }
+    manager
+        .append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(
+            faux_assistant_message("latest answer", Default::default()),
+        )))
+        .expect("latest answer");
 }
 
 fn append_usage_anchor(session: &AgentSession, tokens: f64) -> pi_ai::AssistantMessage {
@@ -510,24 +526,6 @@ async fn manual_compaction_preflight_only_cancels_and_forwards_custom_instructio
     )
     .await;
 
-    for index in 0..4 {
-        env.session
-            .session_manager()
-            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
-                role: pi_ai::UserRole::Tag,
-                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
-                input_source: None,
-                provider_native: None,
-                timestamp: f64::from(index + 1),
-            }))
-            .expect("newer user");
-    }
-    env.session
-        .session_manager()
-        .append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(
-            faux_assistant_message("latest answer", Default::default()),
-        )))
-        .expect("latest answer");
     let mut oracle =
         callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
     let expected = oracle.request(&json!({
@@ -644,18 +642,6 @@ async fn overflow_recovery_resets_when_the_next_user_request_starts_like_frozen(
     )
     .await;
     env.session.set_auto_retry_enabled(false);
-    for index in 0..4 {
-        env.session
-            .session_manager()
-            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
-                role: pi_ai::UserRole::Tag,
-                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
-                input_source: None,
-                provider_native: None,
-                timestamp: f64::from(index + 1),
-            }))
-            .expect("newer user");
-    }
     env.faux.set_responses(
         [
             "maximum context length exceeded",
