@@ -245,15 +245,16 @@ fn discover_extensions_in_dir(dir: &JsString) -> Vec<JsString> {
     let Ok(entries) = std::fs::read_dir(encode_node_utf8(dir)) else {
         return Vec::new();
     };
+    let Ok(mut entries) = entries.collect::<Result<Vec<_>, _>>() else {
+        return Vec::new();
+    };
+    entries.sort_by(|left, right| {
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
+    });
     let mut discovered = Vec::new();
     for entry in entries {
-        let entry = match entry {
-            Ok(entry) => entry,
-            Err(error) => {
-                eprintln!("Could not read extension directory entry: {error}");
-                continue;
-            }
-        };
         // readdir returns UTF-8-decoded names; retain the original directory's units.
         let entry_name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         let entry_path = node_join(dir, &entry_name);

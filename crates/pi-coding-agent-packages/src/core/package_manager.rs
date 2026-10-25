@@ -653,7 +653,13 @@ fn read_dir_entries(dir: &JsString) -> Vec<std::fs::DirEntry> {
     let Ok(entries) = std::fs::read_dir(encode_node_utf8(dir)) else {
         return Vec::new();
     };
-    entries.filter_map(Result::ok).collect()
+    let mut entries: Vec<_> = entries.filter_map(Result::ok).collect();
+    entries.sort_by(|left, right| {
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
+    });
+    entries
 }
 
 /// Reads a visible directory entry, skipping dotfiles, `node_modules`, and

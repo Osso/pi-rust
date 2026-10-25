@@ -67,6 +67,53 @@ async fn loader_resolves_relative_entries_and_manifest_absolute_paths_like_froze
 }
 
 #[tokio::test]
+async fn discovery_factory_order_matches_frozen_raw_directory_name_order() {
+    use serde_json::json;
+    let root = tempfile::tempdir().unwrap();
+    let cwd = root.path().join("project");
+    let extensions = cwd.join(".pi/extensions");
+    let agent = root.path().join("agent");
+    std::fs::create_dir_all(&extensions).unwrap();
+    let mut registry = ExtensionRegistry::new();
+    for name in ["z.ts", "𐀀.ts", "é.ts", "a.ts", "\u{e000}.ts"] {
+        let path = extensions.join(name);
+        std::fs::write(&path, "export default () => {};\n").unwrap();
+        registry.register(
+            path.to_str().unwrap(),
+            std::sync::Arc::new(|_| Box::pin(async { Ok(()) })),
+        );
+    }
+    let mut oracle = oracle::TsOracle::spawn(
+        "extensions-loader-oracle.ts",
+        "packages/coding-agent/src/core/extensions/loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":6,"discover":true,"paths":[],"cwd":cwd,"agentDir":agent}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let actual = registry
+        .discover_and_load_extensions(
+            &[],
+            &cwd.to_str().unwrap().into(),
+            &agent.to_str().unwrap().into(),
+            None,
+            &[],
+        )
+        .await
+        .unwrap();
+    let actual = actual
+        .extensions
+        .iter()
+        .map(|extension| extension.read().path.clone())
+        .collect::<Vec<_>>();
+    let expected = expected["extensions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|extension| extension["path"].clone())
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), json!(expected));
+}
+
+#[tokio::test]
 async fn loader_path_errors_propagate_instead_of_loading_an_unresolved_path() {
     use serde_json::json;
     let mut oracle = oracle::TsOracle::spawn(
