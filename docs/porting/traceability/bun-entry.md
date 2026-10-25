@@ -1,40 +1,14 @@
-# bun/ entry shims traceability
+# bun/ entry shims
 
-Sources (pinned revision in `docs/porting/source-lock.json`):
+Frozen common pin `4f9e6f8a4`; whole `packages/coding-agent/src/bun/cli.ts` (12lines) and imported registration shim re-read. Native: `src/bun/{cli,register_bedrock}.rs`.
 
-- `packages/coding-agent/src/bun/cli.ts` (15 lines) → `crates/pi-coding-agent/src/bun/cli.rs`
-- `packages/coding-agent/src/bun/register-bedrock.ts` (4 lines) →
-  `crates/pi-coding-agent/src/bun/register_bedrock.rs`
-- `packages/coding-agent/src/bun/restore-sandbox-env.ts` (36 lines) → not ported (gap)
+| Frozen step | Native / proof |
+| --- | --- |
+| Set process title and suppress Node warnings | Shared CLI runtime boundaries; no extra Bun environment mutation |
+| `restoreSandboxEnv()` | Gap: Bun-only sandbox environment repair, explicitly approved in AGENTS.md; Rust is not a Bun-compiled executable. |
+| Import register-bedrock.ts then cli.ts | `register_bedrock()` before `run_cli_entry`; standalone bun_entry tests prove internal-runner short-circuit and exact argument/main handoff |
+| `setBedrockProviderModule(bedrockProviderModule)` | Real lazy API request after the entrypoint replaces a marker module returns exact scripted Bedrock text; no live request |
 
-## register-bedrock.ts
+The old trace's registerBunOAuthFlows step does not exist in this pin and is retired; native code already has no such call. The entry shim is ported, not marked wholesale as a Bun gap. Tests are standalone because the Bedrock override is process-global; a local mutex protects their shared override.
 
-| TS step | Rust | Tests |
-| --- | --- | --- |
-| `setBedrockProviderModule(bedrockProviderModule)` | `register_bedrock()` (`Arc::new(bedrock_provider_module())`) | `register_bedrock_is_idempotent` |
-
-The override slot and `bedrock_converse_stream_api()` are covered by `pi-ai`'s
-`bedrock_provider` tests; this shim only wires the bundled module in.
-
-## bun/cli.ts
-
-| TS step | Rust | Tests |
-| --- | --- | --- |
-| `registerBunOAuthFlows()` | `pi_ai::bun_oauth::register_bun_oauth_flows()` | `bun_cli_entry_registers_and_hands_off_to_the_cli` (runs before the runner gate) |
-| `restoreSandboxEnv()` | not ported (gap) | — |
-| `await import("./register-bedrock.ts")` | `register_bedrock()` | `register_bedrock_is_idempotent` |
-| `await import("../cli.ts")` | `run_cli_entry(...)` | `bun_cli_entry_registers_and_hands_off_to_the_cli`, `bun_cli_entry_runs_main_when_no_internal_runner_matches` |
-| `process.title` / `process.emitWarning` | see `cli-entry.md` | — |
-
-## Gaps
-
-- **`restoreSandboxEnv()`** — repairs oven-sh/bun#27802 (empty `process.env` inside sandboxes
-  under Bun compiled binaries). Rust binaries do not run under Bun, and edition 2024 forbids a
-  safe `set_var`, so there is no equivalent work to perform. The existing coverage row for
-  `bun/restore-sandbox-env.ts` stays `gap`.
-- **`process.title` / `process.emitWarning`** — same deviations as `cli.ts` (see
-  `cli-entry.md`).
-
-## Proof
-
-`cargo test -p pi-coding-agent --test bun_entry` (3 tests).
+Focused native proof follows the commit in `/tmp/settings-models-proof-ledger.md`. Process-title/Node-warning runtime differences remain in CLI traceability, not a new duplicate contract.

@@ -19,3 +19,5 @@ RED `/tmp/settings-models-resolver-red.log`: restore success went to stderr inst
 `findInitialModel` returns a native Error instead of directly terminating the embedding process; the CLI owns error reporting/termination. Owned model returns and opaque scalar provider/id boundaries retain the common approvals. Pathological input/runtime/stack-format oddities are outside the parity bar; no new carrier or fallback behavior is introduced.
 
 Focused GREEN and warning-mode clippy are recorded after the implementation commit in `/tmp/settings-models-proof-ledger.md`.
+
+Current lane GREEN: 11 actual-source groups (24 restore/color process vectors), /tmp/settings-models-resolver-green.log;41 native cases, /tmp/settings-models-resolver-native.log. Targeted warning-mode clippy passes (`/tmp/settings-models-oauth-order-clippy.log`); no warnings on changed lines. Manual changed Rust/TS readability audit found no in-scope violations.

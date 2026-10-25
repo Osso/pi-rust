@@ -26,8 +26,6 @@ pub mod auth_phase1_public;
 pub mod auth_source_discrepancy;
 #[path = "branch_summarization.rs"]
 pub mod branch_summarization;
-#[path = "bun_entry.rs"]
-pub mod bun_entry;
 #[path = "chalk.rs"]
 pub mod chalk;
 #[path = "child_process.rs"]

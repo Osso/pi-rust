@@ -12,7 +12,7 @@ Frozen `packages/ai/src/auth/types.ts:8–182` defines request credentials and a
 
 ### Values and failures
 
-- [ ] Retain OAuth credential property order across typed updates, including interleaved known/extra keys; provider construction order survives AuthStorage persistence.
+- [x] Retain OAuth credential property order across typed updates, including interleaved known/extra keys; provider construction order survives AuthStorage persistence.
 
 - [x] Preserve native UTF-16 auth names, credentials, event text and callback values; expose only auth_url/device_code/progress event shapes and the four frozen prompt kinds.
 - [x] Carry context env/file-existence rejections, notify throws and credential modifier failures through the shared native error carrier, without stringifying or silently discarding the reason.
