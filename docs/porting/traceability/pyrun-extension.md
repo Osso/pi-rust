@@ -224,3 +224,11 @@ Original failed/aborted evidence: `/tmp/bundled3-pyrun-integration.log`,
 `/tmp/bundled3-pyrun-process-integration.log`; spawned test groups were cancelled
 and verified exited before proceeding. Workspace all-target check is GREEN after
 the parent API merge (`/tmp/bundled3-workspace-check.log`).
+
+Runner-options persistence follow-up: source resolved full-access options contain
+only args/command/env. Native serialization previously added unset detached and
+inheritEnv as null. Optional runner properties are now omitted, matching the actual
+frozen resolver (`pyrun_resolved_runner_options_persist_without_unset_properties_like_frozen`,
+RED/GREEN `/tmp/bundled3-pyrun-options-{red,green}.log`). Existing fully specified
+manifest fixtures are unchanged. Workspace all-target check passed on this source
+scope: `/tmp/bundled3-workspace-check2.log`.
