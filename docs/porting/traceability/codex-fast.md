@@ -27,6 +27,10 @@ Common pin: `4f9e6f8a4`. Source: `packages/coding-agent/extensions/codex-fast/sr
 - Settings are read through `SettingsManager::get_merged_settings` (the Rust
   equivalent of `getMergedSettings`).
 
+## Baseline display re-pin (2026-10-25)
+
+Unsupported-provider warning now uses exact frozen "Fast mode requires a Codex provider"; existing differential RED was only that message.
+
 ## Re-pin proof ledger
 
 - RED: `/tmp/bundled-fast-red.log` shows frozen handler mismatch (team-provider and warning text); `/tmp/bundled-fast-status-red.log` shows missing off-state callback.

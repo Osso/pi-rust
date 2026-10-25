@@ -70,7 +70,7 @@ fn update_conflicts_are_reported_once() {
     assert_eq!(
         options.conflicting_options.as_ref(),
         Some(&JsString::from(
-            "--all cannot be combined with --self, --extensions, --models, or --extension"
+            "--all cannot be combined with --self, --extensions, or --extension"
         ))
     );
     let options = parse_package_command(&args(&["update", "--extension", "a", "--extension", "b"])).unwrap();
@@ -114,7 +114,26 @@ fn valid_commands_return_actions() {
         })
     );
     let outcome = handle_config_command(&args(&["config", "-l"])).unwrap();
-    assert_eq!(outcome.action, Some(PackageAction::Config { local: true }));
+    assert_eq!(outcome.action, Some(PackageAction::Config));
+}
+
+#[test]
+fn config_ignores_non_trust_arguments_and_keeps_last_trust_override() {
+    let outcome = handle_config_command(&args(&[
+        "config",
+        "--help",
+        "--bogus",
+        "extra",
+        "-l",
+        "--approve",
+        "--no-approve",
+    ]))
+    .unwrap();
+    assert_eq!(outcome.action, Some(PackageAction::Config));
+    assert_eq!(outcome.project_trust_override, Some(false));
+    assert_eq!(outcome.exit_code, None);
+    assert_eq!(outcome.stdout, Vec::<JsString>::new());
+    assert_eq!(outcome.stderr, Vec::<JsString>::new());
 }
 
 #[test]
