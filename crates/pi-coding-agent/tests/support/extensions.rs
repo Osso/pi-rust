@@ -39,7 +39,7 @@ pub fn actions() -> ExtensionActions {
         send_message: Arc::new(|_, _| Ok(())),
         send_user_message: Arc::new(|_, _| Ok(())),
         append_entry: Arc::new(|_, _| Ok(())),
-        request_resume_continuation: Arc::new(|| {}),
+        request_resume_continuation: Arc::new(|| Ok(())),
         set_session_name: Arc::new(|_| Ok(())),
         get_session_name: Arc::new(|| Ok(None)),
         set_label: Arc::new(|_, _| Ok(())),

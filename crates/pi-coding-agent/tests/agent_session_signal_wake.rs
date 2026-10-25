@@ -41,7 +41,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
         provider: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
-            name: Some("Faux Model".to_owned()),
+            name: Some("Faux Model".into()),
             reasoning: Some(true),
             input: None,
             cost: None,

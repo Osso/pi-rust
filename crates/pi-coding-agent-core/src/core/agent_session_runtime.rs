@@ -7,21 +7,22 @@ use pi_ai::types::Model;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use crate::core::agent_session::{AgentSession, WorkingDirectoryRecoveryHandlers};
-use crate::core::agent_session_services::{
-    AgentSessionRuntimeDiagnostic, AgentSessionServices, create_agent_session_from_services,
-    create_agent_session_services,
+pub use crate::core::agent_session_services::{
+    AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionFromServicesOptions,
+    CreateAgentSessionServicesOptions, create_agent_session_from_services, create_agent_session_services,
 };
 use crate::core::extensions::emit_session_shutdown_event;
 use crate::core::extensions::runner::EmitResult;
 use crate::core::extensions::types::HandlerError;
 use crate::core::extensions::types::{
     ExtensionEvent, ForkPosition as ExtensionForkPosition, ProjectTrustContext, SessionBeforeForkEvent,
-    SessionBeforeSwitchEvent, SessionShutdownEvent, SessionShutdownReason, SessionSwitchReason,
+    SessionBeforeSwitchEvent, SessionShutdownEvent, SessionShutdownReason, SessionStartEvent, SessionStartReason,
+    SessionSwitchReason,
 };
 use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
 use crate::core::session_cwd::{assert_session_cwd_exists, find_nearest_existing_cwd};
-use crate::core::session_errors::SessionImportFileNotFoundError;
+pub use crate::core::session_errors::SessionImportFileNotFoundError;
 use crate::core::session_manager::{SessionManager, SharedSessionManager};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
@@ -40,8 +41,7 @@ pub struct CreateAgentSessionRuntimeOptions {
     pub cwd: JsString,
     pub agent_dir: JsString,
     pub session_manager: SessionManager,
-    pub session_start_reason: String,
-    pub previous_session_file: Option<JsString>,
+    pub session_start_event: Option<SessionStartEvent>,
 }
 
 /// Runtime factory reused for `/new`, `/resume`, `/fork`, and imports.
@@ -552,7 +552,7 @@ impl AgentSessionRuntime {
         &self,
         cwd: &JsString,
         session_manager: SessionManager,
-        reason: &str,
+        reason: SessionStartReason,
         previous_session_file: Option<JsString>,
         project_trust_context: Option<ProjectTrustContext>,
     ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
@@ -562,8 +562,10 @@ impl AgentSessionRuntime {
             cwd: cwd.to_owned(),
             agent_dir: self.services().agent_dir.clone(),
             session_manager,
-            session_start_reason: reason.to_owned(),
-            previous_session_file,
+            session_start_event: Some(SessionStartEvent {
+                reason,
+                previous_session_file,
+            }),
         })
         .await
     }
@@ -605,7 +607,13 @@ impl AgentSessionRuntime {
             .map(|factory| factory(&cwd))
             .transpose()?;
         let result = self
-            .create_runtime(&cwd, session_manager, "resume", previous_session_file, context)
+            .create_runtime(
+                &cwd,
+                session_manager,
+                SessionStartReason::Resume,
+                previous_session_file,
+                context,
+            )
             .await?;
         self.apply(result);
         self.finish_session_replacement(options.with_session).await?;
@@ -678,7 +686,7 @@ impl AgentSessionRuntime {
             .create_runtime(
                 &cwd,
                 prepared.session_manager,
-                "resume",
+                SessionStartReason::Resume,
                 prepared.previous_session_file,
                 prepared.project_trust_context,
             )
@@ -802,7 +810,13 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::Restart, current_session_file)
             .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "restart", previous_session_file, None)
+            .create_runtime(
+                &cwd,
+                session_manager,
+                SessionStartReason::Restart,
+                previous_session_file,
+                None,
+            )
             .await?;
         self.apply(result);
         self.finish_session_replacement(None).await?;
@@ -846,7 +860,13 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::New, session_manager.get_session_file().cloned())
             .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "new", previous_session_file, None)
+            .create_runtime(
+                &cwd,
+                session_manager,
+                SessionStartReason::New,
+                previous_session_file,
+                None,
+            )
             .await?;
         self.apply(result);
         if let Some(setup) = options.setup {
@@ -873,7 +893,13 @@ impl AgentSessionRuntime {
         self.teardown_current(SessionShutdownReason::Fork, session_manager.get_session_file().cloned())
             .await?;
         let result = self
-            .create_runtime(cwd, session_manager, "fork", previous_session_file, None)
+            .create_runtime(
+                cwd,
+                session_manager,
+                SessionStartReason::Fork,
+                previous_session_file,
+                None,
+            )
             .await?;
         self.apply(result);
         self.finish_session_replacement(with_session).await?;
@@ -1047,7 +1073,13 @@ impl AgentSessionRuntime {
         )
         .await?;
         let result = self
-            .create_runtime(&cwd, session_manager, "resume", previous_session_file, None)
+            .create_runtime(
+                &cwd,
+                session_manager,
+                SessionStartReason::Resume,
+                previous_session_file,
+                None,
+            )
             .await?;
         self.apply(result);
         self.finish_session_replacement(None).await?;
@@ -1236,6 +1268,7 @@ pub async fn create_agent_session_runtime(
     agent_dir: &JsString,
     session_manager: SessionManager,
     no_supervisor: Option<bool>,
+    session_start_event: Option<SessionStartEvent>,
 ) -> Result<AgentSessionRuntime, CallbackError> {
     if no_supervisor == Some(true) && session_manager.is_persisted() {
         return Err("Standalone worker requires an in-memory session".into());
@@ -1257,8 +1290,7 @@ pub async fn create_agent_session_runtime(
         cwd: cwd.to_owned(),
         agent_dir: agent_dir.to_owned(),
         session_manager,
-        session_start_reason: "startup".to_owned(),
-        previous_session_file: None,
+        session_start_event,
     })
     .await?;
     Ok(AgentSessionRuntime::new(
@@ -1314,7 +1346,7 @@ pub fn default_runtime_factory(options: DefaultRuntimeFactoryOptions) -> CreateA
                     base_tools: options.base_tools.clone(),
                     multi_agent_store: None,
                     on_shared_channel_message_delivered: None,
-                    session_start_event: None,
+                    session_start_event: request.session_start_event,
                 },
             )
             .await?;

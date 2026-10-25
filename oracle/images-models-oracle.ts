@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 type Request = {
 	id: number;
+	reject?: boolean;
 	operation: "read" | "generate" | "unknown";
 	auth?: {
 		apiKey?: string;
@@ -19,14 +20,21 @@ type Request = {
 };
 
 type AuthResultShape = {
-	auth: { apiKey?: string; headers?: Record<string, string | null>; baseUrl?: string };
+	auth: {
+		apiKey?: string;
+		headers?: Record<string, string | null>;
+		baseUrl?: string;
+	};
 	env?: Record<string, string>;
 	source?: string;
 };
 
 type ImagesModelsApi = {
 	createImagesModels(options: {
-		authContext: { env(name: string): Promise<string | undefined>; fileExists(path: string): Promise<boolean> };
+		authContext: {
+			env(name: string): Promise<string | undefined>;
+			fileExists(path: string): Promise<boolean>;
+		};
 	}): {
 		setProvider(provider: unknown): void;
 		getProviders(): Array<{ id: string }>;
@@ -42,7 +50,13 @@ type ImagesModelsApi = {
 		id: string;
 		auth: unknown;
 		models: unknown[];
-		api: { generateImages(model: unknown, context: unknown, options?: Record<string, unknown>): Promise<unknown> };
+		api: {
+			generateImages(
+				model: unknown,
+				context: unknown,
+				options?: Record<string, unknown>,
+			): Promise<unknown>;
+		};
 	}): unknown;
 };
 
@@ -60,7 +74,8 @@ function testModel(provider: string, id: string) {
 }
 
 function normalizeError(error: unknown): { name: string; message: string } {
-	if (error instanceof Error) return { name: error.name, message: error.message };
+	if (error instanceof Error)
+		return { name: error.name, message: error.message };
 	return { name: "UnknownError", message: String(error) };
 }
 
@@ -82,9 +97,15 @@ async function execute(request: Request, api: ImagesModelsApi) {
 						auth
 							? ({
 									auth: {
-										...(auth.apiKey === undefined ? {} : { apiKey: auth.apiKey }),
-										...(auth.headers === undefined ? {} : { headers: auth.headers }),
-										...(auth.baseUrl === undefined ? {} : { baseUrl: auth.baseUrl }),
+										...(auth.apiKey === undefined
+											? {}
+											: { apiKey: auth.apiKey }),
+										...(auth.headers === undefined
+											? {}
+											: { headers: auth.headers }),
+										...(auth.baseUrl === undefined
+											? {}
+											: { baseUrl: auth.baseUrl }),
 									},
 									...(auth.env === undefined ? {} : { env: auth.env }),
 								} satisfies AuthResultShape)
@@ -94,12 +115,15 @@ async function execute(request: Request, api: ImagesModelsApi) {
 			models: [testModel("p1", "m1"), testModel("p1", "m2")],
 			api: {
 				generateImages: async (model, _context, options) => {
+					if (request.reject) throw new TypeError("image request failed");
 					const typedModel = model as { id: string; baseUrl: string };
 					calls.push({
 						modelId: typedModel.id,
 						baseUrl: typedModel.baseUrl,
-						apiKey: (options as { apiKey?: string } | undefined)?.apiKey ?? null,
-						headers: (options as { headers?: unknown } | undefined)?.headers ?? null,
+						apiKey:
+							(options as { apiKey?: string } | undefined)?.apiKey ?? null,
+						headers:
+							(options as { headers?: unknown } | undefined)?.headers ?? null,
 						env: (options as { env?: unknown } | undefined)?.env ?? null,
 					});
 					return {
@@ -132,11 +156,16 @@ async function execute(request: Request, api: ImagesModelsApi) {
 		}
 
 		if (request.operation === "unknown") {
-			const result = await models.generateImages(testModel("ghost", "m"), { input: [] });
+			const result = await models.generateImages(testModel("ghost", "m"), {
+				input: [],
+			});
 			return {
 				id: request.id,
 				ok: true,
-				output: { stopReason: result.stopReason, errorMessage: result.errorMessage ?? null },
+				output: {
+					stopReason: result.stopReason,
+					errorMessage: result.errorMessage ?? null,
+				},
 			};
 		}
 
@@ -174,12 +203,15 @@ function serve(api: ImagesModelsApi): void {
 
 async function main(): Promise<void> {
 	const modulePath = process.argv[2];
-	if (modulePath === undefined) throw new Error("images models oracle requires a source module path");
+	if (modulePath === undefined)
+		throw new Error("images models oracle requires a source module path");
 	const api = (await import(pathToFileURL(modulePath).href)) as ImagesModelsApi;
 	serve(api);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`images models oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`images models oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });

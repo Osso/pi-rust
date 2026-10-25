@@ -1,14 +1,17 @@
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+
 type StoreApi =
 	typeof import("@pi-oracle-source/coding-agent/src/core/multi-agent-store.ts");
 const { MultiAgentStore }: StoreApi = await import(
 	pathToFileURL(process.argv[2]).href
 );
+
 import type {
-	AgentSnapshot as Snapshot,
 	AgentMailboxMessage as Message,
+	AgentSnapshot as Snapshot,
 } from "@pi-oracle-source/coding-agent/src/core/multi-agent-store.ts";
+
 for await (const line of createInterface({ input: process.stdin })) {
 	const request: {
 		id: number;

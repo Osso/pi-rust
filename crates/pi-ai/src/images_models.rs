@@ -53,7 +53,7 @@ pub trait ImagesModels: Send + Sync {
         model: ImagesModel,
         context: ImagesContext,
         options: ImagesOptions,
-    ) -> BoxFuture<'static, AssistantImages>;
+    ) -> BoxFuture<'static, Result<AssistantImages, CallbackError>>;
 }
 
 pub trait MutableImagesModels: ImagesModels {
@@ -144,13 +144,9 @@ impl ImagesModels for ImagesModelsCollection {
                     let Some(refresh) = provider.refresh_models() else {
                         return Ok(());
                     };
-                    refresh.await.map_err(|error| {
-                        ModelsError::with_cause(
-                            ModelsErrorCode::ModelSource,
-                            format!("Model refresh failed for {id}"),
-                            Some(Box::new(error.thrown_value())),
-                        )
-                    })
+                    refresh
+                        .await
+                        .map_err(|error| crate::models::wrap_refresh_error(&id, error))
                 })
             }
             None => {
@@ -189,23 +185,27 @@ impl ImagesModels for ImagesModelsCollection {
         model: ImagesModel,
         context: ImagesContext,
         options: ImagesOptions,
-    ) -> BoxFuture<'static, AssistantImages> {
+    ) -> BoxFuture<'static, Result<AssistantImages, CallbackError>> {
         let provider = self.inner.provider(&model.provider);
         let credentials = Arc::clone(&self.inner.credentials);
         let auth_context = Arc::clone(&self.inner.auth_context);
         Box::pin(async move {
             let Some(provider) = provider else {
-                return unknown_provider_result(&model);
+                return Ok(unknown_provider_result(&model));
             };
             let resolution = resolve_auth_for_request(&provider, &model, credentials, auth_context, &options).await;
             let resolution = match resolution {
                 Ok(resolution) => resolution,
-                Err(error) => return error_result(&model, error.message),
+                Err(error) => return Ok(error_result(&model, error.message)),
             };
+            if resolution.is_none() {
+                // Frozen returns this promise without awaiting inside its try/catch.
+                return provider.generate_images(model, context, options).await;
+            }
             let (request_model, request_options) = request_with_resolution(&model, &options, resolution);
             match provider.generate_images(request_model, context, request_options).await {
-                Ok(result) => result,
-                Err(error) => error_result(&model, error.message),
+                Ok(result) => Ok(result),
+                Err(error) => Ok(error_result(&model, error.error_or_string_message()?)),
             }
         })
     }
@@ -292,7 +292,7 @@ async fn refresh_all(providers: Vec<Arc<dyn ImagesProvider>>) {
 
 fn apply_resolution(request_model: &mut ImagesModel, request_options: &mut ImagesOptions, resolution: AuthResult) {
     let AuthResult { auth, env, .. } = resolution;
-    if let Some(base_url) = auth.base_url {
+    if let Some(base_url) = auth.base_url.filter(|url| !url.is_empty()) {
         request_model.base_url = base_url;
     }
     request_options.request.api_key = request_options.request.api_key.clone().or(auth.api_key);

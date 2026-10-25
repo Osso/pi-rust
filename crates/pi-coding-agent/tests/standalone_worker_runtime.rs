@@ -23,7 +23,7 @@ async fn standalone_runtime_rejects_resume_and_import_before_path_or_factory_wor
         base_tools: vec![],
     });
     let manager = SessionManager::in_memory(Some(&cwd), None).unwrap();
-    let runtime = create_agent_session_runtime(factory, &cwd, &cwd, manager, Some(true))
+    let runtime = create_agent_session_runtime(factory, &cwd, &cwd, manager, Some(true), None)
         .await
         .unwrap();
     assert!(runtime.session().no_supervisor());
@@ -45,7 +45,7 @@ async fn standalone_runtime_rejects_persisted_manager_before_cwd_or_factory_work
     let manager = SessionManager::create(&cwd, Some(&cwd), None).unwrap();
     let factory: CreateAgentSessionRuntimeFactory =
         std::sync::Arc::new(|_| Box::pin(async { panic!("standalone guard must precede factory") }));
-    let error = create_agent_session_runtime(factory, &"/missing-cwd".into(), &cwd, manager, Some(true))
+    let error = create_agent_session_runtime(factory, &"/missing-cwd".into(), &cwd, manager, Some(true), None)
         .await
         .err()
         .unwrap();

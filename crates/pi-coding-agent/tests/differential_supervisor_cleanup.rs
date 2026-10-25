@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::oracle;
 use pi_ai::{request::BoxFuture, session_resources::register_session_resource_cleanup};
 use pi_coding_agent::{
     core::{

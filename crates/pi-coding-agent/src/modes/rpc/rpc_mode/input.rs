@@ -108,12 +108,12 @@ fn core_images(
     command: &JsValue,
     field: &str,
     falsey_is_empty: bool,
-) -> Result<Vec<pi_ai::types::ImageContent>, CallbackError> {
+) -> Result<Option<Vec<pi_ai::types::ImageContent>>, CallbackError> {
     if falsey_is_empty && command.get("images").is_none_or(|value| !js_json::is_truthy(value)) {
-        return Ok(Vec::new());
+        return Ok(None);
     }
     let Some(value) = command.get("images") else {
-        return Ok(Vec::new());
+        return Ok(None);
     };
     let images = value
         .as_array()
@@ -122,7 +122,8 @@ fn core_images(
         .iter()
         .enumerate()
         .map(|(index, image)| decode_core_image(image, &format!("{field}[{index}]")))
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
+        .map(Some)
 }
 
 fn decode_core_image(value: &JsValue, field: &str) -> Result<pi_ai::types::ImageContent, CallbackError> {
@@ -219,10 +220,11 @@ async fn dispatch_prompting(
             let field = format!("{tag}.message");
             let message: JsString = core_field(command, "message", &field, "a string")?;
             let images = core_images(command, &format!("{tag}.images"), true)?;
+            let images = images.as_deref().unwrap_or_default();
             if tag == "steer" {
-                session.steer(&message, &images).await?;
+                session.steer(&message, images).await?;
             } else {
-                session.follow_up(&message, &images).await?;
+                session.follow_up(&message, images).await?;
             }
         }
         "abort" => session.abort().await?,

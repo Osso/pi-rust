@@ -4,9 +4,92 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use pi_ai::auth::oauth::device_code::{
-    OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
 };
+use pi_ai::request::CallbackError;
 use pi_js_compat::abort::AbortSignal;
+
+#[tokio::test(start_paused = true)]
+async fn device_poll_preserves_a_rejected_callback() {
+    use pi_ai::request::CallbackError;
+    let error: CallbackError = pi_js_compat::node_error::NativeNodeError::new("TypeError", "fetch failed").into();
+    let failure = error.clone();
+    let result =
+        poll_oauth_device_code_flow::<(), _, _>(options(None, None), move || std::future::ready(Err(failure.clone())))
+            .await;
+    assert_eq!(result.unwrap_err(), error);
+}
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[tokio::test(start_paused = true)]
+async fn device_poll_schedules_and_outcomes_match_frozen() {
+    use serde_json::{Value, json};
+    use std::sync::Mutex;
+    let mut oracle = oracle::TsOracle::spawn("device-code-oracle.mts", "packages/ai/src/utils/oauth/device-code.ts");
+    let scenarios = [
+        json!({"options":{},"steps":[{"status":"pending"}]}),
+        json!({"options":{"waitBeforeFirstPoll":true,"intervalSeconds":2.25},"steps":[]}),
+        json!({"options":{"intervalSeconds":0.5},"steps":[{"status":"pending"}]}),
+        json!({"options":{"intervalSeconds":2},"steps":[{"status":"slow_down"}]}),
+        json!({"options":{"intervalSeconds":2},"steps":[{"status":"slow_down","intervalSeconds":3}]}),
+        json!({"options":{"expiresInSeconds":2},"steps":[{"status":"slow_down"}]}),
+        json!({"options":{"expiresInSeconds":0},"steps":[]}),
+        json!({"options":{"expiresInSeconds":-2},"steps":[]}),
+        json!({"options":{},"steps":[{"status":"failed","message":"access denied"}]}),
+        json!({"options":{},"steps":[],"abort":true}),
+        json!({"options":{},"steps":[],"reject":true}),
+    ];
+    for request in scenarios {
+        let expected = oracle.request(&request);
+        let start = tokio::time::Instant::now();
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let recorded = calls.clone();
+        let mut steps = VecDeque::from(request["steps"].as_array().unwrap().clone());
+        let mut opts = options(
+            request["options"]["intervalSeconds"].as_f64(),
+            request["options"]["expiresInSeconds"].as_f64(),
+        );
+        opts.wait_before_first_poll = request["options"]["waitBeforeFirstPoll"].as_bool().unwrap_or(false);
+        let controller = pi_js_compat::abort::AbortController::new();
+        opts.signal = controller.signal();
+        if request["abort"] == true {
+            controller.abort(None);
+        }
+        let rejects = request["reject"] == true;
+        let outcome = poll_oauth_device_code_flow(opts, move || {
+            recorded.lock().unwrap().push(start.elapsed().as_millis() as u64);
+            let result = if rejects {
+                Err(pi_js_compat::node_error::NativeNodeError::new("TypeError", "fetch failed").into())
+            } else {
+                let step = steps
+                    .pop_front()
+                    .unwrap_or(json!({"status":"complete","value":"token"}));
+                Ok(match step["status"].as_str().unwrap() {
+                    "pending" => OAuthDeviceCodePollResult::Pending,
+                    "slow_down" => OAuthDeviceCodePollResult::SlowDown {
+                        interval_seconds: step["intervalSeconds"].as_f64(),
+                    },
+                    "failed" => OAuthDeviceCodePollResult::Failed {
+                        message: step["message"].as_str().unwrap().into(),
+                    },
+                    "complete" => OAuthDeviceCodePollResult::Complete(step["value"].clone()),
+                    other => panic!("unexpected poll status {other}"),
+                })
+            };
+            std::future::ready(result)
+        })
+        .await;
+        let outcome = match outcome {
+            Ok(value) => json!({"ok":true,"value":value}),
+            Err(error) => json!({"ok":false,"name":error.name,"message":error.message}),
+        };
+        let actual: Value =
+            json!({"polls":*calls.lock().unwrap(),"elapsed":start.elapsed().as_millis() as u64,"outcome":outcome});
+        assert_eq!(actual, expected, "{request}");
+    }
+}
 
 fn options(interval_seconds: Option<f64>, expires_in_seconds: Option<f64>) -> OAuthDeviceCodePollOptions {
     OAuthDeviceCodePollOptions {
@@ -20,11 +103,11 @@ fn options(interval_seconds: Option<f64>, expires_in_seconds: Option<f64>) -> OA
 fn sequence<T: Clone + Send + 'static>(
     results: Vec<OAuthDeviceCodePollResult<T>>,
     calls: Arc<AtomicUsize>,
-) -> impl FnMut() -> std::future::Ready<OAuthDeviceCodePollResult<T>> {
+) -> impl FnMut() -> std::future::Ready<Result<OAuthDeviceCodePollResult<T>, CallbackError>> {
     let mut results = VecDeque::from(results);
     move || {
         calls.fetch_add(1, Ordering::SeqCst);
-        std::future::ready(results.pop_front().expect("unexpected extra poll"))
+        std::future::ready(Ok(results.pop_front().expect("unexpected extra poll")))
     }
 }
 
@@ -126,7 +209,7 @@ async fn cancels_an_in_flight_wait() {
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     signal_controller.abort(None);
 
-    assert_eq!(task.await.unwrap(), Err(OAuthDeviceCodeError::Cancelled));
+    assert_eq!(task.await.unwrap(), Err(CallbackError::new("Login cancelled")));
 }
 
 #[tokio::test(start_paused = true)]
@@ -144,7 +227,7 @@ async fn times_out_without_slow_down_responses() {
 
     tokio::time::advance(Duration::from_secs(13)).await;
 
-    assert_eq!(task.await.unwrap(), Err(OAuthDeviceCodeError::TimedOut));
+    assert_eq!(task.await.unwrap(), Err(CallbackError::new("Device flow timed out")));
 }
 
 #[tokio::test(start_paused = true)]
@@ -161,7 +244,12 @@ async fn reports_the_clock_drift_message_after_slow_down_timeout() {
 
     tokio::time::advance(Duration::from_secs(3)).await;
 
-    assert_eq!(task.await.unwrap(), Err(OAuthDeviceCodeError::SlowDownTimedOut));
+    assert_eq!(
+        task.await.unwrap(),
+        Err(CallbackError::new(
+            "Device flow timed out after one or more slow_down responses. This is often caused by clock drift in WSL or VM environments. Please sync or restart the VM clock and try again."
+        ))
+    );
 }
 
 #[tokio::test(start_paused = true)]
@@ -176,10 +264,7 @@ async fn surfaces_a_failed_poll_message() {
 
     let result = poll_oauth_device_code_flow(options(Some(5.0), Some(30.0)), poll).await;
 
-    assert_eq!(
-        result,
-        Err(OAuthDeviceCodeError::Failed(("access_denied".to_owned()).into()))
-    );
+    assert_eq!(result, Err(CallbackError::new("access_denied")));
 }
 
 #[tokio::test(start_paused = true)]
@@ -199,18 +284,4 @@ async fn enforces_a_one_second_minimum_interval() {
     tokio::time::advance(Duration::from_millis(1)).await;
 
     assert_eq!(task.await.unwrap(), Ok("token"));
-}
-
-#[test]
-fn error_messages_match_the_source() {
-    assert_eq!(OAuthDeviceCodeError::Cancelled.to_string(), "Login cancelled");
-    assert_eq!(OAuthDeviceCodeError::TimedOut.to_string(), "Device flow timed out");
-    assert_eq!(
-        OAuthDeviceCodeError::SlowDownTimedOut.to_string(),
-        "Device flow timed out after one or more slow_down responses. This is often caused by clock drift in WSL or VM environments. Please sync or restart the VM clock and try again."
-    );
-    assert_eq!(
-        OAuthDeviceCodeError::Failed(("boom".to_owned()).into()).to_string(),
-        "boom"
-    );
 }

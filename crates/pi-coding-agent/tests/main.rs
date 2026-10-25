@@ -697,8 +697,7 @@ async fn runtime_factory_creates_services_and_reports_missing_models() {
         cwd: JsString::from(cwd_string.clone()),
         agent_dir: JsString::from(agent_dir_string),
         session_manager,
-        session_start_reason: "startup".to_owned(),
-        previous_session_file: None,
+        session_start_event: None,
     })
     .await
     .expect("runtime");
@@ -786,8 +785,10 @@ async fn runtime_factory_uses_the_supplied_project_trust_context() {
             cwd: cwd.clone(),
             agent_dir: agent,
             session_manager: SessionManager::in_memory(Some(&cwd), None).unwrap(),
-            session_start_reason: "resume".into(),
-            previous_session_file: None,
+            session_start_event: Some(pi_coding_agent::core::extensions::types::SessionStartEvent {
+                reason: pi_coding_agent::core::extensions::types::SessionStartReason::Resume,
+                previous_session_file: None,
+            }),
         })
         .await
         .unwrap();

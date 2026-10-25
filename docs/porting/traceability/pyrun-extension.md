@@ -211,3 +211,45 @@ nondefault context control DB; native previously omitted that DB and reported
 RED/GREEN `/tmp/bundled3-pyrun-resume-{red,green}.log`. Empty optional session ID,
 code and executed prefix now follow JS truthiness. Exact rendered lines with
 blank leading output rows match frozen: `/tmp/bundled3-pyrun-render-{red,green}.log`.
+
+Process fixture correction: the first integrated child-runner test exposed that
+ownership still named the parent PID. Persisted response/cancel rows stayed pending
+because the child correctly failed the shared mailbox authority check. Fixtures now
+spawn the process, register its actual identity, then publish activation/manifest.
+The child result wait is bounded at 15 seconds and kills its owned child on timeout.
+The resume-live fixture now releases its runner only after observer registration;
+a loaded host can no longer turn it into a replay-before-start test. Existing
+terminal revision, bridge validation and completion-marker assertions are unchanged.
+Original failed/aborted evidence: `/tmp/bundled3-pyrun-integration.log`,
+`/tmp/bundled3-pyrun-process-integration.log`; spawned test groups were cancelled
+and verified exited before proceeding. Workspace all-target check is GREEN after
+the parent API merge (`/tmp/bundled3-workspace-check.log`).
+
+Runner-options persistence follow-up: source resolved full-access options contain
+only args/command/env. Native serialization previously added unset detached and
+inheritEnv as null. Optional runner properties are now omitted, matching the actual
+frozen resolver (`pyrun_resolved_runner_options_persist_without_unset_properties_like_frozen`,
+RED/GREEN `/tmp/bundled3-pyrun-options-{red,green}.log`). Existing fully specified
+manifest fixtures are unchanged. Workspace all-target check passed on this source
+scope: `/tmp/bundled3-workspace-check2.log`.
+
+Final runner correction: the real missing-agent terminal-commit case first emitted
+Rust enum debug text. It now emits frozen `agent_not_found`; source command-claim
+and status-response errors also propagate through the runner Result rather than
+being silently discarded. Empty bridge response error text follows frozen falsiness.
+Eight real runner-process cases pass (`/tmp/bundled3-runner-final.log`).
+
+The new harness-free `pyrun_detached_lifecycle` executable closes the initial-launch
+proof gap: it dispatches the production internal runner mode itself, starts from an
+absent artifact directory, and proves both a foreground result/completion marker
+and foreground-to-detached ownership/activation/finalization. Both paths preserve
+one exact terminal result and wait for the launched process to exit. No alternate
+launch seam or live provider is used. `/tmp/bundled3-runner-final.log` is GREEN.
+
+Environment merge proof: source inherits current process.env plus explicit options.
+Native std::process inheritance omitted Pi's environment overlay. It now clears the
+spawn environment and passes the shared current environment snapshot unless
+inheritEnv is false, then applies explicit values. Both inherited and isolated
+real-child environments match frozen (`/tmp/bundled3-pyrun-env-{red,green}.log`).
+Environment enumeration order remains the approved sorted-native runtime gap.
+Workspace all-target check passed after this final production edit.

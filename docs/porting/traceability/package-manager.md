@@ -10,9 +10,11 @@ mark_path_ignored_by_cloud_sync}`, `core::pi_manifest::read_pi_manifest`,
 `core::output_guard::is_stdout_taken_over`, `utils::js_json`,
 `pi_js_compat::{minimatch,node_ignore}`, the ported [node-semver dependency](package-manager-semver.md), `sha2`, and `futures-util`.
 
-## Approved directory-enumeration order gap
+## Exact discovery order (2026-10-25)
 
-Frozen package-manager.ts:362–388 consumes readdirSync order when collecting skill paths; :2496 sorts resource precedence only, not sibling names. Native read_dir_entries preserves native filesystem order. Under the2026-10-23 no-libuv-oddities decision, equal-precedence sibling order may differ. SDK04 compares complete discovered skill records order-insensitively, still requires inline-last/filter behavior, and compares untouched console output with identical explicit input order. No directory sort or libuv emulation was added.
+Parent explicitly retired the former directory-order gap for ordinary discovery. Node readdir's libuv scandir orders raw name bytes; native read_dir_entries now sorts those bytes before any decoding, filtering, recursion or precedence sort. All discovery consumers use this helper; the other direct read_dir only checks whether a directory is empty, so ordering cannot change its result. No discovery algorithm or error handling changed.
+
+Actual frozen/native trust-bootstrap RED `/tmp/ext-api3-resource-trust.log` loads failed→global versus native global→failed, changing factory side effects. The real readdir fixture retains every order assertion, with no manifest or explicit-path workaround. Loader and resource-theme discovery plus locale-sort ties receive the same correction and behavioral proofs. Current proof: [extension API closure](../ext-api-repin-proof.md). Earlier order-insensitive SDK/glob comparisons remain historical bounded evidence, not fresh order proof.
 
 ## Current whole-module re-port
 
@@ -125,7 +127,7 @@ tests can use in-memory fakes.
 
 - Environment forwarding uses shared `process_env`, with capture overrides and frozen Linux empty-env restoration. Native environment names retain the established scalar domain.
 - `stdio` takeover duplicates fd2 on POSIX (including its shared offset) and ignores stdin; ordinary commands inherit all three descriptors. Non-POSIX behavior remains the approved platform gap. Async spawn failures use shared Node records with exact deferred executable/argv fields versus bare synchronous libuv syscall failures.
-- Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration order remains the explicit approved gap, not a guaranteed Node/getdents order.
+- Manifest glob traversal now consumes path segments with the shared minimatch literal/brace/matcher authority: explicit hidden/parent/absolute paths, globstar/parent, escapes, duplicate brace matches, directory-only suffixes and one-symlink globstar behavior match actual source. Filesystem enumeration now follows the raw-byte Node readdir order described above.
 - `minimatch` comes from `pi_js_compat` with default options, matching the
   TypeScript call sites.
 - Semver uses the native strict/default [node-semver7.8.0 port](package-manager-semver.md), not the Rust semver crate or a reduced supported-forms approximation.
@@ -191,7 +193,7 @@ Library-wide compilation still blocked, so no tests executed or runtime PASS.
 
 ## Historical common-pin ordering failures (approved gap)
 
-The first three rows below are explicitly classified under the approved readdir-order policy, not remaining source-logic requirements. `differential_resolve_from_nested_project_directory` compares codex root markdown versus nested skill siblings; `differential_resolve_auto_discovery_and_skills` and `differential_resolve_autoload_delta_and_dedupe` compare keep/skip prompt siblings. These are equal-precedence raw enumeration order, not the frozen precedence sort. All three currently pass without changing assertions; that is not a portable sibling-order guarantee. npm argv drift is fixed by the current checkpoint above.
+The first three rows below historically used the readdir-order waiver; that waiver is superseded by the exact discovery-order correction above. `differential_resolve_from_nested_project_directory` compares codex root markdown versus nested skill siblings; `differential_resolve_auto_discovery_and_skills` and `differential_resolve_autoload_delta_and_dedupe` compare keep/skip prompt siblings. These are equal-precedence raw enumeration order, not the frozen precedence sort. All three currently pass without changing assertions; that is not a portable sibling-order guarantee. npm argv drift is fixed by the current checkpoint above.
 
 ### Earlier diagnostic evidence
 

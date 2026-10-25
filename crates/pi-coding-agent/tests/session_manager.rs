@@ -456,22 +456,22 @@ fn reads_files_and_headers() {
 fn finds_most_recent_session_by_mtime_and_cwd() {
     let dir = temp_dir("session-recent");
     assert_eq!(
-        find_most_recent_session(&JsString::from(&dir.display().to_string()), None),
+        find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap(),
         None
     );
     assert_eq!(
-        find_most_recent_session(&JsString::from(&dir.join("missing").display().to_string()), None),
+        find_most_recent_session(&JsString::from(&dir.join("missing").display().to_string()), None).unwrap(),
         None
     );
     fs::write(dir.join("file.txt"), "hello").unwrap();
     assert_eq!(
-        find_most_recent_session(&JsString::from(&dir.display().to_string()), None),
+        find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap(),
         None
     );
 
     fs::write(dir.join("invalid.jsonl"), "{\"type\":\"message\"}\n").unwrap();
     assert_eq!(
-        find_most_recent_session(&JsString::from(&dir.display().to_string()), None),
+        find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap(),
         None
     );
 
@@ -481,7 +481,7 @@ fn finds_most_recent_session_by_mtime_and_cwd() {
     let newer = dir.join("newer.jsonl");
     write_jsonl(&newer, &[header_json("new", "/tmp")]);
     assert_eq!(
-        find_most_recent_session(&JsString::from(&dir.display().to_string()), None),
+        find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap(),
         Some(newer.display().to_string()).map(JsString::from)
     );
 
@@ -497,7 +497,8 @@ fn finds_most_recent_session_by_mtime_and_cwd() {
         find_most_recent_session(
             &JsString::from(&dir.display().to_string()),
             Some(&JsString::from(&project_a.display().to_string()))
-        ),
+        )
+        .unwrap(),
         Some(file_a.display().to_string()).map(JsString::from)
     );
 }

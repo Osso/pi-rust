@@ -235,9 +235,15 @@ async fn wrapped_native_errors_preserve_cause_objects_and_raw_human_units() {
     );
     let request = pi_js_compat::js_json::parse_lossless(r#"{"operation":"ensure","force":true,"now":1766000000000,"failure":"human\ud800","failureCause":"primitive cause","inspectError":true}"#).unwrap();
     let expected = oracle.request(&request);
-    let mut failure = CallbackError::new(JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800]));
-    failure.name = "TypeError".into();
-    failure.cause = Some("primitive cause".into());
+    let failure = pi_js_compat::node_error::NativeNodeError::from_constructor(
+        pi_js_compat::node_error::NativeErrorClass::TypeError,
+        JsString::from_utf16(vec![104, 117, 109, 97, 110, 0xd800]),
+    )
+    .with_property(
+        "cause",
+        pi_js_compat::js_json::JsValue::String("primitive cause".into()),
+    )
+    .into();
     let error = ModelCatalogCache::default()
         .ensure_fresh(
             &path,

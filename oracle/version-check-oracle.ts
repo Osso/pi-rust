@@ -10,11 +10,21 @@ async function main(): Promise<void> {
 	const api = await importSource<VersionCheckApi>();
 	serve((request) => {
 		if (request.op === "compare") {
-			const comparison = api.comparePackageVersions(request.left as string, request.right as string);
-			return { comparison: comparison === undefined ? null : Math.sign(comparison) };
+			const comparison = api.comparePackageVersions(
+				request.left as string,
+				request.right as string,
+			);
+			return {
+				comparison: comparison === undefined ? null : Math.sign(comparison),
+			};
 		}
 		if (request.op === "newer") {
-			return { newer: api.isNewerPackageVersion(request.candidate as string, request.current as string) };
+			return {
+				newer: api.isNewerPackageVersion(
+					request.candidate as string,
+					request.current as string,
+				),
+			};
 		}
 		throw new Error(`Unknown version operation: ${String(request.op)}`);
 	});
