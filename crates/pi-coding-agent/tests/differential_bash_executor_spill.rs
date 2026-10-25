@@ -260,7 +260,7 @@ fn summarize(
 #[ignore = "isolated reentrant callback/process-hook/stream syscall fixture"]
 fn bash_executor_spill_child() {
     let input =
-        js_json::parse_lossless(&std::fs::read_to_string(std::env::var("PI_BASH_SPILL_CASE_PATH").unwrap()).unwrap())
+        js_json::parse_lossless(std::fs::read_to_string(std::env::var("PI_BASH_SPILL_CASE_PATH").unwrap()).unwrap())
             .unwrap();
     if let Some(env) = input["env"].as_object() {
         for name in ["TMPDIR", "TMP", "TEMP"] {

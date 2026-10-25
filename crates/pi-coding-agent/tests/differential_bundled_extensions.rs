@@ -537,7 +537,7 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
                     let handler = extension
                         .read()
                         .commands
-                        .get(&pi_js_compat::js_json::JsString::from(name))
+                        .get(&name)
                         .expect("effort command")
                         .handler
                         .clone();

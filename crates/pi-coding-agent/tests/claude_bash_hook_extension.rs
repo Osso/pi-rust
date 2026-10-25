@@ -83,7 +83,7 @@ async fn reviews_pyrun_eval_with_the_hook() {
 
     assert_eq!(result, ClaudeBashHookReviewResult::Allow { updated_input: None });
     let payload: Value =
-        js_json::parse_lossless(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
+        js_json::parse_lossless(std::fs::read_to_string(capture).expect("captured input")).expect("json");
     assert_eq!(
         payload,
         json!({
@@ -126,7 +126,7 @@ async fn maps_updated_input_and_bash_tool_names() {
         Some(&JsString::from("ls -la"))
     );
     let payload: Value =
-        js_json::parse_lossless(&std::fs::read_to_string(capture).expect("captured input")).expect("json");
+        js_json::parse_lossless(std::fs::read_to_string(capture).expect("captured input")).expect("json");
     assert_eq!(payload["tool_name"], json!("Bash"));
     assert_eq!(payload["tool_input"]["cwd"], json!("/repo"));
 }

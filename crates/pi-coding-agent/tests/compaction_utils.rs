@@ -47,8 +47,8 @@ fn truncates_long_tool_results() {
 
     assert!(result.contains("[Tool result]:"));
     assert!(result.contains("[... 3000 more characters truncated]"));
-    assert!(!result.contains(&"x".repeat(3000)));
-    assert!(result.contains(&"x".repeat(2000)));
+    assert!(!result.contains("x".repeat(3000)));
+    assert!(result.contains("x".repeat(2000)));
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn truncates_long_tool_call_arguments() {
     assert!(result.contains("[Assistant tool calls]: write("));
     assert!(result.contains("path=\"large.txt\""));
     assert!(result.contains("[... 4002 more characters truncated]"));
-    assert!(!result.contains(&"x".repeat(3000)));
+    assert!(!result.contains("x".repeat(3000)));
 }
 
 #[test]

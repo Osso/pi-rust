@@ -360,7 +360,7 @@ async fn claude_memory_enrich_matches_typescript() {
 async fn claude_memory_session_end_skips_ephemeral_sessions() {
     let _env = lock_env().await;
     let temp = TempDir::new().unwrap();
-    process_env::set("XDG_CACHE_HOME", &temp.path().to_str().expect("utf-8 test path"));
+    process_env::set("XDG_CACHE_HOME", temp.path().to_str().expect("utf-8 test path"));
     let harness = load(
         "/tmp",
         Arc::new(std::sync::Mutex::new(

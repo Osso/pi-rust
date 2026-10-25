@@ -60,7 +60,7 @@ fn native_chalk_styles_preserve_unmatched_units_and_reopen_lines() {
             }));
             let expected = &expected["output"]["results"].as_array().unwrap()[0]["value"];
             let actual = Chalk::new(level).paint(&[Style::Bold, Style::Red], &text);
-            assert_eq!(JsValue::String(JsString::from(actual)), *expected);
+            assert_eq!(JsValue::String(actual), *expected);
         }
     }
 }

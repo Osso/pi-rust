@@ -179,7 +179,7 @@ async fn renders_stats_without_cache_or_auto_fields() {
     assert!(!stats.contains("CH99.6%"));
     assert!(!stats.contains("auto"));
     let theme = current_theme_if_initialized().expect("theme");
-    assert!(lines[1].contains(&theme.fg(ThemeColor::Dim, "in 412k")));
+    assert!(lines[1].contains(theme.fg(ThemeColor::Dim, "in 412k")));
     assert!(lines[1].contains(&js_format!(
         "{}60.9%{}",
         theme.fg(ThemeColor::Dim, "ctx "),
@@ -228,7 +228,7 @@ async fn unknown_context_usage_is_fully_dimmed() {
     let footer = component(&fixture, None);
     let line = &footer.render(160)[1];
     let theme = current_theme_if_initialized().expect("theme");
-    assert!(line.contains(&theme.fg(ThemeColor::Dim, "ctx ?/272k")));
+    assert!(line.contains(theme.fg(ThemeColor::Dim, "ctx ?/272k")));
     assert!(strip_ansi(line).contains("ctx ?/272k"));
 }
 

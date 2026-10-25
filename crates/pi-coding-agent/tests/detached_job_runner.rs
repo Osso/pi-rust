@@ -110,7 +110,7 @@ fn builds_an_immutable_terminal_input_from_the_completed_output_artifact() {
     let directory = tempfile::tempdir().expect("temp dir");
     let root = directory.path().to_str().expect("utf-8 test path").to_owned();
     let artifacts = create_detached_job_artifacts(&root, "job-1").expect("artifacts");
-    fs::write(&encode_node_utf8(&artifacts.output_path), "stdout\nstderr\n").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "stdout\nstderr\n").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
         job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
@@ -347,7 +347,7 @@ fn binds_preallocated_artifacts_ownership_projection_and_exact_finalization() {
         pi_coding_agent::core::multi_agent_store::AgentLifecycle::Running
     );
 
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,
@@ -400,7 +400,7 @@ fn finds_the_active_bash_attempt_for_a_repeated_tool_call() {
             file_refs: None,
         })
         .expect("register");
-    fs::write(&encode_node_utf8(&first_artifacts.output_path), "failed").expect("output");
+    fs::write(encode_node_utf8(&first_artifacts.output_path), "failed").expect("output");
     let terminal = create_detached_job_terminal_input(
         &first_artifacts,
         &first.identity,
@@ -541,7 +541,7 @@ fn observes_and_publishes_a_terminal_snapshot_committed_by_an_external_runner() 
     let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Bash).unwrap();
     let artifacts = fixture.controller.create_artifacts(&job_id).expect("artifacts");
     let ownership = register_bash(&fixture, &job_id, test_process_identity("runner"));
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,

@@ -134,14 +134,14 @@ fn targeted_cases() -> Vec<Case> {
         Case::Tail(
             "first\nxé😀".to_owned(),
             Some(TruncationOptions {
-                max_lines: 10 as f64,
-                max_bytes: 5 as f64,
+                max_lines: 10_f64,
+                max_bytes: 5_f64,
             }),
         ),
         Case::Tail(
             "😀".to_owned(),
             Some(TruncationOptions {
-                max_lines: 1 as f64,
+                max_lines: 1_f64,
                 max_bytes: 0 as f64,
             }),
         ),

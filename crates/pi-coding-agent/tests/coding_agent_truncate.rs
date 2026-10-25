@@ -27,8 +27,8 @@ fn head_keeps_complete_leading_lines_within_the_byte_limit() {
             output_bytes: 7,
             last_line_partial: false,
             first_line_exceeds_limit: false,
-            max_lines: 10 as f64,
-            max_bytes: 7 as f64,
+            max_lines: 10_f64,
+            max_bytes: 7_f64,
         }
     );
 }
@@ -58,7 +58,7 @@ fn tail_classifies_the_line_limit() {
     let result = truncate_tail(
         "1\n2\n3\n4",
         TruncationOptions {
-            max_lines: 2 as f64,
+            max_lines: 2_f64,
             ..Default::default()
         },
     );
@@ -87,7 +87,7 @@ fn line_truncation_appends_the_source_marker() {
         }
     );
     assert_eq!(GREP_MAX_LINE_LENGTH, 500);
-    assert!(!truncate_line(&"x".repeat(500), None).was_truncated);
+    assert!(!truncate_line("x".repeat(500), None).was_truncated);
 }
 
 #[test]

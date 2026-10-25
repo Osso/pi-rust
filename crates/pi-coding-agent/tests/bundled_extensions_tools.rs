@@ -82,7 +82,7 @@ async fn ask_secret_matches_typescript() {
         inputs: std::sync::Mutex::new(
             [JsString::from("rei-user"), JsString::from("super-secret")]
                 .into_iter()
-                .map(|text| Some(JsString::from(text)))
+                .map(|text| Some(text))
                 .collect(),
         ),
     });

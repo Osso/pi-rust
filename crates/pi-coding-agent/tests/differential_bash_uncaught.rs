@@ -29,7 +29,7 @@ fn local_pipe_and_durable_poll_failures_remain_uncaught_native_errors() {
         "{}",
         String::from_utf8_lossy(&compiler.stderr)
     );
-    let cases = vec!["stdout", "stderr", "poll", "prepoll", "detachpoll"];
+    let cases = ["stdout", "stderr", "poll", "prepoll", "detachpoll"];
     let expected: Vec<JsValue> = cases
         .iter()
         .map(|mode| {

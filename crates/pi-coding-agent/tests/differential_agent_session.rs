@@ -231,7 +231,7 @@ async fn run_rust(dir: &str) -> Value {
             &std::path::Path::new(dir).join("export.jsonl").display().to_string(),
         )))
         .expect("export jsonl");
-    let export_lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&export_path))
+    let export_lines: Vec<Value> = std::fs::read_to_string(encode_node_utf8(&export_path))
         .expect("export file")
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -265,7 +265,7 @@ async fn run_rust(dir: &str) -> Value {
         .expect("navigate");
     let stats = session.get_session_stats();
     let session_file = session.session_file().expect("session file");
-    let lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&session_file))
+    let lines: Vec<Value> = std::fs::read_to_string(encode_node_utf8(&session_file))
         .expect("session file")
         .lines()
         .filter(|line| !line.trim().is_empty())

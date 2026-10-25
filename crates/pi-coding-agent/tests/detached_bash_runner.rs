@@ -222,7 +222,7 @@ async fn owns_payload_exit_and_commits_one_exact_terminal_input() {
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.terminal_revision, 2);
     assert_eq!(
-        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
+        fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output"),
         "done"
     );
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, &job_id)
@@ -281,7 +281,7 @@ async fn completes_a_foreground_run_without_registering_a_background_job() {
     assert_eq!(result.exit_code, Some(0));
     assert_eq!(result.terminal_revision, 0);
     assert_eq!(
-        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
+        fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output"),
         "foreground"
     );
     let completion: serde_json::Value =
@@ -316,7 +316,7 @@ async fn negative_manifest_timeout_expires_before_the_payload_can_complete() {
     let path: JsString = root.join("launch.json").to_str().unwrap().into();
     write_detached_bash_launch_manifest(&path, &data).unwrap();
     let result = run_detached_bash_runner(&path, None).await.unwrap();
-    let completion = js_json::parse_lossless(&fs::read_to_string(completion_path).unwrap()).unwrap();
+    let completion = js_json::parse_lossless(fs::read_to_string(completion_path).unwrap()).unwrap();
     assert_eq!(completion["timedOut"], pi_js_compat::js_json!(true));
     assert_eq!(result.exit_code, None);
     assert!(
@@ -642,7 +642,7 @@ async fn launches_an_independent_runner_that_remains_the_payload_parent() {
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
     assert!(
-        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path))
+        fs::read_to_string(encode_node_utf8(&data.artifacts.output_path))
             .expect("output")
             .contains("independent")
     );
@@ -662,7 +662,7 @@ async fn does_not_retry_non_database_terminal_finalization_failures() {
             .to_owned()
             .into(),
     };
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
         job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
@@ -711,7 +711,7 @@ async fn retries_the_same_terminal_input_after_transient_database_failures() {
             .to_owned()
             .into(),
     };
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
         job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
@@ -765,7 +765,7 @@ async fn default_retry_delay_is_250_milliseconds() {
             .to_owned()
             .into(),
     };
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let identity = pi_coding_agent::core::detached_job_runner::DetachedJobOwnershipIdentity {
         job_id: "job-1".into(),
         owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
@@ -904,7 +904,7 @@ fn real_pi_binary_finalizes_a_detached_bash_job() {
     let output = child.wait_with_output().expect("runner output");
     assert!(status.success(), "{}", String::from_utf8_lossy(&output.stderr));
     assert_eq!(
-        fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output"),
+        fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output"),
         "detached-ok"
     );
     let agent = read_multi_agent_agent(&fixture.control_db_path, &fixture.session_path, &job_id)
