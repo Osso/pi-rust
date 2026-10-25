@@ -4242,7 +4242,7 @@ mod lossless_integration_tests {
                     agent_id: None,
                 },
                 requested_lifecycle: "cancelling".into(),
-                updated_at: "2026-10-21T00:00:00.000Z".into(),
+                updated_at: crate::utils::iso_time::now_iso_string(),
                 detached_cancellation: Some(DetachedCancellation {
                     output_label: "Bash output".into(),
                     reason: Some(JsString::from_utf16(vec![0xdfff])),

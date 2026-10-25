@@ -1,5 +1,25 @@
 #[tokio::test(flavor = "current_thread")]
 async fn oauth_select_cancel_and_empty_ids_match_frozen_callback_values() {
+    // Other modes refresh the process-global OAuth registry while this fixture registers its provider.
+    const CHILD: &str = "PI_LOGIN_CALLBACKS_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::oauth_select_cancel_and_empty_ids_match_frozen_callback_values",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "login callback child failed:\n{}\n{}",
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap()
+        );
+        return;
+    }
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
     }
