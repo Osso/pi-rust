@@ -22,10 +22,10 @@ All Cargo runtime commands use `test -j4 -p pi-coding-agent` and the configured 
 | `--test differential_rpc_client -- --nocapture` | Same post-parent source; `rpc-pair-runtime-integrated.stdout` |16/16 |
 | `--test rpc_client -- --nocapture` | Same; `rpc-pair-remaining-runtime-integrated.log` |18/18 |
 | `--test rpc_client_frozen_server -- --nocapture` | Same; preceding artifact; actual private frozen server with independent destructive scenarios |2/2, every declared getter plus raw export-path falsifier |
-| `--test rpc_jsonl_errors --test rpc_jsonl_reader --test rpc_types -- --nocapture` | Same; preceding artifact; later collector alias is type-only |2+5+15/22 |
+| `--test rpc_jsonl_errors --test rpc_jsonl_reader --test rpc_types -- --nocapture` | Same; preceding artifact; later collector alias is type-only |22/22 |
 | `--test differential_rpc_mode -- --nocapture` | ec66cf7e; `rpc-mode-final-calibrated-parallel.log` |30/30, default parallel target |
 
-Composite current behavioral scope:112 passing cases. The100ms thinking-timeout fixture passed in isolation but raced its own recovery under the parallel matrix. Parent approved1000ms on both runtimes; pending-first timeout, successful retry, exact event/message and persisted-abort assertions remain unchanged. Full parallel confirmation passes20.69s. No production timer/scheduler change.
+Composite current behavioral scope:112 passing cases. The existing declared-model differential additionally asserts exact serialized known/extra property order atdfea18fe; focused1/1 PASS0.96s (`rpc-model-ordered-extras-final.*`), without adding or weakening a case. The100ms thinking-timeout fixture passed in isolation but raced its own recovery under the parallel matrix. Parent approved1000ms on both runtimes; pending-first timeout, successful retry, exact event/message and persisted-abort assertions remain unchanged. Full parallel confirmation passes20.69s. No production timer/scheduler change.
 
 ## Distinct RED→GREEN evidence
 
@@ -39,11 +39,11 @@ Descriptor probes compare real EPIPE socket and /dev/full filesystem errors, def
 |---|---|
 | Strict pinned no-emit TypeScript | PASS, `rpc-pair-strict-typescript-es2024.log`; six TS fixtures/source modules plus frozen client/types. Temporary ES2024 target only, citing the single [TS1501 note](oracle-gate.md#frozen-v-target-discrepancy-2026-10-24); no source patch/shared-builder change |
 | Biome, six changed oracle files | PASS, `rpc-pair-biome-current.log` |
-| Rust workspace all targets |0 errors/0 warnings at7888ab69; `rpc-pair-workspace-integrated.*`; final post-alias confirmation pending |
-| Warning-mode workspace all-target/all-feature clippy | Prior command exits0,1680 diagnostics; one changed-line test tuple complexity replaced by an alias. Final changed-hunk confirmation pending; no suppression |
+| Rust workspace all targets |0 errors/0 warnings atdfea18fe; `rpc-pair-workspace-final.*` |
+| Warning-mode workspace all-target/all-feature clippy | Exit0,0 owned changed-hunk findings againstb9297a4d,1679 other warnings; `rpc-pair-clippy-final.*` and `rpc-pair-clippy-final-owned.json`. Test tuple complexity fixed by an alias, no suppression |
 | Readability | Manual changed Rust/TS audit; sequential guards, live dispatch and command configuration named explicitly. Metric executables unavailable, no automated metric claim |
-| Format/inventory | Final checkpoint gate pending; frozen source file/line totals must remain686/186679 |
+| Format/inventory | fmt check PASS; inventory PASS686 rows/186679 lines,458done/19gap/46partial/163todo atdfea18fe (`rpc-pair-inventory-draft.log`); documentation-only reconciliation leaves source counts fixed |
 
 ## Integration boundary
 
-Parent e40dff0d is merged. Parent owns final integration and independent verification. The separately announced callback-uncaught relocation will be merged when its checkpoint is supplied; no agent, push, deploy, package/version change or source modification is performed by this lane. Existing rustix1.1.5 adds only its approved net feature for safe descriptor metadata; Cargo.lock was unchanged before/after its focused proof.
+Parent e40dff0d is merged; final parent0e71d5f0 synchronization is directed before reporting. Parent owns integration and independent verification. Parent explicitly says not to wait for the separately announced callback relocation: the signal table/fatal-sink edits are independent and Git will reconcile it when it lands. No agent, push, deploy, package/version change or frozen-source modification is performed by this lane. Existing rustix1.1.5 adds only its approved net feature for safe descriptor metadata; Cargo.lock was unchanged before/after its focused proof.
