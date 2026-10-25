@@ -442,7 +442,7 @@ async fn bedrock_models_json_thinking_map_values_match_the_real_frozen_sdk_reque
             high.clone()
         };
         let body = capture_bedrock_models_request(
-            js_json!({"id":"fixture-model","name":"Claude Opus4.7","reasoning":true,"thinkingLevelMap":{"high":high}}),
+            js_json!({"id":"fixture-model","name":"Claude Opus 4.7","reasoning":true,"thinkingLevelMap":{"high":high}}),
             Some("high"),
         )
         .await;
