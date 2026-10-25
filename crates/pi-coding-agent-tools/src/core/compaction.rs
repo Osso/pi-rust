@@ -134,7 +134,23 @@ impl std::fmt::Display for CompactionError {
 impl std::error::Error for CompactionError {}
 
 /// Compaction trigger settings.
-pub use pi_agent_core::harness::compaction::{CompactionSettings, DEFAULT_COMPACTION_SETTINGS};
+/// Coding-agent settings include the optional percentage absent from harness settings.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CompactionSettings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub threshold_percent: Option<f64>,
+    pub enabled: bool,
+    pub reserve_tokens: f64,
+    pub keep_recent_tokens: f64,
+}
+
+pub const DEFAULT_COMPACTION_SETTINGS: CompactionSettings = CompactionSettings {
+    threshold_percent: None,
+    enabled: true,
+    reserve_tokens: 16384.0,
+    keep_recent_tokens: 20000.0,
+};
 
 const GOAL_REMINDER_PREFIXES: [&str; 2] = [
     "Work toward this objective until it is achieved:",
@@ -252,14 +268,21 @@ pub fn should_compact(
     context_window: f64,
     settings: &CompactionSettings,
     auto_compaction_threshold: Option<f64>,
-) -> bool {
+) -> Result<bool, CompactionError> {
+    let threshold_value = settings.threshold_percent.map(Value::Number);
+    let threshold_percent =
+        crate::core::compaction_threshold::parse_compaction_threshold_percent(threshold_value.as_ref())
+            .map_err(|failure| CompactionError::new(failure.message().clone()))?;
     if !settings.enabled {
-        return false;
+        return Ok(false);
+    }
+    if let Some(percent) = threshold_percent {
+        return Ok(context_tokens >= (context_window * percent) / 100.0);
     }
     if let Some(threshold) = auto_compaction_threshold {
-        return context_tokens >= threshold;
+        return Ok(context_tokens >= threshold);
     }
-    context_tokens > context_window - settings.reserve_tokens
+    Ok(context_tokens > context_window - settings.reserve_tokens)
 }
 
 fn estimate_entry_tokens(entry: &SessionEntry) -> Option<f64> {
@@ -373,30 +396,6 @@ fn find_protected_suffix_cut_index(
     find_nearest_cut_point_at_or_after(cut_points, shorter_suffix_cut_index)
 }
 
-fn find_budget_cut_index(
-    entries: &[SessionEntry],
-    start_index: usize,
-    end_index: usize,
-    cut_points: &[usize],
-    keep_recent_tokens: f64,
-) -> usize {
-    let mut accumulated_tokens = 0.0;
-    for index in (start_index..end_index).rev() {
-        let entry_tokens: f64 = session_entry_to_context_messages(&entries[index])
-            .iter()
-            .map(estimate_tokens)
-            .sum();
-        if entry_tokens == 0.0 {
-            continue;
-        }
-        accumulated_tokens += entry_tokens;
-        if accumulated_tokens >= keep_recent_tokens {
-            return find_nearest_cut_point_at_or_after(cut_points, index);
-        }
-    }
-    cut_points[0]
-}
-
 fn find_valid_cut_points(entries: &[SessionEntry], start_index: usize, end_index: usize) -> Vec<usize> {
     let mut cut_points = Vec::new();
     for (index, entry) in entries.iter().enumerate().take(end_index).skip(start_index) {
@@ -450,8 +449,10 @@ fn include_adjacent_metadata(entries: &[SessionEntry], cut_index: usize, start_i
 }
 
 fn describe_cut_point(entries: &[SessionEntry], cut_index: usize, start_index: usize) -> CutPointResult {
-    let starts_turn = is_turn_start_entry(&entries[cut_index]);
-    let turn_start_index = if starts_turn {
+    let is_user_message = entries[cut_index]
+        .as_message()
+        .is_some_and(|entry| entry.message.has_role("user"));
+    let turn_start_index = if is_user_message {
         -1
     } else {
         find_turn_start_index(entries, cut_index, start_index)
@@ -459,16 +460,16 @@ fn describe_cut_point(entries: &[SessionEntry], cut_index: usize, start_index: u
     CutPointResult {
         first_kept_entry_index: cut_index,
         turn_start_index,
-        is_split_turn: !starts_turn && turn_start_index != -1,
+        is_split_turn: !is_user_message && turn_start_index != -1,
     }
 }
 
-/// Find the cut point that keeps approximately `keep_recent_tokens`.
+/// Find the protected-suffix cut point; frozen keeps the unused budget argument.
 pub fn find_cut_point(
     entries: &[SessionEntry],
     start_index: usize,
     end_index: usize,
-    keep_recent_tokens: f64,
+    _keep_recent_tokens: f64,
 ) -> CutPointResult {
     let cut_points = find_valid_cut_points(entries, start_index, end_index);
     if cut_points.is_empty() {
@@ -479,9 +480,7 @@ pub fn find_cut_point(
         };
     }
 
-    let budget_cut_index = find_budget_cut_index(entries, start_index, end_index, &cut_points, keep_recent_tokens);
-    let protected_cut_index = find_protected_suffix_cut_index(entries, start_index, end_index, &cut_points);
-    let selected_cut_index = budget_cut_index.max(protected_cut_index);
+    let selected_cut_index = find_protected_suffix_cut_index(entries, start_index, end_index, &cut_points);
     let cut_index = include_adjacent_metadata(entries, selected_cut_index, start_index);
     if cut_index >= end_index {
         return CutPointResult {

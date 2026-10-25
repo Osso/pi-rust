@@ -3750,7 +3750,9 @@ impl AgentSession {
                 ..settings
             },
             model.auto_compaction_threshold,
-        ) {
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             return Ok(());
         }
         self.start_background_compaction(context_tokens, context_window)
@@ -4050,6 +4052,8 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
+                self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+                self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
                 lock(&self.inner.quota_fallback_visited_providers).clear();
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
@@ -4084,8 +4088,11 @@ impl AgentSession {
         self.write_last_assistant_control_message(message);
         let mut message = message.clone();
         self.track_duplicate_assistant_turn(&mut message);
-        if message.stop_reason == StopReason::Error || message.stop_reason == StopReason::Length {
-            // Overflow/length recovery flags are cleared below, matching the source.
+        if message.stop_reason != StopReason::Error {
+            self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+        }
+        if message.stop_reason != StopReason::Length {
+            self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
         }
         if message.stop_reason == StopReason::Error {
             return;
@@ -4210,12 +4217,21 @@ impl AgentSession {
     }
 
     fn find_last_assistant_message(&self) -> Option<AssistantMessage> {
-        self.inner
+        self.find_last_assistant_message_with_identity()
+            .map(|(message, _)| message)
+    }
+
+    fn find_last_assistant_message_with_identity(
+        &self,
+    ) -> Option<(AssistantMessage, pi_agent_core::agent::AgentMessageIdentity)> {
+        let (message, identity) = self
+            .inner
             .agent
-            .messages()
-            .iter()
-            .rev()
-            .find_map(|message| message.as_assistant().cloned())
+            .find_last_message_with_identity(|message| message.as_assistant().is_some())?;
+        let AgentMessage::Assistant(message) = message else {
+            return None;
+        };
+        Some((*message, identity))
     }
 
     fn remove_trailing_interrupted_assistant(&self, remove_tool_use_assistant: bool) {
@@ -4438,8 +4454,8 @@ impl AgentSession {
             return Ok(());
         }
         self.validate_model_authentication().await?;
-        if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await?;
+        if let Some((last_assistant, identity)) = self.find_last_assistant_message_with_identity() {
+            self.check_compaction(&last_assistant, Some(&identity), false).await?;
         }
         if self.is_streaming() {
             return Err(error(
@@ -4645,8 +4661,8 @@ impl AgentSession {
     async fn prepare_prompt_turn(&self) -> Result<(), AgentSessionError> {
         self.flush_pending_bash_messages();
         self.validate_model_authentication().await?;
-        if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await?;
+        if let Some((last_assistant, identity)) = self.find_last_assistant_message_with_identity() {
+            self.check_compaction(&last_assistant, Some(&identity), false).await?;
         }
         Ok(())
     }
@@ -5527,6 +5543,7 @@ fn compaction_settings(
         .get_compaction_settings()
         .map_err(|failure| error(failure.message().clone()))?;
     Ok(crate::core::compaction::CompactionSettings {
+        threshold_percent: view.threshold_percent,
         enabled: view.enabled,
         reserve_tokens: view.reserve_tokens,
         keep_recent_tokens: view.keep_recent_tokens,
@@ -6488,6 +6505,7 @@ impl AgentSession {
     async fn check_compaction(
         &self,
         assistant_message: &AssistantMessage,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
         post_run_check: bool,
     ) -> Result<bool, AgentSessionError> {
         let settings = compaction_settings(&self.inner.settings_manager)?;
@@ -6499,7 +6517,17 @@ impl AgentSession {
         let same_model = assistant_message.provider == model.provider && assistant_message.model == model.id;
         let branch = lock(&self.inner.session_manager).get_branch(None);
         let compaction_entry = get_latest_compaction_entry(&branch).cloned();
+        let assistant_entry_id =
+            identity.and_then(|identity| lock(&self.inner.session_manager).message_entry_id(identity).cloned());
+        let assistant_index =
+            assistant_entry_id.and_then(|id| branch.iter().rposition(|entry| entry.id() == Some(&id)));
         let assistant_is_before_compaction = compaction_entry.as_ref().is_some_and(|entry| {
+            if let Some(assistant_index) = assistant_index {
+                return branch
+                    .iter()
+                    .rposition(|candidate| candidate.id() == entry.id())
+                    .is_some_and(|compaction_index| assistant_index < compaction_index);
+            }
             let compaction_timestamp = entry.timestamp().and_then(parse_timestamp_millis);
             compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp as f64)
         });
@@ -6566,8 +6594,10 @@ impl AgentSession {
                 enabled: true,
                 ..settings
             },
-            None,
-        ) {
+            model.auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             let turn_was_truncated = assistant_message.stop_reason == StopReason::Length;
             let will_retry =
                 post_run_check && turn_was_truncated && !self.inner.length_recovery_attempted.load(Ordering::SeqCst);
