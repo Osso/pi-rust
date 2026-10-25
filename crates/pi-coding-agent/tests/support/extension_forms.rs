@@ -261,9 +261,6 @@ pub async fn compare(
         .map(|case| render_tool_result(&serde_json::from_value(case.clone()).unwrap()))
         .collect::<Vec<_>>();
     let actual = pi_js_compat::js_json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderRequests":ui.render_requests.load(std::sync::atomic::Ordering::SeqCst),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
-    if request["postPin"] == true {
-        return actual;
-    }
     let mut oracle = oracle::TsOracle::spawn(
         "example-forms-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),
