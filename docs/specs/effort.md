@@ -4,10 +4,10 @@ Match frozen `coding-agent/extensions/effort/src/index.ts` at the [common pin](.
 
 ## What it must do
 
-- [ ] Persist only proactive/disabled modes; display active/disabled and match frozen selector choices and warnings.
-- [ ] Disabled removes the delegation policy and subagent tools; proactive restores remembered tools in ordered, deduplicated form.
-- [ ] Ultra activates proactive delegation; disabling it retains max reasoning. Child runtimes cannot change delegation mode.
-- [ ] Restore branch mode on session start/tree and match exact notifications, status, editor clearing and policy output.
+- [x] Persist only proactive/disabled modes; display active/disabled and match frozen selector choices and warnings.
+- [x] Disabled removes the delegation policy and subagent tools; proactive restores remembered tools in ordered, deduplicated form.
+- [x] Ultra activates proactive delegation; disabling it retains max reasoning. Child runtimes cannot change delegation mode.
+- [x] Restore branch mode on session start/tree and match exact notifications, status, editor clearing and policy output.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Match frozen `coding-agent/extensions/effort/src/index.ts` at the [common pin](.
 
 ## Known gaps (current cycle)
 
-- [ ] Focused current-pin proof must pass after implementation.
+Focused current-pin handler/tool-state differential and native effort behavior pass; see traceability.
 
 ## Out of scope
 

@@ -949,7 +949,7 @@ async fn effort_status_dims_only_the_prefix() {
                     pi_coding_agent::modes::interactive::theme::ThemeColor::Dim,
                     "multi-agent: "
                 ),
-                JsString::from("proactive")
+                JsString::from("active")
             ],
             ""
         ))
