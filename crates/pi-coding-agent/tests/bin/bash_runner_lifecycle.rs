@@ -217,7 +217,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             let activation = activation.clone();
             tokio::spawn(async move {
                 tokio::time::sleep(Duration::from_millis(50)).await;
-                let detached = registry.detach_running();
+                let detached = registry.detach_running().expect("fixture detach callback");
                 capture
                     .lock()
                     .unwrap()
@@ -225,7 +225,7 @@ async fn execute_case(root: &Path, input: &JsValue) -> JsValue {
             });
         }
         if mode == "detach" || mode == "detach-abort" || mode == "detach-completed" {
-            let detached = callback_registry.detach_running();
+            let detached = callback_registry.detach_running().expect("fixture detach callback");
             captures
                 .lock()
                 .unwrap()

@@ -1,5 +1,6 @@
 //! Auto-detaching tool registry (`core/tool-detach-registry.ts`).
 
+use pi_js_compat::callback_error::CallbackError;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
@@ -8,7 +9,7 @@ use std::time::Duration;
 pub const DEFAULT_AUTO_DETACH_AFTER_MS: u64 = 600_000;
 
 pub trait ToolDetachHandle: Send + Sync {
-    fn detach(&self) -> bool;
+    fn detach(&self) -> Result<bool, CallbackError>;
 }
 
 struct RegisteredHandle {
@@ -61,26 +62,34 @@ impl ToolDetachRegistry {
     }
 
     /// Detach the most recently registered handle that accepts detachment.
-    pub fn detach_running(&self) -> bool {
+    pub fn detach_running(&self) -> Result<bool, CallbackError> {
         let handles: Vec<Arc<dyn ToolDetachHandle>> = self
             .handles()
             .iter()
             .rev()
             .map(|registered| Arc::clone(&registered.handle))
             .collect();
-        handles.into_iter().any(|handle| handle.detach())
+        // Frozen tool-detach-registry.ts:26-32 propagates the original callback throw.
+        for handle in handles {
+            if handle.detach()? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Frozen `detachAll`: snapshot insertion order and try every handle.
-    pub fn detach_all(&self) {
+    pub fn detach_all(&self) -> Result<(), CallbackError> {
         let handles: Vec<_> = self
             .handles()
             .iter()
             .map(|registered| registered.handle.clone())
             .collect();
+        // Frozen :35-37 stops and propagates if any callback throws.
         for handle in handles {
-            handle.detach();
+            handle.detach()?;
         }
+        Ok(())
     }
 
     pub fn has_running(&self) -> bool {
@@ -123,8 +132,9 @@ fn spawn_auto_detach_timer(
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .iter()
             .any(|registered| registered.id == id);
-        if still_registered {
-            handle.detach();
+        if still_registered && let Err(error) = handle.detach() {
+            // Actual frozen timer process probe exits 1: this is not a caught registry call.
+            pi_coding_agent_base::utils::uncaught::throw_callback_uncaught(error);
         }
     });
 }

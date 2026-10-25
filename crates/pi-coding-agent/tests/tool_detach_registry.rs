@@ -23,10 +23,10 @@ impl RecordingHandle {
 }
 
 impl ToolDetachHandle for RecordingHandle {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         self.detached.store(true, Ordering::SeqCst);
         self.log.lock().unwrap().push(self.name);
-        self.succeed
+        Ok(self.succeed)
     }
 }
 
@@ -40,11 +40,11 @@ fn detaches_every_handle_in_order_without_unregistering_it() {
         .into_iter()
         .map(|(name, succeed)| registry.register(RecordingHandle::new(name, succeed, &log)))
         .collect();
-    registry.detach_all();
+    registry.detach_all().expect("fixture detach callback");
     assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
     assert!(registry.has_running());
     drop(subscriptions);
-    registry.detach_all();
+    registry.detach_all().expect("fixture detach callback");
     assert_eq!(*log.lock().unwrap(), vec!["first", "second", "third"]);
 }
 
@@ -79,7 +79,7 @@ fn detaches_the_most_recently_registered_running_handle() {
     let _second = registry.register(second.clone());
     let _third = registry.register(third.clone());
 
-    assert!(registry.detach_running());
+    assert!(registry.detach_running().expect("fixture detach callback"));
 
     assert_eq!(*log.lock().unwrap(), vec!["third"]);
     assert!(!first.detached.load(Ordering::SeqCst));
@@ -94,14 +94,14 @@ fn detach_running_reports_when_no_handle_accepts_detachment() {
     let _first = registry.register(RecordingHandle::new("first", false, &log));
     let _second = registry.register(RecordingHandle::new("second", false, &log));
 
-    assert!(!registry.detach_running());
+    assert!(!registry.detach_running().expect("fixture detach callback"));
     assert_eq!(*log.lock().unwrap(), vec!["second", "first"]);
 }
 
 #[test]
 fn detach_running_without_handles_is_false() {
     let registry = Arc::new(ToolDetachRegistry::new());
-    assert!(!registry.detach_running());
+    assert!(!registry.detach_running().expect("fixture detach callback"));
 }
 
 #[tokio::test]

@@ -297,9 +297,9 @@ impl DetachState {
     }
 }
 
-fn detach_state_fn(state: &DetachState) -> bool {
+fn detach_state_fn(state: &DetachState) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
     if state.ownership().is_some() || !is_process_identity_alive(&state.process_identity) {
-        return false;
+        return Ok(false);
     }
     let ownership = state.controller.register(&RegisterDetachedJobInput {
         agent_type: DetachedJobAgentType::Pyrun,
@@ -315,19 +315,19 @@ fn detach_state_fn(state: &DetachState) -> bool {
             path: state.script_path.clone().into(),
         }]),
     });
-    let Ok(ownership) = ownership else {
-        return false;
-    };
+    // Frozen detached-evaluation.ts:465-478 registers outside the activation catch.
+    let ownership =
+        ownership.map_err(|error| pi_js_compat::callback_error::CallbackError::from_error(error.message(), error))?;
     if write_detached_pyrun_activation(&state.activation_path, &ownership.identity).is_err() {
         let _ = terminate_foreground_runner(state.runner_pid, rustix::process::Signal::KILL);
-        return false;
+        return Ok(false);
     }
     state.activated.store(true, Ordering::SeqCst);
     *state
         .ownership
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ownership);
-    true
+    Ok(true)
 }
 
 fn cancel_pyrun_evaluation(state: &DetachState) -> Result<(), HandlerError> {
@@ -898,11 +898,11 @@ async fn respond_to_foreground_bridge_request(
 }
 
 struct DetachFn {
-    detach: Box<dyn Fn() -> bool + Send + Sync>,
+    detach: Box<dyn Fn() -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync>,
 }
 
 impl ToolDetachHandle for DetachFn {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         (self.detach)()
     }
 }

@@ -29,6 +29,7 @@ use pi_ai::types::{
     StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
 use pi_js_compat::abort::{AbortController, AbortSignal};
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 use serde::{Deserialize, Serialize};
@@ -6872,20 +6873,22 @@ impl AgentSession {
         !lock(&self.inner.bash_abort_controllers).is_empty()
     }
 
-    pub fn detach_running_tool(&self) -> bool {
+    // Frozen agent-session.ts:5875-5884 forwards detach throws without a catch.
+    pub fn detach_running_tool(&self) -> Result<bool, CallbackError> {
         self.inner
             .tool_detach_registry
             .as_ref()
-            .is_some_and(|registry| registry.detach_running())
+            .map_or(Ok(false), |registry| registry.detach_running())
     }
 
-    pub fn detach_all_running_tools(&self) {
+    pub fn detach_all_running_tools(&self) -> Result<(), CallbackError> {
         if let Some(registry) = &self.inner.tool_detach_registry {
-            registry.detach_all();
+            registry.detach_all()?;
         }
+        Ok(())
     }
 
-    pub fn detach_bash_tool(&self) -> bool {
+    pub fn detach_bash_tool(&self) -> Result<bool, CallbackError> {
         self.detach_running_tool()
     }
 

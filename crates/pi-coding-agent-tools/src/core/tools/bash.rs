@@ -1029,12 +1029,13 @@ struct BashDetachHandle {
 }
 
 impl ToolDetachHandle for BashDetachHandle {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
+        // Frozen bash.ts:737-746: this callback only aborts and returns activation state.
         if self.signal.signal().aborted() {
-            return false;
+            return Ok(false);
         }
         self.signal.abort(None);
-        !self.use_detached_runner || self.runner_activated.load(Ordering::SeqCst)
+        Ok(!self.use_detached_runner || self.runner_activated.load(Ordering::SeqCst))
     }
 }
 

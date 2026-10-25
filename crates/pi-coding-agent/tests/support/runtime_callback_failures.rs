@@ -39,9 +39,9 @@ fn error_wire(error: &CallbackError) -> JsValue {
 
 struct RecordDetach(Arc<Mutex<Vec<String>>>);
 impl pi_coding_agent::core::tool_detach_registry::ToolDetachHandle for RecordDetach {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         self.0.lock().unwrap().push("detach".into());
-        false
+        Ok(false)
     }
 }
 
