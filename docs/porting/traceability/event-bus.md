@@ -15,7 +15,7 @@ Proof: focused behavioral tests in `crates/pi-coding-agent/tests/event_bus.rs` (
 ## Exclusions
 
 - Handlers/RequestHandlers use `Result<(), CallbackError>`; payloads/channels/original throws retain native UTF-16. RequestFuture's existing result contract is unchanged.
-- The bus itself logs at frozen19-23 using the shared original-throw reporter, retaining Error name/message/properties and JSON values; V8 stack frames remain omitted under the approved gap. Native `HandlerError.error` retains the original failure.4fresh differential cases and9retained tests GREEN; final integration gates pending. [Contract](../../specs/fallible-ui-notifications.md).
+- The bus itself logs at frozen19-23 using the shared original-throw reporter, retaining Error name/message/properties and JSON values; V8 stack frames remain omitted under the approved gap. Native `HandlerError.error` retains the original failure.4fresh differential cases and9retained tests GREEN; [current integration checkpoint](../ui-notify-proof.md) records compile/lint/type/inventory proofs. [Contract](../../specs/fallible-ui-notifications.md).
 - `EventEmitter`'s `newListener`/`removeListener`/`maxListeners` machinery has no caller in this module and is not ported.
 
 ## Discrepancies

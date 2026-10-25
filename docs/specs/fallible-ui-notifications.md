@@ -31,7 +31,7 @@ Frozen `core/extensions/types.ts`, `core/event-bus.ts:19-23`, and their callers 
 
 ## Known gaps (current cycle)
 
-- Workspace all-target compile is clean (0 errors/warnings); local-catch consumer regressions and remaining final gates are pending. This is not a whole-question-tool completion claim.
+- [Checkpoint proofs](../porting/ui-notify-proof.md) record clean workspace compilation, scoped lint, strict fixtures, inventory and retained consumer regressions. Local catch positions are source-audited; those retained tests do not inject every notification rejection. Whole questions remains open for its separate approved custom() rejection prerequisite. This is not a whole-question-tool completion claim.
 
 ## Out of scope
 
