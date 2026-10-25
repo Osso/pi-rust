@@ -53,3 +53,7 @@ The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/
 ## Q18 native UTF-16 integration (2026-10-22)
 
 KeybindingsManager::create accepts Option<&JsString>; stored config_path remains native through reload. Only actual filesystem lookup/read encodes it. Frozen keybindings.ts407 reads UTF-8 with Node replacement; Rust read_to_string still rejects malformed UTF-8 bytes. That existing decoding difference is a re-pin gap, not changed in this UTF-16 slice. No primary diagnostics at interactive6; runtime tests remain unexecuted.
+
+## Baseline registry re-pin (2026-10-25)
+
+Frozen default app keybindings omit app.message.copy; remove that extra native default. The loaded-config differential was RED on precisely that extra action ID. Explicit user mappings remain governed by the existing manager.

@@ -16,3 +16,7 @@ Source: `packages/coding-agent/src/core/slash-commands.ts` (48 lines, pinned rev
 - The TypeScript constant is module-evaluated once. Rust evaluates `package_config()` on each call, which is
   process-cached, so the observable value is identical.
 - No branches or error paths exist beyond list construction.
+
+## Baseline registry re-pin (2026-10-25)
+
+Frozen built-in model/login records have no argumentHint. Native registry now leaves both hints absent; direct unit expectations follow the frozen-probed absent values. Exact full-record differential was RED.
