@@ -20,6 +20,8 @@ fn interleaved_text_tool_and_retry_compaction_frames_match_frozen() {
         "replay-thinking",
         "live-thinking",
         "editor-ctrl-c-spaced",
+        "editor-follow-up-idle",
+        "editor-follow-up-paste",
         "editor-dequeue-empty",
         "editor-dequeue-one",
         "editor-dequeue-many",
@@ -204,11 +206,53 @@ fn build_display_replay_messages(case: &str) -> Vec<AgentMessage> {
 }
 
 async fn drive_editor_display_fixture(
-    mode: &InteractiveMode,
+    mode: &Rc<InteractiveMode>,
     terminal: &Rc<RefCell<CaptureTerminal>>,
     case: &str,
     request: &mut serde_json::Value,
 ) -> Vec<serde_json::Value> {
+    if case.starts_with("editor-follow-up-") {
+        let inputs = Rc::new(RefCell::new(Vec::<JsString>::new()));
+        let observed = Rc::clone(&inputs);
+        *mode.on_input_callback.borrow_mut() = Some(Rc::new(move |text| observed.borrow_mut().push(text)));
+        request["observeInput"] = serde_json::json!(true);
+        request["editorActions"] = serde_json::json!(["follow-up"]);
+        if case == "editor-follow-up-paste" {
+            let paste = (0..12)
+                .map(|line| format!("Payload line {line}"))
+                .collect::<Vec<_>>()
+                .join("\n");
+            request["pasteText"] = serde_json::json!(paste);
+            mode.default_editor
+                .borrow_mut()
+                .handle_input(&JsString::from(format!("\x1b[200~{paste}\x1b[201~")));
+        } else {
+            request["editorText"] = serde_json::json!("  Next question  ");
+            mode.editor()
+                .borrow_mut()
+                .set_text(&JsString::from("  Next question  "))
+                .unwrap();
+        }
+        mode.handle_follow_up().await.unwrap();
+        mode.drain_actions().await;
+        tokio::task::yield_now().await;
+        let mut frame = capture_event_display_frame(mode, terminal);
+        frame["inputs"] = serde_json::json!(
+            inputs
+                .borrow()
+                .iter()
+                .map(|text| text.units().to_vec())
+                .collect::<Vec<_>>()
+        );
+        frame["queuedFollowUp"] = serde_json::json!(
+            mode.session()
+                .get_follow_up_messages()
+                .iter()
+                .map(|text| text.units().to_vec())
+                .collect::<Vec<_>>()
+        );
+        return vec![frame];
+    }
     if case == "replay-thinking" || case == "live-thinking" {
         let actions = ["toggle-thinking", "toggle-thinking"];
         request["editorActions"] = serde_json::json!(actions);

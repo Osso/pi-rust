@@ -7419,9 +7419,14 @@ impl InteractiveMode {
                             .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
                     });
                 }
-                ModeAction::FollowUp => self
-                    .handle_follow_up()
-                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
+                ModeAction::FollowUp => {
+                    let mode = Rc::clone(self);
+                    tokio::task::spawn_local(async move {
+                        mode.handle_follow_up()
+                            .await
+                            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+                    });
+                }
                 ModeAction::Dequeue => self
                     .handle_dequeue()
                     .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error)),
@@ -8364,23 +8369,73 @@ impl InteractiveMode {
         Ok(())
     }
 
-    fn handle_follow_up(&self) -> Result<(), CallbackError> {
-        let text = self.editor().borrow().get_text()?.trim().to_owned();
+    async fn handle_follow_up(&self) -> Result<(), CallbackError> {
+        let text = self.editor().borrow().get_expanded_text()?.trim().to_owned();
         if text.is_empty() {
             return Ok(());
         }
+        let session = self.session();
+        if session.is_compacting() {
+            if self.is_extension_command(&text) {
+                self.add_submitted_text_to_history(&text)
+                    .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
+                self.editor().borrow_mut().set_text(&JsString::default())?;
+                session
+                    .prompt(&text, PromptOptions::default())
+                    .await
+                    .map_err(CallbackError::from)?;
+            } else {
+                self.queue_compaction_message(text, "followUp")?;
+            }
+            return Ok(());
+        }
+        if session.is_streaming() {
+            self.submit_streaming_prompt(&text, StreamingBehavior::FollowUp).await?;
+        } else {
+            // Frozen setEditorComponent assigns this same callback to custom editors (:3045).
+            let on_submit = self.default_editor.borrow_mut().editor_mut().on_submit.clone();
+            if let Some(on_submit) = on_submit {
+                self.editor().borrow_mut().set_text(&JsString::default())?;
+                on_submit(&text);
+            }
+        }
+        Ok(())
+    }
+
+    fn queue_compaction_message(&self, text: JsString, mode: &'static str) -> Result<(), CallbackError> {
+        self.compaction_queued_messages
+            .borrow_mut()
+            .push(CompactionQueuedMessage {
+                text: text.clone(),
+                mode,
+            });
         self.add_submitted_text_to_history(&text)
             .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-        self.clear_editor()?;
-        let mode = self.ui_id.get();
-        let session = self.session();
-        tokio::task::spawn_local(async move {
-            if let Err(error) = session.follow_up(&text, &[]).await
-                && let Some(mode) = with_mode(mode, |mode| mode)
-            {
-                mode.show_error(error.message());
-            }
-        });
+        self.editor().borrow_mut().set_text(&JsString::default())?;
+        self.update_pending_messages_display();
+        self.show_status("Queued message for after compaction");
+        Ok(())
+    }
+
+    async fn submit_streaming_prompt(&self, text: &JsString, behavior: StreamingBehavior) -> Result<(), CallbackError> {
+        self.add_submitted_text_to_history(text)
+            .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
+        self.editor().borrow_mut().set_text(&JsString::default())?;
+        if let Err(error) = self
+            .session()
+            .prompt(
+                text,
+                PromptOptions {
+                    streaming_behavior: Some(behavior),
+                    ..PromptOptions::default()
+                },
+            )
+            .await
+        {
+            self.show_error(error.message());
+        }
+        self.update_pending_messages_display();
+        self.ui.request_render();
         Ok(())
     }
 
