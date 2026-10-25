@@ -45,3 +45,13 @@ focused proof, not claimed here.
 
 gap: std File drop close-fault reporting and adversarial JSON type errors are
 not equivalent to Node FileHandle faults; ordinary paths/errors remain explicit.
+
+Current-pin focused matrices now include `ask_secret_validation_and_masked_cancellation_match_frozen`
+(14 concrete validation requests plus cancellation at either browser field),
+`ask_secret_file_refusal_cancellation_abort_and_rename_failure_match_frozen`
+(directory/symlink refusal before UI, cancelled/pre-aborted writes with no new
+parent, failed rename retaining original bytes and removing temporary files),
+and `ask_secret_atomic_overwrite_matches_frozen` (existing file changes from
+0644 to 0600 with exact replacement bytes). Runtime source is unchanged by
+these fixture additions; `renameError` and aborted signals use frozen's own
+renameFile and signal seams.
