@@ -1183,3 +1183,7 @@ path = "tests/bash_stdin.rs"
 [[test]]
 name = "differential_bash_restored"
 path = "tests/differential_bash_restored.rs"
+
+[[test]]
+name = "session_coordination_tools"
+path = "tests/session_coordination_tools.rs"

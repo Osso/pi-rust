@@ -84,8 +84,6 @@ pub mod search_current_session_history_tool;
 pub mod session_continuation;
 #[path = "session_control_db.rs"]
 pub mod session_control_db;
-#[path = "session_coordination_tools.rs"]
-pub mod session_coordination_tools;
 #[path = "session_cwd.rs"]
 pub mod session_cwd;
 #[path = "session_directory.rs"]
