@@ -189,7 +189,7 @@ async fn produce_stream(
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_payload) = on_payload(payload.clone(), model.clone())
             .await
-            .map_err(|error| MistralError::message(error.message))?
+            .map_err(MistralError::Callback)?
     {
         payload = next_payload;
     }
@@ -347,6 +347,7 @@ fn derive_mistral_tool_call_id(id: &str, attempt: u32) -> String {
 #[derive(Debug, Clone)]
 enum MistralError {
     Message(JsString),
+    Callback(CallbackError),
     Http {
         status: u16,
         content_type: String,
@@ -381,7 +382,26 @@ fn format_mistral_error(error: &MistralError) -> JsString {
             )
         }
         MistralError::Message(message) => message.clone(),
+        MistralError::Callback(error) => format_mistral_callback_error(error),
     }
+}
+
+fn format_mistral_callback_error(error: &CallbackError) -> JsString {
+    let reason = error.thrown_value();
+    let native = match reason {
+        AbortReason::Error(error) | AbortReason::DomException(error) => error,
+        AbortReason::Value(_) => return error.error_or_json_message(),
+    };
+    let fields = native.value();
+    let Some(status) = fields.get("statusCode").and_then(JsValue::as_f64) else {
+        return native.message;
+    };
+    let body = fields.get("body").and_then(JsValue::as_string).map(JsString::trim);
+    let message = match body.filter(|body| !body.is_empty()) {
+        Some(body) => truncate_error_text(&body, MAX_MISTRAL_ERROR_BODY_CHARS),
+        None => native.message,
+    };
+    pi_js_compat::js_format!("Mistral API error ({}): {}", js_number_to_string(status), message)
 }
 
 fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {

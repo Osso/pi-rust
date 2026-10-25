@@ -28,6 +28,8 @@ pub mod differential_ai_runtime;
 pub mod differential_anthropic_messages;
 #[path = "differential_anthropic_timeout.rs"]
 pub mod differential_anthropic_timeout;
+#[path = "differential_api_catches.rs"]
+pub mod differential_api_catches;
 #[path = "differential_api_leaf.rs"]
 pub mod differential_api_leaf;
 #[path = "differential_azure_openai_responses.rs"]

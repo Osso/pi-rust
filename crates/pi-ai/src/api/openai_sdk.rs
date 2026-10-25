@@ -645,6 +645,42 @@ pub fn format_sdk_error(error: &SdkError, prefix: Option<&str>) -> JsString {
     }
 }
 
+/// Preserve the thrown value and SDK-shaped fields at a provider's callback catch.
+pub(crate) fn format_callback_error(error: &CallbackError, prefix: Option<&str>) -> JsString {
+    use crate::utils::error_body::{
+        ErrorBody, ProviderError, ProviderErrorInput, format_provider_error, normalize_provider_error,
+    };
+    use pi_js_compat::abort::AbortReason;
+    let input = match error.thrown_value() {
+        AbortReason::Value(value) => ProviderErrorInput::Value(value),
+        AbortReason::Error(error) | AbortReason::DomException(error) => {
+            let fields = error.value();
+            let number = |name| fields.get(name).and_then(JsValue::as_f64);
+            let nested_number = |name, key| {
+                fields
+                    .get(name)
+                    .and_then(|value| value.get(key))
+                    .and_then(JsValue::as_f64)
+            };
+            ProviderErrorInput::Error(Box::new(ProviderError {
+                message: error.message,
+                status_code: number("statusCode"),
+                status: number("status"),
+                body: fields.get("body").cloned().map(ErrorBody::Json),
+                error: fields.get("error").cloned(),
+                metadata_http_status_code: nested_number("$metadata", "httpStatusCode"),
+                response_status_code: nested_number("$response", "statusCode"),
+                response_body: fields
+                    .get("$response")
+                    .and_then(|value| value.get("body"))
+                    .cloned()
+                    .map(ErrorBody::Json),
+            }))
+        }
+    };
+    format_provider_error(&normalize_provider_error(&input), prefix)
+}
+
 /// Format a retry-layer failure (`ProviderRequestError<CallbackError>`).
 pub fn format_request_error(error: &ProviderRequestError<CallbackError>, prefix: Option<&str>) -> JsString {
     match error {

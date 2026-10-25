@@ -954,7 +954,7 @@ async fn drive_stream(
         Some(on_payload) => match on_payload(params.clone(), model.clone()).await {
             Ok(Some(next)) => next,
             Ok(None) => params,
-            Err(error) => return Err(error.message),
+            Err(error) => return Err(error.error_or_json_message()),
         },
         None => params,
     };
@@ -993,7 +993,7 @@ async fn drive_stream(
         };
         on_response(provider_response, model.clone())
             .await
-            .map_err(|error| error.message)?;
+            .map_err(|error| error.error_or_json_message())?;
     }
 
     sender.push(AssistantMessageEvent::Start {

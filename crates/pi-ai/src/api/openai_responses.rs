@@ -361,9 +361,12 @@ async fn run_stream(
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
-        && let Some(next_params) = on_payload(params.clone(), model.clone())
-            .await
-            .map_err(|error| Failure::Message(error.message))?
+        && let Some(next_params) = on_payload(params.clone(), model.clone()).await.map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("OpenAI API error"),
+            ))
+        })?
     {
         params = next_params;
     }
@@ -392,7 +395,12 @@ async fn run_stream(
             model.clone(),
         )
         .await
-        .map_err(|error| Failure::Message(error.message))?;
+        .map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("OpenAI API error"),
+            ))
+        })?;
     }
     sender.push(crate::types::AssistantMessageEvent::Start {
         partial: output.clone(),

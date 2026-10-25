@@ -1611,7 +1611,7 @@ async fn run_stream(
     if let Some(on_payload) = &stream_options.request.on_payload
         && let Some(next_params) = on_payload(params.clone(), model.clone())
             .await
-            .map_err(|error| CompletionsFailure::Message(error.message))?
+            .map_err(|error| CompletionsFailure::Message(super::openai_sdk::format_callback_error(&error, None)))?
     {
         params = next_params;
     }
@@ -1640,7 +1640,7 @@ async fn run_stream(
             model.clone(),
         )
         .await
-        .map_err(|error| CompletionsFailure::Message(error.message))?;
+        .map_err(|error| CompletionsFailure::Message(super::openai_sdk::format_callback_error(&error, None)))?;
     }
     sender.push(AssistantMessageEvent::Start {
         partial: output.clone(),

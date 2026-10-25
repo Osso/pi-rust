@@ -61,3 +61,7 @@ All exports and branches in frozen 185-line module and 10-line lazy factory comp
 Proof artifacts: `/tmp/ai-api-images-{red,retry-red,timeout-red,green}.log`. The source method's unused maxRetryDelayMs is not forwarded. Any remaining SDK host/timer/numeric/pathological boundaries are the explicit gap row above, not full live-provider acceptance.
 
 The timeout behavior fixture now rejects when the SDK-owned AbortSignal fires, as native fetch does. Its old fake ignored abort and therefore tested the deleted whole-body timeout rather than the frozen SDK; the exact timeout-message assertion is unchanged.
+
+## Native callback catch audit (2026-10-25)
+
+`differential_api_catches` compares full actual-source/native error events and final messages for eight APIs × four rejection values: unmatched-UTF16 string, raw Error-lookalike object, and genuine Errors with status/body or statusCode/body. All callbacks reject before HTTP (source records zero requests). Genuine REDs were empty native messages for raw rejections and discarded branded status/body fields. Anthropic keeps its literal Error.message/JSON catch; Mistral probes only statusCode with its own prefix/body truncation; Google/OpenAI/Azure/images adapt the original branded fields to the existing shared normalizer. No utility algorithm or dependency changed. Logs: `/tmp/ai-api-catches-{red,red-2,images-red,green}.log`.
