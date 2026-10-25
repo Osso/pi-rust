@@ -123,10 +123,7 @@ impl ContextTool<Option<ExtensionContext>> for ChannelPostTool {
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
             let session_id = session_manager.get_session_id().to_owned();
-            let sender = RuntimeMailboxAddress {
-                agent_id: agent_id.map(Into::into),
-                session_id: session_id.into(),
-            };
+            let sender = RuntimeMailboxAddress { agent_id, session_id };
             let message_id = post_shared_channel_message(
                 &control_db_path,
                 &PostSharedChannelMessageInput {
@@ -147,7 +144,7 @@ impl ContextTool<Option<ExtensionContext>> for ChannelPostTool {
 }
 
 fn format_call(theme: &Theme) -> JsString {
-    theme.fg(ThemeColor::ToolTitle, &theme.bold("channel_post"))
+    theme.fg(ThemeColor::ToolTitle, theme.bold("channel_post"))
 }
 
 /// `renderCall` for the channel_post tool.

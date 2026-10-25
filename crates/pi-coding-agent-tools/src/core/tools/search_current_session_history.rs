@@ -373,7 +373,7 @@ fn format_call(args: &JsValue, theme: &Theme) -> JsString {
     let query = pi_js_compat::js_json::stringify_lossless(&query);
     js_format!(
         "{} {}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("search_current_session_history")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("search_current_session_history")),
         theme.fg(ThemeColor::Accent, &query)
     )
 }

@@ -106,7 +106,7 @@ impl ReadOperations for LocalReadOperations {
             tokio::fs::metadata(&encode_node_utf8(absolute_path))
                 .await
                 .map(|metadata| Some(metadata.len() as f64))
-                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "stat", &absolute_path)))
+                .map_err(|error| super::node_fs::operation_error(node_fs_error(&error, "stat", absolute_path)))
         })
     }
 
@@ -642,9 +642,9 @@ fn format_read_line_range(args: &JsValue, theme: &Theme) -> JsString {
     match end_line {
         Some(end_line) if end_line != 0.0 && !end_line.is_nan() => theme.fg(
             ThemeColor::Warning,
-            &format!(":{start}-{}", pi_js_compat::number::js_number_to_string(end_line)),
+            format!(":{start}-{}", pi_js_compat::number::js_number_to_string(end_line)),
         ),
-        _ => theme.fg(ThemeColor::Warning, &format!(":{start}")),
+        _ => theme.fg(ThemeColor::Warning, format!(":{start}")),
     }
 }
 
@@ -652,7 +652,7 @@ fn format_read_call(args: &JsValue, theme: &Theme, cwd: &JsString) -> Result<JsS
     let path_display = render_tool_path(render_args_path(args).as_ref(), theme, cwd, None)?;
     Ok(js_format!(
         "{} {}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("read")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("read")),
         path_display,
         format_read_line_range(args, theme)
     ))
@@ -758,7 +758,7 @@ fn format_compact_read_call(classification: &CompactReadClassification, args: &J
     };
     js_format!(
         "{} {}{}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold(&format!("read {kind}"))),
+        theme.fg(ThemeColor::ToolTitle, theme.bold(format!("read {kind}"))),
         theme.fg(ThemeColor::Accent, &classification.label),
         format_read_line_range(args, theme),
         expand_hint
@@ -801,7 +801,7 @@ fn format_read_result(
         JsString::join(
             display_lines.iter().map(|line| match lang {
                 Some(_) => replace_tabs(line),
-                None => theme.fg(ThemeColor::ToolOutput, &replace_tabs(line)),
+                None => theme.fg(ThemeColor::ToolOutput, replace_tabs(line)),
             }),
             "\n"
         )
@@ -809,7 +809,7 @@ fn format_read_result(
     if remaining > 0 {
         text.push_str(js_format!(
             "{}{}{}",
-            theme.fg(ThemeColor::Muted, &format!("\n... ({remaining} more lines,")) + " ",
+            theme.fg(ThemeColor::Muted, format!("\n... ({remaining} more lines,")) + " ",
             key_hint("app.tools.expand", "to expand"),
             theme.fg(ThemeColor::Muted, ")")
         ));

@@ -115,7 +115,7 @@ fn format_broadcast_result(result: &SessionBroadcastResult) -> JsString {
         .error
         .as_ref()
         .map(|error| {
-            let encoded = json::stringify_lossless(&Value::String(error.clone().into()));
+            let encoded = json::stringify_lossless(&Value::String(error.clone()));
             js_format!(" error={}", encoded)
         })
         .unwrap_or_default();
@@ -293,11 +293,11 @@ fn format_call(args: &JsValue, theme: &Theme) -> JsString {
     let filter_text = if filters.is_empty() {
         JsString::default()
     } else {
-        js_format!(" {}", theme.fg(ThemeColor::Dim, &JsString::join(filters, " ")))
+        js_format!(" {}", theme.fg(ThemeColor::Dim, JsString::join(filters, " ")))
     };
     js_format!(
         "{}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("broadcast")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("broadcast")),
         filter_text
     )
 }

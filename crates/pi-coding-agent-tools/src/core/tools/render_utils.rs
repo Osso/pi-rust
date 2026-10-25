@@ -73,7 +73,7 @@ pub fn link_path(styled_text: &JsString, raw_path: &JsString, cwd: &JsString) ->
         return Ok(styled_text.to_owned());
     }
     let absolute_path = resolve_path(raw_path, cwd, &PathInputOptions::default())?;
-    Ok(hyperlink(styled_text, &path_to_file_url(&absolute_path)))
+    Ok(hyperlink(styled_text, path_to_file_url(&absolute_path)))
 }
 
 /// Node `pathToFileURL` file URL for an absolute path (or `cwd`-joined relative path).

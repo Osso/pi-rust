@@ -175,7 +175,7 @@ impl ContextTool<Option<ExtensionContext>> for ListSessionsTool {
 }
 
 fn format_call(theme: &Theme) -> JsString {
-    theme.fg(ThemeColor::ToolTitle, &theme.bold("list_sessions"))
+    theme.fg(ThemeColor::ToolTitle, theme.bold("list_sessions"))
 }
 
 /// `renderCall` for the list_sessions tool.

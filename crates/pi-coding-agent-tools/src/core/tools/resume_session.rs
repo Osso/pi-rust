@@ -506,7 +506,7 @@ fn format_resume_session_call(args: &JsValue, theme: &Theme) -> JsString {
         .map_or_else(JsString::default, |_| theme.fg(ThemeColor::Warning, " + instructions"));
     js_format!(
         "{} {}{}",
-        theme.fg(ThemeColor::ToolTitle, &theme.bold("resume_session")),
+        theme.fg(ThemeColor::ToolTitle, theme.bold("resume_session")),
         theme.fg(ThemeColor::Accent, &target),
         starter
     )

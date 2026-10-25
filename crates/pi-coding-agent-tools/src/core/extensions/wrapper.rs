@@ -46,8 +46,8 @@ where
     let arguments_tool = Arc::clone(&tool);
     ToolDefinition {
         name: tool.name().to_owned(),
-        label: tool.label().into(),
-        description: tool.description().into(),
+        label: tool.label(),
+        description: tool.description(),
         prompt_snippet: None,
         prompt_guidelines: None,
         approval_required: None,
@@ -55,7 +55,7 @@ where
         parameters: tool.parameters().clone(),
         render_shell: None,
         prepare_arguments: Some(Arc::new(move |args: &pi_js_compat::js_json::JsValue| {
-            Ok(arguments_tool.prepare_arguments(args.clone().into()))
+            Ok(arguments_tool.prepare_arguments(args.clone()))
         })),
         prepare_execution: None,
         execution_mode: tool.execution_mode(),
