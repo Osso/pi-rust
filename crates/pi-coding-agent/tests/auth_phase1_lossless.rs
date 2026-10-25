@@ -78,17 +78,24 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("auth.json");
     std::fs::write(&path, RAW).unwrap();
+    let source_path = directory.path().join("source-auth.json");
+    std::fs::write(&source_path, RAW).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let frozen_rotation = source.request(&json!({"id":0,"op":"rotate-in-place","authPath":source_path}));
+    assert_eq!(frozen_rotation["ok"], true, "{frozen_rotation}");
     let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
     register_oauth_provider(Arc::new(LosslessProvider));
     let key = storage.get_api_key("fake", GetApiKeyOptions::default()).await.unwrap();
     assert_eq!(key, Some(JsString::from("new")));
     let value = storage.get("fake").unwrap();
-    let expected =
-        r#"{"type":"oauth","refresh":"B\udfff","access":"new","expires":4000000000000,"\ud800":{"nested":"\udfff"}}"#;
+    let expected = frozen_rotation["output"]["credential"].as_str().unwrap();
     assert_eq!(js_json::stringify_lossless(&value), expected);
-    let mut source = oracle::TsOracle::spawn(
-        "auth-storage-oracle.ts",
-        "packages/coding-agent/src/core/auth-storage.ts",
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        frozen_rotation["output"]["file"]
     );
     let snapshot = source.request(&json!({"id":1,"op":"lossless","authPath":path,"provider":"fake"}));
     assert_eq!(snapshot["ok"], true, "{snapshot}");
