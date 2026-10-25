@@ -1,6 +1,5 @@
 //! Controlled loopback HTTP proof: use the real runtime client without contacting OpenRouter.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpRequest, HttpResponse};
 use std::io::{Read, Write};
 use std::time::{Duration, Instant};

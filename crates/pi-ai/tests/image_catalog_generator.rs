@@ -1,6 +1,5 @@
 //! Whole frozen image-generator workflow: exact source bytes with local fetch fixtures.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::image_catalog_generator::run;
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_js_compat::js_json::{parse_lossless, stringify_lossless};

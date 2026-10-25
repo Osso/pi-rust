@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::utils::error_body::{
     ErrorBody, NormalizedProviderError, ProviderError, ProviderErrorInput, format_provider_error,

@@ -1,9 +1,6 @@
-#[path = "support/abort_reason.rs"]
-mod abort_reason;
-#[path = "support/oauth.rs"]
-mod oauth_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_abort_reason as abort_reason;
+use crate::shared_oauth as oauth_support;
+use crate::shared_oracle as oracle;
 
 use pi_ai::auth::oauth::anthropic::AnthropicOAuth;
 use pi_ai::auth::{OAuthAuth, OAuthCredential};

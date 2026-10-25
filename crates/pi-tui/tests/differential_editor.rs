@@ -4,11 +4,9 @@
 //! autocomplete through both implementations and compares exact rendered lines
 //! (including ANSI), text, cursor, callbacks, and autocomplete visibility.
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
-#[path = "support/oracle.rs"]
-mod oracle_support;
+use crate::shared_oracle as oracle_support;
 
 use pi_js_compat::js_json::JsString;
 use std::rc::Rc;

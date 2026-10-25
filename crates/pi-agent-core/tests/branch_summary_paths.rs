@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::harness::compaction::collect_entries_for_branch_summary;
 use pi_agent_core::harness::session::*;
 use pi_ai::request::BoxFuture;

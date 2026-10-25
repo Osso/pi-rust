@@ -303,7 +303,7 @@ async fn relay_stream(
     let host = options
         .host
         .cloned()
-        .unwrap_or_else(|| JsString::from(gethostname::gethostname().to_string_lossy().as_ref()));
+        .unwrap_or_else(|| pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str()));
     let mut state = RelayState {
         path: options.control_db_path,
         host: &host,

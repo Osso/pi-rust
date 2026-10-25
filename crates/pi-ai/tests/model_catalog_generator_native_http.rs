@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::model_catalog_generator::{Generator, fetch_native};
 use serde_json::json;
 use std::time::Duration;

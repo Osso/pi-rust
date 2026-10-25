@@ -1,5 +1,4 @@
-#[path = "support/anthropic.rs"]
-mod support;
+use crate::shared_anthropic as support;
 
 use std::sync::Arc;
 

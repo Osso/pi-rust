@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use pi_tui::word_navigation::{
     WordNavigationOptions, WordSegment, find_word_backward, find_word_forward, word_segments,

@@ -222,8 +222,7 @@ async fn env_api_key_auth_prefers_stored_key_then_env_order() {
     );
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn helpers_match_frozen_stored_credential_and_loader_semantics() {

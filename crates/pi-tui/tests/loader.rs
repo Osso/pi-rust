@@ -1,6 +1,5 @@
+use crate::shared_virtual_terminal as virtual_terminal;
 use pi_js_compat::js_json::JsString;
-#[path = "support/virtual_terminal.rs"]
-mod virtual_terminal;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;

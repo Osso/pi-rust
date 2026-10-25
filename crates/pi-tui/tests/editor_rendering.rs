@@ -3,8 +3,7 @@
 use pi_js_compat::js_json::JsString;
 use pi_tui::tui::Component;
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
 use editor_host::{editor, editor_with_rows, plain_theme, send};
 use pi_tui::components::editor::{Editor, EditorOptions};

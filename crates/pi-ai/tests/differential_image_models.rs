@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::image_models::{get_image_model, get_image_models, get_image_providers};
 use pi_ai::image_models_generated::image_model_groups;

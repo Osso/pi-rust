@@ -1,7 +1,5 @@
-#[path = "support/abort_reason.rs"]
-mod abort_reason;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_abort_reason as abort_reason;
+use crate::shared_oracle as oracle;
 
 use pi_ai::http::default_fetch;
 use pi_ai::request::{CallbackError, HttpRequest};

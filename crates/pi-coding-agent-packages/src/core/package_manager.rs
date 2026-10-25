@@ -254,7 +254,7 @@ pub struct ConfiguredPackage {
 pub use crate::core::settings_manager::{PackageFilter, PackageSource};
 
 /// Settings snapshot consumed by package resolution.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PackageSettingsSnapshot {
     pub packages: Vec<PackageSource>,
     pub extensions: Vec<JsString>,

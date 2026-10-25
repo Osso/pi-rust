@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::api::github_copilot_headers::{
     build_copilot_dynamic_headers, has_copilot_vision_input, infer_copilot_initiator,

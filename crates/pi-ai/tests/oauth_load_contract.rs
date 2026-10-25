@@ -1,6 +1,5 @@
 //! Frozen utils/oauth/load.ts and providers/openrouter-images.ts public contracts.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::auth::OAuthCredential;
 use serde_json::json;

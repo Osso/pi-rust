@@ -1,5 +1,4 @@
-#[path = "differential_harness_core/support.rs"]
-mod support;
+use crate::shared_harness_support as support;
 
 #[path = "differential_harness_core/loaders.rs"]
 mod loaders;

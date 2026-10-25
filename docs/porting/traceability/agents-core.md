@@ -1,331 +1,129 @@
-# agents-core traceability
+# Agents-core runtime — frozen 4f9e6f8a4
 
-Successor checkpoint: parent `5f1fa82a8` merged; locked inventory remains 686 rows / 186,679 lines. Background construction-error UTF-16 GREEN: `/tmp/agents-core-3-background-green.log`; 55 focused runtime/viewer/deterministic tests pass (`/tmp/agents-core-3-runtime.log`). Removed the source-absent `parent_agent_journal` module, dispatch journal wrappers/constants and four obsolete journal tests; historical journal maps below are retired, not current proof. The generic failed-message constructor remains an implementation helper for frozen emptyMessage/emptyParentRequest/emptyDirectMessage, not an old-source API contract. Removed a duplicate fixture type property exposed by strict no-emit checking; all three existing agents-core oracles pass with source compiler/type mappings and approved ES2024 target (`/tmp/agents-core-3-oracle-typecheck-green.log`). Workspace/all-target check and formatting pass (`/tmp/agents-core-3-cleanup-check.log`). Runtime remains partial until whole-module trace cleanup and acceptance.
+Source: `packages/coding-agent/extensions/agents-core/src/runtime.ts`, 3,326 lines at [the common pin](../source-lock.json). Native implementation: `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/`. Contract: [agents-core runtime](../../specs/agents-core-runtime.md).
 
-## Runtime re-pin lane — 2026-10-25
+Whole-module audit completed 2026-10-25 under the approved lighter-proof rule. The runtime row is **done** within the user-observable parity scope. No realistic branch remains open in the factory, browser, registry, archive, artifact-root, cancellation-timeout or recovery audit. Non-persistence closure is source reading plus existing tests; the [control-DB reciprocal proof](session-control-db.md) and [runtime mailbox acceptance proof](runtime-mailbox-acceptance.md) remain separate, unchanged authorities. This is not a workspace-wide acceptance claim.
 
-Successor factory slice: child and attached factories now forward the parent's model registry, install browser-only restricted read definitions (including the configurable root), augment profile tools with ask_questions and browser read, and exclude change_working_directory. Attached sessions restore archived files through the control DB and leave settings creation to SDK instead of overriding policy. Actual frozen factory-option differential RED: `/tmp/agents-core-2-factory-red.log`; archive/policy behavioral RED: `/tmp/agents-core-2-attached-red.log`. Factory differential, archive and no-policy-override cases pass at `4fc421ff5` (`/tmp/agents-core-2-factory-green2.log`); one legacy tool-order assertion still needed the frozen ask_questions insertion order and is corrected in the next slice. Mechanical API fallout: main.rs and native factory fixtures initialize browser_agent_config_root. No storage internals changed.
+## Source map
 
-| Frozen runtime branch | Native/proof |
+Line ranges below refer only to the frozen runtime. Native split filenames are implementation organization, not additional frozen source modules.
+
+### Contracts, schemas and helpers (1–455)
+
+- Schemas, parameter/detail records, factory contracts, owned runtimes, handles and notification registrations map to `shared.rs`, `runtime.rs`, `session_factories.rs`, `spawn_attach_runtime.rs`, `control_runtime.rs`, `registration.rs` and `dispatch_runtime.rs`. Existing registration differential checks the full tool/command metadata and ordering, including set_agent_model and question relay registration.
+- `createMultiAgentRuntimeHandles`, `resolveSelectedSessionMutationTarget` and `artifactRootForStore` map to `runtime.rs`; live targets delegate to the bound child mutation surface. [Model-tool proof](agent-model-tool.md) covers inactive, detached and missing/live target selection. Artifact roots are held per store with weak ownership and registered by either production factory; terminal publication and wait reconciliation use that root, not the session directory.
+- `result`, `emptyResult`, `errorResult`, `emptyAgent` and the three empty-message constructors map to `tool_results.rs`, `shared.rs`, `runtime_utils.rs`, `control_runtime.rs` and `mailbox_runtime.rs`. errorResult deliberately omits isError; explicit route errors retain their separate flag. Epoch timestamps and empty IDs match frozen literals.
+- `validateGoalObjective`, production-factory detection and prompt diagnostics map to `session_factories.rs`: JS trim, 10,000 UTF-16 units, empty/oversize messages, production-only public validation. Rust uses the factory's production marker rather than a JS Symbol. Human text and argument JSON retain JsString/JsValue.
+- `DEFAULT_BROWSER_AGENT_CONFIG_ROOT` is the import-time HOME snapshot. Native `default_browser_agent_config_root` is initialized before CLI dispatch; the existing HOME/NSS subprocess proof checks both the visible failure and immutable snapshot. It is not re-probed for each factory.
+
+### Background jobs (414–580)
+
+`notifyBackgroundDispatch`, `startBackgroundDispatch`, `backgroundCommand` and `jobsCommand` map to `registration.rs` and `runtime::jobs_command`.
+
+The audit covers child-runtime rejection; missing factory; production validation; missing persistence; prepare→construct→failed/running commit; transcript forwarding; disposal on rejected commit; publication before dispatch; ownership release; editor clearing; initial and terminal UI notifications; no-jobs and ordered job listing. Notification UI is acquired when the dispatch settles, not when it starts. Construction failure messages preserve unpaired UTF-16 exactly. Publication/commit/async-notification errors do not disappear.
+
+Proof: `background_command_reports_unavailable_and_validation_errors`, `jobs_command_lists_background_agents`, `background_construction_failure_preserves_frozen_utf16_notification`, and the subprocess-backed `public_background_completion_uses_live_ui_and_reports_async_getter_failure`.
+
+### Child and attached factories (582–869)
+
+`resolveChildExtensionFactories`, browser read tools, transcript metadata, active-tool lookup, unresolved-turn ancestry, inherited-leaf selection, manager construction, both exported production factories, profile/model/tool resolution and configured-profile validation map to `session_factories.rs` and `spawn_attach_runtime.rs`.
+
+- Fresh/inherited manager creation preserves parent identity, session directory, subagent name and fork event. Active tool identity is checked even for fresh context; inherited context excludes the unresolved turn and rejects missing parent persistence/tool entries.
+- Both factories forward the parent model registry, selected model/effort, child identity/store/runtime role and extension factories. Goal factories are removed; static/dynamic factories retain order. Restricted profiles append ask_questions/contact_parent/send_agent_message/end_turn, plus read for browser. Supervisor/child-disabled tools and change_working_directory are excluded.
+- Browser factories install the actual restricted read definition with the supplied root or import-time default. Existing factory proof executes reads both inside and outside a root distinct from cwd, for fresh and attached sessions.
+- Attached factories restore archives before existence/identity validation, validate cwd/session ID, set the metadata DB, bind extensions and expose the unchanged transcript. SDK owns settings creation: no old attached policy override remains. Child managers persist for recovery before the bound wrapper is returned.
+- Spawn metadata inherits the configured or parent model, defaults effort to medium independently of parent effort and clamps to model capabilities. Attachment metadata retains configured effort without that spawn clamp. Explicit unknown profiles fail before persistence admission with sorted configured-key guidance. Raw profile access does not deserialize unrelated fields.
+
+Proof: all 19 `agents_core_session_factories` tests; accessed-model/context/getter cases in `agents_core_drift`; real faux-provider child in `agents_core_end_to_end`. Bound session delegation/disposal and previous-message identity remain in [child-session](child-session.md) and [child-response](child-response.md).
+
+### Pi bridge and summaries (871–1074)
+
+`createMultiAgentPiRequestHandler`, current/select helpers, wait-argument validation, child/supervisor predicates, main snapshot and last-message helpers map to `runtime.rs`.
+
+The audit covers disposal; mirror binding; child orchestration guards; spawn/wait/attach/list/current/select/messages.last/messages.send; null/absent list parameters; callback true/false/undefined selection; main selection; no-message null; string/block/custom content; newline joining; absent/empty text; exact 2,000-unit clipping. The native slice retains a split surrogate. Bridge waits release mailbox claims because bridge results are not accepted session input; bridge send does not run the model-tool-only callback.
+
+Proof: request-handler runtime tests, wait receipt/bridge-release test, tool-only callback-scope test, empty-parent list differential and existing lossless runtime tests. SelectAgentView is an awaited native UI bridge; no JS synchronous callback timing or shared-return-reference contract is claimed.
+
+### Spawn, attachment and recovery (1076–1680)
+
+`spawnAgent`, ownership release, attachment resolution/admission/dispatch/reservation, recovery ordering/live-owner/dead-owner paths and reserved-child construction map to `spawn_attach_runtime.rs` and `dispatch_runtime.rs`.
+
+- Spawn preserves validation/profile/persistence ordering, configured context, permission and model metadata; passes the original prompt and active tool ID; commits failed construction or running transcript identity; disposes rejected children; publishes before dispatch and releases ownership afterward. No parent journal or transcript requirement is added to a custom factory.
+- Attachment accepts exactly one trimmed path/id/name selector; restores archive paths; reads control-DB name/subagentName; deduplicates local/all listings by path; uses exact ID before prefix and exact name; rejects ambiguous/missing matches. It preserves session identity and parent account/model/permission, with on-request permission when parentless. Optional resume reserves ownership first; thrown reservation errors propagate, while an ordinary non-acquisition returns an attached, undispatched record.
+- Recovery filters direct children only for a child runtime, orders deepest first and preserves ties, skips current dispatches/waiting agents, resumes transcript-bearing non-cancelling agents with the exact crash prompt, and otherwise checks live/superseded ownership before dead-child settlement. Missing journal entries do not block recovery.
+- Waiting attachments construct before confirming runtime; restore-generation changes or rejected confirmation abort/dispose rather than prompt. Construction failure finalizes with runtime_spawn_failed; publication failures propagate.
+
+Proof: runtime spawn/attach/recovery tests; five-vector public profile fixture; archived path/metadata fixtures; `attach_resume_propagates_runtime_reservation_failure` uses a real SQLite trigger after attachment admission and checks the error, retained waiting record and absent dispatch/factory call. It adds no storage algorithm or new oracle scenario.
+
+### Dispatch and terminal publication (1682–1873)
+
+`runAgentSession`, descendant settlement, finalization, cancellation acknowledgement, coordinator publication and exported terminal-outbox delivery map to `dispatch_runtime.rs` and `lifecycle_runtime.rs`.
+
+Construction/admission, generation guards, lease-loss abort, store abort handler, live handle/transcript publication, previous-message capture, prompt, detached cancellation and descendant wait precede completion. Cancellation acknowledgement precedes completed/failed settlement. Steering-pending completion drains coordination and rejects missing/ineffective drains. Error handling settles descendants without the cancelled signal before terminalization. Lease/store registrations and live handles are removed before awaited disposal. Coordinator/transcript/terminal-outbox failures propagate through Result; asynchronous rejected dispatches reach the shared uncaught authority after cleanup.
+
+Proof: real spawn and terminal-notification tests, transcript-failure-before-prompt test, current-turn/error/UTF-16 child-response cases, cancellation/descendant ordering and terminal-artifact-root tests. [Descendant settlement](descendant-settlement.md), [detached cancellation](detached-runtime-cancellation.md) and [terminal outbox](terminal-outbox-delivery.md) retain their own full boundary proofs.
+
+### Listing and mailbox (1875–2136; 2635–2676; 2910–3119)
+
+`listAgents` and formatting map to `viewer.rs`; active descendants vs all active agents, empty parent filter, singular/plural header, JSON-quoted display names and store order are retained.
+
+Send/contact-parent/current-sender helpers, failed transport handling, mirror binding/disposal, pending lifecycle scans, store references, recipient routing and empty direct/parent messages map to `mailbox_runtime.rs`. The audit covers identity-unavailable, local parent/child, explicit session mismatch, main/supervisor, remote relay, missing transport, durable failed status, local-only model-tool callback and exact target-bearing error/success text. Transport rows refer to canonical store content, never copied bodies. Lifecycle mirroring uses frozen detached/suppressTerminalNotification gating, not an extra transport scan. Parent routing uses runtime parent identity, not old transcript headers. Observer failures return to the store's existing diagnostic boundary.
+
+Proof: runtime canonical mailbox delivery/parent-contact/callback/route-error/empty-session/parent-header/detached-mirror tests, drift observer regression and existing deterministic registration/list cases. [Route](session-message-route.md), [mailbox-tool](mailbox-tools.md), [control DB](session-control-db.md) and [mailbox acceptance](runtime-mailbox-acceptance.md) retain frozen bidirectional persistence proof. Storage algorithms were not changed in this lane.
+
+### Wait notifications and coordination (2138–2524)
+
+Wait wake variants, watcher, exported wait/consume functions, coordination recipient/claim/channel helpers, terminal notification listing/consumption and in-flight predicate map to `wait_runtime.rs` and `shared.rs`.
+
+The watcher captures active-agent order and the latest model-request deadline. Initial terminal notifications precede waiting; terminal reads precede steering/coordination/timeout wakes. Empty tracked sets, pre-abort, 3-second reconciliation/polling, terminal-first deadline ticks, error wakes, cancellation and subscription cleanup are retained. Reconciliation and terminal projections share the configured artifact root and timestamp. A timed-out slice leaves agents running.
+
+Consumption preserves supplied wake prompts, durable mailbox claim receipts, release-on-preparation-error, channel pagination/cursor advancement and remote-origin filtering. Bridge wait releases claims; accepted tool input owns durable delivery. Terminal wakes consume completed/failed notifications in persisted order and preserve text/details; none/cancelled/error/unavailable/steering output matches frozen.
+
+Proof: wait timeout/terminal/coordination/receipt tests, two persisted watcher tests (ordered terminal choice and error wakes), shared mailbox persistence proof and existing runtime coordination tests. No new fault/scheduling differential was added.
+
+### Cancellation, steering and desktop notifications (2526–2633; 2678–2908)
+
+Exported cancellation/steering/wakeup functions and private close/steer helpers map to `control_runtime.rs`; waiting notification creation/replacement/transition/closure maps to `dispatch_runtime.rs`.
+
+Cancellation walks active descendants in reverse and suppresses detached descendant terminal messages, then handles the target. Owned runtimes request cancellation, publish, safely abort and await the shared dispatch only up to the configurable timeout; timeout does not drop the actual running dispatch, and a rejected dispatch remains an error. Non-owned runtimes use the persisted detached cancellation authority.
+
+Steering checks existence/activity, coordinator/persistence/ownership/process/actor/session/transcript authority, then publishes the coordinator message and notifies waiters. Interactive steering uses next_model_call; tool steering uses runtime sender identity. Desktop notifications are limited to pending input-needed system threads; old handles/subscriptions are closed on replacement, transition or non-waiting dispatch completion. Notifier/close errors use the shared frozen-style console reporter.
+
+Proof: configured 17ms timeout/rejection regression, owned cancellation and detached tree tests, steering unknown/identity tests, existing [model-tool](agent-model-tool.md) and desktop-notification callback tests. Native notifier callbacks use the Rust-native extension contract.
+
+### Registration and shutdown (3121–3326)
+
+Store resolution, stop-dispatch cleanup, exported register/default functions and lifecycle hooks map to `runtime.rs` and `registration.rs`. Main model_request_start records the clock; agent_end/session_start clears it. Main session_start binds the mirror then recovers. Shutdown always disposes the mirror, but reload/child shutdown does not stop shared parent dispatches. Main quit invalidates generations, aborts owned/unowned handles, closes waiting notifications and clears handles/dispatches. Tool and command registration order, exact metadata, mailbox/question/model adapters and shared store are retained; registration failures propagate immediately.
+
+Proof: full existing registration differential; real frozen/native child/reload/main shutdown test; model-request wait-slice test; late-registration rejection test. Frozen `src/index.ts` remains the core-only factory/export facade; runtime's default registers core+viewer+mailbox. Native package entrypoints preserve that split.
+
+## Removed source-absent surface
+
+`parent_agent_journal.rs`, its module export, dispatch journal wrappers/constants/terminal predicate, journal writer/compaction refresh/recovery scans and four obsolete journal tests are deleted. The frozen runtime neither writes agent_start/agent_complete records nor gates spawn/recovery on them. Existing JSONL readers of historical records outside this runtime remain unchanged. The failed-mailbox constructor remains a shared implementation helper for the three current frozen empty-message literals, not an old frozen module contract.
+
+The historical split-source tables and claims of missing browser wiring, journal admission, surrogate dropping and timer-crash behavior have been replaced by this common-pin map.
+
+## DISCREPANCIES and standing gaps
+
+- **DISCREPANCY — completion after stale UI:** frozen notifyBackgroundDispatch has no catch on its continuation; invalidating the runner before completion logs the lifecycle observer failure and then rejects through the process uncaught boundary. Native preserves both diagnostics; it does not silently suppress the completion error. The subprocess test asserts the observer's exact `MultiAgentStore lifecycle notification listener failed: Error: ...` line and final uncaught line. V8 stack frames remain omitted under the standing approval.
+- **DISCREPANCY — cancellation reason/timeout result:** the owned source path does not forward its reason to requestCancellation and never consumes settledBeforeTimeout. Native keeps the same behavior: return the latest snapshot after settlement or timeout; do not invent terminalization or a timeout error. Detached cancellation still forwards its reason.
+- **gap:** pathological/wrong-typed/exotic JSON, OS/runtime fault shapes, numeric extremes, Node/V8/libuv scheduling/identity oddities and Windows-only branches follow AGENTS.md; no new API/carrier/fallback or adversarial hunt was added. Generated unique IDs avoid the old dispatch-map promise-identity distinction on realistic paths.
+- **gap:** JavaScript shared-reference mutation and promise/microtask timing are outside the approved owned-value/native-extension contract; existing lossless UTF-16 and JSON carriers remain intact. Native callbacks do not emulate JS realm objects.
+
+## Final proof ledger
+
+Code baseline `5f1fa82a8`; successor changes `2daca5441` (remove old journal), `6a8c5ade5` (observer diagnostic) and `795776802` (attachment reservation propagation). Parent `1e9e576a7` merged as `e97b6f691`. Final documentation does not invalidate these commands' code scope.
+
+| Command / exact scope | Result / artifact |
 | --- | --- |
-| Spawn without parent journal dependency or transcript requirement (`runtime.ts:1080–1198`) | Removed old-only journal admission/start/terminal writes and the native-only request-handler journal argument. Actual frozen spawn with no transcript returns dispatched=true/completed and zero custom entries; native RED returned journaling-unconfigured; GREEN checks dispatch, completion, SQLite state and no parent custom entry. `/tmp/agents-core-journal-{red,green2}.log`; all 25 runtime tests pass |
-| Current child assistant result/errors | [Whole child-response map](child-response.md), real dispatch RED/GREEN and nine frozen vectors |
-| Descendant settlement and direct detached terminal cleanup | [Settlement](descendant-settlement.md), [cancellation](detached-runtime-cancellation.md); real spawn/SQLite/mailbox boundary |
-| Child session shutdown scope (`runtime.ts:3181–3187`) | Actual frozen/native hook differential proves child quit and main reload do not invalidate shared dispatches, while main quit does. Native RED incorrectly invalidated shared store on child shutdown; GREEN `/tmp/agents-core-shutdown-scope-green.log` |
-| Remaining runtime audit | Recovery still has an old-only parent-journal admission filter; factory browser/read/tool/profile/archive/registry fields, artifact-root override, configurable cancellation timeout and remaining runtime branch proofs remain open. Child-session shutdown/finally is now closed in its own map. These are not completion evidence |
-
-Mechanical fallout: `pi-coding-agent/src/main.rs` drops the retired request-handler argument; native fixtures use the updated signature. No source delta or storage algorithm change.
-
-Successor cancellation/recovery/artifact slice: removed journal admission from recovery; cancellation now honors cancellationSettlementTimeoutMs and rejects failed dispatch settlement. Factories register agentDir per store with weak ownership; terminal publication and wait reconciliation use that root. Behavioral REDs: `/tmp/agents-core-2-{timeout-red2,recovery-red2,artifact-red4}.log` (17ms requested versus old 5s; absent journal blocked resume; separate artifact root was not cleaned). GREEN pending after commit. Artifact test uses a separate root, not the session directory, so the session-root path cannot mask this bug.
-
-Whole-module audit follow-up: wait coordination wakes now return the supplied prompt; claimed messages are returned in runtimeMailboxDelivery, not marked delivered before durable acceptance, and bridge waits release their claims. Claim failures release unaccepted messages; remote-origin shared channel messages are not filtered as local echoes. Path attachment restores archives and reads the control DB name/subagentName, and parentless attachments retain frozen on-request policy. Fresh child factories also validate active tool identity. RED: `/tmp/agents-core-2-{wait-red2,attach-path-red,fresh-id-red}.log`; recovery fixture now registers a real supervisor listener and simulates a dead owner, with the journal gate mutation failing `/tmp/agents-core-2-recovery-fidelity-red.log`. Pre-commit workspace/all-target check passes (`/tmp/agents-core-2-workspace-check.log`). GREEN pending.
-
-Whole-module audit, dispatch/mailbox follow-up: transcript publication failures now enter the child failure path before prompting; terminalization and cancellation-ack errors propagate rather than disappearing. Frozen mailbox error strings include their target; empty target-session strings use source truthiness. Removed old header/metadata parent routing and old detached-terminal dedup scan in favor of the exact frozen detached/suppression predicate. Bridge messages.send does not invoke the model-tool-only callback. Tracked-terminal wakes preserve captured Set order. REDs: `/tmp/agents-core-2-{transcript-red2,handler-callback-red3,mailbox-errors-red,mailbox-empty-red,mirror-red,parent-route-red,wait-order-red2}.log`. Pre-commit workspace check: `/tmp/agents-core-2-audit-check.log`. Parent `de46a2789` merged; fixture fallout uses valid absolute output paths and the persisted archive API to preserve metadata.
-
-Whole-module profile audit: requested unknown profile errors now precede persistence checks and list configured keys in frozen order. Spawn model metadata inherits the parent's model when needed, starts at medium rather than parent effort, and clamps profile effort to model capabilities; attachment metadata remains the unclamped configured profile metadata. Failed-child commit/publication errors now propagate. Actual public frozen/native five-vector RED: `/tmp/agents-core-2-spawn-profile-red.log`; pre-commit workspace check `/tmp/agents-core-2-profile-check.log`. GREEN pending.
-
-Final audit additions: list_agents treats an empty parentId as an absent filter (frozen deterministic RED `/tmp/agents-core-2-list-red.log`). Browser factory proof now executes the actual frozen/native read definition for both child and attached sessions, with allowed and forbidden paths under a root override. The runtime oracle is split into named scenario functions; strict protected no-emit typecheck passes (`/tmp/agents-core-2-oracle-typecheck.log`). Workspace/all-target check passes (`/tmp/agents-core-2-final-check.log`); focused GREEN pending after commit.
-
-Final scoped acceptance found one obsolete end-to-end expectation: real child completion already passed, but the test still demanded removed agent_start/agent_complete parent records. It now asserts their absence, matching actual frozen spawnWithoutJournal. Unreachable dispatch/background rejection paths use the shared uncaught authority after cleanup; background ownership release runs on rejection as well. New-line clippy findings (test err-expect and borrow) are fixed; wait tests moved after production items. Pre-commit workspace/all-target check `/tmp/agents-core-2-cleanup-check.log` passes. The updated [runtime spec](../../specs/agents-core-runtime.md) describes these contracts.
-
-## Module HOME snapshot (2026-10-23)
-
-Frozen `runtime.ts:198` evaluates `join(homedir(), "AgentConfig")` during static imports (`cli.ts:11` → `main.ts:14` → agents-core runtime), before dispatch or the main action catch. Native `runtime::DEFAULT_BROWSER_AGENT_CONFIG_ROOT` stores that one-time native result; the pi executable initializes it before cli_entry and routes failure through shared `throw_native_uncaught`. The accessor returns the stored root, not a fresh HOME probe. `differential_cli_import_home` compares real frozen/native --version failures under forced NSS EIO (exit 1, exact SystemError prefix, no version output), and a child proves later HOME changes do not alter the snapshot. RED: `pi-cli-nss-frozen-red.log`; GREEN: `pi-cli-nss-green.log`.
-
-| Frozen consumer | Status |
-|---|---|
-| `runtime.ts:589–595` createBrowserReadTools / browserAgentConfigRoot override | Open: native browser factory wiring is unported; stored default is available through runtime::default_browser_agent_config_root |
-| `runtime.ts:699–701` production child factory customTools | Open: does not yet install the restricted browser read definition |
-| `runtime.ts:757–759` production attached factory customTools | Open: same missing browser tool wiring; this checkpoint does not claim those consumers |
-
-## Drift implementation / proof status
-
-Actual in-crate baseline `agents_core_drift` at `27410344`: five intended behavioral REDs, `agents-core-drift-incrate-red-2.log`; source cases executed through Cargo's mandatory runner.
-
-| Boundary | Implementation | Proof |
-|---|---|---|
-| Registration API errors | Helpers/top-level registration propagate the original error in source order | GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
-| Completion-time UI lookup | Resolve current UI after dispatch settles; errors reach the existing process uncaught handler | GREEN at `d03f49d3`, `agents-core-ui-fidelity-green.log`; actual frozen runner observer evidence asserted |
-| Post-construction session lookup | Fallible lookup occurs after construction and before admission; no error-to-path fallback | GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
-| Accessed profile model / unrelated fields | Raw profile getter; model registry read precedes source-equivalent model-type error; consumers project accessed fields only | Both GREEN at `4636282b`, `agents-core-drift-incrate-green.log` |
-| Tracked-agent DB read | Native error wake from notification and terminal-settlement reads | Actual `cargo test -j4 -p pi-coding-agent --lib tracked_read_failure_tests::tracked_agent_read_failure_wakes_with_error_instead_of_disappearing` RED at `5456b9f1` (`wait-read-incrate-red.log`); correction at `4cffa3fe` passes the same Cargo regression (GREEN1, `wait-read-incrate-green.log`), covering notified and terminal-settlement paths |
-
-### Stale-context fixture fidelity
-
-The initial source stub staled only UI while native invalidated the entire runner; that source-only result did not justify ignoring an extra native mirror diagnostic. The oracle now uses the actual frozen `ExtensionRunner.createCommandContext()` and `invalidate()`. `agents-core-ui-fidelity-red.log` (Cargo invocation) proves source also reports a stale lifecycle observer: `runner.ts:678,850` → `runtime.ts:2974,2932` → `multi-agent-store.ts:1177–1179`. Native reporting remains untouched. The regression asserts the oracle's observer diagnostic, then compares the terminal uncaught line exactly; observer formatting/stack compatibility is not claimed. The earlier relaxed-assertion run is not acceptance evidence.
-
-## Source-backed error boundaries
-
-`agents-core-drift-oracle.ts` imports the actual unmodified frozen runtime module and SettingsManager. Protected source-only execution (exit 0; lane log `agents-core-drift-source-2.log`) confirms public `agents.spawn` with a truthy numeric configured model throws `TypeError: modelReference.trim is not a function`, and public registration propagates a late `list_agents` registration exception. `tests/agents_core_drift.rs` records public Rust handler/registration RED intents; unexecuted while the coding library is blocked. Registration failure injection invalidates the real ExtensionRuntime after early tool setup, rather than substituting an API implementation. Spawn fixtures supply the native entry's required parent-journal dependency using the real SessionManager and active runtime guard, so they cannot fail merely on missing journaling before the profile/session boundary. Remaining production corrections require their in-crate behavioral RED; the status table above tracks implementation and proof separately.
-
-Frozen getter (`settings-manager.ts:509–516`) only structured-clones the configured/default profile; it does not reject malformed untouched fields. A future fix must keep that permissiveness and fail only at the accessed model field, matching the frozen error. `public_spawn_preserves_profile_context_when_unrelated_tools_are_malformed` additionally compares the actual source/native child-factory context for `{context:"fresh",tools:7}`; it prevents whole-profile deserialization from dropping a valid accessed field because an unrelated field is malformed. This new guard is unexecuted, including its source case; source code confirms direct context forwarding. Public `agents.spawn` session-getter fixture now uses real SessionManager/SQLite persistence and a child factory that invalidates context after construction. Frozen source throws the getter error and admits zero agents (`agents-core-session-getter-source-3.log`, protected source-only exit 0). The Rust regression asserts both the error and absence of an admitted row, preventing a later stale error from hiding the swallowed commit-time failure. It remains unexecuted. Public `/bg` lifecycle fixture now confirms UI acquisition occurs at completion, not dispatch start: real frozen source completes the agent and sends a second notification while context is active; after UI invalidation it sends no terminal notification and reports the getter error as an unhandled rejection (`agents-core-ui-source.log`, protected source-only exit 0). The Rust RED-intent uses the real registered command, persisted lifecycle, controlled child prompt and isolated subprocess uncaught handler; it checks both valid notifications and failure exit/message. The status table above records Rust execution and pending corrections.
-
-## Foreground wait slice refresh
-
-Frozen runtime.ts:196,2126-2295,3157-3168 maps to shared `latest_model_request_started_at`, model-request-start and agent/session-end hooks, and the captured deadline in native wait_runtime.rs. `wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents` uses a real SQLite active child and paused Tokio timers: timedOut true, child still running, agent_end clears the deadline. Model-request-start/end events now exist in extension types/runner and AgentSession forwarding. [Contract and remaining event-boundary proof](../../specs/agent-wait-slice.md).
-
-## Frozen 4f9e6f8a4 refresh — 2026-10-21
-
-Historical module inventory below is not renewed source correspondence. Frozen `runtime.ts` now owns private `emptyAgent` (3065), `isInFlightLifecycle` (2526), result helpers (391-412), prompt validators (424-455), `listAgents` (1875) and wait validation (993). The deterministic oracle loads an in-memory transpiled copy and exposes those declarations without editing frozen files; viewer now loads `extensions/agent-viewer/src/runtime.ts:85`.
-
-Frozen `runtime.ts:402-412` and agent-viewer result constructors omit `isError`; native `error_tool_result` now does the same. Explicit per-call-site flags remain separate behavior. Refreshed deterministic oracle reproduced the prior `true` mismatch.
-
-Retired differential cases: generic `createFailedMailboxMessage` and `appendParentAgentStart` are absent from frozen non-test source; removed `failed-message` and `journal` cases are not new-pin parity evidence. Native legacy helpers/tests remain outside this bounded oracle repair. Registration still invokes real frozen exported registration functions.
-
-Current proof (2026-10-21 question lane): deterministic cases and full frozen registration differential pass, including 12/12 exact metadata and set_agent_model ordering. Child-aware ask_questions/answer_question are implemented with durable tool-result receipt acceptance; [relay traceability](question-relay-tools.md) tracks remaining branch proof. toHost canonical routing, historical viewer trace and 25-minute wait slice are now ported with focused proof; actual host-relay transport, shared lossless TextContent/details and whole-runtime gaps remain, so metadata equality is not whole-runtime parity.
-
-Runtime/store/lifecycle old-clock failures were expired canonical rows: frozen `multi-agent-store.ts:939-945` persists the store row before runtime enqueue (`runtime.ts:2954-3040`). Fixtures now use current birth times. Child-disabled capability includes frozen `answer_question`; `set_agent_model` was already registered natively and only missing from the old fixture expectation.
-
-Source: `packages/coding-agent/extensions/agents-core/src/*.ts` (pinned by
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/`.
-
-Proof commands:
-
-- `cargo test -p pi-coding-agent --test agents_core_shared_viewer` (16)
-- `cargo test -p pi-coding-agent --test agents_core_runtime` (17)
-- `cargo test -p pi-coding-agent --test differential_agents_core_deterministic` (2)
-
-Differential oracle: `oracle/agents-core-deterministic-oracle.ts` (33 cases:
-snapshots, lifecycle predicates, prompt validation, failed mailbox messages,
-tool results, list/viewer text+details, journal records, wait-parameter
-validation, and full tool/command metadata).
-
-## shared.ts
-
-| Source symbol | Rust item | Proof |
-| --- | --- | --- |
-| `CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE` | `shared::CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE` | runtime/spawn tests |
-| `fileReferenceSchema` | `shared::file_reference_schema` | tool metadata differential |
-| `WaitAgentsWakeUp` | `shared::WaitAgentsWakeUp`/`WaitAgentsWakeKind` | wait tests |
-| `emptyAgent` | `shared::empty_agent` | differential `empty` |
-| `isChildAgentRuntime` | `shared::is_child_agent_runtime` | child-runtime spawn test |
-| `isInFlightLifecycle` | `shared::is_in_flight_lifecycle` | differential lifecycle cases |
-| Factory contracts (`ChildAgentSession`, `ChildAgentSessionFactory`, `AttachedSessionFactory`) | `shared.rs` (moved from `spawn-attach-runtime` to break the Rust module cycle) | spawn/attach tests |
-
-## tool-results.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `toolResult` | `tool_results::tool_result` | differential `tool-results` |
-| `errorToolResult` | `tool_results::error_tool_result` | differential `tool-results` |
-| `emptyToolResult` | `tool_results::empty_tool_result` | differential + wait test |
-
-## runtime-utils.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `abortAgentHandleSafely` | `runtime_utils::abort_agent_handle_safely` | cancel test |
-| `createFailedMailboxMessage` | `runtime_utils::create_failed_mailbox_message` | differential `failed-message` |
-
-## viewer.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `listAgents` | `viewer::list_agents` (+ `ListAgentsParams`) | differential list cases, runtime request-handler list test |
-| `agentViewer` | `viewer::agent_viewer` (+ `AgentViewerParams`) | differential viewer cases, persisted-session behavioral case |
-| formatting/status/commands/transcript helpers | private fns in `viewer.rs` | differential + `agents_core_shared_viewer` |
-
-Persisted viewing uses `list_session_metadata` + `read_multi_agent_state`, matching the source.
-
-## parent-agent-journal.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `isTerminalAgentLifecycle` | `parent_agent_journal::is_terminal_agent_lifecycle` | dispatch tests |
-| `appendParentAgentStart/Completion`, private record writer | `append_parent_agent_start/completion`, `append_parent_agent_record` | differential `journal`, runtime spawn test |
-| `readActiveParentAgentIds` (+ entry scan) | `read_active_parent_agent_ids`, `read_active_parent_agent_ids_from_entries/session_entries` | entry-scan test |
-| `registerParentAgentCompactionRefresh` | `register_parent_agent_compaction_refresh` | implemented; not separately exercised (requires compact event emission) |
-| `restoreCompactedParentAgentRecords` | `restore_compacted_parent_agent_records` | no-op path test |
-
-## session-factories.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `MAX_GOAL_OBJECTIVE_CHARS` | `session_factories::MAX_GOAL_OBJECTIVE_CHARS` | differential |
-| `validateGoalObjective` | `validate_goal_objective` | differential blank/trim/exact/oversized/emoji |
-| `spawnPromptValidationMessage` | `spawn_prompt_validation_message` | differential |
-| `backgroundPromptValidationMessage` | `background_prompt_validation_message` | differential |
-| `isProductionChildSessionFactory` | `is_production_child_session_factory` + factory marker | spawn validation test |
-| `createProductionChildAgentSessionFactory` | `create_production_child_agent_session_factory` | 12 factory tests + end-to-end spawn |
-| `createProductionAttachedSessionFactory` | `create_production_attached_session_factory` | attach open/policy/mismatch tests |
-| `resolveInheritedLeafId` | `resolve_inherited_leaf_selection` | inherited branch tests |
-| `createChildSessionManager` | `create_child_session_manager` (+ `create_child_session_manager_options`) | fork/leaf selection tests |
-| `forkInheritedChildSessionManager` | forked inside `create_child_session_manager` | inherited prefix test |
-| `createChildAgentSessionOptions` | `create_child_agent_session_options` | option/identity/tool tests |
-| `createBoundChildSession` | `create_bound_child_session` | prompt/bind/persist tests |
-| `createProductionChildSession` | `create_production_child_session` | fresh/inherit + goal-validation tests |
-| `createProductionAttachedSession` | `create_production_attached_session` | attach tests |
-| `openAttachedSessionManager` | `open_attached_session_manager` | attach tests |
-| `createAttachedSettingsManager` | `create_attached_settings_manager` | attached policy test |
-| `validateAttachedSessionIdentity` | `validate_attached_session_identity` | mismatch tests |
-| `resolveChildAgentProfile`/`Tools` | `resolve_child_agent_profile`, `resolve_child_agent_tools` | profile/tool order tests |
-| `resolveChildExtensionFactories` | `resolve_child_extension_factories` | static/dynamic factory tests |
-| `createSessionStartEvent` | `create_session_start_event` | fork/resume event assertions |
-| `getSessionTranscriptMetadata` | built inline in `create_bound_child_session` | transcript assertions |
-| `findActiveToolCallEntry` | `find_active_tool_call_entry` | active-tool-call tests |
-| `findUnresolvedTurnParentId` | `find_unresolved_turn_parent_id` | inherited leaf tests |
-| `validatePersistedInheritance` | `validate_persisted_inheritance` | unpersisted-parent test |
-
-The factory tests cover fresh and inherited child sessions, attached sessions,
-goal-extension exclusion, and the child control-tool list. The end-to-end test
-(`agents_core_end_to_end`) spawns a real child through the production factory
-against a faux provider and a temporary control DB.
-
-## lifecycle-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `createLifecycleCoordinator` | `lifecycle_runtime::create_lifecycle_coordinator` | spawn/cancel tests |
-| `publishCoordinatorSnapshot` | `publish_coordinator_snapshot` | spawn completion, cancel, wait tests |
-
-Rust takes `&Arc<MultiAgentStore>` because terminal-outbox delivery needs an
-owned store handle. Process identity is parsed once from
-`get_runtime_process_instance_id()` (source parses at module load).
-
-## mailbox-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `sendAgentMessage` (+ validation/delivery helpers) | `mailbox_runtime::send_agent_message` | mailbox delivery test (child session + runtime mailbox row) |
-| `contactParent` | `contact_parent` | contact-parent test |
-| `createRuntimeLifecycleMirror` | `RuntimeLifecycleMirror` | used by registration/request handler |
-| `mirrorPendingLifecycleRuntimeMailboxMessages` | `mirror_pending_lifecycle_runtime_mailbox_messages` | wait/registration path |
-| `currentMessageSenderId` | `current_message_sender_id` | steer identity test |
-| `registerMailboxTools` | `register_mailbox_tools` | tool metadata differential |
-| schemas | `send_agent_message_schema`, `contact_parent_schema` | tool metadata differential |
-
-Error text, failed-message fallbacks, recipient resolution, detached terminal
-transport de-duplication, and store-ref checks match the source.
-
-## control-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `cancelOwnedAgentRuntime`/`cancelAgent` | `cancel_owned_agent_runtime`, `cancel_agent` | cancel test |
-| `wakeWaitAgentsAfterSteering` | `wake_wait_agents_after_steering` | implemented; listener path exercised by wait watcher |
-| `requestInteractiveAgentSteering`/`requestAgentSteering` | same names | unknown-agent steering test |
-| `steerAgent` | `steer_agent` | identity-unavailable test |
-| detached cancellation + output labels | private helpers | implemented per source; detached-runner behavioral proof lives in the detached-job slice |
-
-`CANCELLATION_SETTLEMENT_TIMEOUT_MS` is a `tokio::time::timeout` over the
-shared dispatch future.
-
-## dispatch-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `isTerminalAgentLifecycle` | `dispatch_runtime::is_terminal_agent_lifecycle` | registration journal listener |
-| `appendParentAgentRecord` | `append_parent_agent_record_for` (delegates to the journal module) | spawn test |
-| `dispatchAttachedSessionAgent` | `dispatch_attached_session_agent` | attach/recovery path |
-| `startToolDispatch` | `start_tool_dispatch` | spawn/background tests |
-| `trackAgentDispatch` | `track_agent_dispatch` | spawn/background tests |
-| `runAgentSession` (+ create/admit/lease/complete/fail helpers) | `run_agent_session` and private helpers | spawn completion, wait terminal notification |
-| `releaseOwnershipAfterDispatch` | `release_ownership_after_dispatch` | spawn path |
-| waiting desktop notification helpers | `remember/close_waiting_desktop_notification`, `notify_waiting_agent` | implemented; notifier unit path |
-
-Completion summaries use the last assistant text; `steering_pending` drains
-through `ChildAgentSession::drain_runtime_coordination`.
-
-## spawn-attach-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `spawnAgentSchema`/`attachSessionAgentSchema` | `spawn_agent_schema`, `attach_session_agent_schema` | tool metadata differential |
-| `spawnAgent` (+ validate/prepare/construct/commit/journal/dispatch) | `spawn_agent` and private helpers | spawn success/failure tests |
-| `attachSessionAgent` (+ selector/path/match helpers) | `attach_session_agent` and private helpers | attach test |
-| `recoverAgents`/`readActiveParentAgentIds` | `recover_agents`, `read_active_parent_agent_ids` | implemented; recovery is exercised indirectly by session-start wiring |
-| `resolveConfiguredAgentProfile` | private helper | used by spawn/attach |
-
-## wait-runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `WaitNotificationsWake`, `WaitAgentsWakeWatcher` | `WaitNotificationsWake`, `WaitAgentsWakeWatcher` | wait tests |
-| `waitNotificationsRuntime` | `wait_notifications_runtime` | wait tests |
-| `consumeNotificationsRuntime` (+ coordination/terminal helpers) | `consume_notifications_runtime` and helpers | wait terminal-notification test |
-
-Rust polls with `tokio::select!` over notifications, the 3s interval, and the
-cancellation token. Reconciliation/delivery failures become `Error` wakes;
-the source throws from the interval callback (see discrepancy 4).
-
-## runtime.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `MultiAgentRuntimeHandles`/`createMultiAgentRuntimeHandles` | `runtime::MultiAgentRuntimeHandles`, `create_multi_agent_runtime_handles` | all runtime tests |
-| `wakeWaitAgentsAfterCoordination` | `wake_wait_agents_after_coordination` | implemented |
-| `MultiAgentExtensionOptions` | `MultiAgentExtensionOptions` | registration/request tests |
-| background dispatch/command, `jobsCommand` | registration background helpers, `runtime::jobs_command` | bg/jobs tests |
-| `createMultiAgentPiRequestHandler` (+ dispatch/select/message summary) | `MultiAgentPiRequestHandler`, `create_multi_agent_pi_request_handler` | request-handler tests |
-| `assertNoWaitAgentsParams` | `assert_no_wait_agents_params` | differential wait-parameter cases |
-| `waitAgents`/`waitNotifications`/`consumeNotifications` | same names | wait tests |
-| `formatAgentStatus` | `format_agent_status` | bg/jobs/wait text |
-| `resolveMultiAgentStore` | `resolve_multi_agent_store` | registration |
-| `deliverTerminalOutboxForStore` | `deliver_terminal_outbox_for_store` | implemented via ca-detached core module |
-| `registerAgentsCoreTools`/`registerAgentViewerTools`/`registerAgentsMailboxTools` | same names | registration/tool metadata differential |
-| default `multiAgentExtension` | `multi_agent_extension` | registration differential |
-| `resolveSelectedSessionMutationTarget` | `resolve_selected_session_mutation_target` | mutation-target tests + main binding |
-
-## registration.ts
-
-| Source | Rust | Proof |
-| --- | --- | --- |
-| `createRegistrationContext` | private helper | registration tests |
-| session start/shutdown hooks, terminal transition journaling | private hook registration | implemented; metadata path used by spawn test journal |
-| `registerBackgroundCommand` (`bg`) | private command registration | bg unavailable test |
-| `registerJobsCommand` (`jobs`) | private command registration | jobs test |
-| spawn/list/attach/wait/close/steer tools | private tool registrations | tool metadata differential + runtime tests |
-
-## index.ts / src/extensions/multi-agent.ts
-
-Re-export surface only. Rust exports the same items from
-`bundled_extensions::agents_core` (`mod.rs` + `runtime.rs`), and
-`bundled_extensions::register_agents_extensions` registers
-`<first-party:agents-core>`, `<first-party:agent-viewer>`, and
-`<first-party:agents-mailbox>` with one shared store/handle set.
-
-## Discrepancies and deviations
-
-1. **Session factory contracts live in `shared.rs`.** The source defines them in
-   `spawn-attach-runtime.ts` and imports them from `runtime.ts`; Rust moves the
-   trait/factory types to `shared.rs` to avoid a module cycle. Behavior is
-   unchanged.
-2. **Production factory marker is a boolean.** The source tags the factory
-   function with a `Symbol`; Rust stores `production: bool` on
-   `ChildAgentSessionFactory`.
-3. **`abortAgentHandleSafely`** — the source wraps `abortAgentHandle` in
-   try/catch and logs; the Rust store method is infallible (`bool`), so only the
-   call remains.
-4. **Wait watcher errors** — `reconcileDeadDetachedRuntimes` and terminal
-   outbox delivery throw in the source (uncaught inside `setInterval`); Rust
-   returns `WaitNotificationsWake::Error { message }` so the wait tool reports
-   `Wait failed: ...`. Source bug at the pinned revision (uncaught throw from a
-   timer crashes Node); fixed upstream in Pi `9cb4142bb`, which the Rust behavior
-   matches (user decision 2026-10-19).
-5. **Dispatch cleanup identity** — the source deletes a dispatch only when the
-   map still holds the same promise; Rust deletes by agent id (agent ids are
-   unique and never re-dispatched).
-6. **Desktop notifier shape** — the source accepts a notifier returning a
-   handle or a promise; Rust's `DesktopNotifier` trait is synchronous.
-7. **`truncateText` UTF-16 boundary** — JS `slice(0, 2000)` can split a
-   surrogate pair; Rust drops the astral character at the boundary instead of
-   emitting a lone surrogate. Only affects 2000-unit truncation boundaries in
-   `messages.last`.
-8. **Background ownership release** — handled in the dispatch-completion task
-   (matching `promise.finally`), including removal from the handles map.
-
-9. **Async `SelectAgentView`** — the source selector is synchronous; Rust returns
-   a `BoxFuture<Option<bool>>` because the interactive TUI owns the mode on a
-   `LocalSet` thread and the bridge must await a `UiRequest` response. The
-   `agent_viewer` select path awaits it.
-
-Resolved discrepancy: the session-factories gap (the ninth recorded item) is
-closed; `CreateAgentSessionOptions` now carries the multi-agent identity, store,
-runtime role, session-start event and extension factories.
-
-Port bug fixed (not a source discrepancy): `JournalWriter::from_api` originally
-snapshotted `runtime.actions().append_entry` while the extension was still
-loading, so every production spawn failed to journal `agent_start` with
-"Extension runtime not initialized". The writer now resolves the runtime action
-when `appendEntry` is called, matching the source `pi.appendEntry` boundary
-(`parent_agent_journal.rs`, end-to-end spawn test).
+| `cargo test -j3 -p pi-coding-agent --test suite_core_1 background_construction_failure_preserves_frozen_utf16_notification -- --nocapture` | PASS, 1; `/tmp/agents-core-3-background-green.log`; pending handoff UTF-16 fix now GREEN |
+| `cargo test -j3 -p pi-coding-agent --test suite_core_1 agents_core -- --nocapture` | PASS, 52 after both corrections; `/tmp/agents-core-3-runtime-final.log`; includes existing deterministic/registration proof; supersedes the 55-case run before four obsolete tests were deleted and one new regression was added |
+| `cargo test -j3 -p pi-coding-agent --test agents_core_session_factories --test agents_core_end_to_end --test agents_core_drift -- --nocapture` | PASS, 19+1+5; one subprocess-only helper ignored by ordinary discovery but invoked by its parent; `/tmp/agents-core-3-factories-drift-green.log` |
+| `cargo test -j3 -p pi-coding-agent --test agents_core_end_to_end -- --nocapture` | PASS, 1 after the parent AgentSession merge; `/tmp/agents-core-3-merged-e2e.log` |
+| `cargo test -j3 -p pi-coding-agent --test suite_core_5 terminal_outbox_delivery -- --nocapture` | PASS, 6; `/tmp/agents-core-3-artifact-green.log`; an earlier invocation used the retired standalone target and ran no tests |
+| `cargo test -j3 -p pi-coding-agent-extensions --lib tracked_read_failure_tests -- --nocapture` | PASS, 2; `/tmp/agents-core-3-wait-watchers.log` |
+| Protected strict no-emit compiler, all three existing agents-core oracle fixtures, shared source-tsconfig builder, pinned compiler, source TypeScript type mapping, approved ES2024 target/lib | PASS; `/tmp/agents-core-3-oracle-typecheck-green.log`; duplicate deterministic fixture type member removed after strict RED; no source bytes or runtime oracle scenarios changed |
+| `cargo check -j3 --workspace --all-targets` | PASS before each code commit and after merge; `/tmp/agents-core-3-{cleanup,mirror,attach,merged}-check.log` |
+| `cargo clippy -j3 -p pi-coding-agent-extensions --all-targets`; scoped coding-agent clippy for suite_core_1/factory/drift/e2e targets | Warning-mode PASS; existing warnings remain, zero diagnostics overlap successor changed lines; `/tmp/agents-core-3-{extensions,tests}-clippy.log`, `/tmp/agents-core-3-clippy-owned-lines.log` |
+
+`cargo fmt --check`, `git diff --check` and `python3 scripts/source-inventory.py` pass at closure; locked inventory stays 686 rows / 186,679 lines. Manual Rust/TS changed-line readability audit found no introduced issue; no numerical complexity claim. No agents/models were spawned, no PLAN.md committed, no live provider/network/push/deploy used. Independent/workspace-wide acceptance stays with main per the lane task.

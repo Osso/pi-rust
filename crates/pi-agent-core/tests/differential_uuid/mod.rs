@@ -1,5 +1,4 @@
-#[path = "../../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::uuidv7;
 use serde_json::json;

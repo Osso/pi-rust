@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::AssistantMessage;
 use pi_ai::utils::overflow::{get_overflow_patterns, is_context_overflow};

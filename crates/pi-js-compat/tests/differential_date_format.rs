@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 use jiff::tz::TimeZone;
 use pi_js_compat::date::{
     LocaleDateFormat, days_from_civil, local_date_fields_in, time_clip_millis, to_locale_string, to_locale_string_in,

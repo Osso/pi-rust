@@ -1,7 +1,6 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Working prompt animation`).
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
 use std::rc::Rc;
 use std::time::Duration;

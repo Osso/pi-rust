@@ -275,8 +275,7 @@ fn create_custom_message_emits_role_custom_type_and_optional_details() {
     );
 }
 
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[test]
 fn frozen_custom_message_date_string_arguments_match_native() {
     let mut oracle = oracle::TsOracle::spawn(

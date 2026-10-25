@@ -9,11 +9,11 @@ Frozen source: `4f9e6f8a4`, `core/settings-manager.ts` and `core/compaction-thre
 - Steering defaults to `all`. Retry base/cap default to 30000/300000 ms; each present value must be a safe integer in `[0,2147483647]`, cap at least base. Invalid values produce getter errors, not defaults.
 - Compaction percentage is optional, finite, greater than zero and at most 100; present null/invalid values error. Idle compaction defaults true. Both transcript-hide flags default false. Shell paths are returned literally; session directories retain source normalization.
 - Agent-profile reads clone configured JSON without whole-profile validation; built-ins apply only when the configured entry is absent or null. Consumers project fields only when accessed. A truthy non-string model fails at model matching with `modelReference.trim is not a function`; unrelated malformed tools must not erase a valid configured context.
-- Settings presence does not implement retry timing, compaction triggering/scheduling, display suppression, or relay startup. Those consumer slices remain pending.
+- Settings presence does not implement retry timing, compaction triggering/scheduling, display suppression, or relay startup. Those behaviors belong to their separate module contracts.
 
 ## Staged exclusions
 
-Main's Phase1 sequencing retains existing old-only UI settings APIs until coupled Phase3 consumer deletion. They are not frozen-source parity. Full-module completion remains open while those APIs/typed fields remain. Package autoload interpretation belongs to the resource/package slice; unknown bytes must survive unrelated settings writes.
+The old-only renderer/cache settings APIs and typed package autoload field have been removed. Legacy JSON keys remain ordinary unknown data. PackageFilter reuses the existing lossless ModelProperties extras/key-order authority; typed edits replace known values in place. No old-only interpretation or parallel property-order carrier remains.
 
 ## Proof
 
@@ -23,3 +23,5 @@ See [traceability](../porting/traceability/settings-manager.md). Only isolated d
 
 - [x] A directory at settings.json reports the Node read error during load and queued save; later scope writes continue.
 - [x] Invalid timeout text uses JS String rather than JSON serialization; native regression is recorded in `settings_manager.rs`.
+
+- [x] Package filter get/set round-trips preserve unknown properties and original key order. Typed edits replace known fields in place. Existing reciprocal TS/Rust persistence proof includes this case.

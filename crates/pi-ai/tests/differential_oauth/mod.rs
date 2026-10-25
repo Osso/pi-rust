@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use serde_json::json;

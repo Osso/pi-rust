@@ -1,7 +1,5 @@
-#[path = "support/json_compare.rs"]
-mod json_compare;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_json_compare as json_compare;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::AssistantMessage;
 use pi_ai::utils::retry::{is_codex_cybersecurity_restriction, is_retryable_assistant_error};

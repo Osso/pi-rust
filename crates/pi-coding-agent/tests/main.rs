@@ -478,7 +478,7 @@ async fn session_argument_restores_archive_before_open() {
     let original = create_session(&cwd.to_utf8().unwrap(), &sessions.to_utf8().unwrap(), "archived");
     let path = original.get_session_file().unwrap();
     let db = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
-    let archived = pi_coding_agent::core::session_archive_storage::archive_session_file(&path).unwrap();
+    let archived = pi_coding_agent::core::session_archive_storage::archive_session_file(path).unwrap();
     let parsed = parse_args(&args(&["--session", &archived.to_utf8().unwrap()]));
     let settings = SettingsManager::in_memory(Default::default(), Default::default());
     let opened = create_session_manager(&parsed, &cwd, Some(&sessions), &settings, Some(&db))

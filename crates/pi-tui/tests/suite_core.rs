@@ -1,5 +1,12 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/components.rs"]
+mod shared_components;
+#[path = "support/oracle.rs"]
+mod shared_oracle;
+#[path = "support/virtual_terminal.rs"]
+mod shared_virtual_terminal;
+
 #[path = "autocomplete_close_abort.rs"]
 pub mod autocomplete_close_abort;
 #[path = "differential_fuzzy.rs"]

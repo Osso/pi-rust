@@ -1,7 +1,5 @@
-#[path = "support/json_compare.rs"]
-mod json_compare;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_json_compare as json_compare;
+use crate::shared_oracle as oracle;
 
 use pi_ai::api::simple_options::{
     adjust_max_tokens_for_thinking, build_base_options, clamp_reasoning, clamp_standard_reasoning_level,

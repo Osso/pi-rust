@@ -1,8 +1,7 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Sticky column`).
 use pi_tui::tui::Component;
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
 use editor_host::{cursor, editor, editor_with_rows, send};
 use pi_tui::components::editor::Editor;

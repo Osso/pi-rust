@@ -1,5 +1,19 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/abort_reason.rs"]
+mod shared_abort_reason;
+#[path = "support/anthropic.rs"]
+mod shared_anthropic;
+#[path = "support/json_compare.rs"]
+mod shared_json_compare;
+#[path = "support/oauth.rs"]
+mod shared_oauth;
+#[path = "support/oracle.rs"]
+mod shared_oracle;
+#[path = "support/provider_normalize.rs"]
+pub mod shared_provider_normalize;
+use shared_oauth::recording_fetch as shared_recording_fetch;
+
 #[path = "abort.rs"]
 pub mod abort;
 #[path = "anthropic_messages.rs"]

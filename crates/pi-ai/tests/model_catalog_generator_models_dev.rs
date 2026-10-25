@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::model_catalog_generator::{Generator, HttpResponse};
 use pi_js_compat::{js_json, js_json::stringify_lossless};
 use serde_json::{Value, json};
