@@ -9,7 +9,10 @@ use pi_ai::{
     },
     oauth::{OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt},
     request::{BoxFuture, CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, read_body_text},
-    types::{AnthropicMessagesCompat, AssistantMessageEvent, Context, Model, ModelCompat},
+    types::{
+        AnthropicMessagesCompat, AssistantMessage, AssistantMessageEvent, Context, ErrorReason, Model, ModelCompat,
+        StopReason,
+    },
     utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream},
 };
 use pi_coding_agent::core::{
@@ -330,8 +333,17 @@ impl GitlabDuo {
             }
             .await;
             if let Err(error) = run {
-                let event:AssistantMessageEvent=serde_json::from_value(json!({"type":"error","reason":"error","error":{"role":"assistant","content":[],"api":model.api,"provider":model.provider,"model":model.id,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"error","errorMessage":error.to_string(),"timestamp":state.runtime.now()}})).expect("error event");
-                tx.push(event);
+                let error_message = match error.error_or_string_message() {
+                    Ok(message) => message,
+                    Err(rejection) => pi_js_compat::callback_error::throw_callback_uncaught(rejection),
+                };
+                let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, state.runtime.now());
+                message.stop_reason = StopReason::Error;
+                message.error_message = Some(error_message);
+                tx.push(AssistantMessageEvent::Error {
+                    reason: ErrorReason::Error,
+                    error: message,
+                });
             }
             tx.end(None);
         });
