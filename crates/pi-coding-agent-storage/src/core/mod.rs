@@ -4,7 +4,6 @@ pub mod detached_job_retention;
 pub mod empty_session_cleanup;
 pub mod host_relay;
 pub mod host_relay_client;
-pub mod host_relay_resident;
 pub mod host_relay_store;
 pub mod lifecycle_coordinator;
 pub mod multi_agent_store;

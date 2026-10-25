@@ -35,3 +35,7 @@ The first tools touch took **30.22s** (wall 30.31s) at uptime load 30.14/29.78/3
 ## Model leaf cut
 
 The second-cut model-resolver touch rebuilt unrelated storage/package branches and took **31.76s** at load 21.16. Main approved `pi-coding-agent-models`: auth storage, config values, model registry/cache/resolver, defaults and provider display names. Models depends on data for CLI validation, but storage/packages/tool-support do not depend on models. Core and facade retain old auth/model paths through tools' re-exports. The newly introduced data crate no longer re-exports these leaves, to avoid restoring the dependency.
+
+## Settings cut
+
+The first comparable-load window (three checks per layer, start/end 1-minute load ≤30) passed every layer except data: settings-manager touches took 32.02/30.24/31.64s, median **31.64s**. Main approved `pi-coding-agent-settings` (settings manager, HTTP dispatcher and compaction threshold) above data and below packages/support/tools, but independent of storage. `host_relay_resident`, the sole storage settings consumer, moves unchanged into tools. No lower storage consumer relies on it. This removes storage rebuilds from settings touches and shortens data's broad rebuild path.

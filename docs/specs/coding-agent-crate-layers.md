@@ -18,7 +18,8 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 ## Implementation inventory
 
 - `crates/pi-coding-agent-base/src/lib.rs`: configuration, utility, console, and runner-mode leaves.
-- `crates/pi-coding-agent-data/src/lib.rs`: settings, CLI arguments, permission policy/presets and shared leaves.
+- `crates/pi-coding-agent-data/src/lib.rs`: CLI arguments, permission policy/presets and shared leaves.
+- `crates/pi-coding-agent-settings/src/lib.rs`: settings persistence and HTTP/compaction configuration.
 - `crates/pi-coding-agent-models/src/lib.rs`: auth, models and model-resolution leaves.
 - `crates/pi-coding-agent-storage/src/lib.rs`: SQLite control database, sessions/transcripts and lifecycle storage.
 - `crates/pi-coding-agent-packages/src/lib.rs`: package manager and source metadata.

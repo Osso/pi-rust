@@ -2319,6 +2319,36 @@ dependencies = [
  "pi-ai",
  "pi-coding-agent-base",
  "pi-coding-agent-data",
+ "pi-coding-agent-settings",
+ "pi-js-compat",
+ "pi-tui",
+ "regex",
+ "rusqlite",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "zstd",
+]
+
+[[package]]
+name = "pi-coding-agent-settings"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "gethostname",
+ "getrandom 0.4.3",
+ "icu_normalizer",
+ "indexmap",
+ "nix",
+ "notify",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-base",
+ "pi-coding-agent-data",
  "pi-js-compat",
  "pi-tui",
  "regex",

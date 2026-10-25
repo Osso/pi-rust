@@ -401,7 +401,8 @@ pub struct QueuedMessagePreviews {
     pub follow_up: Vec<QueuedMessagePreview>,
 }
 
-pub use pi_coding_agent_tools::core::agent_session::{ModelCycleResult, serialize_thinking_level};
+pub use pi_coding_agent_tools::core::agent_session::ModelCycleResult;
+use pi_coding_agent_tools::core::agent_session::serialize_thinking_level;
 
 /// Session statistics for `/session`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

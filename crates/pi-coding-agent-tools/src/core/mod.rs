@@ -26,3 +26,4 @@ pub use pi_coding_agent_data::core::*;
 pub use pi_coding_agent_models::core::*;
 pub use pi_coding_agent_packages::core::*;
 pub use pi_coding_agent_storage::core::*;
+pub mod host_relay_resident;

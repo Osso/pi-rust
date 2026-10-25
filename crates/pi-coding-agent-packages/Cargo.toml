@@ -35,6 +35,8 @@ pi-coding-agent-base = { version = "=0.0.0", path = "../pi-coding-agent-base" }
 
 pi-coding-agent-data = { version = "=0.0.0", path = "../pi-coding-agent-data" }
 
+pi-coding-agent-settings = { version = "=0.0.0", path = "../pi-coding-agent-settings" }
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 nix = { version = "=0.30.1", features = ["poll", "process", "term"] }

@@ -40,7 +40,7 @@ pub fn reconnect_delay_ms(failures: u32, random: f64) -> u64 {
     let base = (1000u64 * 2u64.pow(failures.min(5))).min(30_000);
     (base as f64 * (0.5 + random * 0.5)).round() as u64
 }
-pub(crate) fn random_fraction() -> Result<f64, String> {
+pub fn random_fraction() -> Result<f64, String> {
     let mut bytes = [0; 8];
     getrandom::fill(&mut bytes).map_err(|e| e.to_string())?;
     Ok((u64::from_ne_bytes(bytes) >> 11) as f64 / ((1u64 << 53) as f64))
