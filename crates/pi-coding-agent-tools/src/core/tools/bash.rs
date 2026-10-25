@@ -785,10 +785,6 @@ impl AgentTool for BashTool {
         "bash".into()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        crate::core::experimental::get_experimental_tool_constrained_sampling()
-    }
-
     fn execute(
         &self,
         tool_call_id: String,
