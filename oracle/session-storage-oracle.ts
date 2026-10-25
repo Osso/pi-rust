@@ -1,8 +1,9 @@
-import { createInterface } from "node:readline";
-import { isDeepStrictEqual } from "node:util";
-import { pathToFileURL } from "node:url";
-import { join } from "node:path";
 import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createInterface } from "node:readline";
+import { pathToFileURL } from "node:url";
+import { isDeepStrictEqual } from "node:util";
+
 async function main() {
 	const root = process.argv[2];
 	const manager = await import(
