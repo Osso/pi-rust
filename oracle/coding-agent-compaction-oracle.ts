@@ -55,6 +55,7 @@ const handlers: Record<string, Handler> = {
 		try { return { value: api.shouldCompact(entry.contextTokens, entry.contextWindow, entry.settings, entry.threshold) }; }
 		catch (error) { return { error: errorOf(error) }; }
 	}),
+	lastAssistantUsage: (api, request) => api.getLastAssistantUsage(request.entries) ?? null,
 	tokens: (api, request) =>
 		(request.usages as unknown[]).map((usage) => api.calculateContextTokens(usage)),
 	estimateTokens: (api, request) =>

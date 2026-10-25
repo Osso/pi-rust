@@ -13,7 +13,7 @@ use pi_coding_agent::core::compaction::{
     CompactionSettings, DEFAULT_COMPACTION_SETTINGS, FileOperations, calculate_context_tokens,
     collect_entries_for_branch_summary, compute_file_lists, create_file_ops, estimate_context_tokens, estimate_tokens,
     extract_file_ops_from_message, find_cut_point, find_turn_start_index, format_file_operations,
-    prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
+    get_last_assistant_usage, prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
 };
 use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager};
 use serde_json::{Value, json};
@@ -249,6 +249,31 @@ fn differential_token_calculation_and_estimation() {
             "lastUsageIndex": estimate.last_usage_index.map(js_num),
         })
     );
+}
+
+#[test]
+fn differential_last_assistant_usage_skips_errors_aborts_and_zero_usage() {
+    let mut oracle = Oracle::new();
+    let first = assistant_message("valid", usage(10.0, 3.0, 2.0, 1.0));
+    let zero = assistant_message("zero", usage(0.0, 0.0, 0.0, 0.0));
+    let mut aborted = assistant_message("aborted", usage(99.0, 99.0, 0.0, 0.0));
+    aborted["stopReason"] = json!("aborted");
+    let mut failed = aborted.clone();
+    failed["stopReason"] = json!("error");
+    let cases = [
+        json!([]),
+        json!([message_entry("1", None, user_message("only user"))]),
+        json!([
+            message_entry("1", None, first),
+            message_entry("2", Some("1"), aborted),
+            message_entry("3", Some("2"), failed),
+            message_entry("4", Some("3"), zero)
+        ]),
+    ];
+    for case in cases {
+        let expected = oracle.request(COMPACTION, "lastAssistantUsage", json!({"entries": case}));
+        assert_eq!(json!(get_last_assistant_usage(&entries(&case))), expected);
+    }
 }
 
 #[test]
