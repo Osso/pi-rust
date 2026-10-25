@@ -1,7 +1,7 @@
 # resource-loader.ts traceability
 
 Source: `packages/coding-agent/src/core/resource-loader.ts` (1270 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-core/src/core/resource_loader.rs`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/resource_loader.rs`.
 
 Tests: `crates/pi-coding-agent/tests/resource_loader.rs` (25 behavioral cases) and
 `crates/pi-coding-agent/tests/differential_resource_loader.rs` (rules differential + eight

@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/runtime-message-markers.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent-core/src/core/runtime_message_markers.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/runtime_message_markers.rs`.
 
 | TypeScript source | Observable behavior | Rust proof |
 |---|---|---|

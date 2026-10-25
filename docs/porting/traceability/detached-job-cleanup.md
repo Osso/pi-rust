@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/detached-job-cleanup.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent-core/src/core/detached_job_cleanup.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_cleanup.rs` (8 behavioral, real `/proc`, sparse files).
+Rust: `crates/pi-coding-agent-storage/src/core/detached_job_cleanup.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_cleanup.rs` (8 behavioral, real `/proc`, sparse files).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

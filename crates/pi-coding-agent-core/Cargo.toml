@@ -33,6 +33,8 @@ tempfile = "=3.27.0"
 nix = { version = "=0.30.1", features = ["process"] }
 pi-coding-agent-base = { version = "=0.0.0", path = "../pi-coding-agent-base" }
 
+pi-coding-agent-tools = { version = "=0.0.0", path = "../pi-coding-agent-tools" }
+
 [dev-dependencies]
 tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
 nix = { version = "=0.30.1", features = ["poll", "process", "term"] }

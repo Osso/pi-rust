@@ -7,7 +7,7 @@ GitPaths/cwd/branch cache, GitBranchRunner arguments/results, executable resolut
 `raw_footer_statuses` covers high/low/pair repo paths and executable names, exact branch U+0085, plus frozen branch/executable output. Existing legacy provider test fixtures still need native API adaptation. Raw reftable runner/watcher/cancellation proof remains pending; no whole provider acceptance is claimed.
 
 Source: `packages/coding-agent/src/core/footer-data-provider.ts` (450 lines).
-Rust: `crates/pi-coding-agent-core/src/core/footer_data_provider.rs`.
+Rust: `crates/pi-coding-agent-tools/src/core/footer_data_provider.rs`.
 Tests: `crates/pi-coding-agent/tests/footer_data_provider.rs` (ports
 `test/footer-data-provider.test.ts`).
 

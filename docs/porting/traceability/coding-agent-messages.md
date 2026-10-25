@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/messages.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust module: `crates/pi-coding-agent-core/src/core/messages.rs`.
+Rust module: `crates/pi-coding-agent-data/src/core/messages.rs`.
 Focused tests: `crates/pi-coding-agent/tests/messages.rs` (2).
 
 The coding-agent module duplicates the agent harness message module except for `isCutPointMessage`. The Rust port re-exports `pi_agent_core::harness::messages` instead of duplicating the constants, records, constructors, and `convertToLlm`; that module's differential proof (`serialize_conversation`) covers the conversion behavior.

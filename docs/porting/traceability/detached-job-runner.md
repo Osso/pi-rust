@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/detached-job-runner.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent-core/src/core/detached_job_runner.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_runner.rs` (13 behavioral).
+Rust: `crates/pi-coding-agent-tools/src/core/detached_job_runner.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_runner.rs` (13 behavioral).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

@@ -23,7 +23,7 @@ OAuth model callbacks run without the registry lock. During registration and rea
 
 ## Implementation inventory
 
-`crates/pi-coding-agent-core/src/core/model_registry.rs` and internal `model_registry/schema.rs`: catalog, configuration, request auth and extension registration. Session/services/SDK expose the same registry and storage to consumers.
+`crates/pi-coding-agent-models/src/core/model_registry.rs` and internal `model_registry/schema.rs`: catalog, configuration, request auth and extension registration. Session/services/SDK expose the same registry and storage to consumers.
 
 ## Tests asserting this spec
 

@@ -1,7 +1,7 @@
 # skills.ts traceability
 
 Source: `packages/coding-agent/src/core/skills.ts` (487 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-core/src/core/skills.rs`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/skills.rs`.
 
 ## Exported symbols
 

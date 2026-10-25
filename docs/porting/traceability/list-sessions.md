@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/tools/list-sessions.ts` at `532f7d12`.
 
-Rust: `crates/pi-coding-agent-core/src/core/tools/list_sessions.rs` (`ListSessionsTool`).
+Rust: `crates/pi-coding-agent-tools/src/core/tools/list_sessions.rs` (`ListSessionsTool`).
 
 | Source | Rust | Tests |
 |---|---|---|

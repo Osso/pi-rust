@@ -37,8 +37,8 @@ Match `coding-agent/src/core/tools/bash.ts` at immutable `4f9e6f8a4`. [Module ma
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/tools/bash.rs`: definition/execution, local/runner adapters and renderers.
-- `crates/pi-coding-agent-core/src/core/bash_executor.rs`: sanitized streaming, spill/error/cancellation result.
+- `crates/pi-coding-agent-tools/src/core/tools/bash.rs`: definition/execution, local/runner adapters and renderers.
+- `crates/pi-coding-agent-tools/src/core/bash_executor.rs`: sanitized streaming, spill/error/cancellation result.
 - [Output accumulator](../porting/traceability/output-accumulator.md): default accumulator behavior consumed by bash; configurable API is separately scoped.
 - [Child process](../porting/traceability/child-process.md): shared capture, callbacks, error and deferred spawn boundaries.
 - [Atomic writer](bash-atomic-writer.md): cleared detached activation/manifest persistence prerequisite.
