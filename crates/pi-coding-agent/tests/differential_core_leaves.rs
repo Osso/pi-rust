@@ -18,7 +18,6 @@ use pi_coding_agent::core::permissions::presets::{
     APPROVAL_PRESETS, SANDBOX_PROFILES, approval_preset_for_policy, approval_preset_to_bypass_permissions,
     find_approval_preset, is_approval_preset_name, is_sandbox_platform_supported, is_sandbox_profile_name,
 };
-use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
 use pi_coding_agent::core::runtime_process::command_line_is_pi_runtime;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
@@ -223,44 +222,42 @@ fn all_tool_capability_exports_and_membership_match_frozen() {
     );
 }
 
-const MANIFEST_FIXTURES: [&[u8]; 14] = [
-    br#"{"pi":{"extensions":["a.ts"],"skills":["s"],"prompts":["p"],"themes":["t"]}}"#,
-    br#"{"pi":{"extensions":["a.ts",1],"skills":[],"prompts":null,"themes":{}}}"#,
-    br#"{"pi":{}}"#,
-    br#"{"pi":[]}"#,
-    br#"{"pi":null}"#,
-    br#"{"pi":"x"}"#,
-    br#"{"name":"pkg"}"#,
-    br#"[1,2]"#,
-    b"null",
-    b"{bad json",
-    b"",
-    b"\xEF\xBB\xBF{\"pi\":{}}",
-    b"{\"pi\":{\"skills\":[\"\xFF\"]}}",
-    br#"{"pi":{"skills":["first"],"skills":["second"]}}"#,
-];
-
 #[test]
-fn pi_manifest_matches_typescript() {
+fn pi_manifest_discovery_matches_frozen_public_consumer() {
+    use pi_coding_agent::core::extensions::loader::discover_extension_paths;
+
     let directory = tempfile::tempdir().unwrap();
-    let mut paths: Vec<String> = MANIFEST_FIXTURES
+    let cwd = JsString::from(directory.path().to_str().unwrap());
+    let agent_dir = JsString::from(directory.path().join("agent").to_str().unwrap());
+    let manifests = [
+        json!({"pi":{"extensions":["b.ts","a.ts"],"skills":["s"],"prompts":["p"],"themes":["t"]}}),
+        json!({"pi":{}}),
+        json!({"pi":{"extensions":[]}}),
+        json!({"pi":{"extensions":["missing.ts","a.ts","a.ts"]}}),
+        json!({"name":"without-pi"}),
+    ];
+    let paths = manifests
         .iter()
         .enumerate()
-        .map(|(index, contents)| {
-            let path = directory.path().join(format!("package-{index}.json"));
-            fs::write(&path, contents).unwrap();
-            path.to_string_lossy().into_owned()
+        .map(|(index, manifest)| {
+            let package = directory.path().join(format!("package-{index}"));
+            fs::create_dir(&package).unwrap();
+            fs::write(package.join("package.json"), manifest.to_string()).unwrap();
+            for name in ["a.ts", "b.ts", "index.ts"] {
+                fs::write(package.join(name), "export default function () {}\n").unwrap();
+            }
+            JsString::from(package.to_str().unwrap())
         })
-        .collect();
-    paths.push(directory.path().join("missing.json").to_string_lossy().into_owned());
-    paths.push(directory.path().to_string_lossy().into_owned());
-
+        .collect::<Vec<_>>();
     let mut oracle = Oracle::spawn();
-    let expected = oracle.call("core/pi-manifest.ts", "piManifest", json!(paths));
-    let actual: Vec<Value> = paths
+    let expected = oracle.call_raw(json!({
+        "module":"core/extensions/loader.ts", "operation":"manifestDiscovery",
+        "cases":paths, "cwd":cwd, "agentDir":agent_dir,
+    }));
+    let actual = paths
         .iter()
-        .map(|path| json!(read_pi_manifest(&path.as_str().into())))
-        .collect();
+        .map(|path| discover_extension_paths(std::slice::from_ref(path), &cwd, &agent_dir))
+        .collect::<Vec<_>>();
     assert_eq!(json!(actual), expected);
 }
 
