@@ -1206,11 +1206,14 @@ impl MultiAgentStore {
         message: &AgentMailboxMessage,
     ) -> Result<(), MultiAgentStoreError> {
         let previous = self.lock().agents.get(&agent.id).cloned();
+        validate_agent_paths(agent)?;
         let current = copy_agent(agent);
         let expired = self.mailbox_message_is_expired(message)?;
         let mut state = self.lock();
         if !expired {
-            state.mailbox_messages.insert(message.id.clone(), copy_message(message));
+            state
+                .mailbox_messages
+                .insert(message.id.clone(), copy_message(message)?);
             if !state.mailbox_order.contains(&message.id) {
                 state.mailbox_order.push(message.id.clone());
             }
@@ -1228,6 +1231,7 @@ impl MultiAgentStore {
     }
 
     pub fn publish_lifecycle_coordinator_snapshot(&self, agent: &AgentSnapshot) -> Result<(), MultiAgentStoreError> {
+        validate_agent_paths(agent)?;
         let previous = {
             let mut state = self.lock();
             let previous = state.agents.get(&agent.id).cloned();
@@ -1259,6 +1263,7 @@ impl MultiAgentStore {
     }
 
     pub fn publish_terminal_outbox_snapshot(&self, agent: &AgentSnapshot) -> Result<(), MultiAgentStoreError> {
+        validate_agent_paths(agent)?;
         let mut state = self.lock();
         let previous = state.agents.get(&agent.id).cloned();
         let current = copy_agent(agent);
@@ -1460,12 +1465,12 @@ impl MultiAgentStore {
         let now = self.now()?;
         self.expire_mailbox_messages(pi_js_compat::date::date_parse_utf16(now.units()))?;
         let state = self.lock();
-        Ok(state
+        state
             .mailbox_order
             .iter()
             .filter_map(|id| state.mailbox_messages.get(id))
             .map(copy_message)
-            .collect())
+            .collect()
     }
     pub fn list_pending_mailbox_messages_for_agent(
         &self,
@@ -1498,7 +1503,7 @@ impl MultiAgentStore {
             )?;
         }
         self.remove_mailbox_message(&message_id);
-        Ok(Some(copy_message(&message)))
+        Ok(Some(copy_message(&message)?))
     }
     pub fn mark_mailbox_message_failed(
         &self,
@@ -1533,7 +1538,7 @@ impl MultiAgentStore {
         self.lock()
             .mailbox_messages
             .insert(message_id.to_owned().into(), updated.clone());
-        Ok(Some(copy_message(&updated)))
+        Ok(Some(copy_message(&updated)?))
     }
     pub fn consume_completion_notifications_for_agent(
         &self,
@@ -1796,7 +1801,7 @@ impl MultiAgentStore {
         )?;
         Ok(ParentContactResult::Ok {
             agent: Box::new(copy_agent(&updated)),
-            message: Box::new(copy_message(&message)),
+            message: Box::new(copy_message(&message)?),
         })
     }
 
@@ -1848,7 +1853,7 @@ impl MultiAgentStore {
         )?;
         Ok(MailboxMessageCommandResult::Ok {
             agent: Box::new(copy_agent(&updated)),
-            message: Box::new(copy_message(&message)),
+            message: Box::new(copy_message(&message)?),
         })
     }
 
@@ -1910,7 +1915,7 @@ impl MultiAgentStore {
         )?;
         Ok(MailboxMessageCommandResult::Ok {
             agent: Box::new(copy_agent(&updated)),
-            message: Box::new(copy_message(&message)),
+            message: Box::new(copy_message(&message)?),
         })
     }
 
@@ -1936,7 +1941,7 @@ impl MultiAgentStore {
             error: None,
         };
         self.put_mailbox_message(message.clone(), OUTBOUND_MESSAGE_FIELDS)?;
-        Ok(copy_message(&message))
+        copy_message(&message)
     }
 
     pub fn get_restore_generation(&self) -> u64 {
@@ -1999,6 +2004,7 @@ impl MultiAgentStore {
         };
         for agent in state.agents {
             if let Ok(agent) = js_json::from_value::<AgentSnapshot>(&agent) {
+                validate_agent_paths(&agent)?;
                 let restored = restore_agent_snapshot(agent);
                 current.agent_order.push(restored.id.clone());
                 current.agents.insert(restored.id.clone(), restored);
@@ -2016,7 +2022,7 @@ impl MultiAgentStore {
                 current.mailbox_order.push(message.id.clone());
                 current
                     .mailbox_messages
-                    .insert(message.id.clone(), copy_message(&message));
+                    .insert(message.id.clone(), copy_message(&message)?);
             }
         }
         Ok(())
@@ -2259,7 +2265,7 @@ impl MultiAgentStore {
             .into_iter()
             .next();
         if let Some(existing) = existing {
-            self.notify_lifecycle_notification_listeners(&existing);
+            self.notify_lifecycle_notification_listeners(&existing)?;
             return Ok(());
         }
         match lifecycle {
@@ -2335,12 +2341,15 @@ impl MultiAgentStore {
             error: None,
         };
         self.put_mailbox_message(message.clone(), LIFECYCLE_MESSAGE_FIELDS)?;
-        self.notify_lifecycle_notification_listeners(&message);
+        self.notify_lifecycle_notification_listeners(&message)?;
         Ok(())
     }
 
-    fn notify_lifecycle_notification_listeners(&self, message: &AgentMailboxMessage) {
-        let snapshot = copy_message(message);
+    fn notify_lifecycle_notification_listeners(
+        &self,
+        message: &AgentMailboxMessage,
+    ) -> Result<(), MultiAgentStoreError> {
+        let snapshot = copy_message(message)?;
         let mut cursor = 0;
         while let Some((id, listener)) = next_listener(&self.lifecycle_notifications, cursor) {
             cursor = id;
@@ -2348,6 +2357,7 @@ impl MultiAgentStore {
                 report_callback_error("MultiAgentStore lifecycle notification listener failed:", &error);
             }
         }
+        Ok(())
     }
 
     fn notify_transition_listeners_if_lifecycle_changed(&self, previous: &AgentNode, current: &AgentNode) {
@@ -2691,10 +2701,11 @@ pub fn copy_agent(agent: &AgentNode) -> AgentNode {
     agent.clone()
 }
 
-pub fn copy_message(message: &AgentMailboxMessage) -> AgentMailboxMessage {
+pub fn copy_message(message: &AgentMailboxMessage) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
     let mut copied = message.clone();
     copied.extra.clear();
-    copied
+    copied.file_refs = validate_mailbox_file_refs(message.file_refs.as_ref(), "file_reference_copy")?;
+    Ok(copied)
 }
 
 fn copy_file_refs(refs: Option<&[AgentFileReference]>) -> Option<Vec<AgentFileReference>> {
@@ -2733,18 +2744,13 @@ fn validate_mailbox_file_refs(refs: Option<&JsValue>, context: &str) -> Result<O
     let Some(refs) = refs else {
         return Ok(None);
     };
-    let entries = refs
-        .as_array()
-        .ok_or_else(|| MultiAgentStoreError::new(format!("Invalid file references at {context}")))?;
-    for (index, reference) in entries.iter().enumerate() {
-        let path = reference.get("path").and_then(JsValue::as_string);
-        if !path.is_some_and(|path| path.starts_with("/")) {
-            return Err(MultiAgentStoreError::new(format!(
-                "Invalid file reference at {context}[{index}]: path must be absolute"
-            )));
-        }
-    }
-    Ok(Some(refs.clone()))
+    let references: Vec<AgentFileReference> =
+        js_json::from_value(refs).map_err(|error| MultiAgentStoreError::new(error.to_string()))?;
+    validate_file_refs(Some(&references), context)?
+        .as_ref()
+        .map(js_json::to_value)
+        .transpose()
+        .map_err(|error| MultiAgentStoreError::new(error.to_string()))
 }
 
 pub fn validate_file_refs(
@@ -2769,16 +2775,19 @@ pub fn validate_file_refs(
     Ok(Some(validated))
 }
 
-/// Validates an absolute-path field on an agent snapshot copy (`copyWorker`/`copyEventStream`).
+/// Validate copied fields in frozen copyAgent evaluation order before storing an owned snapshot.
 pub fn validate_agent_paths(agent: &AgentNode) -> Result<(), MultiAgentStoreError> {
-    if let Some(worker) = &agent.worker {
-        validate_optional_path(worker.cwd.as_ref(), "agent_worker.cwd")?;
+    if let Some(result) = &agent.result {
+        validate_file_refs(result.file_refs.as_deref(), "agent_result")?;
+    }
+    if let Some(event_stream) = &agent.event_stream {
+        validate_absolute_path(&event_stream.path, "agent_event_stream.path")?;
     }
     if let Some(transcript) = &agent.transcript {
         validate_optional_path(transcript.path.as_ref(), "agent_transcript.path")?;
     }
-    if let Some(event_stream) = &agent.event_stream {
-        validate_absolute_path(&event_stream.path, "agent_event_stream.path")?;
+    if let Some(worker) = &agent.worker {
+        validate_optional_path(worker.cwd.as_ref(), "agent_worker.cwd")?;
     }
     if let Some(worktree) = &agent.worktree {
         validate_absolute_path(&worktree.path, "agent_worktree.path")?;
