@@ -101,7 +101,7 @@ async fn compare_wire(key: &str, status: u16, body: String, truncated: bool) {
     );
     let (provider, _) = provider(&input, Arc::new(Mutex::new(vec![]))).await;
     let mut model = provider.models.as_ref().unwrap()[0].clone();
-    model.base_url = JsString::from(server.url);
+    model.base_url = Some(JsString::from(server.url));
     let mut options = SimpleStreamOptions::default();
     options.stream.request.api_key = Some(key.into());
     options.stream.request.signal = Some(AbortSignal::default());

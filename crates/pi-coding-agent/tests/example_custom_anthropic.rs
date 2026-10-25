@@ -14,11 +14,12 @@ use pi_ai::auth::types::*;
 use pi_ai::oauth::{OAuthAuthInfo, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthSelectPrompt};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_ai::types::AssistantMessageEvent;
+use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::event_bus::EventBusController;
 use pi_coding_agent::core::extensions::{
     ExtensionFactory, ExtensionRegistry, create_extension_runtime, load_extension_from_factory,
 };
-use pi_coding_agent::core::model_registry::ProviderConfigInput;
+use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
@@ -159,10 +160,27 @@ impl OAuthLoginCallbacks for Interaction {
 }
 fn stream_fixture(
     config: &ProviderConfigInput,
-    model: pi_ai::types::Model,
+    model: ProviderModelInput,
     context: pi_ai::types::Context,
     options: pi_ai::request::SimpleStreamOptions,
 ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
+    // Stream callbacks consume output Models, not registration definitions.
+    // Use the public reconstruction path without unrelated API/OAuth callbacks.
+    let id = model.id.clone();
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
+    registry
+        .register_provider(
+            "custom-anthropic",
+            ProviderConfigInput {
+                api: config.api.clone(),
+                base_url: config.base_url.clone(),
+                api_key: Some("fixture-model-key".into()),
+                models: Some(vec![model]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let model = registry.find("custom-anthropic", id).unwrap();
     (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
 }
 async fn provider(

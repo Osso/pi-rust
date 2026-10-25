@@ -15,8 +15,9 @@ use pi_ai::{
     types::*,
     utils::event_stream::*,
 };
+use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;
-use pi_coding_agent::core::model_registry::ProviderConfigInput;
+use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
@@ -108,10 +109,27 @@ impl OAuthLoginCallbacks for Interaction {
 }
 fn stream_fixture(
     config: &ProviderConfigInput,
-    model: Model,
+    model: ProviderModelInput,
     context: Context,
     options: SimpleStreamOptions,
 ) -> AssistantMessageEventStream {
+    // Stream callbacks consume output Models, not registration definitions.
+    // Use the public reconstruction path without unrelated API/OAuth callbacks.
+    let id = model.id.clone();
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
+    registry
+        .register_provider(
+            "gitlab-duo",
+            ProviderConfigInput {
+                api: config.api.clone(),
+                base_url: config.base_url.clone(),
+                api_key: Some("fixture-model-key".into()),
+                models: Some(vec![model]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let model = registry.find("gitlab-duo", id).unwrap();
     (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
 }
 async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> ProviderConfigInput {
