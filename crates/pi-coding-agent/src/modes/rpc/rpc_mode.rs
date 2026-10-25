@@ -4,6 +4,8 @@
 //! session events on stdout. The TypeScript mode never resolves; shutdown exits
 //! the process exactly like `process.exit`.
 
+mod input;
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -14,7 +16,6 @@ use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::InputSource;
 use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::abort::AbortSignal;
-use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8};
 use serde::Serialize;
 use tokio::sync::oneshot;
@@ -23,37 +24,38 @@ use tokio::task::{JoinHandle, LocalSet};
 use crate::config::get_user_state_root;
 use crate::core::agent_session::{
     AgentSession, AgentSessionEvent, CycleDirection, ExecuteBashOptions, ExtensionBindings, PromptOptions,
-    SessionStats, StreamingBehavior,
+    StreamingBehavior,
 };
 use crate::core::agent_session_runtime::{
     AgentSessionRuntime, ForkPosition, NewSessionOptions as RuntimeNewSessionOptions,
 };
-use crate::core::bash_executor::BashResult;
 use crate::core::compaction::CompactionResult;
 use crate::core::extensions::types::{
     ExtensionError, ExtensionMode, ExtensionUiContext, ExtensionUiDialogOptions, ExtensionWidgetOptions, NotifyType,
-    ThemeSetResult, UserBashEvent, UserBashEventResult, WorkingIndicatorOptions,
+    ThemeSetResult, WorkingIndicatorOptions,
 };
 use crate::core::footer_data_provider::ExtensionStatus;
-use crate::core::output_guard::{flush_raw_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout};
+use crate::core::output_guard::{
+    flush_raw_stdout, take_over_stdout, wait_for_raw_stdout_backpressure, write_raw_stdout,
+};
 use crate::core::session_control_db::get_control_db_path;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
 use crate::modes::extension_actions::command_context_actions;
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
 use crate::modes::rpc::rpc_types::{
-    ExtensionUiRequestTag, RpcCommand, RpcCommandBody, RpcExtensionUiRequest, RpcExtensionUiRequestPayload,
-    RpcExtensionUiResponse, RpcExtensionUiResponsePayload, RpcResponse, RpcSessionState, RpcSlashCommand,
+    ExtensionUiRequestTag, RpcExtensionUiRequest, RpcExtensionUiRequestPayload, RpcResponse, RpcSessionState,
+    RpcSlashCommand,
 };
 use crate::utils::shell::kill_tracked_detached_children;
 use pi_js_compat::js_json;
 
-type PendingSender = oneshot::Sender<RpcExtensionUiResponse>;
+type PendingSender = oneshot::Sender<Option<JsValue>>;
 
 /// Pending extension UI requests awaiting a client response line.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct DialogBroker {
-    pending: Mutex<HashMap<String, PendingSender>>,
+    pending: Arc<Mutex<HashMap<String, PendingSender>>>,
 }
 
 impl DialogBroker {
@@ -62,23 +64,30 @@ impl DialogBroker {
     }
 
     /// Routes a response line to its request; unknown or already-settled ids are ignored.
-    fn resolve(&self, response: RpcExtensionUiResponse) -> bool {
-        let sender = lock(&self.pending).remove(&response.id);
+    fn resolve(&self, response: JsValue) -> bool {
+        let Some(id) = response
+            .get("id")
+            .and_then(JsValue::as_string)
+            .and_then(|id| id.to_utf8().ok())
+        else {
+            return false;
+        };
+        self.settle(&id, Some(response))
+    }
+
+    fn settle(&self, id: &str, response: Option<JsValue>) -> bool {
+        let sender = lock(&self.pending).remove(id);
         match sender {
             Some(sender) => sender.send(response).is_ok(),
             None => false,
         }
     }
-
-    fn remove(&self, id: &str) {
-        lock(&self.pending).remove(id);
-    }
 }
 
-#[derive(Default)]
 struct Subscriptions {
-    session: Vec<u64>,
-    agent: Vec<u64>,
+    owner: AgentSession,
+    session_id: u64,
+    agent_id: u64,
 }
 
 struct RpcState {
@@ -88,7 +97,7 @@ struct RpcState {
     dialogs: DialogBroker,
     shutdown_requested: AtomicBool,
     shutting_down: AtomicBool,
-    subscriptions: Mutex<Subscriptions>,
+    subscriptions: Mutex<Option<Subscriptions>>,
     input: Mutex<Option<JsonlLineReader>>,
 }
 
@@ -98,13 +107,10 @@ impl RpcState {
     }
 
     fn clear_subscriptions(&self) {
-        let session = self.current_session();
-        let subscriptions = std::mem::take(&mut *lock(&self.subscriptions));
-        for id in subscriptions.session {
-            session.unsubscribe(id);
-        }
-        for id in subscriptions.agent {
-            session.agent().unsubscribe(id);
+        let subscriptions = lock(&self.subscriptions).take();
+        if let Some(subscriptions) = subscriptions {
+            subscriptions.owner.unsubscribe(subscriptions.session_id);
+            subscriptions.owner.agent().unsubscribe(subscriptions.agent_id);
         }
     }
 
@@ -119,6 +125,7 @@ impl RpcState {
 
 /// Runs RPC mode until shutdown exits the process.
 pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackError> {
+    take_over_stdout();
     let (session, agent_dir) = {
         let runtime = runtime.clone();
         (runtime.session().clone(), Some(runtime.services().agent_dir.clone()))
@@ -130,13 +137,13 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
         dialogs: DialogBroker::default(),
         shutdown_requested: AtomicBool::new(false),
         shutting_down: AtomicBool::new(false),
-        subscriptions: Mutex::new(Subscriptions::default()),
+        subscriptions: Mutex::new(None),
         input: Mutex::new(None),
     });
 
     set_rebind_session(&state).await;
     rebind_session(&state).await?;
-    let signal_tasks = register_signal_handlers(Arc::clone(&state));
+    let signal_tasks = register_signal_handlers(Arc::clone(&state))?;
 
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = attach_jsonl_line_reader(tokio::io::stdin(), move |line| {
@@ -201,27 +208,18 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
         return;
     }
 
-    let command = match deserialize_command(state, &parsed) {
-        Some(command) => command,
-        None => {
-            wait_for_raw_stdout_backpressure().await;
-            check_shutdown_requested(state).await;
-            return;
-        }
-    };
-
-    match handle_command(state, &command).await {
+    match input::handle_command(state, &parsed).await {
         Ok(Some(response)) => {
-            state.output_response(&response);
+            state.output(&response);
             wait_for_raw_stdout_backpressure().await;
         }
         Ok(None) => {}
-        Err(message) => {
-            state.output_response(&RpcResponse::error(
-                command.id.clone(),
-                command.body.command_type(),
-                message.message,
-            ));
+        Err(error) => {
+            let message = input::caught_message(&error)
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+            let response = input::command_response(&parsed, false, Some(("error", JsValue::String(message))))
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+            state.output(&response);
             wait_for_raw_stdout_backpressure().await;
             return;
         }
@@ -229,373 +227,8 @@ async fn handle_input_line(state: &Arc<RpcState>, line: String) {
     check_shutdown_requested(state).await;
 }
 
-/// Parses a command line, emitting the source's unknown-command error when the
-/// discriminator is not part of the RPC command union.
-fn deserialize_command(state: &RpcState, parsed: &JsValue) -> Option<RpcCommand> {
-    let type_name = parsed
-        .get("type")
-        .and_then(JsValue::as_string)
-        .and_then(|text| text.to_utf8().ok());
-    let type_name = type_name.as_deref();
-    if type_name.is_none_or(|name| !crate::modes::rpc::rpc_types::is_known_command_type(name)) {
-        let id = parsed.get("id").and_then(JsValue::as_string).cloned();
-        let label = type_name.unwrap_or("undefined");
-        state.output_response(&RpcResponse::error_optional(
-            id,
-            type_name.map(str::to_owned),
-            format!("Unknown command: {label}"),
-        ));
-        return None;
-    }
-
-    match js_json::from_value::<RpcCommand>(parsed) {
-        Ok(command) => Some(command),
-        Err(error) => {
-            let id = parsed.get("id").and_then(JsValue::as_string).cloned();
-            state.output_response(&RpcResponse::error(
-                id,
-                type_name.unwrap_or("undefined"),
-                error.to_string(),
-            ));
-            None
-        }
-    }
-}
-
 fn route_extension_ui_response(state: &RpcState, parsed: JsValue) {
-    let Ok(response) = js_json::from_value::<RpcExtensionUiResponse>(&parsed) else {
-        return;
-    };
-    state.dialogs.resolve(response);
-}
-
-async fn handle_command(state: &Arc<RpcState>, command: &RpcCommand) -> Result<Option<RpcResponse>, CallbackError> {
-    let id = command.id.clone();
-    let session = state.current_session();
-    match &command.body {
-        RpcCommandBody::Prompt {
-            message,
-            images,
-            streaming_behavior,
-        } => {
-            start_prompt(
-                state,
-                id,
-                message.clone(),
-                images.clone().unwrap_or_default(),
-                streaming_behavior.map(to_session_streaming_behavior),
-            );
-            Ok(None)
-        }
-        RpcCommandBody::Steer { message, images } => {
-            session
-                .steer(message, images.as_deref().unwrap_or_default())
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success(id, "steer")))
-        }
-        RpcCommandBody::FollowUp { message, images } => {
-            session
-                .follow_up(message, images.as_deref().unwrap_or_default())
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success(id, "follow_up")))
-        }
-        RpcCommandBody::Abort => {
-            session.abort().await.map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success(id, "abort")))
-        }
-        RpcCommandBody::Interrupt => {
-            let (steering, follow_up) = session.clear_queue();
-            let message = JsString::join(steering.into_iter().chain(follow_up), "\n\n");
-            let session = session.clone();
-            tokio::task::spawn_local(async move {
-                if let Err(error) = session.interrupt(&message, InputSource::Rpc).await {
-                    eprintln!("RPC interrupt failed: {}", encode_node_utf8(error.message()));
-                }
-            });
-            Ok(Some(RpcResponse::success(id, "interrupt")))
-        }
-        RpcCommandBody::NewSession { parent_session } => {
-            let result = {
-                let runtime = state.runtime.clone();
-                runtime
-                    .new_session(RuntimeNewSessionOptions {
-                        parent_session: parent_session.clone(),
-                        setup: None,
-                        with_session: None,
-                    })
-                    .await?
-            };
-            if !result.cancelled {
-                rebind_session(state).await?;
-            }
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "new_session",
-                pi_js_compat::js_json!({"cancelled": result.cancelled}),
-            )))
-        }
-        RpcCommandBody::GetState => Ok(Some(RpcResponse::success_with_data(
-            id,
-            "get_state",
-            js_json::to_value(&session_state(&session)).expect("state must serialize"),
-        ))),
-        RpcCommandBody::SetModel { provider, model_id } => {
-            let model = session
-                .model_registry()
-                .get_available()
-                .map_err(|error| error.message)?
-                .into_iter()
-                .find(|model| &model.provider == provider && &model.id == model_id)
-                .ok_or_else(|| format!("Model not found: {provider}/{model_id}"))?;
-            session
-                .set_model(model.clone())
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "set_model",
-                js_json::to_value(&model).expect("model must serialize"),
-            )))
-        }
-        RpcCommandBody::CycleModel => {
-            let result = session
-                .cycle_model(CycleDirection::Forward)
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            let data = match result {
-                Some(result) => js_json::to_value(&result).expect("cycle result must serialize"),
-                None => JsValue::Null,
-            };
-            Ok(Some(RpcResponse::success_with_data(id, "cycle_model", data)))
-        }
-        RpcCommandBody::GetAvailableModels => {
-            let models = session
-                .model_registry()
-                .get_available()
-                .map_err(|error| error.message)?;
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_available_models",
-                pi_js_compat::js_json!({"models": models}),
-            )))
-        }
-        RpcCommandBody::SetThinkingLevel { level } => {
-            session
-                .set_thinking_level(*level)
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success(id, "set_thinking_level")))
-        }
-        RpcCommandBody::CycleThinkingLevel => {
-            let data = match session
-                .cycle_thinking_level()
-                .map_err(|error| error.message().to_owned())?
-            {
-                Some(level) => pi_js_compat::js_json!({"level": level}),
-                None => JsValue::Null,
-            };
-            Ok(Some(RpcResponse::success_with_data(id, "cycle_thinking_level", data)))
-        }
-        // Source discrepancy: `rpc-types.ts` and `rpc-client.ts` declare and send
-        // `get_available_thinking_levels`, but `rpc-mode.ts` has no case for it, so
-        // the server answers with the unknown-command error. Preserved verbatim.
-        RpcCommandBody::GetAvailableThinkingLevels => Ok(Some(RpcResponse::error(
-            id,
-            "get_available_thinking_levels",
-            "Unknown command: get_available_thinking_levels",
-        ))),
-        RpcCommandBody::SetSteeringMode { mode } => {
-            session.set_steering_mode(*mode);
-            Ok(Some(RpcResponse::success(id, "set_steering_mode")))
-        }
-        RpcCommandBody::SetFollowUpMode { mode } => {
-            session.set_follow_up_mode(*mode);
-            Ok(Some(RpcResponse::success(id, "set_follow_up_mode")))
-        }
-        RpcCommandBody::Compact { custom_instructions } => {
-            let result: CompactionResult = session
-                .compact(custom_instructions.as_ref())
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "compact",
-                js_json::to_value(&result).expect("compaction result must serialize"),
-            )))
-        }
-        RpcCommandBody::SetAutoCompaction { enabled } => {
-            session.set_auto_compaction_enabled(*enabled);
-            Ok(Some(RpcResponse::success(id, "set_auto_compaction")))
-        }
-        RpcCommandBody::SetAutoRetry { enabled } => {
-            session.set_auto_retry_enabled(*enabled);
-            Ok(Some(RpcResponse::success(id, "set_auto_retry")))
-        }
-        RpcCommandBody::AbortRetry => {
-            session.abort_retry();
-            Ok(Some(RpcResponse::success(id, "abort_retry")))
-        }
-        RpcCommandBody::Bash {
-            command: bash_command,
-            exclude_from_context,
-        } => {
-            let result = run_bash(&session, bash_command, *exclude_from_context).await?;
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "bash",
-                js_json::to_value(&result).expect("bash result must serialize"),
-            )))
-        }
-        RpcCommandBody::AbortBash => {
-            session.abort_bash();
-            Ok(Some(RpcResponse::success(id, "abort_bash")))
-        }
-        RpcCommandBody::GetSessionStats => {
-            let stats: SessionStats = session.get_session_stats();
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_session_stats",
-                js_json::to_value(&stats).expect("session stats must serialize"),
-            )))
-        }
-        RpcCommandBody::ExportHtml { output_path } => {
-            let path = session
-                .export_to_html(output_path.as_ref())
-                .await
-                .map_err(|error| error.message().to_owned())?;
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "export_html",
-                pi_js_compat::js_json!({"path": path}),
-            )))
-        }
-        RpcCommandBody::SwitchSession { session_path } => {
-            let result = {
-                let runtime = state.runtime.clone();
-                runtime.switch_session(session_path, Default::default()).await?
-            };
-            if !result.cancelled {
-                rebind_session(state).await?;
-            }
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "switch_session",
-                pi_js_compat::js_json!({"cancelled": result.cancelled}),
-            )))
-        }
-        RpcCommandBody::Fork { entry_id } => {
-            let result = {
-                let runtime = state.runtime.clone();
-                runtime.fork(entry_id, ForkPosition::Before, None).await?
-            };
-            if !result.cancelled {
-                rebind_session(state).await?;
-            }
-            let data = ForkResponseData {
-                text: result.selected_text,
-                cancelled: result.cancelled,
-            };
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "fork",
-                js_json::to_value(&data).expect("fork data must serialize"),
-            )))
-        }
-        RpcCommandBody::Clone => {
-            let leaf_id = session.session_manager().get_leaf_id().cloned();
-            let Some(leaf_id) = leaf_id else {
-                return Err("Cannot clone session: no current entry selected".into());
-            };
-            let result = {
-                let runtime = state.runtime.clone();
-                runtime.fork(&leaf_id, ForkPosition::At, None).await?
-            };
-            if !result.cancelled {
-                rebind_session(state).await?;
-            }
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "clone",
-                pi_js_compat::js_json!({"cancelled": result.cancelled}),
-            )))
-        }
-        RpcCommandBody::GetForkMessages => {
-            let messages: Vec<ForkMessageData> = session
-                .get_user_messages_for_forking()
-                .into_iter()
-                .map(|message| ForkMessageData {
-                    entry_id: message.entry_id,
-                    text: message.text,
-                })
-                .collect();
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_fork_messages",
-                pi_js_compat::js_json!({"messages": messages}),
-            )))
-        }
-        RpcCommandBody::GetEntries { since } => {
-            let manager = session.session_manager();
-            let mut entries = manager.get_entries();
-            if let Some(since) = since {
-                let Some(index) = entries.iter().position(|entry| entry.id() == Some(since)) else {
-                    return Err(js_format!("Entry not found: {}", since).into());
-                };
-                entries = entries.into_iter().skip(index + 1).collect();
-            }
-            let leaf_id = manager.get_leaf_id().cloned();
-            let data = EntriesResponseData { entries, leaf_id };
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_entries",
-                js_json::to_value(&data).expect("entries must serialize"),
-            )))
-        }
-        RpcCommandBody::GetTree => {
-            let manager = session.session_manager();
-            let data = TreeResponseData {
-                tree: manager.get_tree(),
-                leaf_id: manager.get_leaf_id().cloned(),
-            };
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_tree",
-                js_json::to_value(&data).expect("tree must serialize"),
-            )))
-        }
-        RpcCommandBody::GetLastAssistantText => {
-            let text = session.get_last_assistant_text();
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_last_assistant_text",
-                js_json::to_value(&LastAssistantTextData { text }).expect("text must serialize"),
-            )))
-        }
-        RpcCommandBody::SetSessionName { name } => {
-            let name = name.trim();
-            if name.is_empty() {
-                return Err("Session name cannot be empty".into());
-            }
-            session
-                .set_session_name(&name)
-                .map_err(|failure| failure.message().to_owned())?;
-            Ok(Some(RpcResponse::success(id, "set_session_name")))
-        }
-        RpcCommandBody::GetMessages => Ok(Some(RpcResponse::success_with_data(
-            id,
-            "get_messages",
-            pi_js_compat::js_json!({"messages": session.messages()}),
-        ))),
-        RpcCommandBody::GetCommands => {
-            let commands = collect_commands(&session);
-            Ok(Some(RpcResponse::success_with_data(
-                id,
-                "get_commands",
-                pi_js_compat::js_json!({"commands": commands}),
-            )))
-        }
-    }
+    state.dialogs.resolve(parsed);
 }
 
 fn to_session_streaming_behavior(behavior: crate::core::extensions::types::StreamingBehavior) -> StreamingBehavior {
@@ -620,42 +253,6 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
         message_count: session.messages().len() as u64,
         pending_message_count: session.pending_message_count() as u64,
     }
-}
-
-async fn run_bash(
-    session: &AgentSession,
-    command: &JsString,
-    exclude_from_context: Option<bool>,
-) -> Result<BashResult, JsString> {
-    let cwd = session.session_manager().get_cwd().to_owned();
-    let event_result: Option<UserBashEventResult> = session
-        .extension_runner()
-        .emit_user_bash(&UserBashEvent {
-            command: command.to_owned(),
-            exclude_from_context: exclude_from_context.unwrap_or(false),
-            cwd,
-        })
-        .await;
-
-    if let Some(result) = event_result.as_ref().and_then(|result| result.result.clone()) {
-        let result: BashResult =
-            js_json::from_value(&result).map_err(|error| format!("Invalid user_bash result: {error}"))?;
-        session.record_bash_result(command, &result, exclude_from_context);
-        return Ok(result);
-    }
-    let operations = event_result.as_ref().and_then(|result| result.operations.clone());
-
-    session
-        .execute_bash(
-            command,
-            None,
-            ExecuteBashOptions {
-                exclude_from_context,
-                operations,
-            },
-        )
-        .await
-        .map_err(|error| error.message().to_owned())
 }
 
 fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
@@ -689,7 +286,7 @@ fn collect_commands(session: &AgentSession) -> Vec<RpcSlashCommand> {
 
 fn start_prompt(
     state: &Arc<RpcState>,
-    id: Option<JsString>,
+    id: Option<JsValue>,
     message: JsString,
     images: Vec<pi_ai::types::ImageContent>,
     streaming_behavior: Option<StreamingBehavior>,
@@ -709,7 +306,12 @@ fn start_prompt(
             }
             preflight_flag.store(true, Ordering::SeqCst);
             if let Some(state) = preflight_state.upgrade() {
-                state.output_response(&RpcResponse::success(preflight_id.clone(), "prompt"));
+                state.output(&input::response(
+                    preflight_id.clone(),
+                    Some(JsValue::String("prompt".into())),
+                    true,
+                    None,
+                ));
             }
         })),
         ..PromptOptions::default()
@@ -723,7 +325,20 @@ fn start_prompt(
             && !error_flag.load(Ordering::SeqCst)
             && let Some(state) = error_state.upgrade()
         {
-            state.output_response(&RpcResponse::error(error_id, "prompt", error.message()));
+            let thrown = match CallbackError::from(error).thrown_value() {
+                pi_js_compat::abort::AbortReason::Error(error)
+                | pi_js_compat::abort::AbortReason::DomException(error) => error.value(),
+                pi_js_compat::abort::AbortReason::Value(value) => value,
+            };
+            let message = input::property(&thrown, "message")
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error))
+                .cloned();
+            state.output(&input::response(
+                error_id,
+                Some(JsValue::String("prompt".into())),
+                false,
+                message.map(|value| ("error", value)),
+            ));
         }
     });
 }
@@ -784,16 +399,15 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
 
     state.clear_subscriptions();
     let listener_state = Arc::downgrade(state);
-    let id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
+    let session_id = session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
         let Some(state) = listener_state.upgrade() else {
             return;
         };
         state.output(&js_json::to_value(event).expect("session event must serialize"));
     }));
-    lock(&state.subscriptions).session.push(id);
 
     let backpressure_state = Arc::downgrade(state);
-    let id = session
+    let agent_id = session
         .agent()
         .subscribe(Arc::new(move |_event: AgentEvent, _signal: AbortSignal| {
             let backpressure_state = backpressure_state.clone();
@@ -803,7 +417,11 @@ async fn rebind_session(state: &Arc<RpcState>) -> Result<(), CallbackError> {
                 Ok(())
             })
         }));
-    lock(&state.subscriptions).agent.push(id);
+    *lock(&state.subscriptions) = Some(Subscriptions {
+        owner: session,
+        session_id,
+        agent_id,
+    });
     Ok(())
 }
 
@@ -834,34 +452,32 @@ async fn shutdown(state: &Arc<RpcState>, exit_code: i32, signal: Option<&str>) {
     std::process::exit(exit_code);
 }
 
-fn register_signal_handlers(state: Arc<RpcState>) -> Vec<JoinHandle<()>> {
-    vec![
-        spawn_signal_handler(
-            tokio::signal::unix::SignalKind::terminate(),
-            "SIGTERM",
-            143,
-            Arc::clone(&state),
-        ),
-        spawn_signal_handler(tokio::signal::unix::SignalKind::hangup(), "SIGHUP", 129, state),
-    ]
+fn register_signal_handlers(state: Arc<RpcState>) -> Result<Vec<JoinHandle<()>>, CallbackError> {
+    let terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    let hangup = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())?;
+    Ok(vec![
+        spawn_signal_handler(terminate, "SIGTERM", 143, Arc::clone(&state)),
+        spawn_signal_handler(hangup, "SIGHUP", 129, state),
+    ])
 }
 
 #[cfg(unix)]
 fn spawn_signal_handler(
-    kind: tokio::signal::unix::SignalKind,
+    mut signals: tokio::signal::unix::Signal,
     signal: &'static str,
     exit_code: i32,
     state: Arc<RpcState>,
 ) -> JoinHandle<()> {
     tokio::spawn(async move {
-        let Ok(mut signals) = tokio::signal::unix::signal(kind) else {
-            return;
-        };
-        if signals.recv().await.is_none() {
-            return;
+        while signals.recv().await.is_some() {
+            if !state.shutting_down.load(Ordering::SeqCst) {
+                kill_tracked_detached_children();
+            }
+            let state = Arc::clone(&state);
+            tokio::spawn(async move {
+                shutdown(&state, exit_code, Some(signal)).await;
+            });
         }
-        kill_tracked_detached_children();
-        shutdown(&state, exit_code, Some(signal)).await;
     })
 }
 
@@ -940,19 +556,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "select"),
             )
-            .await)
+            .await
         })
     }
 
@@ -973,20 +585,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(false);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                false,
+                Ok(false),
                 request,
-                |response| {
-                    matches!(
-                        &response.payload,
-                        RpcExtensionUiResponsePayload::Confirmed { confirmed: true }
-                    )
-                },
+                parse_dialog_confirm,
             )
-            .await)
+            .await
         })
     }
 
@@ -1007,19 +614,15 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 opts,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "input"),
             )
-            .await)
+            .await
         })
     }
 
@@ -1100,27 +703,24 @@ impl ExtensionUiContext for RpcUiContext {
             let Some(state) = state else {
                 return Ok(None);
             };
-            Ok(create_dialog_promise(
+            create_dialog_promise(
                 &state.dialogs,
                 |value| state.output(value),
                 None,
-                None,
+                Ok(None),
                 request,
-                |response| match &response.payload {
-                    RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-                    RpcExtensionUiResponsePayload::Confirmed { .. }
-                    | RpcExtensionUiResponsePayload::Cancelled { .. } => None,
-                },
+                |response| parse_dialog_value(response, "editor"),
             )
-            .await)
+            .await
         })
     }
 
     fn set_theme(&self, _theme: &JsString) -> ThemeSetResult {
-        ThemeSetResult {
-            success: false,
-            error: Some("Theme switching not supported in RPC mode".into()),
-        }
+        reject_rpc_theme_switch()
+    }
+
+    fn set_theme_object(&self, _theme: Arc<crate::modes::interactive::theme::Theme>) -> ThemeSetResult {
+        reject_rpc_theme_switch()
     }
 
     fn set_working_message(&self, _message: Option<&JsString>) {}
@@ -1134,6 +734,13 @@ impl ExtensionUiContext for RpcUiContext {
     fn request_render(&self) {}
 }
 
+fn reject_rpc_theme_switch() -> ThemeSetResult {
+    ThemeSetResult {
+        success: false,
+        error: Some("Theme switching not supported in RPC mode".into()),
+    }
+}
+
 fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
@@ -1141,6 +748,33 @@ fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
         payload,
     };
     state.output(&js_json::to_value(&request).expect("extension UI request must serialize"));
+}
+
+fn parse_dialog_value(response: &JsValue, method: &str) -> Result<Option<JsString>, JsString> {
+    if response.get("cancelled").is_some_and(js_json::is_truthy) {
+        return Ok(None);
+    }
+    match response.get("value") {
+        None => Ok(None),
+        Some(JsValue::String(value)) => Ok(Some(value.clone())),
+        Some(_) => Err(format!(
+            "RPC field {method}.extension_ui_response.value requires a string at the typed core boundary"
+        )
+        .into()),
+    }
+}
+
+fn parse_dialog_confirm(response: &JsValue) -> Result<bool, JsString> {
+    if response.get("cancelled").is_some_and(js_json::is_truthy) {
+        return Ok(false);
+    }
+    match response.get("confirmed") {
+        None => Ok(false),
+        Some(JsValue::Bool(confirmed)) => Ok(*confirmed),
+        Some(_) => Err(
+            "RPC field confirm.extension_ui_response.confirmed requires a boolean at the typed core boundary".into(),
+        ),
+    }
 }
 
 async fn create_dialog_promise<T, P, F>(
@@ -1152,7 +786,7 @@ async fn create_dialog_promise<T, P, F>(
     parse: P,
 ) -> T
 where
-    P: FnOnce(&RpcExtensionUiResponse) -> T,
+    P: FnOnce(&JsValue) -> T,
     F: Fn(&JsValue),
 {
     let (signal, timeout) = match opts {
@@ -1166,6 +800,8 @@ where
     let id = random_uuid();
     let (sender, receiver) = oneshot::channel();
     dialogs.register(id.clone(), sender);
+    let abort_subscription = subscribe_dialog_abort(dialogs, &id, signal.as_ref());
+    let timer = schedule_dialog_timeout(dialogs, &id, timeout);
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
         id: id.clone(),
@@ -1173,38 +809,47 @@ where
     };
     emit(&js_json::to_value(&request).expect("extension UI request must serialize"));
 
-    let response = await_dialog(receiver, signal, timeout).await;
-    dialogs.remove(&id);
+    let response = receiver
+        .await
+        .expect("pending dialog retains its sender until settlement");
+    drop(abort_subscription);
+    if let Some(timer) = timer {
+        timer.abort();
+    }
     match response {
         Some(response) => parse(&response),
         None => default,
     }
 }
 
-async fn await_dialog(
-    receiver: oneshot::Receiver<RpcExtensionUiResponse>,
-    signal: Option<AbortSignal>,
-    timeout: Option<f64>,
-) -> Option<RpcExtensionUiResponse> {
-    let timeout = timeout
-        .filter(|timeout| *timeout != 0.0 && !timeout.is_nan())
-        .map(|timeout| Duration::from_millis(timeout.max(0.0) as u64));
-    match (signal, timeout) {
-        (Some(signal), Some(timeout)) => tokio::select! {
-            response = receiver => response.ok(),
-            _ = signal.wait() => None,
-            () = tokio::time::sleep(timeout) => None,
-        },
-        (Some(signal), None) => tokio::select! {
-            response = receiver => response.ok(),
-            _ = signal.wait() => None,
-        },
-        (None, Some(timeout)) => tokio::select! {
-            response = receiver => response.ok(),
-            () = tokio::time::sleep(timeout) => None,
-        },
-        (None, None) => receiver.await.ok(),
+fn subscribe_dialog_abort(
+    dialogs: &DialogBroker,
+    id: &str,
+    signal: Option<&AbortSignal>,
+) -> Option<pi_js_compat::abort::AbortSubscription> {
+    let signal = signal?;
+    let broker = dialogs.clone();
+    let request_id = id.to_owned();
+    match signal.subscribe(move |_| {
+        broker.settle(&request_id, None);
+    }) {
+        Ok(subscription) => Some(subscription),
+        Err(_) => {
+            dialogs.settle(id, None);
+            None
+        }
     }
+}
+
+fn schedule_dialog_timeout(dialogs: &DialogBroker, id: &str, timeout: Option<f64>) -> Option<JoinHandle<()>> {
+    let timeout = timeout.filter(|timeout| *timeout != 0.0 && !timeout.is_nan())?;
+    let delay = Duration::from_millis(pi_js_compat::node_timers::normalize_timeout_delay(timeout) as u64);
+    let broker = dialogs.clone();
+    let request_id = id.to_owned();
+    Some(tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        broker.settle(&request_id, None);
+    }))
 }
 
 #[cfg(test)]
@@ -1220,12 +865,8 @@ mod tests {
         }
     }
 
-    fn value_response(id: &str, value: &str) -> RpcExtensionUiResponse {
-        RpcExtensionUiResponse {
-            kind: crate::modes::rpc::rpc_types::ExtensionUiResponseTag::ExtensionUiResponse,
-            id: id.to_owned(),
-            payload: RpcExtensionUiResponsePayload::Value { value: value.into() },
-        }
+    fn value_response(id: &str, value: &str) -> JsValue {
+        pi_js_compat::js_json!({"type":"extension_ui_response","id":id,"value":value})
     }
 
     #[tokio::test]
@@ -1235,11 +876,8 @@ mod tests {
         let emit = move |value: &JsValue| {
             let _ = sender.send(value.clone());
         };
-        let promise = create_dialog_promise(&broker, emit, None, None, select_request(), |response| match &response
-            .payload
-        {
-            RpcExtensionUiResponsePayload::Value { value } => Some(value.clone()),
-            _ => None,
+        let promise = create_dialog_promise(&broker, emit, None, None, select_request(), |response| {
+            response.get("value").and_then(JsValue::as_string).cloned()
         });
         let resolver = async {
             let request = receiver.recv().await.expect("request line");
@@ -1331,6 +969,157 @@ mod tests {
         assert_eq!(result, "default");
     }
 
+    fn run_frozen_rpc_observation(order: &str) -> JsValue {
+        use std::process::{Command, Stdio};
+        let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/porting/source-lock.json"
+        )))
+        .unwrap();
+        let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+        let head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(source)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(head.stdout).unwrap().trim(),
+            lock["commit"].as_str().unwrap()
+        );
+        let root = tempfile::tempdir().unwrap();
+        let mut child = Command::new("/usr/bin/timeout")
+            .args(["20", "/usr/bin/node"])
+            .arg(source.join("node_modules/tsx/dist/cli.mjs"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/rpc-dialog-order-oracle.mts"))
+            .arg(source.join("packages/coding-agent/src"))
+            .arg(root.path())
+            .arg(order)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let output = child.wait_with_output().unwrap();
+        drop(stdin);
+        assert!(
+            output.status.success(),
+            "source stderr {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report =
+            js_json::parse_lossless(std::fs::read_to_string(root.path().join("dialog-order.json")).unwrap()).unwrap();
+        report["value"].clone()
+    }
+
+    #[tokio::test]
+    async fn dialog_settlement_follows_response_and_abort_notification_order() {
+        for (order, expected) in [
+            ("response-first", Some(JsString::from("answered"))),
+            ("abort-first", None),
+        ] {
+            assert_eq!(run_frozen_rpc_observation(order).as_string().cloned(), expected);
+            let mut results = Vec::new();
+            for _ in 0..32 {
+                let broker = DialogBroker::default();
+                let controller = pi_js_compat::abort::AbortController::new();
+                let options = ExtensionUiDialogOptions {
+                    signal: Some(controller.signal()),
+                    ..Default::default()
+                };
+                let emit = |request: &JsValue| {
+                    let id = request["id"].as_string().unwrap().to_utf8().unwrap();
+                    if order == "response-first" {
+                        broker.resolve(value_response(&id, "answered"));
+                        controller.abort(None);
+                    } else {
+                        controller.abort(None);
+                        broker.resolve(value_response(&id, "answered"));
+                    }
+                };
+                results.push(
+                    create_dialog_promise(&broker, emit, Some(options), None, select_request(), |response| {
+                        response.get("value").and_then(JsValue::as_string).cloned()
+                    })
+                    .await,
+                );
+            }
+            assert!(results.iter().all(|result| result == &expected), "{order}: {results:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn rpc_noop_surface_and_both_theme_setter_overloads_match_frozen() {
+        let expected = run_frozen_rpc_observation("surface");
+        crate::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
+        let ui = RpcUiContext { state: Weak::new() };
+        ui.set_footer(Some(Arc::new(|_| panic!("RPC footer factory must not execute"))));
+        ui.set_default_footer(Some(Arc::new(|_| {
+            panic!("RPC default footer factory must not execute")
+        })));
+        ui.set_header(Some(Arc::new(|_| panic!("RPC header factory must not execute"))))
+            .unwrap();
+        ui.set_widget_component(
+            &"ignored".into(),
+            Some(Arc::new(|_| panic!("RPC widget factory must not execute"))),
+            None,
+        );
+        ui.add_autocomplete_provider(Arc::new(|_| panic!("RPC autocomplete factory must not execute")));
+        ui.set_editor_component(Some(Arc::new(|_, _, _| panic!("RPC editor factory must not execute"))));
+        ui.request_render();
+        ui.set_working_message(Some(&"ignored".into()));
+        ui.set_working_visible(false);
+        ui.set_working_indicator(Some(&WorkingIndicatorOptions::default()));
+        ui.set_hidden_thinking_label(Some(&"ignored".into()));
+        ui.set_tools_expanded(true);
+        ui.on_terminal_input(Arc::new(|_| panic!("RPC input callback must not execute")))();
+        let custom = ui
+            .custom(Arc::new(|_, _| panic!("RPC custom factory must not execute")), None)
+            .await
+            .unwrap();
+        let observed = pi_js_compat::js_json!({
+            "stringTheme":ui.set_theme(&"dark".into()), "objectTheme":ui.set_theme_object(ui.theme()),
+            "editor":ui.get_editor_text().unwrap(), "themes":ui.get_all_themes(), "namedTheme":ui.get_theme(&"dark".into()).map(|_| true),
+            "toolsExpanded":ui.get_tools_expanded(), "editorComponent":ui.get_editor_component().map(|_| true), "custom":custom
+        });
+        assert_eq!(observed, expected);
+    }
+
+    #[test]
+    fn raw_dialog_return_boundaries_reject_unrepresentable_values_explicitly() {
+        for method in ["select", "input", "editor"] {
+            for value in [JsValue::Null, JsValue::Bool(false), pi_js_compat::js_json!({"x":1})] {
+                let response = pi_js_compat::js_json!({"value":value});
+                let error = parse_dialog_value(&response, method).unwrap_err();
+                assert!(
+                    error
+                        .to_utf8()
+                        .unwrap()
+                        .contains(&format!("{method}.extension_ui_response.value"))
+                );
+            }
+            assert_eq!(
+                parse_dialog_value(&pi_js_compat::js_json!({"cancelled":{},"value":null}), method),
+                Ok(None)
+            );
+        }
+        for value in [JsValue::Null, pi_js_compat::js_json!(17), pi_js_compat::js_json!("yes")] {
+            let error = parse_dialog_confirm(&pi_js_compat::js_json!({"confirmed":value})).unwrap_err();
+            assert!(
+                error
+                    .to_utf8()
+                    .unwrap()
+                    .contains("confirm.extension_ui_response.confirmed")
+            );
+        }
+        assert_eq!(
+            parse_dialog_confirm(&pi_js_compat::js_json!({"cancelled":[1],"confirmed":17})),
+            Ok(false)
+        );
+    }
+
     #[test]
     fn unknown_response_ids_are_ignored() {
         let broker = DialogBroker::default();
@@ -1345,125 +1134,6 @@ mod tests {
         assert_eq!(
             result.error,
             Some(JsString::from("Theme switching not supported in RPC mode"))
-        );
-    }
-}
-
-#[cfg(test)]
-mod bash_operation_tests {
-    use std::sync::{Arc, Mutex};
-
-    use pi_agent_core::ToolError;
-    use pi_ai::request::BoxFuture;
-
-    use super::run_bash;
-    use crate::core::event_bus::EventBusController;
-    use crate::core::extensions::types::{UserBashEvent, UserBashEventResult};
-    use crate::core::extensions::{
-        ExtensionFactory, LoadExtensionsResult, create_extension_runtime, load_extension_from_factory,
-    };
-    use crate::core::resource_loader::StaticResourceLoader;
-    use crate::core::sdk::{CreateAgentSessionOptions, create_agent_session};
-    use crate::core::session_manager::SessionManager;
-    use crate::core::tools::bash::{BashExecOptions, BashExecResult, BashOperations};
-    use pi_js_compat::js_json::JsString;
-
-    struct RecordingOperations {
-        commands: Arc<Mutex<Vec<JsString>>>,
-    }
-
-    impl BashOperations for RecordingOperations {
-        fn exec<'a>(
-            &'a self,
-            command: &'a JsString,
-            _cwd: &'a JsString,
-            options: BashExecOptions,
-        ) -> BoxFuture<'a, Result<BashExecResult, ToolError>> {
-            self.commands
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .push(command.to_owned());
-            Box::pin(async move {
-                (options.on_data)(b"from extension\n").map_err(|error| ToolError::new(error.message))?;
-                Ok(BashExecResult {
-                    exit_code: Some(0.0),
-                    detached: None,
-                })
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn user_bash_operations_reach_execute_bash() {
-        let commands = Arc::new(Mutex::new(Vec::new()));
-        let handler_commands = Arc::clone(&commands);
-        let factory: ExtensionFactory = Arc::new(move |api| {
-            let handler_commands = Arc::clone(&handler_commands);
-            api.on_user_bash(move |_event: UserBashEvent, _ctx| {
-                let handler_commands = Arc::clone(&handler_commands);
-                Box::pin(async move {
-                    Ok(Some(UserBashEventResult {
-                        operations: Some(Arc::new(RecordingOperations {
-                            commands: handler_commands,
-                        }) as Arc<dyn BashOperations>),
-                        result: None,
-                    }))
-                })
-                    as crate::core::extensions::types::BoxFuture<
-                        'static,
-                        Result<Option<UserBashEventResult>, crate::core::extensions::types::HandlerError>,
-                    >
-            })
-            .expect("register user_bash");
-            Box::pin(async { Ok(()) })
-        });
-        let temp = tempfile::tempdir().expect("temp dir");
-        let temp_path = |path: &std::path::Path| JsString::from(path.to_str().expect("UTF-8 temp path"));
-        let cwd = temp_path(temp.path());
-        let runtime = create_extension_runtime();
-        let extension = load_extension_from_factory(
-            factory,
-            &cwd,
-            Arc::new(EventBusController::new()),
-            runtime.clone(),
-            &"user-bash-extension".into(),
-        )
-        .await
-        .expect("extension");
-        let loader = Arc::new(StaticResourceLoader {
-            extensions: Some(LoadExtensionsResult {
-                extensions: vec![extension],
-                errors: Vec::new(),
-                runtime,
-            }),
-            ..StaticResourceLoader::default()
-        });
-        let session_dir = temp_path(&temp.path().join("sessions"));
-        let control_db = temp_path(&temp.path().join("control.db"));
-        let mut session_manager = SessionManager::create(&cwd, Some(&session_dir), None).expect("session manager");
-        session_manager
-            .set_metadata_control_db_path(Some(&control_db), Default::default())
-            .expect("metadata control db");
-        let result = create_agent_session(CreateAgentSessionOptions {
-            cwd: Some(cwd.clone()),
-            agent_dir: Some(cwd),
-            resource_loader: Some(loader),
-            session_manager: Some(session_manager),
-            control_db_path: Some(control_db),
-            ..Default::default()
-        })
-        .await
-        .expect("session");
-
-        let command = JsString::from("echo ") + JsString::from_utf16(vec![0xd800]);
-        let bash = run_bash(&result.session, &command, None).await.expect("bash");
-        assert_eq!(bash.output, "from extension\n");
-        assert_eq!(
-            commands
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .as_slice(),
-            [command]
         );
     }
 }

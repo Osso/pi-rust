@@ -320,13 +320,17 @@ fn replace_entry_ids(line: &str) -> String {
 /// Creates the padded package directory used by the Rust harness so both sides
 /// derive identically sized documentation paths (and therefore token estimates).
 pub(crate) fn create_package_dir(length: usize) -> PathBuf {
-    let prefix = "/tmp/pi-mode-pkg-";
-    assert!(length > prefix.len(), "package dir must be longer than the prefix");
+    static NEXT_PACKAGE: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let sequence = NEXT_PACKAGE.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let prefix = format!("/tmp/pi-mode-pkg-{}-{sequence}-", std::process::id());
+    assert!(
+        length > prefix.len(),
+        "package dir must be longer than the unique prefix"
+    );
     let directory = PathBuf::from(format!("{prefix}{}", "x".repeat(length - prefix.len())));
-    if !directory.join("theme").exists() {
-        let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme");
-        copy_directory(&source, &directory.join("theme"));
-    }
+    std::fs::create_dir(&directory).expect("unique package directory");
+    let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme");
+    copy_directory(&source, &directory.join("theme"));
     directory
 }
 
