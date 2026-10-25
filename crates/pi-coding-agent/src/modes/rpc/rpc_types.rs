@@ -598,9 +598,23 @@ pub enum ExtensionUiResponseTag {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum RpcExtensionUiResponsePayload {
-    Value { value: JsString },
-    Confirmed { confirmed: bool },
-    Cancelled { cancelled: bool },
+    Value {
+        value: JsString,
+    },
+    Confirmed {
+        confirmed: bool,
+    },
+    Cancelled {
+        #[serde(serialize_with = "serialize_cancelled")]
+        cancelled: bool,
+    },
+}
+
+fn serialize_cancelled<S: serde::Serializer>(cancelled: &bool, serializer: S) -> Result<S::Ok, S::Error> {
+    if !cancelled {
+        return Err(serde::ser::Error::custom("cancelled must be true"));
+    }
+    serializer.serialize_bool(true)
 }
 
 /// A client answer to an extension UI request (`RpcExtensionUIResponse`).
@@ -629,8 +643,8 @@ fn decode_ui_response(value: &JsValue) -> Result<RpcExtensionUiResponse, String>
         Payload::Value { value: answer }
     } else if let Ok(confirmed) = command_field::<bool>(value, "confirmed") {
         Payload::Confirmed { confirmed }
-    } else if let Ok(cancelled) = command_field::<bool>(value, "cancelled") {
-        Payload::Cancelled { cancelled }
+    } else if command_field::<bool>(value, "cancelled") == Ok(true) {
+        Payload::Cancelled { cancelled: true }
     } else {
         return Err("data did not match any variant of untagged enum RpcExtensionUiResponsePayload".into());
     };

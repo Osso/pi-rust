@@ -491,6 +491,23 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
 }
 
 #[test]
+fn ui_cancellation_requires_the_declared_true_literal() {
+    // Frozen rpc-types.ts:276 permits cancelled:true, not an arbitrary boolean.
+    assert!(
+        serde_json::from_str::<RpcExtensionUiResponse>(
+            r#"{"type":"extension_ui_response","id":"ui","cancelled":false}"#
+        )
+        .is_err()
+    );
+    let invalid = RpcExtensionUiResponse {
+        kind: ExtensionUiResponseTag::ExtensionUiResponse,
+        id: "ui".into(),
+        payload: RpcExtensionUiResponsePayload::Cancelled { cancelled: false },
+    };
+    assert!(serde_json::to_string(&invalid).is_err());
+}
+
+#[test]
 fn declared_ui_strings_preserve_every_utf16_unit_when_decoded() {
     // Frozen rpc-types.ts:231-266 declares strings for every UI text/id field.
     for line in [
