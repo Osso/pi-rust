@@ -1,6 +1,6 @@
 # lockfile traceability (support module)
 
-Rust: `crates/pi-coding-agent/src/utils/lockfile.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/lockfile.rs`.
 Source contract: `proper-lockfile` 4.1.2 (`lib/lockfile.js`, `lib/mtime-precision.js`, `lib/adapter.js`)
 as used by `core/auth-storage.ts`, `core/trust-manager.ts`, and `core/models-store.ts`.
 

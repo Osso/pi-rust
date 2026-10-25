@@ -1,7 +1,7 @@
 # version-check traceability
 
 Pinned source: `packages/coding-agent/src/utils/version-check.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/utils/version_check.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/version_check.rs`.
 
 Differential proof: `oracle/version-check-oracle.ts` drives the pinned `comparePackageVersions`,
 `isNewerPackageVersion`, and `formatVersionCheckError`; the Rust side repeats every request

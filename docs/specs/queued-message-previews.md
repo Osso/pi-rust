@@ -16,9 +16,9 @@ Preserve frozen `4f9e6f8a4` display queue provenance and coordination visibility
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/agent_session.rs`: native queue previews and snapshots.
-- `crates/pi-coding-agent/src/modes/interactive/coordination_visibility.rs`: source envelope/provenance predicates.
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`: visible queue projection and pending rows.
+- `crates/pi-coding-agent-core/src/core/agent_session.rs`: native queue previews and snapshots.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/coordination_visibility.rs`: source envelope/provenance predicates.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: visible queue projection and pending rows.
 
 ## Tests asserting this spec
 

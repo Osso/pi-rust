@@ -1,7 +1,7 @@
 # skill-invocation-message.ts
 
 Source: `coding-agent/src/modes/interactive/components/skill-invocation-message.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/skill_invocation_message.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/skill_invocation_message.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

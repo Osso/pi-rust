@@ -76,16 +76,6 @@ pub struct ResidentConsoleCommand {
     pub initial_prompt: Option<String>,
 }
 
-impl ResidentConsoleService {
-    /// CLI flag / socket suffix for the service.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Architect => "architect",
-            Self::Supervisor => "supervisor",
-        }
-    }
-}
-
 /// `parseResidentConsoleArgs`.
 ///
 /// `Ok(None)` when the first argument is not `--supervisor`/`--architect`;

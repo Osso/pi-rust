@@ -4,7 +4,7 @@ mod oracle;
 use pi_coding_agent::utils::syntax_highlight::{HighlightOptions, highlight_html};
 use serde_json::{Value, json};
 
-const GRAMMARS: &str = include_str!("../src/utils/syntax_highlight/grammars.json");
+const GRAMMARS: &str = include_str!("../../pi-coding-agent-base/src/utils/syntax_highlight/grammars.json");
 
 /// Multi-construct snippet exercised against every generated grammar.
 const GENERIC_SNIPPET: &str = r##"/* block comment */

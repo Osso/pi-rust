@@ -1,7 +1,7 @@
 # coding-agent management-http traceability
 
 Pinned source: `packages/coding-agent/src/utils/management-http.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/utils/management_http.rs` over `pi_ai::request::Fetch` (default client `pi_ai::http::default_fetch`).
+Rust: `crates/pi-coding-agent-base/src/utils/management_http.rs` over `pi_ai::request::Fetch` (default client `pi_ai::http::default_fetch`).
 
 Differential test skipped: the source calls the global `fetch`; behavior is proven with a scripted `Fetch` and a real local HTTP server in `crates/pi-coding-agent/tests/management_http.rs`.
 

@@ -1,7 +1,7 @@
 # `coding-agent/src/core/lifecycle-coordinator.ts`
 
 Source: `packages/coding-agent/src/core/lifecycle-coordinator.ts` (448 lines) at the pinned
-revision. Rust: `crates/pi-coding-agent/src/core/lifecycle_coordinator.rs`.
+revision. Rust: `crates/pi-coding-agent-core/src/core/lifecycle_coordinator.rs`.
 
 The coordinator is a thin command layer over `session_control_db::agents`; the DB layer itself is
 covered by `session_control_db.md`. All methods take the control DB path from

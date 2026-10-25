@@ -28,7 +28,7 @@ Frozen `4f9e6f8a4` manifest numbers are not integers: the actual writer accepts 
 
 Pinned source: `packages/coding-agent/src/core/detached-bash-runner.ts` and `detached-bash-runner-entry.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent/src/core/detached_bash_runner.rs` plus the internal-runner dispatch in `internal_runner.rs`. Tests: `crates/pi-coding-agent/tests/detached_bash_runner.rs` (10 tests, real processes, `/proc`, signals, files).
+Rust: `crates/pi-coding-agent-core/src/core/detached_bash_runner.rs` plus the internal-runner dispatch in `internal_runner.rs`. Tests: `crates/pi-coding-agent/tests/detached_bash_runner.rs` (10 tests, real processes, `/proc`, signals, files).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

@@ -1,9 +1,5 @@
-pub mod approval_reviewer;
-pub mod client;
-pub mod ensure_running;
+pub use pi_coding_agent_core::supervisor::{approval_reviewer, client, ensure_running, project_resolver, request_wake};
 pub mod main;
-pub mod project_resolver;
-pub mod request_wake;
 pub mod response_tool;
 pub mod service;
 

@@ -15,7 +15,7 @@ Discover fd/ripgrep from PATH, matching frozen `coding-agent/src/utils/tools-man
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/utils/tools_manager.rs`: closed native tool domain and PATH lookup/ensure functions.
+- `crates/pi-coding-agent-base/src/utils/tools_manager.rs`: closed native tool domain and PATH lookup/ensure functions.
 - `core/tools/{find,grep}.rs`: silent lookup consumers.
 - `modes/interactive/interactive_mode.rs`: concurrent non-silent startup lookup; HTTP dispatcher remains independent.
 

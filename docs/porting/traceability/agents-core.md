@@ -49,7 +49,7 @@ Current proof (2026-10-21 question lane): deterministic cases and full frozen re
 Runtime/store/lifecycle old-clock failures were expired canonical rows: frozen `multi-agent-store.ts:939-945` persists the store row before runtime enqueue (`runtime.ts:2954-3040`). Fixtures now use current birth times. Child-disabled capability includes frozen `answer_question`; `set_agent_model` was already registered natively and only missing from the old fixture expectation.
 
 Source: `packages/coding-agent/extensions/agents-core/src/*.ts` (pinned by
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent/src/bundled_extensions/agents_core/`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/`.
 
 Proof commands:
 

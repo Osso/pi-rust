@@ -1,7 +1,7 @@
 # components/compaction-summary-message.ts
 
 Source: `coding-agent/src/modes/interactive/components/compaction-summary-message.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/compaction_summary_message.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/compaction_summary_message.rs`
 (+ `core::messages::CompactionSummaryMessage` value record)
 
 Tests: `interactive_components_c.rs::compaction_summary_*`,

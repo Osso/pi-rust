@@ -1,7 +1,7 @@
 # Executable availability
 
 Frozen: `packages/coding-agent/src/utils/executable.ts` at `4f9e6f8a4`.
-Rust: `crates/pi-coding-agent/src/utils/executable.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/executable.rs`.
 
 | Frozen lines | Behavior | Proof |
 |---|---|---|

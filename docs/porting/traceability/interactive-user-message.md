@@ -1,6 +1,6 @@
 # components/user-message.ts
 
-Frozen `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/user-message.ts:1–68` fully compared with `crates/pi-coding-agent/src/modes/interactive/components/user_message.rs`.
+Frozen `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/user-message.ts:1–68` fully compared with `crates/pi-coding-agent-interactive/src/modes/interactive/components/user_message.rs`.
 
 | Source branch | Native | Proof |
 |---|---|---|

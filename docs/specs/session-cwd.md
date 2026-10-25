@@ -24,8 +24,8 @@ Preserve the frozen `core/session-cwd.ts` contract at the [common pin](../portin
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/session_cwd.rs` — lookup, native errors, formatting and reopen.
-- `crates/pi-coding-agent/src/core/session_manager.rs` — delegated constructor/listing truthiness and cwd authority.
+- `crates/pi-coding-agent-core/src/core/session_cwd.rs` — lookup, native errors, formatting and reopen.
+- `crates/pi-coding-agent-core/src/core/session_manager.rs` — delegated constructor/listing truthiness and cwd authority.
 - `crates/pi-coding-agent/src/{main.rs,core/agent_session_runtime.rs,modes/interactive/interactive_mode.rs}` — fallible callers and resume dispatch.
 
 ## Tests asserting this spec

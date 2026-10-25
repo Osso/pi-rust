@@ -1,7 +1,7 @@
 # components/extension-input.ts
 
 Source: `coding-agent/src/modes/interactive/components/extension-input.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/extension_input.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/extension_input.rs`
 
 Tests: `interactive_components_c.rs::extension_input_*`, differential `extensionInput`.
 

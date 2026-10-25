@@ -1,7 +1,7 @@
 # elapsed-time.ts
 
 Source: `coding-agent/src/modes/interactive/components/elapsed-time.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/elapsed_time.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/elapsed_time.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

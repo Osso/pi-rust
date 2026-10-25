@@ -2,7 +2,7 @@
 
 The [common pin](../source-lock.json) has no `coding-agent/src/core/cache-stats.ts`. The prior-pin Rust module was not current parity evidence.
 
-Parent explicitly assigned whole removal on2026-10-22: deleted `crates/pi-coding-agent/src/core/cache_stats.rs`, its core module export and `tests/cache_stats.rs`. Removed interactive notice call sites/helpers/price adapter and cache-waste/cost-breakdown rendering. The old positive notice test was replaced by actual MessageStart→MessageEnd regression: a preserved unknown legacy flag cannot emit a notice.
+Parent explicitly assigned whole removal on2026-10-22: deleted `crates/pi-coding-agent-core/src/core/cache_stats.rs`, its core module export and `tests/cache_stats.rs`. Removed interactive notice call sites/helpers/price adapter and cache-waste/cost-breakdown rendering. The old positive notice test was replaced by actual MessageStart→MessageEnd regression: a preserved unknown legacy flag cannot emit a notice.
 
 Deleted cache-notice and Mermaid-mode settings types/getters/setters/selector rows/config/callbacks and their old-only test expectations. Do not strip arbitrary legacy settings JSON: unknown-key persistence is a separate source contract.
 

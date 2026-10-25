@@ -1,7 +1,7 @@
 # `codex-usage` extension traceability
 
 Source: `packages/coding-agent/extensions/codex-usage/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/codex_usage/{mod,bridge}.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/codex_usage/{mod,bridge}.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

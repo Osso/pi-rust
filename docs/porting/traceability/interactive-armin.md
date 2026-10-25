@@ -1,7 +1,7 @@
 # components/armin.ts
 
 Source: `coding-agent/src/modes/interactive/components/armin.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/armin.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/armin.rs`
 
 Tests: `interactive_components_c.rs::armin_animates_and_renders_message`.
 

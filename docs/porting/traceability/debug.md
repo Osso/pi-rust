@@ -1,7 +1,7 @@
 # debug traceability
 
 Source: `packages/coding-agent/extensions/debug/src/index.ts` (29 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/debug.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/debug.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_commands.rs` (`debug_matches_typescript`).
 
 | Source symbol / branch | Rust item | Proof |
