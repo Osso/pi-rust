@@ -1,48 +1,48 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
 #[path = "differential_editor.rs"]
-mod differential_editor;
+pub mod differential_editor;
 #[path = "differential_markdown.rs"]
-mod differential_markdown;
+pub mod differential_markdown;
 #[path = "differential_tui.rs"]
-mod differential_tui;
+pub mod differential_tui;
 #[path = "editor_abort.rs"]
-mod editor_abort;
+pub mod editor_abort;
 #[path = "editor_autocomplete.rs"]
-mod editor_autocomplete;
+pub mod editor_autocomplete;
 #[path = "editor_editing.rs"]
-mod editor_editing;
+pub mod editor_editing;
 #[path = "editor_history.rs"]
-mod editor_history;
+pub mod editor_history;
 #[path = "editor_paste.rs"]
-mod editor_paste;
+pub mod editor_paste;
 #[path = "editor_rendering.rs"]
-mod editor_rendering;
+pub mod editor_rendering;
 #[path = "editor_sticky.rs"]
-mod editor_sticky;
+pub mod editor_sticky;
 #[path = "editor_word_wrap.rs"]
-mod editor_word_wrap;
+pub mod editor_word_wrap;
 #[path = "editor_working.rs"]
-mod editor_working;
+pub mod editor_working;
 #[path = "markdown.rs"]
-mod markdown;
+pub mod markdown;
 #[path = "markdown_isimageline_regression.rs"]
-mod markdown_isimageline_regression;
+pub mod markdown_isimageline_regression;
 #[path = "raw_editor.rs"]
-mod raw_editor;
+pub mod raw_editor;
 #[path = "raw_markdown.rs"]
-mod raw_markdown;
+pub mod raw_markdown;
 #[path = "render_region.rs"]
-mod render_region;
+pub mod render_region;
 #[path = "render_region_safety.rs"]
-mod render_region_safety;
+pub mod render_region_safety;
 #[path = "tui_cell_size_input.rs"]
-mod tui_cell_size_input;
+pub mod tui_cell_size_input;
 #[path = "tui_focus.rs"]
-mod tui_focus;
+pub mod tui_focus;
 #[path = "tui_overlay_style_leak.rs"]
-mod tui_overlay_style_leak;
+pub mod tui_overlay_style_leak;
 #[path = "tui_render.rs"]
-mod tui_render;
+pub mod tui_render;
 #[path = "tui_shrink.rs"]
-mod tui_shrink;
+pub mod tui_shrink;

@@ -1,122 +1,122 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
 #[path = "agent_session.rs"]
-mod agent_session;
+pub mod agent_session;
 #[path = "agent_session_mutation_target.rs"]
-mod agent_session_mutation_target;
+pub mod agent_session_mutation_target;
 #[path = "agent_session_runtime_mailbox.rs"]
-mod agent_session_runtime_mailbox;
+pub mod agent_session_runtime_mailbox;
 #[path = "agent_session_services.rs"]
-mod agent_session_services;
+pub mod agent_session_services;
 #[path = "agent_session_signal_wake.rs"]
-mod agent_session_signal_wake;
+pub mod agent_session_signal_wake;
 #[path = "agents_core_session_factories.rs"]
-mod agents_core_session_factories;
+pub mod agents_core_session_factories;
 #[path = "approved_mailbox_deltas.rs"]
-mod approved_mailbox_deltas;
+pub mod approved_mailbox_deltas;
 #[path = "approved_transcript_delta.rs"]
-mod approved_transcript_delta;
+pub mod approved_transcript_delta;
 #[path = "auth_storage.rs"]
-mod auth_storage;
+pub mod auth_storage;
 #[path = "auth_storage_cross_process.rs"]
-mod auth_storage_cross_process;
+pub mod auth_storage_cross_process;
 #[path = "codex_restriction_context.rs"]
-mod codex_restriction_context;
+pub mod codex_restriction_context;
 #[path = "compaction.rs"]
-mod compaction;
+pub mod compaction;
 #[path = "compaction_generation.rs"]
-mod compaction_generation;
+pub mod compaction_generation;
 #[path = "compaction_utils.rs"]
-mod compaction_utils;
+pub mod compaction_utils;
 #[path = "context_tool.rs"]
-mod context_tool;
+pub mod context_tool;
 #[path = "control_db_public_api.rs"]
-mod control_db_public_api;
+pub mod control_db_public_api;
 #[path = "cross_implementation_control_db.rs"]
-mod cross_implementation_control_db;
+pub mod cross_implementation_control_db;
 #[path = "current_session_version.rs"]
-mod current_session_version;
+pub mod current_session_version;
 #[path = "differential_agent_session.rs"]
-mod differential_agent_session;
+pub mod differential_agent_session;
 #[path = "differential_compaction.rs"]
-mod differential_compaction;
+pub mod differential_compaction;
 #[path = "differential_control_db.rs"]
-mod differential_control_db;
+pub mod differential_control_db;
 #[path = "differential_current_session_version.rs"]
-mod differential_current_session_version;
+pub mod differential_current_session_version;
 #[path = "differential_idle_compaction.rs"]
-mod differential_idle_compaction;
+pub mod differential_idle_compaction;
 #[path = "differential_session_info_dates.rs"]
-mod differential_session_info_dates;
+pub mod differential_session_info_dates;
 #[path = "differential_session_manager.rs"]
-mod differential_session_manager;
+pub mod differential_session_manager;
 #[path = "differential_session_search.rs"]
-mod differential_session_search;
+pub mod differential_session_search;
 #[path = "differential_session_search_surface.rs"]
-mod differential_session_search_surface;
+pub mod differential_session_search_surface;
 #[path = "empty_session_cleanup.rs"]
-mod empty_session_cleanup;
+pub mod empty_session_cleanup;
 #[path = "external_session_importer.rs"]
-mod external_session_importer;
+pub mod external_session_importer;
 #[path = "lossless_agent_session_paths.rs"]
-mod lossless_agent_session_paths;
+pub mod lossless_agent_session_paths;
 #[path = "lossless_runtime_mailbox.rs"]
-mod lossless_runtime_mailbox;
+pub mod lossless_runtime_mailbox;
 #[path = "lossless_session.rs"]
-mod lossless_session;
+pub mod lossless_session;
 #[path = "lossless_session_persistence.rs"]
-mod lossless_session_persistence;
+pub mod lossless_session_persistence;
 #[path = "lossless_session_projections.rs"]
-mod lossless_session_projections;
+pub mod lossless_session_projections;
 #[path = "lossless_session_records.rs"]
-mod lossless_session_records;
+pub mod lossless_session_records;
 #[path = "readonly_session_manager.rs"]
-mod readonly_session_manager;
+pub mod readonly_session_manager;
 #[path = "repin_control_mailbox.rs"]
-mod repin_control_mailbox;
+pub mod repin_control_mailbox;
 #[path = "repin_control_sessions.rs"]
-mod repin_control_sessions;
+pub mod repin_control_sessions;
 #[path = "repin_resident_session.rs"]
-mod repin_resident_session;
+pub mod repin_resident_session;
 #[path = "repin_runtime_mailbox_transcript.rs"]
-mod repin_runtime_mailbox_transcript;
+pub mod repin_runtime_mailbox_transcript;
 #[path = "repin_storage_history.rs"]
-mod repin_storage_history;
+pub mod repin_storage_history;
 #[path = "repin_storage_retention.rs"]
-mod repin_storage_retention;
+pub mod repin_storage_retention;
 #[path = "repin_storage_terminal_outbox.rs"]
-mod repin_storage_terminal_outbox;
+pub mod repin_storage_terminal_outbox;
 #[path = "repin_storage_tool_output.rs"]
-mod repin_storage_tool_output;
+pub mod repin_storage_tool_output;
 #[path = "repin_storage_transcript.rs"]
-mod repin_storage_transcript;
+pub mod repin_storage_transcript;
 #[path = "resume_session_tool.rs"]
-mod resume_session_tool;
+pub mod resume_session_tool;
 #[path = "rpc_mode_session_name.rs"]
-mod rpc_mode_session_name;
+pub mod rpc_mode_session_name;
 #[path = "search_current_session_history_tool.rs"]
-mod search_current_session_history_tool;
+pub mod search_current_session_history_tool;
 #[path = "session_autoname.rs"]
-mod session_autoname;
+pub mod session_autoname;
 #[path = "session_continuation.rs"]
-mod session_continuation;
+pub mod session_continuation;
 #[path = "session_control_db.rs"]
-mod session_control_db;
+pub mod session_control_db;
 #[path = "session_coordination_tools.rs"]
-mod session_coordination_tools;
+pub mod session_coordination_tools;
 #[path = "session_cwd.rs"]
-mod session_cwd;
+pub mod session_cwd;
 #[path = "session_directory.rs"]
-mod session_directory;
+pub mod session_directory;
 #[path = "session_health.rs"]
-mod session_health;
+pub mod session_health;
 #[path = "session_manager.rs"]
-mod session_manager;
+pub mod session_manager;
 #[path = "session_picker.rs"]
-mod session_picker;
+pub mod session_picker;
 #[path = "session_tool_output.rs"]
-mod session_tool_output;
+pub mod session_tool_output;
 #[path = "session_tool_output_constants.rs"]
-mod session_tool_output_constants;
+pub mod session_tool_output_constants;
 #[path = "sessions_command.rs"]
-mod sessions_command;
+pub mod sessions_command;
