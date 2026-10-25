@@ -46,7 +46,7 @@ async fn authenticated_supervisor_model_selection_matches_frozen_requirements() 
             .collect::<pi_js_compat::js_json::JsObject>();
         std::fs::write(
             directory.path().join("models.json"),
-            pi_js_compat::js_json::stringify_lossless(&json!({"providers":models})),
+            pi_js_compat::js_json::stringify_lossless(&JsValue::object([("providers", JsValue::Object(models))])),
         )
         .unwrap();
         let auth_path = directory.path().join("auth.json");
