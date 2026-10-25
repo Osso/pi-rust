@@ -194,3 +194,81 @@ fn invalid_timeout_errors_print_the_number_like_javascript() {
         .expect("negative timeout is invalid");
     assert_eq!(error, "Invalid HTTP idle timeout: -1e+21");
 }
+
+#[test]
+fn configured_default_routes_provider_traffic_through_settings_proxy() {
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "http_dispatcher::settings_proxy_child", "--nocapture"])
+        .env("PI_SETTINGS_PROXY_CHILD", "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8(output.stdout).unwrap(),
+        String::from_utf8(output.stderr).unwrap()
+    );
+}
+
+#[test]
+fn settings_proxy_child() {
+    if std::env::var("PI_SETTINGS_PROXY_CHILD").as_deref() != Ok("1") {
+        return;
+    }
+    tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(async {
+        let proxy = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let origin = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let proxy_url = format!("http://{}", proxy.local_addr().unwrap());
+        let origin_url = format!("http://{}", origin.local_addr().unwrap());
+        async fn serve(listener: TcpListener, content: &str) -> Option<String> {
+            use tokio::io::AsyncReadExt;
+            let (mut stream, _) = tokio::time::timeout(Duration::from_secs(2), listener.accept()).await.ok()?.ok()?;
+            let mut request = Vec::new();
+            loop {
+                let mut chunk = [0; 4096];
+                let count = stream.read(&mut chunk).await.unwrap();
+                if count == 0 { break; }
+                request.extend_from_slice(&chunk[..count]);
+                if request.windows(4).any(|part| part == b"\r\n\r\n") { break; }
+            }
+            let body = format!("data: {{\"id\":\"fixture\",\"choices\":[{{\"index\":0,\"delta\":{{\"content\":\"{content}\"}},\"finish_reason\":null}}]}}\n\ndata: {{\"id\":\"fixture\",\"choices\":[{{\"index\":0,\"delta\":{{}},\"finish_reason\":\"stop\"}}]}}\n\ndata: [DONE]\n\n");
+            stream.write_all(format!("HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).as_bytes()).await.unwrap();
+            Some(String::from_utf8(request).unwrap())
+        }
+        let proxy_task = tokio::spawn(serve(proxy, "through proxy"));
+        let origin_task = tokio::spawn(serve(origin, "direct"));
+        for name in ["HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy", "NO_PROXY", "no_proxy"] {
+            pi_js_compat::process_env::remove(name);
+        }
+        let root = tempfile::tempdir().unwrap();
+        std::fs::write(root.path().join("settings.json"), serde_json::json!({"httpProxy":proxy_url}).to_string()).unwrap();
+        pi_js_compat::process_env::set("PI_CODING_AGENT_DIR", root.path().to_str().unwrap());
+        pi_js_compat::process_env::set("PI_CODING_AGENT_STATE_DIR", root.path().join("state").to_str().unwrap());
+        assert_eq!(pi_coding_agent::main_runner::main(&["--version".to_owned()], Default::default()).await.unwrap(), 0);
+        let model: pi_ai::types::Model = serde_json::from_value(serde_json::json!({
+            "id":"loopback", "name":"loopback", "api":"openai-completions", "provider":"fixture",
+            "baseUrl":format!("{origin_url}/v1"), "reasoning":false, "input":["text"],
+            "cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}, "contextWindow":4096,"maxTokens":128
+        })).unwrap();
+        let context = serde_json::from_value(serde_json::json!({"messages":[{"role":"user","content":"hello","timestamp":1}]})).unwrap();
+        let mut options = pi_ai::request::StreamOptions::default();
+        options.request.api_key = Some("fixture-key".into());
+        options.request.max_retries = Some(0.0);
+        let response = tokio::time::timeout(Duration::from_secs(5), pi_ai::api::openai_completions::stream(model, context, options).result()).await.unwrap();
+        let seen = proxy_task.await.unwrap();
+        origin_task.abort();
+        assert!(seen.as_ref().is_some_and(|request| request.starts_with(&format!("POST {origin_url}/v1/chat/completions "))), "proxy saw {seen:?}; response {response:?}");
+        let response = response.unwrap();
+        assert!(response.content.iter().any(|part| matches!(part, pi_ai::types::AssistantContent::Text(text) if text.text == "through proxy")), "{response:?}");
+
+        // Reconfiguration must affect default_fetch, not only the returned handle.
+        pi_js_compat::process_env::remove("HTTP_PROXY");
+        pi_js_compat::process_env::remove("HTTPS_PROXY");
+        let (url, server) = start_stalled_server().await;
+        configure_http_dispatcher(40.0).unwrap();
+        let fetch = pi_ai::http::default_fetch();
+        let result = tokio::time::timeout(Duration::from_secs(1), body_text(fetch.as_ref(), request(&url))).await;
+        server.abort();
+        assert!(matches!(result, Ok(Err(_))), "installed default must enforce the new idle timeout: {result:?}");
+    });
+}
