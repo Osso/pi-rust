@@ -369,17 +369,13 @@ fn normalize_tool_call_id(id: &str, _model: &Model, _source: &AssistantMessage) 
 }
 
 fn normalize_tool_call_id_value(id: &str) -> String {
-    let normalized: String = id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                character
-            } else {
-                '_'
-            }
+    id.encode_utf16()
+        .take(64)
+        .map(|unit| match u8::try_from(unit) {
+            Ok(byte) if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-') => char::from(byte),
+            _ => '_',
         })
-        .collect();
-    normalized.chars().take(64).collect()
+        .collect()
 }
 
 fn convert_content_blocks(content: &[TextOrImageContent]) -> JsValue {
@@ -687,7 +683,7 @@ fn convert_tools(
         .collect()
 }
 
-fn map_stop_reason(reason: &str, stop_details: Option<&JsValue>) -> Result<(StopReason, Option<String>), String> {
+fn map_stop_reason(reason: &str, stop_details: Option<&JsValue>) -> Result<(StopReason, Option<JsString>), String> {
     match reason {
         "end_turn" => Ok((StopReason::Stop, None)),
         "max_tokens" => Ok((StopReason::Length, None)),
@@ -695,15 +691,14 @@ fn map_stop_reason(reason: &str, stop_details: Option<&JsValue>) -> Result<(Stop
         "refusal" => {
             let explanation = stop_details
                 .and_then(|details| details.get("explanation"))
-                .map(|value| metadata_text(value, "stop explanation"))
-                .transpose()?
-                .flatten()
+                .and_then(JsValue::as_string)
                 .filter(|explanation| !explanation.is_empty())
-                .unwrap_or_else(|| "The model refused to complete the request".to_owned());
+                .cloned()
+                .unwrap_or_else(|| "The model refused to complete the request".into());
             Ok((StopReason::Error, Some(explanation)))
         }
         "pause_turn" | "stop_sequence" => Ok((StopReason::Stop, None)),
-        "sensitive" => Ok((StopReason::Error, Some("Provider stopped with: sensitive".to_owned()))),
+        "sensitive" => Ok((StopReason::Error, None)),
         other => Err(format!("Unhandled stop reason: {other}")),
     }
 }
@@ -964,7 +959,7 @@ async fn drive_stream(
     let fetch = options.request.fetch.clone().unwrap_or_else(default_fetch);
     let retry_options = ProviderRetryOptions {
         max_retries: max_retries(options.request.max_retries),
-        max_retry_delay_ms: options.request.max_retry_delay_ms,
+        max_retry_delay_ms: Some(0.0),
         signal: options.request.signal.clone(),
     };
     let signal = options.request.signal.clone();
@@ -1279,7 +1274,7 @@ fn apply_message_delta(
         let (mapped, error_message) = map_stop_reason(&stop_reason, delta.get("stop_details"))?;
         output.stop_reason = mapped;
         if let Some(error_message) = error_message {
-            output.error_message = Some(error_message.into());
+            output.error_message = Some(error_message);
         }
     }
     if let Some(usage) = event.get("usage").filter(|usage| usage.is_object()) {
@@ -1356,6 +1351,7 @@ pub struct AnthropicEventReader {
     finished: bool,
     saw_message_start: bool,
     saw_message_stop: bool,
+    at_start: bool,
 }
 
 impl AnthropicEventReader {
@@ -1370,6 +1366,7 @@ impl AnthropicEventReader {
             finished: false,
             saw_message_start: false,
             saw_message_stop: false,
+            at_start: true,
         }
     }
 
@@ -1418,6 +1415,12 @@ impl AnthropicEventReader {
     }
 
     fn push_text(&mut self, text: &str) {
+        let text = if self.at_start && !text.is_empty() {
+            self.at_start = false;
+            text.strip_prefix('\u{feff}').unwrap_or(text)
+        } else {
+            text
+        };
         self.buffer.push_str(text);
         loop {
             let Some((line_end, next)) = next_line_break(&self.buffer) else {

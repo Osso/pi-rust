@@ -149,20 +149,23 @@ fn get_retry_delay_ms(
     retry_index: usize,
     max_retry_delay_ms: Option<f64>,
 ) -> Result<f64, RetryDelayLimitError> {
-    if let Some(retry_after_ms) = error.headers.get("retry-after-ms") {
-        let value = parse_float(retry_after_ms);
-        if !value.is_nan() {
-            return validate_server_retry_delay_ms(value, max_retry_delay_ms, &error.message);
-        }
-    }
-
-    if let Some(retry_after) = error.headers.get("retry-after") {
+    let mut delay_ms = error
+        .headers
+        .get("retry-after-ms")
+        .filter(|value| !value.is_empty())
+        .map(parse_float)
+        .filter(|value| !value.is_nan());
+    if let Some(retry_after) = error.headers.get("retry-after").filter(|value| !value.is_empty())
+        && delay_ms.is_none_or(|value| value == 0.0)
+    {
         let seconds = parse_float(retry_after);
-        let delay_ms = if seconds.is_nan() {
+        delay_ms = Some(if seconds.is_nan() {
             date_parse(retry_after) - now_millis() as f64
         } else {
             seconds * 1000.0
-        };
+        });
+    }
+    if let Some(delay_ms) = delay_ms {
         return validate_server_retry_delay_ms(delay_ms, max_retry_delay_ms, &error.message);
     }
 

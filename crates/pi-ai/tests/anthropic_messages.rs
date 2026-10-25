@@ -284,7 +284,7 @@ async fn preserves_refusal_and_sensitive_stop_reasons() {
     .await;
     assert_eq!(result["stopReason"], json!("error"));
     assert!(result.get("rawStopReason").is_none());
-    assert_eq!(result["errorMessage"], json!("Provider stopped with: sensitive"));
+    assert_eq!(result["errorMessage"], json!("An unknown error occurred"));
 }
 
 #[tokio::test]
