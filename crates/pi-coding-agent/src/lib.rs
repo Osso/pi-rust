@@ -118,8 +118,6 @@ pub use crate::core::extensions::types::InputEvent;
 pub use crate::core::extensions::types::InputEventResult;
 pub use crate::core::extensions::types::InputSource;
 pub use crate::core::extensions::types::LoadExtensionsResult;
-pub use crate::core::extensions::types::MarkdownTransformContext;
-pub use crate::core::extensions::types::MarkdownTransformer;
 pub use crate::core::extensions::types::MessageEndEvent;
 pub use crate::core::extensions::types::MessageRenderOptions;
 pub use crate::core::extensions::types::MessageRenderer;

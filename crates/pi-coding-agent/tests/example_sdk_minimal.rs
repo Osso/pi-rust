@@ -104,7 +104,8 @@ async fn fixture(authenticated: bool) -> Fixture {
     // Explicit empty registry: never load bundled host hooks, even with private HOME.
     let extensions = ExtensionRegistry::new()
         .load_extensions(&[], &JsString::from(&cwd.display().to_string()), None, None)
-        .await;
+        .await
+        .unwrap();
     let loader = Arc::new(StaticResourceLoader {
         extensions: Some(extensions),
         ..Default::default()

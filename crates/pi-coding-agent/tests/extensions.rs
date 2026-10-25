@@ -1319,11 +1319,9 @@ async fn keeps_the_first_registered_tool_and_definition() {
 }
 
 #[tokio::test]
-async fn collects_renderers_and_transformers_in_load_order() {
+async fn collects_renderers_in_load_order() {
     let runtime = support::runtime();
     let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
-        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}a")))
-            .unwrap();
         api.register_message_renderer("my-type", Arc::new(|_, _, _| None))
             .unwrap();
         api.register_entry_renderer("my-entry", Arc::new(|_, _, _| None))
@@ -1331,13 +1329,13 @@ async fn collects_renderers_and_transformers_in_load_order() {
     })
     .await;
     let b = support::extension(&runtime, "/tmp", "/tmp/b.ts", |api| {
-        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}b")))
+        api.register_message_renderer("other-type", Arc::new(|_, _, _| None))
             .unwrap();
     })
     .await;
     let runner = support::runner_for(vec![a, b], "/tmp", runtime, support::model_registry().await);
 
-    assert_eq!(runner.get_markdown_transformers().len(), 2);
+    assert!(runner.get_message_renderer("other-type").is_some());
     assert!(runner.get_message_renderer("my-type").is_some());
     assert!(runner.get_message_renderer("missing").is_none());
     assert!(runner.get_entry_renderer("my-entry").is_some());
@@ -1828,7 +1826,8 @@ fn discovers_direct_files_and_index_entries() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1869,7 +1868,8 @@ fn package_manifest_entries_keep_declared_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1899,7 +1899,8 @@ fn configured_directories_use_manifest_or_index() {
         ],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1965,7 +1966,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     assert_eq!(paths.len(), 2);
 
     let mut registry = ExtensionRegistry::new();
@@ -1986,7 +1988,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
                     .into_owned(),
             )],
         )
-        .await;
+        .await
+        .unwrap();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.extensions.len(), 1);
     assert_eq!(
@@ -2011,7 +2014,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.extensions.len(), 0);
     assert_eq!(
         result.errors[0].error,
@@ -2030,7 +2034,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.errors[0].error, "Failed to load extension: boom");
     fs::remove_dir_all(dir).ok();
 }
@@ -2301,7 +2306,6 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                     live.register_shortcut("ctrl+9".into(), None, shortcut_handler(|_| Box::pin(async { Ok(()) })))?;
                     live.register_message_renderer("late", Arc::new(|_, _, _| None))?;
                     live.register_entry_renderer("late", Arc::new(|_, _, _| None))?;
-                    live.register_markdown_transformer(Arc::new(|text, _| format!("{text}!")))?;
                     live.register_tool_gate(Arc::new(|mut event: ToolCallEvent, _: ExtensionContext| {
                         event.input.insert("late_gate".into(), JsValue::from(json!(true)));
                         Box::pin(async move {
@@ -2355,7 +2359,6 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
     assert!(runner.get_shortcuts(&Default::default()).contains_key("ctrl+9"));
     assert!(runner.get_message_renderer("late").is_some());
     assert!(runner.get_entry_renderer("late").is_some());
-    assert_eq!(runner.get_markdown_transformers().len(), 1);
     assert!(runner.has_handlers("agent_start"));
     runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
     assert!(runner.has_tool_gates());
