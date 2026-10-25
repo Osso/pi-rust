@@ -27,6 +27,10 @@ Proof:
 | `handleMessage` (client) | Events dispatched to listeners; `prompt_accepted`/`error` settle the pending prompt; unknown ids ignored | `handle_client_line` |
 | `finish` | Rejects pending prompts with the error or `Resident console disconnected`, notifies close listeners once | `ClientState::finish` with a finish guard |
 
+## Native compiled identity helper (2026-10-25)
+
+`ResidentConsoleIdentity::for_compiled_process` supplies the current executable as both executable and entrypoint, per the parent-approved compiled-runtime mapping; argv[1] is not a script path. Supervisor construction and real flag-child proof: [Supervisor main](supervisor-main.md). This helper does not establish the transport module's common-pin re-audit.
+
 ## Exclusions
 
 - `Entry`/`Event` are generic `Serialize + DeserializeOwned` types instead of TypeScript generics; the wire shape is unchanged.

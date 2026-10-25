@@ -1,5 +1,5 @@
 import { runOracle } from "./coding-agent-utils-oracle-support.ts";
-import { readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OracleRequest } from "./coding-agent-utils-oracle-support.ts";
@@ -106,8 +106,93 @@ async function evaluateInstructions(api: Record<string, unknown>, request: Oracl
     }
 }
 
+async function waitForServiceState(predicate: () => boolean) {
+    const deadline = Date.now() + 15000;
+    while (!predicate()) {
+        if (Date.now() >= deadline) throw new Error("service fixture timed out");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+}
+
+async function serviceLifecycle(api: Record<string, unknown>, request: OracleRequest) {
+    const moduleUrl = pathToFileURL(process.argv[2]);
+    const compat = await import(new URL("../../../ai/src/compat.ts", moduleUrl).href);
+    const db = await import(new URL("../core/session-control-db.ts", moduleUrl).href);
+    const events = await import(new URL("../../../ai/src/utils/event-stream.ts", moduleUrl).href);
+    const wake = await import(new URL("./request-wake.ts", moduleUrl).href);
+    const database = db.getControlDbPath();
+    const calls: string[] = [];
+    const response = { kind: "continue", instructions: "Evidence is available.", reason: "bounded" };
+    compat.registerApiProvider({
+        api: "supervisor-review-fixture",
+        stream: () => { throw new Error("unexpected raw stream"); },
+        streamSimple: (model: { api: string; provider: string; id: string }, context: { systemPrompt?: string }) => {
+            const review = context.systemPrompt?.startsWith("You are Pi's stateless Supervisor instruction veto gate.");
+            calls.push(review ? "review" : "request");
+            const message = {
+                role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: 0,
+                content: review ? [{ type: "text", text: "ACCEPT" }] : [{ type: "toolCall", id: "decision", name: "supervisor_response", arguments: response }],
+                stopReason: review ? "stop" : "toolUse",
+                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+            };
+            const stream = events.createAssistantMessageEventStream();
+            stream.push({ type: "start", partial: message });
+            stream.push({ type: "done", reason: message.stopReason, message });
+            stream.end();
+            return stream;
+        },
+    }, "supervisor-service-test");
+    let finished = false;
+    let error: string | null = null;
+    const run = api.runSupervisorService as () => Promise<void>;
+    const running = run().catch((failure) => { error = failure.message; }).finally(() => { finished = true; });
+    try {
+        await waitForServiceState(() => finished || existsSync(`${database}.supervisor-console.sock`));
+        if (finished) throw new Error(`service startup failed: ${error}`);
+        if (!existsSync(`${database}.supervisor.sock`)) throw new Error("wake socket did not start");
+        const id = db.postSupervisorRequest(database, { senderSessionId: "main", projectId: "fixture", kind: "goal_idle_review",
+            payload: { objective: "Verify the fixture." }, deadlineAt: "2099-01-01T00:00:00.000Z" });
+        if (request.blockCompletion) {
+            const sqlite = await import(new URL("../core/sqlite.ts", moduleUrl).href);
+            const connection = sqlite.createSqliteDatabase(database);
+            connection.exec("CREATE TRIGGER block_complete BEFORE UPDATE OF status ON supervisor_requests WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'blocked completion'); END");
+            connection.close();
+        }
+        wake.notifySupervisorRequest(database);
+        await waitForServiceState(() => finished || db.readSupervisorRequest(database, id).status === "completed");
+        if (!finished) process.kill(process.pid, "SIGTERM");
+        await running;
+        const stored = db.readSupervisorRequest(database, id);
+        return { error, calls, status: stored.status, response: stored.response ?? null,
+            consoleClosed: !existsSync(`${database}.supervisor-console.sock`),
+            wakeClosed: !existsSync(`${database}.supervisor.sock`) };
+    } finally {
+        if (!finished) { process.kill(process.pid, "SIGTERM"); await running; }
+        compat.unregisterApiProviders("supervisor-service-test");
+    }
+}
+
 void runOracle(async (api, request) => {
+    if (request.operation === "serviceLifecycle") return serviceLifecycle(api, request);
     if (request.operation === "evaluateInstructions") return evaluateInstructions(api, request);
+    if (request.operation === "consoleSnapshot") {
+        const create = api.createSupervisorConsoleSnapshot as (input: unknown) => {
+            identity: { pid: number; executable: string; entrypoint?: string; instanceId: string };
+        };
+        const input = { cwd: request.cwd, generation: request.generation, managedBy: request.managedBy,
+            session: { sessionId: request.sessionId, sessionManager: { getBranch: () => [] } } };
+        const snapshot = create(input);
+        if (snapshot.identity.pid !== process.pid || snapshot.identity.executable !== process.execPath || snapshot.identity.entrypoint !== process.argv[1]) {
+            throw new Error("snapshot does not identify the running process");
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(snapshot.identity.instanceId)) {
+            throw new Error("snapshot instance is not a v4 UUID");
+        }
+        if (create(input).identity.instanceId !== snapshot.identity.instanceId) throw new Error("unstable snapshot instance");
+        return { ...snapshot, identity: { ...snapshot.identity, pid: 0, executable: "<executable>",
+            entrypoint: "<entrypoint>", instanceId: "<uuid>" } };
+    }
     if (request.operation === "processRequest") return processRequest(api, request);
     if (request.operation === "modelRequirements") {
         const create = api.createSupervisorInstructionEvaluator as (agentDir: string) => unknown;

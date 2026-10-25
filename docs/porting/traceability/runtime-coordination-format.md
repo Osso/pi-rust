@@ -1,18 +1,16 @@
-# coding-agent runtime-coordination-format traceability
+# Runtime coordination format
 
-Pinned source: `packages/coding-agent/src/core/runtime-coordination-format.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Whole-module audit: `packages/coding-agent/src/core/runtime-coordination-format.ts` (59 lines), frozen `4f9e6f8a4`; [source lock](../source-lock.json). Rust: `crates/pi-coding-agent-storage/src/core/runtime_coordination_format.rs`. No production change is needed.
 
-Rust: `crates/pi-coding-agent-storage/src/core/runtime_coordination_format.rs`.
+| Frozen symbol / branch | Native mapping and proof |
+| --- | --- |
+| `SHARED_CHANNEL_RECEIVE_GUIDANCE` | Exact constant, including empty-channel leading separators; scalar differential. |
+| `formatRuntimeMailboxPrompt` | `format_runtime_mailbox_prompt`: same/cross-session sender lines, unknown sender/default main agent, absent/empty/remote sender host, empty-body substitution and preservation of nonempty untrimmed bodies; scalar and raw UTF-16 differentials. |
+| `formatSharedChannelPrompt` | `format_shared_channel_prompt`: input ordering, double-newline message separators and guidance suffix; empty/multi-message differential. |
+| `formatSharedChannelMessage` | `shared_channel_message`: trimmed body, empty fallback and origin-host-dependent sender suppression; scalar remote/empty host cases. |
+| `formatRuntimeMailboxFileReferences` | `format_file_references`: absent/null/empty lists omit the header; populated lists preserve order and append after body. Existing invalid-list/null-reference errors stay explicit. |
+| `formatRuntimeMailboxFileReference` | Inline reference formatting in `format_file_references`: optional truthy label plus em dash, then path; labeled/unlabeled/empty-label scalar cases and raw UTF-16 labels/paths. |
 
-Differential proof: `oracle/runtime-coordination-format-oracle.ts` runs the pinned module through `tsx`; `crates/pi-coding-agent/tests/differential_runtime_coordination_format.rs` compares 10 mailbox/shared-channel cases byte-for-byte in source order (same-session, cross-session, unknown sender, empty/trimmed bodies, labeled/unlabeled/empty-label file refs, empty refs, Unicode, empty channel, multi-message channel).
+Fresh proof at 2ef908a3f: 14-case `suite_core_2 differential_runtime_coordination_format` PASS (`/tmp/runtime-services-green-coordination-format.log`) and two `suite_core_3 lossless_coordination_format` cases PASS (`/tmp/runtime-services-green-lossless-coordination-format.log`). Warning-mode `cargo clippy -j3 -p pi-coding-agent-storage --lib` exits 0 with no formatter diagnostics (`/tmp/runtime-services-coordination-format-clippy.log`). The oracle loads the unmodified common pin. Existing raw mailbox tests cover sender/recipient/host/body/ref units and the two already-supported invalid-reference errors.
 
-| Source symbol / branch | Rust item | Proof |
-| --- | --- | --- |
-| `formatRuntimeMailboxPrompt` | `format_runtime_mailbox_prompt` | differential cases |
-| `formatSharedChannelPrompt` | `format_shared_channel_prompt` | differential cases |
-| `formatSharedChannelMessage` | `format_shared_channel_message` | differential cases |
-| `formatRuntimeMailboxFileReferences` / `formatRuntimeMailboxFileReference` | `format_runtime_mailbox_file_references`, `format_runtime_mailbox_file_reference` | file-ref cases |
-| `senderSession \|\| "unknown-session"`, `senderAgent \|\| "main"` | `sender_lines` | unknown-sender case |
-| `body.trim() \|\| "No message body."` | `message_body` + `pi_js_compat::string::js_trim` | empty/trimmed cases |
-
-Gaps: none; exact string parity.
+Gap: adversarial/runtime oddities and unpaired units beyond the existing scalar shared-row carriers follow the approved parity exclusions; mailbox text and references retain their lossless carriers.

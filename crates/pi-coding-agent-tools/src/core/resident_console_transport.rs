@@ -59,6 +59,24 @@ pub struct ResidentConsoleIdentity {
     pub ready: bool,
 }
 
+impl ResidentConsoleIdentity {
+    /// Compiled runtimes identify their executable as the entrypoint, never argv[1].
+    pub fn for_compiled_process(instance_id: JsString, managed_by: ResidentConsoleManagedBy) -> Self {
+        let executable = std::env::current_exe()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.to_string()));
+        let executable = pi_js_compat::node_fs::decode_node_path(executable.as_os_str());
+        Self {
+            version: crate::config::package_config().version.clone(),
+            pid: std::process::id() as f64,
+            entrypoint: Some(executable.clone()),
+            executable,
+            instance_id,
+            managed_by,
+            ready: true,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResidentConsoleSnapshot<Entry> {
