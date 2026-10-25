@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 533, `gap` 21, `partial` 39, `todo` 93.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 538, `gap` 21, `partial` 39, `todo` 88.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -241,7 +241,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/examples/extensions/input-transform.ts` | 43 | — | done | `crates/pi-coding-agent/examples/extensions/input_transform.rs` | Opt-in native factory; real TS/Rust extension-runtime differential. [traceability](traceability/extension-examples-b.md); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/examples/extensions/interactive-shell.ts` | 196 | — | done | `crates/pi-coding-agent/examples/extensions/interactive_shell.rs` | `example_interactive_shell`: pinned detection/results/lifecycle differential and inherited stdin/stdout/stderr subprocess proof; [traceability](traceability/core-ui-input.md).; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/examples/extensions/mac-system-theme.ts` | 47 | — | gap | — | User-approved waiver 2026-10-20: macOS-only system theme commands.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/examples/extensions/message-renderer.ts` | 59 | — | todo | `crates/pi-coding-agent/examples/extensions/message_renderer.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/examples/extensions/message_renderer.rs`; Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-d.md)). Test: `example_message_renderer` |
+| `coding-agent/examples/extensions/message-renderer.ts` | 59 | — | done | `crates/pi-coding-agent/examples/extensions/message_renderer.rs` | Whole-module common-pin audit; status command, expanded renderer and valid block-array string conversion differential. Native panic removed. [Trace](traceability/example-message-renderer.md). |
 | `coding-agent/examples/extensions/minimal-mode.ts` | 426 | — | done | `crates/pi-coding-agent/examples/extensions/minimal_mode.rs` | Seven minimal tool overrides; full metadata, rendering and execution differential; `example_minimal_mode`; [traceability](traceability/extension-examples-g.md).; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/examples/extensions/modal-editor.ts` | 85 | — | todo | `crates/pi-coding-agent/examples/extensions/modal_editor.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/examples/extensions/modal_editor.rs`; Opt-in composed CustomEditor; pinned-TS key-state/mode-label/focus/ANSI-width differential; mutation RED ([traceability](traceability/extension-examples-editors.md)). |
 | `coding-agent/examples/extensions/model-status.ts` | 31 | — | done | `crates/pi-coding-agent/examples/extensions/model_status.rs` | Opt-in native embedding; actual pinned loader/runner differential ([trace](traceability/extension-examples-a.md)). Test: `example_model_status`; re-run vs 4f9e6f8a4 pending |
