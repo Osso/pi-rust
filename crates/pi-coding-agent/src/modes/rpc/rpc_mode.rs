@@ -716,10 +716,11 @@ impl ExtensionUiContext for RpcUiContext {
     }
 
     fn set_theme(&self, _theme: &JsString) -> ThemeSetResult {
-        ThemeSetResult {
-            success: false,
-            error: Some("Theme switching not supported in RPC mode".into()),
-        }
+        reject_rpc_theme_switch()
+    }
+
+    fn set_theme_object(&self, _theme: Arc<crate::modes::interactive::theme::Theme>) -> ThemeSetResult {
+        reject_rpc_theme_switch()
     }
 
     fn set_working_message(&self, _message: Option<&JsString>) {}
@@ -731,6 +732,13 @@ impl ExtensionUiContext for RpcUiContext {
     fn set_hidden_thinking_label(&self, _label: Option<&JsString>) {}
 
     fn request_render(&self) {}
+}
+
+fn reject_rpc_theme_switch() -> ThemeSetResult {
+    ThemeSetResult {
+        success: false,
+        error: Some("Theme switching not supported in RPC mode".into()),
+    }
 }
 
 fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
@@ -961,7 +969,7 @@ mod tests {
         assert_eq!(result, "default");
     }
 
-    fn frozen_dialog_order(order: &str) -> Option<JsString> {
+    fn run_frozen_rpc_observation(order: &str) -> JsValue {
         use std::process::{Command, Stdio};
         let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
@@ -1003,7 +1011,7 @@ mod tests {
         );
         let report =
             js_json::parse_lossless(std::fs::read_to_string(root.path().join("dialog-order.json")).unwrap()).unwrap();
-        report["value"].as_string().cloned()
+        report["value"].clone()
     }
 
     #[tokio::test]
@@ -1012,7 +1020,7 @@ mod tests {
             ("response-first", Some(JsString::from("answered"))),
             ("abort-first", None),
         ] {
-            assert_eq!(frozen_dialog_order(order), expected);
+            assert_eq!(run_frozen_rpc_observation(order).as_string().cloned(), expected);
             let mut results = Vec::new();
             for _ in 0..32 {
                 let broker = DialogBroker::default();
@@ -1040,6 +1048,43 @@ mod tests {
             }
             assert!(results.iter().all(|result| result == &expected), "{order}: {results:?}");
         }
+    }
+
+    #[tokio::test]
+    async fn rpc_noop_surface_and_both_theme_setter_overloads_match_frozen() {
+        let expected = run_frozen_rpc_observation("surface");
+        crate::modes::interactive::theme::init_theme(Some(&"dark".into()), false).unwrap();
+        let ui = RpcUiContext { state: Weak::new() };
+        ui.set_footer(Some(Arc::new(|_| panic!("RPC footer factory must not execute"))));
+        ui.set_default_footer(Some(Arc::new(|_| {
+            panic!("RPC default footer factory must not execute")
+        })));
+        ui.set_header(Some(Arc::new(|_| panic!("RPC header factory must not execute"))))
+            .unwrap();
+        ui.set_widget_component(
+            &"ignored".into(),
+            Some(Arc::new(|_| panic!("RPC widget factory must not execute"))),
+            None,
+        );
+        ui.add_autocomplete_provider(Arc::new(|_| panic!("RPC autocomplete factory must not execute")));
+        ui.set_editor_component(Some(Arc::new(|_, _, _| panic!("RPC editor factory must not execute"))));
+        ui.request_render();
+        ui.set_working_message(Some(&"ignored".into()));
+        ui.set_working_visible(false);
+        ui.set_working_indicator(Some(&WorkingIndicatorOptions::default()));
+        ui.set_hidden_thinking_label(Some(&"ignored".into()));
+        ui.set_tools_expanded(true);
+        ui.on_terminal_input(Arc::new(|_| panic!("RPC input callback must not execute")))();
+        let custom = ui
+            .custom(Arc::new(|_, _| panic!("RPC custom factory must not execute")), None)
+            .await
+            .unwrap();
+        let observed = pi_js_compat::js_json!({
+            "stringTheme":ui.set_theme(&"dark".into()), "objectTheme":ui.set_theme_object(ui.theme()),
+            "editor":ui.get_editor_text().unwrap(), "themes":ui.get_all_themes(), "namedTheme":ui.get_theme(&"dark".into()).map(|_| true),
+            "toolsExpanded":ui.get_tools_expanded(), "editorComponent":ui.get_editor_component().map(|_| true), "custom":custom
+        });
+        assert_eq!(observed, expected);
     }
 
     #[test]

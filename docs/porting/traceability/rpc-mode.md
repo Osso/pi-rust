@@ -150,3 +150,7 @@ Gap (parent2026-10-24, existing Node/V8/libuv runtime-oddity ruling): native omi
 ## Dialog first-notification settlement
 
 Actual frozen-process oracle `oracle/rpc-dialog-order-oracle.mts` drives real runRpcMode and routes a response/abort synchronously before Promise continuations. The ordered native helper proof reproduced lost response-first values (32 notifications: both Some(answered) and None) in `rpc-mode-dialog-order-red.log`. A biased select is insufficient because abort-first must also win. The broker now removes/sends its one pending slot at response, abort-listener or timer notification; subsequent notifications are ignored. Awaiting only consumes that already chosen result; shared AbortSubscription/timer handles provide cleanup. No new dependency or error-carrier panic is added. GREEN pending.
+
+## No-op surface and Theme object overload
+
+The actual frozen RPC surface oracle executes ignored widget/header/footer/editor/autocomplete/custom/input factories (they must not run), working/render/tool-expansion no-ops and all synchronous getters. Both source setTheme(string) and setTheme(Theme) return `Theme switching not supported in RPC mode` (:306–310). Native previously inherited `UI not available` for the object overload; actual-source/native RED is `rpc-mode-ui-surface-behavior-red.log`. Both native entry points now use one rejection authority; no broader theme behavior change. GREEN pending. The first fixture attempt lacked normal entry-point theme initialization; it is not the behavioral RED.
