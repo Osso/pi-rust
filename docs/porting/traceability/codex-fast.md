@@ -26,3 +26,7 @@ Source: `packages/coding-agent/extensions/codex-fast/src/index.ts`. Rust:
   `serviceTier: null` match.
 - Settings are read through `SettingsManager::get_merged_settings` (the Rust
   equivalent of `getMergedSettings`).
+
+## Baseline display re-pin (2026-10-25)
+
+Unsupported-provider warning now uses exact frozen "Fast mode requires a Codex provider"; existing differential RED was only that message.

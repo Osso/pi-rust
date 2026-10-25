@@ -131,3 +131,10 @@ Raw source/invalid-option fixture written but unexecuted. replacement-cli-2
 reached six CLI diagnostics: four old config dependencies and two local fixes
 subsequently corrected; parent native config merge is needed for final diagnostic
 proof. No runtime PASS or renewed frozen differential claim.
+
+## Baseline conflict expectation (2026-10-25)
+
+Frozen parsePackageCommand reports `--all cannot be combined with --self,
+--extensions, or --extension`; the stale unit expectation additionally named
+--models. The concrete expected string is replaced with the frozen value.
+The JSON differential remains exact and no longer invokes the real config UI.

@@ -1187,3 +1187,7 @@ path = "tests/differential_bash_restored.rs"
 [[test]]
 name = "session_coordination_tools"
 path = "tests/session_coordination_tools.rs"
+
+[[test]]
+name = "config_dispatch_process"
+path = "tests/config_dispatch_process.rs"

@@ -49,3 +49,23 @@ Status: done. The TUI is driven through a scripted `Terminal` in a child probe b
 ## Homedir failure propagation
 
 Frozen formatBaseDir → getGroupLabel → buildGroups → constructor throws are carried by NativeNodeError Results through ResourceList and ConfigSelectorComponent construction, then CallbackError from CLI select_config to the existing command error adapter. No panic carrier remains. `differential_config_selector_home` forces getpwuid_r EIO for user/project auto resources; exact source/native class and message match. RED/GREEN: `/tmp/pi-rust-repin-lossless-interactive/config-selector-home-{red,green}.log`.
+
+## Config dispatch re-pin (2026-10-25)
+
+Frozen `handleConfigCommand` ignores help, unknown, positional and local flags;
+only project-trust overrides are scanned. It opens `selectConfig` and exits 0.
+The native extra help/validation/local action field is removed. DISCREPANCY:
+frozen `config --help` opens the UI rather than help; preserved literally.
+`config_dispatch_process` drives the real frozen handler and native binary
+through private ptys for --help, --bogus, positional extra, -l and a mixed case;
+it compares selector entry, filter hint, absence of help/validation output and
+exit 0, and requires terminal-mode restoration. Whole component frame proof
+remains in the existing selector differential. RED: frozen reached/closed UI,
+native printed its extra config help and never entered the selector. The three
+validation-only calls are removed from the package-command JSON oracle test.
+
+Process proof: the five-case pty matrix passed after restoring dispatch. One
+initial frozen launch produced no bytes by the 10-second startup bound; the
+diagnostic run completed all ten processes in 43.5 seconds. Startup alone now
+has a 30-second bound; close/exit remains bounded to 10 seconds. Process origin,
+arguments and PID are logged so future startup failures are attributable.

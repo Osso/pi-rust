@@ -105,6 +105,7 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 	const runCommand = async (
 		executable: string,
 		args: string[],
+		_session: string,
 		signal?: AbortSignal,
 	): Promise<{ stdout: string; stderr: string; exitCode: number | null }> => {
 		callsRef.calls.runCommand.push([executable, args, signal !== undefined]);

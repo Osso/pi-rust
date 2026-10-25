@@ -230,7 +230,14 @@ async fn browser_cli_matches_typescript() {
     let queue_for_runner = Arc::clone(&queue);
     let calls_for_runner = Arc::clone(&runner_calls);
     let harness_calls = Arc::clone(&harness.calls);
-    let runner: BrowserCliCommandRunner = Arc::new(move |executable, args, signal| {
+    let context = harness.context();
+    let manager = context.session_manager().unwrap();
+    let expected_session = pi_js_compat::js_format!(
+        "{}:main",
+        pi_coding_agent::core::session_manager::lock_session_manager(&manager).get_session_id()
+    );
+    let runner: BrowserCliCommandRunner = Arc::new(move |executable, args, session, signal| {
+        assert_eq!(session, expected_session);
         calls_for_runner
             .lock()
             .unwrap()
@@ -297,7 +304,7 @@ async fn browser_cli_matches_typescript() {
             exit_code: Some(7),
         },
     ]));
-    let failing_runner: BrowserCliCommandRunner = Arc::new(move |_executable, _args, _signal| {
+    let failing_runner: BrowserCliCommandRunner = Arc::new(move |_executable, _args, _session, _signal| {
         let next = failing_queue.lock().unwrap().remove(0);
         Box::pin(async move { Ok(next) })
     });
@@ -323,7 +330,7 @@ async fn browser_cli_matches_typescript() {
 async fn browser_cli_rejects_an_aborted_command() {
     let controller_token = pi_js_compat::abort::AbortController::new();
     let token = controller_token.signal();
-    let runner: BrowserCliCommandRunner = Arc::new(|_executable, _args, signal| {
+    let runner: BrowserCliCommandRunner = Arc::new(|_executable, _args, _session, signal| {
         Box::pin(async move {
             if let Some(signal) = signal {
                 signal.wait().await;

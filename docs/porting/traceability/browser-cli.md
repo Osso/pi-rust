@@ -24,3 +24,20 @@ Gaps / discrepancies:
   they arrive. Byte content matches for deterministic commands.
 - Spawn failures use Node-style `spawn <cmd> ENOENT`/`EACCES`; other OS errors pass
   through.
+
+## Baseline display re-pin (2026-10-25)
+
+Registration restores the frozen dedicated background-tab prompt guideline verbatim; existing browser_cli differential RED was only that missing line.
+
+## Dedicated session tab and stale callback seam (2026-10-25)
+
+Frozen `BrowserCliCommandRunner` receives `(executable, args, session, signal)`.
+The old oracle treated the session string as the signal, producing a false
+signal-presence mismatch. Both callback signatures now include session. Native
+execution derives `sessionId:(toolExecutionAgentId ?? multiAgentAgentId ?? main)`
+from the live context, removes inherited `BROWSER_CLI_TAB`, and supplies
+`BROWSER_CLI_SESSION` to the real child. Missing/empty session context fails
+with the exact frozen message. The existing native callback asserts the exact
+session passed. A new real `env` child test reproduced missing session env RED.
+No command/result assertions were relaxed. Mechanical test callback signatures
+and the oracle's stale injection seam changed with the runtime API.

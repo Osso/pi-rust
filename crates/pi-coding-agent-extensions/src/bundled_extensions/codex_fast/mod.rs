@@ -216,10 +216,7 @@ pub async fn handle_fast_command(
     if let RequestedFastMode::Tier(_) = requested
         && !supports_fast_mode(ctx.model()?.as_ref())
     {
-        ui.notify(
-            &"Fast mode requires openai-codex or openai-codex-gc".into(),
-            Some(NotifyType::Warning),
-        )?;
+        ui.notify(&"Fast mode requires a Codex provider".into(), Some(NotifyType::Warning))?;
         ui.set_editor_text(&JsString::default())?;
         return Ok(());
     }
