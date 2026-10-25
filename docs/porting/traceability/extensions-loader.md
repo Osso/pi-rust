@@ -50,9 +50,13 @@ The Rust-native discovery surface is implemented; `core::resource_loader::Defaul
 
 - `clearExtensionCache` cannot invalidate a module cache that does not exist.
 - `loadExtensionsCached` behaves exactly like `loadExtensions`.
-- `discover_and_load_extensions` requires a registry entry keyed by the
-  resolved path; bundled extensions use `load_registered` with ids such as
-  `<first-party:goal>`.
+- TypeScript execution remains unsupported; user paths may select registered native ports through [native user extension identity](../../specs/native-user-extensions.md). Bundled extensions use `load_registered` with ids such as `<first-party:goal>`.
+
+## Native user identity (2026-10-25)
+
+User-approved native identity lookup follows exact path registrations, reads the nearest package name within three directories, then uses the entry stem if there is no usable name. Native ids never auto-load. `native_identity_tests` covers package names, the search boundary, configured relative paths and source metadata, discovered stems, direct-path precedence, unreferenced factories, and the complete settings-packages → manifest-entry flow. `main_process::native_unknown_extension_keeps_frozen_diagnostic_and_exit_one` covers the unchanged process failure.
+
+Proof ledger: pre-change native identity suite RED (4 failures, unchanged-error baseline passes); current suite GREEN (7/7), process diagnostic/exit GREEN (1/1). `cargo check -j3 --workspace --all-targets`, `cargo fmt --check`, `cargo clippy -j3 -p pi-coding-agent-tools --all-targets -- -D warnings` pass; source inventory passes (686 rows, 186679 lines). Readability audit of changed Rust found no outstanding issues. The package lookup helper is private; ports use existing `register_hidden` without a new public API.
 
 ## Discrepancies
 
