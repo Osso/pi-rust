@@ -262,7 +262,23 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
     }
     let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
-    scripted_registry::register_scripted_provider(&models, provider_with_stored_key_auth(faux.provider.clone()));
+    let provider = provider_with_stored_key_auth(faux.provider.clone());
+    let provider_models = provider.get_models().unwrap();
+    let first = provider_models.first().expect("scripted fixture model");
+    let provider_id = provider.id().to_owned();
+    let config = pi_coding_agent::core::model_registry::ProviderConfigInput {
+        name: Some(provider.name().into()),
+        api: Some(first.api.clone()),
+        base_url: Some(first.base_url.clone()),
+        models: Some(provider_models.into_iter().map(Into::into).collect()),
+        stream_simple: Some(Arc::new(move |model, context, options| {
+            provider.stream_simple(model, context, options.unwrap_or_default())
+        })),
+        ..Default::default()
+    };
+    models
+        .register_provider(&provider_id, config)
+        .expect("scripted fixture registration");
     if request["noAuth"] != true {
         models.refresh();
     }
@@ -430,6 +446,3 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let expected = oracle.request(&request);
     assert_eq!(actual, expected, "{name}: {request}");
 }
-
-#[path = "scripted_registry.rs"]
-mod scripted_registry;
