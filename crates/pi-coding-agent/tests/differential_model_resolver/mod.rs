@@ -508,7 +508,63 @@ fn compare_restore() {
     }
 }
 
+pub(crate) fn list_models_stdout_color_probe() {
+    use std::process::{Command, Stdio};
+    let models = fixture_models();
+    let mut source = oracle::TsOracle::spawn_with_environment(
+        "list-models-oracle.ts",
+        "packages/coding-agent/src/cli/list-models.ts",
+        &[("FORCE_COLOR", "0".into())],
+    );
+    let expected =
+        source.request(&json!({"id": 1, "loadError": "fixture warning", "models": models_json(&models[..1])}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let directory = tempfile::tempdir().unwrap();
+    let quote = |value: &std::path::Path| format!("'{}'", value.to_str().unwrap().replace('\'', "'\\''"));
+    let command = format!(
+        "{} --ignored --exact resolver_restore_probe_child --nocapture > {}",
+        quote(&std::env::current_exe().unwrap()),
+        quote(&directory.path().join("stdout"))
+    );
+    let output = Command::new("script")
+        .args(["-qefc", &command, "/dev/null"])
+        .env_clear()
+        .env("PATH", std::env::var_os("PATH").unwrap())
+        .env("TERM", "xterm-256color")
+        .env(env_probe::PROBE_ENV, "1")
+        .env("PI_LIST_MODEL_COLOR_PROBE", "1")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8(output.stderr).unwrap());
+    // The pty's standard ONLCR output transform adds CR before each console newline.
+    let expected = format!("{}\n", expected["output"]["warning"].as_str().unwrap()).replace('\n', "\r\n");
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}
+
+fn list_models_color_child() {
+    use pi_coding_agent::cli::list_models::{ListModelsRuntime, StdioListModelsIo, list_models};
+    struct Runtime;
+    impl ListModelsRuntime for Runtime {
+        fn get_error(&self) -> Option<JsString> {
+            Some("fixture warning".into())
+        }
+        fn get_available(&self) -> Result<Vec<Model>, pi_js_compat::node_error::NativeNodeError> {
+            Ok(fixture_models()[..1].to_vec())
+        }
+    }
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .unwrap()
+        .block_on(list_models(&Runtime, None, &StdioListModelsIo))
+        .unwrap();
+}
+
 pub(crate) fn restore_child() {
+    if std::env::var_os("PI_LIST_MODEL_COLOR_PROBE").is_some() {
+        list_models_color_child();
+        return;
+    }
     if !env_probe::in_probe() {
         return;
     }

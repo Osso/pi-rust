@@ -38,6 +38,11 @@ fn resolver_default_record_matches_frozen() {
     model_resolver_oracle::run("defaults");
 }
 #[test]
+fn list_models_warning_uses_stdout_color_authority_with_redirected_stdout() {
+    model_resolver_oracle::list_models_stdout_color_probe();
+}
+
+#[test]
 fn resolver_restore_console_and_models_match_frozen() {
     model_resolver_oracle::run("restore");
 }
