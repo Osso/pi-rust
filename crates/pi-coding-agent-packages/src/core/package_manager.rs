@@ -343,10 +343,7 @@ fn snapshot_from_settings(settings: &Settings) -> PackageSettingsSnapshot {
     // reproducing JavaScript runtime type errors.
     let packages = settings
         .get("packages")
-        .and_then(|value| match js_json::from_value(value) {
-            Ok(packages) => Some(packages),
-            Err(_) => None,
-        })
+        .and_then(|value| js_json::from_value(value).ok())
         .unwrap_or_default();
     PackageSettingsSnapshot {
         packages,
@@ -699,7 +696,6 @@ fn collect_files(
         let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
-        let full_path = full_path;
         let rel_path = to_posix_path(&relative_path(root_dir, &full_path).expect("resolved discovery paths"));
         if ignore.ignores(&rel_path, metadata.is_dir()) {
             continue;
@@ -740,7 +736,6 @@ fn collect_skill_entries(
         let Ok(metadata) = std::fs::metadata(encode_node_utf8(&full_path)) else {
             continue;
         };
-        let full_path = full_path;
         let rel_path = to_posix_path(&relative_path(root_dir, &full_path).expect("resolved discovery paths"));
         if metadata.is_file() && !ignore.ignores(&rel_path, false) {
             entries.push(full_path);
@@ -2516,7 +2511,6 @@ impl DefaultPackageManager {
         let node_modules_dir = node_join(target_dir, "node_modules");
         dependencies.keys().any(|name| {
             let dependency_path = node_join(&node_modules_dir, name);
-            let dependency_path = dependency_path;
             let node_modules_prefix = js_format!("{}/", node_modules_dir.clone());
             if !dependency_path.starts_with(&node_modules_prefix) {
                 return false;
@@ -2891,7 +2885,6 @@ impl DefaultPackageManager {
         for resource_type in ResourceType::ALL {
             let dir = node_join(package_root, resource_type.directory_name());
             if path_exists(&dir) {
-                let dir = dir;
                 for file in collect_resource_files(&dir, resource_type) {
                     add_resource(accumulator.target(resource_type), &file, metadata.clone(), true);
                 }
@@ -2918,7 +2911,6 @@ impl DefaultPackageManager {
         }
         let dir = node_join(package_root, resource_type.directory_name());
         if path_exists(&dir) {
-            let dir = dir;
             for file in collect_resource_files(&dir, resource_type) {
                 add_resource(accumulator.target(resource_type), &file, metadata.clone(), true);
             }
@@ -3112,7 +3104,7 @@ impl DefaultPackageManager {
         }
 
         for agents_skills_dir in &project_agents_skill_dirs {
-            let agents_base_dir = Some(node_dirname(agents_skills_dir)).unwrap_or_default();
+            let agents_base_dir = node_dirname(agents_skills_dir);
             let metadata = PathMetadata {
                 base_dir: Some(agents_base_dir.clone()),
                 ..project_metadata.clone()
@@ -3128,7 +3120,7 @@ impl DefaultPackageManager {
         }
 
         for tool_skills_dir in &project_tool_skill_dirs {
-            let tool_base_dir = Some(node_dirname(tool_skills_dir)).unwrap_or_default();
+            let tool_base_dir = node_dirname(tool_skills_dir);
             let metadata = PathMetadata {
                 base_dir: Some(tool_base_dir.clone()),
                 ..project_metadata.clone()
@@ -3179,7 +3171,7 @@ impl DefaultPackageManager {
             global_base_dir,
         );
 
-        let user_agents_base_dir = Some(node_dirname(&user_agents_skills_dir)).unwrap_or_default();
+        let user_agents_base_dir = node_dirname(&user_agents_skills_dir);
         let agents_metadata = PathMetadata {
             base_dir: Some(user_agents_base_dir.clone()),
             ..user_metadata.clone()

@@ -47,13 +47,15 @@ pub type ExtensionOAuthRefreshFn = Arc<
 >;
 pub type ModifyModelsFn = Arc<dyn Fn(Vec<Model>, &OAuthCredentials) -> Result<Vec<Model>, CallbackError> + Send + Sync>;
 
+pub type ExtensionOAuthApiKeyFn = Arc<dyn Fn(&OAuthCredentials) -> Result<JsString, CallbackError> + Send + Sync>;
+
 #[derive(Clone)]
 pub struct ExtensionOAuthConfig {
     pub name: String,
     pub uses_callback_server: Option<bool>,
     pub login: ExtensionOAuthLoginFn,
     pub refresh_token: ExtensionOAuthRefreshFn,
-    pub get_api_key: Arc<dyn Fn(&OAuthCredentials) -> Result<JsString, CallbackError> + Send + Sync>,
+    pub get_api_key: ExtensionOAuthApiKeyFn,
     pub modify_models: Option<ModifyModelsFn>,
 }
 
@@ -368,7 +370,6 @@ impl ModelRegistry {
                 GetApiKeyOptions {
                     include_fallback: false,
                     throw_on_refresh_failure: true,
-                    ..Default::default()
                 },
             )
             .await
@@ -451,7 +452,7 @@ impl ModelRegistry {
             store_request_config(&mut state, &provider, config);
             if let Some(overrides) = config.get("modelOverrides").and_then(JsValue::as_object) {
                 for (id, value) in js_json::object_entries_lossless(overrides) {
-                    store_model_headers(&mut state, &provider, &id, value.get("headers"));
+                    store_model_headers(&mut state, &provider, id, value.get("headers"));
                 }
             }
         }
@@ -568,7 +569,7 @@ impl ModelRegistry {
             .map_err(|error| self.load_error(pi_js_compat::node_fs::node_read_error(&error, path)))?;
         // Node's UTF-8 file ingress repairs malformed bytes before JSON.parse.
         let content = String::from_utf8_lossy(&bytes);
-        let value = js_json::parse_lossless(&crate::utils::json::strip_json_comments(&content))
+        let value = js_json::parse_lossless(crate::utils::json::strip_json_comments(&content))
             .map_err(|error| js_format!("Failed to parse models.json: {}\n\nFile: {}", error.to_string(), path))?;
         let errors = pi_ai::utils::validation::schema_error_lines(&schema::models_config_schema().into(), &value);
         if !errors.is_empty() {
@@ -675,10 +676,10 @@ impl ModelRegistry {
             // Frozen960 gates on truthiness; an empty URL only applies when
             // a present headers object enters this branch, then966 uses ??.
             for model in &mut state.models {
-                if model.provider == provider {
-                    if let Some(url) = &config.base_url {
-                        model.base_url = url.clone();
-                    }
+                if model.provider == provider
+                    && let Some(url) = &config.base_url
+                {
+                    model.base_url = url.clone();
                 }
             }
         }

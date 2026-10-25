@@ -431,8 +431,8 @@ fn backend_callback_rejection_retains_the_frozen_value() {
             .block_on(backend.with_lock_async(Box::new(move |_| {
                 Box::pin(async move {
                     Err(StorageError::Failure {
-                        error: pi_ai::request::CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
-                            supplied,
+                        error: Box::new(pi_ai::request::CallbackError::from_rejection(
+                            pi_js_compat::abort::AbortReason::Value(supplied),
                         )),
                         cause: None,
                     })

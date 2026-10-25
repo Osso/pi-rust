@@ -177,7 +177,7 @@ pub fn find_exact_model_reference_match(model_reference: &JsString, available_mo
 
     let canonical: Vec<&Model> = available_models
         .iter()
-        .filter(|model| JsString::from(js_format!("{}/{}", model.provider, model.id)).to_lowercase() == normalized)
+        .filter(|model| js_format!("{}/{}", model.provider, model.id).to_lowercase() == normalized)
         .collect();
     match canonical.len() {
         1 => return Some(canonical[0].clone()),
@@ -500,7 +500,7 @@ pub fn resolve_cli_model(
         && let Some(provider) = &provider
     {
         let prefix = js_format!("{}/", provider);
-        if cli_model.to_lowercase().starts_with(&prefix.to_lowercase()) {
+        if cli_model.to_lowercase().starts_with(prefix.to_lowercase()) {
             pattern = cli_model.slice(prefix.len(), cli_model.len());
         }
     }

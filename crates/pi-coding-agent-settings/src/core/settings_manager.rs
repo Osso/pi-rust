@@ -90,7 +90,7 @@ fn spawn_settings_drain(handle: &SharedSettingsManager, scope: SettingsScope) {
     if let Err(error) = result {
         let mut manager = handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         manager.drain_scheduled = false;
-        manager.record_error(scope, &format!("Failed to spawn settings drain worker: {error}"));
+        manager.record_error(scope, format!("Failed to spawn settings drain worker: {error}"));
     }
 }
 
@@ -1136,7 +1136,7 @@ impl SettingsManager {
                         .copied()
                         .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
                         .unwrap_or("non-string panic payload");
-                    self.record_error(pending.scope, &format!("Settings write panicked: {message}"));
+                    self.record_error(pending.scope, format!("Settings write panicked: {message}"));
                 }
             }
         }
