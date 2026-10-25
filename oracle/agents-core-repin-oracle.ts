@@ -16,7 +16,11 @@ type SettlementModule = {
 type ChildResponseModule = {
 	readCurrentChildAssistantText(messages: unknown[], previous: ReadonlySet<unknown>): string | undefined;
 };
-type DetachedModule = { isDetachedRuntimeAgent(agent: unknown): boolean };
+type DetachedModule = {
+    isDetachedRuntimeAgent(agent: unknown): boolean;
+    readDetachedRuntimeAgentIds(store: unknown, ids: string[]): Set<string>;
+    requestDirectDetachedRuntimeCancellations(store: unknown, parentId: string, reason: string): void;
+};
 
 async function load<T>(name: string): Promise<T> {
 	const source = process.argv[2];
@@ -58,6 +62,15 @@ async function execute(request: Request): Promise<unknown> {
 			const previous = new Set(messages.slice(0, Number(request.previousCount ?? 0)));
 			return readCurrentChildAssistantText(messages, previous) ?? null;
 		}
+        case "detachedMemory": {
+            const api = await load<DetachedModule>("detached-runtime-cancellation.ts");
+            const store = { getPersistenceTarget: () => undefined, listAgents: () => request.agents };
+            const ids = [...api.readDetachedRuntimeAgentIds(store, request.ids as string[])];
+            let directError: string | null = null;
+            try { api.requestDirectDetachedRuntimeCancellations(store, String(request.parent), "cleanup"); }
+            catch (error) { directError = error instanceof Error ? error.message : String(error); }
+            return { ids, directError };
+        }
 		case "isDetached": {
 			const { isDetachedRuntimeAgent } = await load<DetachedModule>("detached-runtime-cancellation.ts");
 			return isDetachedRuntimeAgent(request.agent);
