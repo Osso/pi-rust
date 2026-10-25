@@ -10,7 +10,7 @@ mod support;
 mod ui_thread;
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions,
-    faux_assistant_message, faux_provider,
+    faux_assistant_message,
 };
 use pi_coding_agent::core::{
     auth_storage::AuthStorage, extensions::*, model_registry::ModelRegistry, session_manager::SessionManager,
@@ -20,63 +20,6 @@ use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
-
-// Source compat auth reads stored keys independently of the faux stream API.
-struct StoredFixtureKey;
-impl pi_ai::auth::types::ApiKeyAuth for StoredFixtureKey {
-    fn name(&self) -> pi_js_compat::js_json::JsString {
-        "Fixture".into()
-    }
-    fn resolve(
-        &self,
-        input: pi_ai::auth::types::ApiKeyResolveInput,
-    ) -> BoxFuture<'static, Result<Option<pi_ai::auth::types::AuthResult>, pi_ai::auth::types::AuthError>> {
-        Box::pin(async move {
-            Ok(input
-                .credential
-                .and_then(|credential| credential.key)
-                .map(|key| pi_ai::auth::types::AuthResult {
-                    auth: pi_ai::auth::types::ModelAuth {
-                        api_key: Some(key),
-                        ..Default::default()
-                    },
-                    env: None,
-                    source: None,
-                }))
-        })
-    }
-}
-struct FixtureStreams(Arc<dyn pi_ai::models::Provider>);
-impl pi_ai::request::ProviderStreams for FixtureStreams {
-    fn stream(
-        &self,
-        model: pi_ai::types::Model,
-        context: pi_ai::types::Context,
-        options: pi_ai::request::StreamOptions,
-    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
-        self.0.stream(model, context, options)
-    }
-    fn stream_simple(
-        &self,
-        model: pi_ai::types::Model,
-        context: pi_ai::types::Context,
-        options: pi_ai::request::SimpleStreamOptions,
-    ) -> pi_ai::utils::event_stream::AssistantMessageEventStream {
-        self.0.stream_simple(model, context, options)
-    }
-}
-fn provider_with_stored_key_auth(provider: Arc<dyn pi_ai::models::Provider>) -> Arc<dyn pi_ai::models::Provider> {
-    pi_ai::models::create_provider(pi_ai::models::CreateProviderOptions {
-        id: provider.id().to_owned(),
-        name: None,
-        base_url: None,
-        headers: None,
-        auth: pi_ai::auth::types::ProviderAuth::api_key(Arc::new(StoredFixtureKey)),
-        models: provider.get_models().unwrap(),
-        refresh_models: None,
-        api: pi_ai::models::ProviderApi::Single(Arc::new(FixtureStreams(provider))),
-    })
-}
 
 struct Backend;
 impl ExtensionUiTuiBackend for Backend {
@@ -236,7 +179,15 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         let registration = extension.read();
         json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
     };
-    let faux = faux_provider(RegisterFauxProviderOptions {
+    let mut credentials = Map::new();
+    if request["noAuth"] != true {
+        credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
+    }
+    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    if request["noAuth"] != true {
+        models.refresh();
+    }
+    let faux = pi_ai::compat::register_faux_provider(RegisterFauxProviderOptions {
         api: Some(
             pi_ai::compat::get_model("openai", "gpt-5.2")
                 .expect("frozen fixture model")
@@ -257,31 +208,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         }]),
         ..Default::default()
     });
-    let mut credentials = Map::new();
-    if request["noAuth"] != true {
-        credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
-    }
-    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
-    let provider = provider_with_stored_key_auth(faux.provider.clone());
-    let provider_models = provider.get_models().unwrap();
-    let first = provider_models.first().expect("scripted fixture model");
-    let provider_id = provider.id().to_owned();
-    let config = pi_coding_agent::core::model_registry::ProviderConfigInput {
-        name: Some(provider.name().into()),
-        api: Some(first.api.clone()),
-        base_url: Some(first.base_url.clone()),
-        models: Some(provider_models.into_iter().map(Into::into).collect()),
-        stream_simple: Some(Arc::new(move |model, context, options| {
-            provider.stream_simple(model, context, options.unwrap_or_default())
-        })),
-        ..Default::default()
-    };
-    models
-        .register_provider(&provider_id, config)
-        .expect("scripted fixture registration");
-    if request["noAuth"] != true {
-        models.refresh();
-    }
+
     let calls: Trace = Arc::default();
     let log = calls.clone();
     let generation_started = Arc::new(tokio::sync::Notify::new());
@@ -437,6 +364,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         runner.create_command_context(),
     )
     .await;
+    faux.unregister();
     let actual = json!({"metadata":metadata,"trace":trace.lock().unwrap().clone(),"calls":calls.lock().unwrap().clone(),"errors":errors.lock().unwrap().clone(),"result":result.err().map(|e|e.message),"transitions":transitions.lock().unwrap().clone(),"replacementUi":replacements.lock().unwrap().clone()});
     let mut oracle = oracle::TsOracle::spawn_with_environment(
         "extension-examples-i-session-oracle.ts",

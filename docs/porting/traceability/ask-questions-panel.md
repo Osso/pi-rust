@@ -12,6 +12,6 @@ Frozen `packages/coding-agent/src/core/tools/ask-questions-panel.ts` at `4f9e6f8
 
 ## Q18 native checkpoint
 
-Custom answers, submit actions, input events and every rendered row are `JsString`; native Input/keybinding APIs receive original UTF-16. No renderer encodes option/header/question/answer text. `raw_answer_tests::custom_and_multi_select_answers_keep_original_units` covers raw custom answer aggregation; the fresh10-history/99-frame differential and8retained real-panel histories now execute against this native checkpoint; the small private raw-answer unit remains pending its focused library command.
+Custom answers, submit actions, input events and every rendered row are `JsString`; native Input/keybinding APIs receive original UTF-16. No renderer encodes option/header/question/answer text. `raw_answer_tests::custom_and_multi_select_answers_keep_original_units` covers raw custom answer aggregation; the fresh10-history/99-frame differential and8retained real-panel histories now execute against this native checkpoint; the private raw-answer unit is GREEN with the queued formatter unit: `cargo test -j4 -p pi-coding-agent-core --lib core::tools::ask_questions` (2/0, `question-private-raw-units.log`).
 
 Source `app.questions.next` defaults right/tab; previous left/shift-tab. Free text retains left/right editor navigation. Multiple questions or multi-select require a Submit tab; multi-select may submit an empty answer. Selected options serialize in source option order, not toggle order.
