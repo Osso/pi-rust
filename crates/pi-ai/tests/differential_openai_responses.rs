@@ -635,3 +635,82 @@ async fn open_tool_scratch_matches_frozen_success_error_and_argument_done() {
         .await;
     }
 }
+
+#[tokio::test]
+async fn responses_options_match_frozen_selection_empty_session_and_sdk_retry() {
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let text = text_events("boundary");
+    run_scenario(
+        &mut source,
+        Scenario::new(200, base_model("openai", "gpt-5.5", true), &text)
+            .extra(json!({"toolChoice":"none"}))
+            .stream(json!({"samplingParams":{"seed":42,"store":true},"maxTokens":4.5})),
+    )
+    .await;
+    run_scenario(
+        &mut source,
+        Scenario::new(201, base_model("openai", "gpt-5.5", true), &text).stream(json!({"sessionId":""})),
+    )
+    .await;
+    run_scenario(
+        &mut source,
+        Scenario::new(202, base_model("openai", "gpt-5.5", true), &text)
+            .extra(json!({"serviceTier":null,"reasoningSummary":null})),
+    )
+    .await;
+    let chunks = sse_chunks(&text, 100);
+    run_scenario(
+        &mut source,
+        Scenario::new(203, base_model("openai", "gpt-5.5", true), &text)
+            .stream(json!({"maxRetries":1,"maxRetryDelayMs":1}))
+            .responses(vec![
+                ScriptedResponse::json(429, r#"{"error":{"message":"retry"}}"#).with_header("retry-after-ms", "2"),
+                ScriptedResponse::sse(&chunks.iter().map(String::as_str).collect::<Vec<_>>()),
+            ]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn response_auth_headers_and_service_tier_precedence_match_frozen() {
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let text = text_events("header auth");
+    for (index, headers) in [
+        json!({"Authorization":"Bearer caller"}),
+        json!({"CF-AIG-Authorization":"gateway"}),
+        json!({"Authorization":"  "}),
+        json!({"Authorization":null}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        run_scenario(
+            &mut source,
+            Scenario::new(300 + index as i64, base_model("openai", "gpt-5.5", true), &text)
+                .stream(json!({"apiKey":"","headers":headers})),
+        )
+        .await;
+    }
+    for (index, id) in ["gpt-5.5", "gpt-4.1"].into_iter().enumerate() {
+        for (case, (request_tier, response_tier)) in [
+            (json!("priority"), None),
+            (json!("priority"), Some(json!("flex"))),
+            (json!("flex"), Some(json!("default"))),
+            (Value::Null, Some(json!("priority"))),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut events = text.clone();
+            if let Some(tier) = response_tier {
+                events.last_mut().unwrap()["response"]["service_tier"] = tier;
+            }
+            run_scenario(
+                &mut source,
+                Scenario::new(310 + (index * 4 + case) as i64, base_model("openai", id, true), &events)
+                    .extra(json!({"serviceTier":request_tier})),
+            )
+            .await;
+        }
+    }
+}
