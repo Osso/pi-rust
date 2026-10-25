@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 560, `gap` 21, `partial` 47, `todo` 58.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 561, `gap` 21, `partial` 47, `todo` 57.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -75,7 +75,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/api/openrouter-images.lazy.ts` | 10 | 3 | done | `crates/pi-ai/src/api/openrouter_images_lazy.rs` | Direct-link factory replacing the dynamic import.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/openrouter-images.ts` | 185 | 2 | partial | `crates/pi-ai/src/api/openrouter_images.rs` | 13 behavioral + whole actual frozen SDK differential GREEN after exact abort-text repair. Remaining lossless response/onPayload and non-JSON proof gaps explicit. Rust fetch injection seam approved; unset must follow frozen default. [Traceability](traceability/openrouter-images.md). |
 | `ai/src/api/simple-options.ts` | 89 | 1 | todo | `crates/pi-ai/src/api/simple_options.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/api/simple_options.rs`; Context clamp, base options, reasoning clamps, thinking budgets; unit + streamSimple differential. |
-| `ai/src/api/transform-messages.ts` | 225 | 1 | todo | `crates/pi-ai/src/api/transform_messages.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/api/transform_messages.rs`; Cross-model thinking/tool-call normalization, image downgrade, synthetic tool results; injected clock; differential 18 scenarios. |
+| `ai/src/api/transform-messages.ts` | 225 | 1 | done | `crates/pi-ai/src/api/transform_messages.rs` | Whole realistic image/signature/thinking/ID/orphan ordering flow audited; native 10 plus actual-source 18-scenario differential GREEN. Approved live-clock snapshot and typed/pathological boundary recorded in one line; owned consumer audit complete. [Trace](traceability/transform-messages.md). |
 | `ai/src/auth/context.ts` | 45 | 1 | done | `crates/pi-ai/src/auth/context.rs` | Historical default-context label; whole default env/home-expansion revalidation still pending. Q15c adds fallible callback result channels;21 injected provider failures and native filesystem-path test GREEN. This does not establish default env trimming parity. [Traceability](traceability/auth-context.md). |
 | `ai/src/auth/credential-store.ts` | 47 | 1 | todo | `crates/pi-ai/src/auth/credential_store.rs` | Bare read/modify/delete now match the current interface; old-only list and operation cancellation deleted. Models locked refresh/recheck and actual-source app modifier failure proof GREEN; whole current-pin queue/failure matrix remains pending. [Traceability](traceability/auth-credential-store.md). |
 | `ai/src/auth/helpers.ts` | 51 | 2 | partial | `crates/pi-ai/src/auth/helpers.rs` | Stored ownership/env leak/rejected-load behavior revalidated. Q15c removes old metadata/cancellation checks, preserves native names and optional login callback, and propagates context failures. Auth14 and actual-source rejection matrix GREEN; canceled in-flight lazy load remains pending. [Traceability](traceability/auth-helpers.md). |
