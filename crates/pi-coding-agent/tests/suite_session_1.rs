@@ -70,6 +70,8 @@ pub mod repin_storage_archive;
 pub mod repin_storage_history;
 #[path = "repin_storage_retention.rs"]
 pub mod repin_storage_retention;
+#[path = "repin_storage_terminal_matrix.rs"]
+pub mod repin_storage_terminal_matrix;
 #[path = "repin_storage_terminal_outbox.rs"]
 pub mod repin_storage_terminal_outbox;
 #[path = "repin_storage_tool_output.rs"]
