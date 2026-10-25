@@ -908,8 +908,8 @@ fn migrate_legacy_runtime_mailbox_row(
     now_iso: &str,
 ) -> Result<(), ControlDbError> {
     let store_ref = super::RuntimeMailboxStoreRef {
-        message_id: row.store_message_id.clone().into(),
-        session_path: row.store_session_path.clone().into(),
+        message_id: row.store_message_id.clone(),
+        session_path: row.store_session_path.clone(),
     };
     // Legacy payload validation precedes retention cleanup, as in frozen TS.
     let canonical=db.query_row("SELECT rowid,session_path,message_id,data,updated_at FROM multi_agent_mailbox_messages WHERE session_path=? AND message_id=?",params![store_ref.session_path,store_ref.message_id],|r|Ok(super::RuntimeMailboxRow{id:r.get(0)?,session_path:r.get(1)?,message_id:r.get(2)?,data:r.get(3)?,updated_at:r.get(4)?})).optional()?;
@@ -927,12 +927,12 @@ fn migrate_legacy_runtime_mailbox_row(
         recipient_host: None,
         kind: to_runtime_mailbox_message_kind(&row.kind),
         recipient: super::RuntimeMailboxAddress {
-            agent_id: row.recipient_agent_id.clone().map(Into::into),
-            session_id: row.recipient_session_id.clone().into(),
+            agent_id: row.recipient_agent_id.clone(),
+            session_id: row.recipient_session_id.clone(),
         },
         sender: super::RuntimeMailboxAddress {
-            agent_id: row.sender_agent_id.clone().map(Into::into),
-            session_id: row.sender_session_id.clone().unwrap_or_default().into(),
+            agent_id: row.sender_agent_id.clone(),
+            session_id: row.sender_session_id.clone().unwrap_or_default(),
         },
         store_ref,
     };

@@ -2126,7 +2126,7 @@ fn load_current_version_entries_from_file(
 ) -> Result<LoadedCurrentVersionSession, SessionManagerError> {
     super::session_transcript_spool::with_seekable_session_transcript(file_path, |plain| {
         let mut file =
-            File::open(encode_node_utf8(&plain)).map_err(|error| SessionManagerError::new(error.to_string()))?;
+            File::open(encode_node_utf8(plain)).map_err(|error| SessionManagerError::new(error.to_string()))?;
         let file_size = file
             .metadata()
             .map_err(|error| SessionManagerError::new(error.to_string()))?
@@ -3336,7 +3336,7 @@ impl SessionManager {
         let control_db_path = control_db_path.to_owned();
         let session_file = session_file.to_owned();
         let name_state = read_session_name_state(&control_db_path, &session_file).map_err(control_db_error)?;
-        self.session_name = name_state.name.map(JsString::from);
+        self.session_name = name_state.name;
         self.has_stored_session_name = name_state.has_stored_value;
         let Some(metadata) = read_session_metadata(&control_db_path, &session_file).map_err(control_db_error)? else {
             return Ok(());
@@ -3346,7 +3346,7 @@ impl SessionManager {
             return Ok(());
         }
         self.is_subagent = true;
-        self.subagent_name = metadata.subagent_name.map(JsString::from);
+        self.subagent_name = metadata.subagent_name;
         Ok(())
     }
 
@@ -4036,16 +4036,16 @@ struct MetadataScope<'a> {
 
 fn session_info_from_metadata(metadata: &SessionMetadata) -> SessionInfo {
     SessionInfo {
-        path: metadata.session_path.clone().into(),
-        id: metadata.id.clone().into(),
-        cwd: metadata.cwd.clone().into(),
-        name: metadata.name.clone().map(JsString::from),
+        path: metadata.session_path.clone(),
+        id: metadata.id.clone(),
+        cwd: metadata.cwd.clone(),
+        name: metadata.name.clone(),
         is_archived: Some(metadata.archived_at.is_some()),
-        parent_session_path: metadata.parent_session_path.clone().map(Into::into),
+        parent_session_path: metadata.parent_session_path.clone(),
         created: pi_js_compat::date::date_parse(&metadata.created_at),
         modified: pi_js_compat::date::date_parse(&metadata.modified_at),
         message_count: usize::try_from(metadata.message_count).unwrap_or(0),
-        first_message: metadata.first_message.clone().into(),
+        first_message: metadata.first_message.clone(),
     }
 }
 

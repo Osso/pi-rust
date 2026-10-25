@@ -697,8 +697,8 @@ fn prepare_multi_agent_steering_mutation(
     let sender_listener = read_runtime_mailbox_listener_row(
         db,
         &RuntimeMailboxAddress {
-            agent_id: input.owner.agent_id.clone().map(Into::into),
-            session_id: input.owner.session_id.clone().into(),
+            agent_id: input.owner.agent_id.clone(),
+            session_id: input.owner.session_id.clone(),
         },
     )?;
     let recipient_listener = read_runtime_mailbox_listener_row(db, &input.recipient)?;
@@ -889,16 +889,16 @@ fn build_steering_mailbox_message(
 ) -> Result<AgentMailboxMessage, ControlDbError> {
     Ok(AgentMailboxMessage {
         extra: js_json::JsObject::new(),
-        body: Some(input.body.clone().into()),
+        body: Some(input.body.clone()),
         created_at: input.updated_at.clone().into(),
         file_refs: input.file_refs.clone(),
-        from_agent_id: input.from_agent_id.clone().into(),
-        id: message_id.to_owned().into(),
+        from_agent_id: input.from_agent_id.clone(),
+        id: message_id.to_owned(),
         kind: MailboxMessageKindValue::Steer,
         status: MailboxMessageStatusValue::Pending,
         target_checkpoint: input.target_checkpoint,
         thread_id: input.thread_id.clone(),
-        to_agent_id: input.agent_id.clone().into(),
+        to_agent_id: input.agent_id.clone(),
         updated_at: Some(input.updated_at.clone().into()),
         error: None,
     })
@@ -912,15 +912,15 @@ fn prepare_steering_mailbox_message(
     let mailbox_input = EnqueueStoredRuntimeMailboxMessageInput {
         recipient_host: None,
         kind: RuntimeMailboxMessageKind::Steer,
-        message: message_value.into(),
+        message: message_value,
         recipient: input.recipient.clone(),
         sender: RuntimeMailboxAddress {
-            agent_id: input.owner.agent_id.clone().map(Into::into),
-            session_id: input.owner.session_id.clone().into(),
+            agent_id: input.owner.agent_id.clone(),
+            session_id: input.owner.session_id.clone(),
         },
         store_ref: super::RuntimeMailboxStoreRef {
             message_id: message.id.clone(),
-            session_path: input.session_path.clone().into(),
+            session_path: input.session_path.clone(),
         },
         updated_at: Some(input.updated_at.clone()),
     };
@@ -2459,7 +2459,7 @@ fn read_persisted_supervisor_session_authority(
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_agent = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
+    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.clone().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_agent else {
         return Ok(None);
     };
@@ -2513,7 +2513,7 @@ fn supervisor_session_authority_is_current(
     if supervisor.agent_id.is_none() {
         return Ok(expected.supervisor_agent_data.is_none());
     }
-    let supervisor_agent = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
+    let supervisor_agent = read_agent_data_row(db, session_path, supervisor.agent_id.clone().unwrap_or_default())?;
     Ok(supervisor_agent == expected.supervisor_agent_data)
 }
 
@@ -2552,7 +2552,7 @@ fn ownership_from_identity_parts(
     MultiAgentRuntimeOwnership {
         agent_id: agent_id.to_owned(),
         owner: MultiAgentRuntimeOwner {
-            agent_id: owner.agent_id.clone().map(Into::into),
+            agent_id: owner.agent_id.clone(),
             session_id: Some(owner.session_id.clone()),
         },
         process_identity: Some(process_identity.clone()),
@@ -2965,7 +2965,7 @@ fn prepare_multi_agent_mailbox_upsert(
 ) -> Result<MultiAgentMailboxUpsertPlan, ControlDbError> {
     let sql_id = id;
     let parent_target = read_parent_request_target_snapshot(db, session_path, data)?;
-    let existing = read_multi_agent_mailbox_row_snapshot(db, session_path, &sql_id)?;
+    let existing = read_multi_agent_mailbox_row_snapshot(db, session_path, sql_id)?;
     let mut serialized = js_json::stringify_lossless(data);
     if let Some(existing) = &existing {
         let previous = super::parse_stored_json_object_lossless(&existing.data, &JsString::from("mailbox upsert"))?;
@@ -3142,7 +3142,7 @@ fn read_parent_request_target_snapshot(
         )));
     }
     Ok(Some(ParentRequestTargetSnapshot {
-        agent_id: from_agent_id.into(),
+        agent_id: from_agent_id,
         data: row.unwrap_or_default(),
     }))
 }
@@ -3181,8 +3181,8 @@ pub fn mark_multi_agent_mailbox_message_delivered(
     Ok(super::consume_runtime_mailbox_message_by_store_ref(
         control_db_path,
         &super::RuntimeMailboxStoreRef {
-            session_path: session_path.to_owned().into(),
-            message_id: message_id.to_owned().into(),
+            session_path: session_path.to_owned(),
+            message_id: message_id.to_owned(),
         },
     )? == 1)
 }
@@ -3216,8 +3216,8 @@ fn update_multi_agent_mailbox_message_status(
         let Some(row) = super::read_canonical_mailbox_row_by_store_ref(
             db,
             &super::RuntimeMailboxStoreRef {
-                session_path: session_path.to_owned().into(),
-                message_id: message_id.to_owned().into(),
+                session_path: session_path.to_owned(),
+                message_id: message_id.to_owned(),
             },
         )?
         else {
@@ -3627,8 +3627,8 @@ fn read_supervisor_recovery_authority(
     let listener = read_runtime_mailbox_listener_row(
         db,
         &RuntimeMailboxAddress {
-            agent_id: supervisor.agent_id.clone().map(Into::into),
-            session_id: supervisor.session_id.clone().into(),
+            agent_id: supervisor.agent_id.clone(),
+            session_id: supervisor.session_id.clone(),
         },
     )?;
     let Some(listener) = listener else {
@@ -3658,11 +3658,11 @@ fn read_supervisor_recovery_authority(
         return Ok(Some(SupervisorRecoveryAuthority {
             listener,
             supervisor_session_id: supervisor.session_id.clone(),
-            supervisor_agent_id: supervisor.agent_id.clone().map(Into::into),
+            supervisor_agent_id: supervisor.agent_id.clone(),
             supervisor_agent_data: None,
         }));
     }
-    let supervisor_row = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
+    let supervisor_row = read_agent_data_row(db, session_path, supervisor.agent_id.clone().unwrap_or_default())?;
     let Some(supervisor_agent_data) = supervisor_row else {
         return Ok(None);
     };
@@ -3684,7 +3684,7 @@ fn read_supervisor_recovery_authority(
     Ok(Some(SupervisorRecoveryAuthority {
         listener,
         supervisor_session_id: supervisor.session_id.clone(),
-        supervisor_agent_id: supervisor.agent_id.clone().map(Into::into),
+        supervisor_agent_id: supervisor.agent_id.clone(),
         supervisor_agent_data: Some(supervisor_agent_data),
     }))
 }
@@ -4004,7 +4004,7 @@ pub(crate) fn prepare_detached_agent_terminal_transport(
     let input = EnqueueStoredRuntimeMailboxMessageInput {
         recipient_host: None,
         kind: RuntimeMailboxMessageKind::System,
-        message: message.into(),
+        message,
         recipient: RuntimeMailboxAddress {
             agent_id: owner.agent_id.clone(),
             session_id: owner_session_id.clone(),
@@ -4170,7 +4170,7 @@ fn read_detached_owner_for_recovery(
             session_id: owner_session_id,
         },
         process_identity,
-        session_path: candidate.session_path.clone().into(),
+        session_path: candidate.session_path.clone(),
     }))
 }
 

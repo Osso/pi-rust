@@ -1263,13 +1263,13 @@ impl MultiAgentStore {
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "steer_agent")?,
-            from_agent_id: input.from_agent_id.clone().into(),
-            id: self.create_message_id()?.into(),
+            from_agent_id: input.from_agent_id.clone(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::Steer,
             status: MailboxMessageStatusValue::Pending,
             target_checkpoint: input.target_checkpoint,
             thread_id: input.thread_id.clone(),
-            to_agent_id: agent_id.to_owned().into(),
+            to_agent_id: agent_id.to_owned(),
             updated_at: Some(timestamp),
             error: None,
         })
@@ -1582,7 +1582,7 @@ impl MultiAgentStore {
                 &target.control_db_path,
                 &crate::core::session_control_db::RuntimeMailboxStoreRef {
                     session_path: target.session_path,
-                    message_id: message_id.to_owned().into(),
+                    message_id: message_id.to_owned(),
                 },
             )?;
         }
@@ -1621,7 +1621,7 @@ impl MultiAgentStore {
         };
         self.lock()
             .mailbox_messages
-            .insert(message_id.to_owned().into(), updated.clone());
+            .insert(message_id.to_owned(), updated.clone());
         Ok(Some(copy_message(&updated)?))
     }
     pub fn consume_completion_notifications_for_agent(
@@ -1842,7 +1842,7 @@ impl MultiAgentStore {
         let current = self.lock().agents.get(agent_id).cloned();
         let Some(current) = current else {
             return Ok(ParentContactResult::NotFound {
-                agent_id: agent_id.to_owned().into(),
+                agent_id: agent_id.to_owned(),
             });
         };
         let file_refs = validate_mailbox_file_refs(input.file_refs.as_ref(), "contact_parent")?;
@@ -1854,10 +1854,10 @@ impl MultiAgentStore {
         let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
-            id: self.create_message_id()?.into(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
-            from_agent_id: current.id.clone().into(),
-            to_agent_id: parent_id.into(),
+            from_agent_id: current.id.clone(),
+            to_agent_id: parent_id,
             kind: MailboxMessageKindValue::ParentRequest,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
@@ -1910,10 +1910,10 @@ impl MultiAgentStore {
         let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
-            id: self.create_message_id()?.into(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
             from_agent_id: MAIN_THREAD_AGENT_ID.to_owned().into(),
-            to_agent_id: target.id.clone().into(),
+            to_agent_id: target.id.clone(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
@@ -1950,7 +1950,7 @@ impl MultiAgentStore {
         let current = self.lock().agents.get(agent_id).cloned();
         let Some(current) = current else {
             return Ok(MailboxMessageCommandResult::NotFound {
-                agent_id: agent_id.to_owned().into(),
+                agent_id: agent_id.to_owned(),
             });
         };
         if let Some(result) = check_revision(&current, expected_revision) {
@@ -1972,10 +1972,10 @@ impl MultiAgentStore {
         let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
-            id: self.create_message_id()?.into(),
+            id: self.create_message_id()?,
             thread_id: input.thread_id.clone(),
-            from_agent_id: current.id.clone().into(),
-            to_agent_id: target.id.clone().into(),
+            from_agent_id: current.id.clone(),
+            to_agent_id: target.id.clone(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             created_at: timestamp.clone(),
@@ -2014,8 +2014,8 @@ impl MultiAgentStore {
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "record_outbound_session_message")?,
             body: Some(input.body.clone()),
             created_at: timestamp.clone(),
-            from_agent_id: input.from_agent_id.clone().into(),
-            id: self.create_message_id()?.into(),
+            from_agent_id: input.from_agent_id.clone(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
@@ -2428,13 +2428,13 @@ impl MultiAgentStore {
         }
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
-            body: Some(body.into()),
+            body: Some(body),
             created_at: timestamp.clone(),
-            from_agent_id: agent.id.clone().into(),
-            id: self.create_message_id()?.into(),
+            from_agent_id: agent.id.clone(),
+            id: self.create_message_id()?,
             kind: MailboxMessageKindValue::System,
             status: MailboxMessageStatusValue::Pending,
-            thread_id: Some(thread_id.into()),
+            thread_id: Some(thread_id),
             to_agent_id: agent.parent_id.clone().unwrap_or_else(|| MAIN_THREAD_AGENT_ID.into()),
             updated_at: Some(timestamp),
             file_refs: file_refs
@@ -2746,8 +2746,8 @@ fn is_pending_lifecycle_notification(
 ) -> bool {
     let is_from_agent = message.from_agent_id == *agent_id;
     let expected_thread_id = lifecycle_notification_thread_id(agent_id, lifecycle);
-    let is_lifecycle_notice = message.kind == MailboxMessageKindValue::System
-        && message.thread_id.as_ref() == Some(&JsString::from(expected_thread_id));
+    let is_lifecycle_notice =
+        message.kind == MailboxMessageKindValue::System && message.thread_id.as_ref() == Some(&expected_thread_id);
     is_from_agent && is_lifecycle_notice && message.status == MailboxMessageStatusValue::Pending
 }
 

@@ -505,7 +505,7 @@ fn detached_job_agent_details(
         insert_optional(
             &mut result,
             "toolCallId",
-            terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
+            terminal.tool_call_id.clone().map(JsValue::String),
         );
         let mut details = JsObject::new();
         details.insert("result".into(), JsValue::Object(result));
@@ -524,7 +524,7 @@ fn detached_job_agent_details(
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
+                terminal.tool_call_id.clone().map(JsValue::String),
             );
             let mut details = JsObject::new();
             details.insert("result".into(), JsValue::Object(result));
@@ -540,7 +540,7 @@ fn detached_job_agent_details(
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
+                terminal.tool_call_id.clone().map(JsValue::String),
             );
             let mut details = JsObject::new();
             details.insert(
@@ -559,7 +559,7 @@ fn detached_job_agent_details(
             insert_optional(
                 &mut result,
                 "toolCallId",
-                terminal.tool_call_id.clone().map(|value| JsValue::String(value.into())),
+                terminal.tool_call_id.clone().map(JsValue::String),
             );
             let mut details = JsObject::new();
             details.insert("result".into(), JsValue::Object(result));

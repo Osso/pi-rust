@@ -1146,7 +1146,7 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
             .map_err(|error| ControlDbError::new(error.to_string()))?,
         target_checkpoint: parse_steering_checkpoint(message.get("targetCheckpoint"), &context)?,
         store_ref: RuntimeMailboxStoreRef {
-            message_id: row.message_id.clone().into(),
+            message_id: row.message_id.clone(),
             session_path: row.session_path.clone().into(),
         },
         status: to_runtime_mailbox_message_status(&require_native_string_field(message, "status", &context)?),
