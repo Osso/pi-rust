@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_coding_agent::modes::rpc::{RpcClient, RpcClientError, RpcClientOptions, RpcCommandBody};
+use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
 use pi_js_compat::js_json::{self, JsValue};
 use std::time::Duration;
 
@@ -203,21 +203,14 @@ async fn native(request: &JsValue) -> JsValue {
     client.stop().await.unwrap();
     match result {
         Ok(value) => value,
-        Err(RpcClientError::CommandFailed { message }) => {
-            pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":message}})
-        }
-        Err(RpcClientError::TypeError { message }) => {
-            pi_js_compat::js_json!({"ok":false,"error":{"name":"TypeError","message":message}})
-        }
-        Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
+        Err(error) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
     }
 }
 
 async fn start_outcome(client: &RpcClient) -> JsValue {
     match client.start().await {
         Ok(()) => pi_js_compat::js_json!({"ok":true}),
-        Err(RpcClientError::Native(error)) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
-        Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
+        Err(error) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
     }
 }
 
@@ -252,6 +245,7 @@ async fn rpc_client_stop_detaches_listeners_without_closing_the_live_stdout_pipe
 async fn rpc_client_option_strings_keep_raw_units_until_the_node_spawn_boundary() {
     let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
     for options in [
+        r#"{"executable":"pi-rpc-private-missing-\ud800"}"#,
         r#"{"cliPath":"entry-\ud800\u0000"}"#,
         r#"{"nodeArgs":["arg-\udfff\u0000"]}"#,
         r#"{"cwd":"cwd-\ud800\u0000"}"#,

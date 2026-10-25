@@ -156,7 +156,7 @@ pub enum RpcClientError {
         stderr: String,
     },
     PreviousStopFailed {
-        message: String,
+        message: JsString,
     },
     Stopped {
         stderr: String,
@@ -192,59 +192,67 @@ pub enum RpcClientError {
     },
 }
 
-impl fmt::Display for RpcClientError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl RpcClientError {
+    pub fn name(&self) -> JsString {
         match self {
-            Self::Native(error) => formatter.write_str(&encode_node_utf8(&error.message)),
-            Self::AlreadyStartedOrStopping => formatter.write_str("Client already started or stopping"),
+            Self::Native(error) => error.name.clone(),
+            Self::TypeError { .. } => "TypeError".into(),
+            _ => "Error".into(),
+        }
+    }
+
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::Native(error) => error.message.clone(),
+            Self::CommandFailed { message } | Self::TypeError { message } => message.clone(),
+            Self::AlreadyStartedOrStopping => "Client already started or stopping".into(),
+            Self::NotStarted => "Client not started".into(),
             Self::StoppedDuringStartup { stderr } => {
-                write!(formatter, "RPC client stopped during startup. Stderr: {stderr}")
+                format!("RPC client stopped during startup. Stderr: {stderr}").into()
             }
-            Self::ProcessExited { code, signal, stderr } => write!(
-                formatter,
+            Self::ProcessExited { code, signal, stderr } => format!(
                 "Agent process exited (code={} signal={}). Stderr: {stderr}",
                 optional_code(*code),
                 optional_signal(*signal)
-            ),
-            Self::ProcessError { message, stderr } => write!(
-                formatter,
-                "Agent process error: {}. Stderr: {stderr}",
-                pi_js_compat::js_json::encode_node_utf8(message)
-            ),
+            )
+            .into(),
+            Self::ProcessError { message, stderr } => {
+                pi_js_compat::js_format!("Agent process error: {}. Stderr: {}", message, stderr)
+            }
             Self::StdinError { message, stderr } => {
-                write!(formatter, "Agent process stdin error: {message}. Stderr: {stderr}")
+                format!("Agent process stdin error: {message}. Stderr: {stderr}").into()
             }
             Self::StdinNotWritable { stderr } => {
-                write!(formatter, "Agent process stdin is not writable. Stderr: {stderr}")
+                format!("Agent process stdin is not writable. Stderr: {stderr}").into()
             }
-            Self::NotStarted => formatter.write_str("Client not started"),
-            Self::Stopping { stderr } => write!(formatter, "RPC client is stopping. Stderr: {stderr}"),
-            Self::PreviousStopFailed { message } => {
-                write!(formatter, "Previous RPC stop failed: {message}")
-            }
-            Self::Stopped { stderr } => write!(formatter, "RPC client stopped. Stderr: {stderr}"),
+            Self::Stopping { stderr } => format!("RPC client is stopping. Stderr: {stderr}").into(),
+            Self::PreviousStopFailed { message } => pi_js_compat::js_format!("Previous RPC stop failed: {}", message),
+            Self::Stopped { stderr } => format!("RPC client stopped. Stderr: {stderr}").into(),
             Self::RequestTimeout { command, stderr } => {
-                write!(formatter, "Timeout waiting for response to {command}. Stderr: {stderr}")
+                format!("Timeout waiting for response to {command}. Stderr: {stderr}").into()
             }
-            Self::StopFailed { stderr } => {
-                write!(formatter, "RPC child did not exit after SIGKILL. Stderr: {stderr}")
-            }
+            Self::StopFailed { stderr } => format!("RPC child did not exit after SIGKILL. Stderr: {stderr}").into(),
             Self::IdleTimeout { stderr } => {
-                write!(formatter, "Timeout waiting for agent to become idle. Stderr: {stderr}")
+                format!("Timeout waiting for agent to become idle. Stderr: {stderr}").into()
             }
-            Self::CollectTimeout { stderr } => {
-                write!(formatter, "Timeout collecting events. Stderr: {stderr}")
-            }
-            Self::CommandFailed { message } => formatter.write_str(&encode_node_utf8(message)),
-            Self::MissingData { command } => {
-                write!(formatter, "Missing response data for {command}")
-            }
-            Self::InvalidData { command, message } => {
-                write!(formatter, "Invalid response data for {command}: {message}")
-            }
-            Self::TypeError { message } => formatter.write_str(&encode_node_utf8(message)),
-            Self::Serialize { message } => write!(formatter, "Failed to serialize command: {message}"),
+            Self::CollectTimeout { stderr } => format!("Timeout collecting events. Stderr: {stderr}").into(),
+            Self::MissingData { command } => format!("Missing response data for {command}").into(),
+            Self::InvalidData { command, message } => format!("Invalid response data for {command}: {message}").into(),
+            Self::Serialize { message } => format!("Failed to serialize command: {message}").into(),
         }
+    }
+
+    pub fn value(&self) -> JsValue {
+        match self {
+            Self::Native(error) => error.value(),
+            _ => pi_js_compat::js_json!({"name":self.name(),"message":self.message()}),
+        }
+    }
+}
+
+impl fmt::Display for RpcClientError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&encode_node_utf8(&self.message()))
     }
 }
 
@@ -635,7 +643,7 @@ impl RpcClient {
         }
         if let Some(error) = &sync.stop_error {
             return Err(RpcClientError::PreviousStopFailed {
-                message: error.to_string(),
+                message: error.message(),
             });
         }
         if sync.active_generation.is_none() {
