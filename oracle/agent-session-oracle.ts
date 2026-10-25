@@ -13,7 +13,7 @@ async function loadModules() {
 	const { SettingsManager } = await import(`${packagesRoot}/coding-agent/src/core/settings-manager.ts`);
 	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
 	const { ModelRegistry } = await import(`${packagesRoot}/coding-agent/src/core/model-registry.ts`);
-	const { createExtensionRuntime } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
+	const { createExtensionRuntime, ExtensionRunner } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
 	const { Agent } = await import(`${packagesRoot}/agent-core/src/index.ts`);
 	const { createFauxCore } = await import(`${packagesRoot}/ai/src/providers/faux.ts`);
 	const { AgentSession } = await import(`${packagesRoot}/coding-agent/src/core/agent-session.ts`);
@@ -24,6 +24,7 @@ async function loadModules() {
 		AuthStorage,
 		ModelRegistry,
 		createExtensionRuntime,
+		ExtensionRunner,
 		Agent,
 		createFauxCore,
 		AgentSession,
@@ -115,7 +116,7 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait"].includes(request.operation)
+	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)
 		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(["threshold-trailing", "next-turn-threshold"].includes(request.operation) ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
@@ -148,6 +149,13 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "runner-identity") {
+		const runner = session.extensionRunner;
+		const alias = session.extensionRunner;
+		const fresh = new modules.ExtensionRunner([], session.resourceLoader.getExtensions().runtime, dir, sessionManager, modelRegistry, settingsManager);
+		session.dispose();
+		return { aliasSame: runner === alias, freshSame: runner === fresh };
+	}
 	if (request.operation === "export-error") {
 		try {
 			session.exportToJsonl(request.outputPath);
@@ -190,7 +198,7 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait"].includes(request.operation)) {
+	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -201,15 +209,24 @@ async function run(request) {
 		settingsManager.setCompactionEnabled(false);
 		const runner = session.extensionRunner;
 		const emit = runner.emit.bind(runner);
-		if (["background-events", "background-disabled", "background-cancel-wait"].includes(request.operation)) {
+		if (["background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
 			const events = [];
 			let finish;
 			let release;
+			let markStarted;
+			const started = new Promise((resolve) => { markStarted = resolve; });
 			const gate = new Promise((resolve) => { release = resolve; });
 			const settled = new Promise((resolve) => { finish = resolve; });
 			runner.hasHandlers = (type) => type === "compaction";
 			runner.emit = async (event) => {
 				events.push(event.type);
+				if (event.type === "background_compaction_start" && request.operation === "background-ancestor") {
+					markStarted();
+					await gate;
+				}
+				if (event.type === "compaction" && request.operation === "background-ancestor") return {
+					compaction: { summary: "saved background summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
+				};
 				if (event.type === "compaction" && request.operation === "background-cancel-wait") return { cancel: true };
 				if (event.type === "background_compaction_end") {
 					finish();
@@ -217,7 +234,22 @@ async function run(request) {
 				}
 			};
 			session._startBackgroundCompaction(80000, 100000);
+			if (request.operation === "background-ancestor") {
+				await started;
+				await session.sendCustomMessage({ customType: "tail", content: "status while pending", display: false });
+				release();
+			}
 			await settled;
+			if (request.operation === "background-ancestor") {
+				for (let i = 0; i < 100 && !sessionManager.getEntries().some((entry) => entry.type === "compaction"); i++) await new Promise((resolve) => setTimeout(resolve, 10));
+				const result = {
+					installed: sessionManager.getEntries().some((entry) => entry.type === "compaction"),
+					tailPresent: session.messages.some((message) => message.role === "custom" && message.customType === "tail"),
+					tailText: session.messages.find((message) => message.role === "custom" && message.customType === "tail")?.content,
+				};
+				session.dispose();
+				return result;
+			}
 			if (request.operation === "background-cancel-wait") {
 				const cancelling = session._cancelBackgroundCompaction();
 				const completedBeforeEnd = await Promise.race([cancelling.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100))]);

@@ -62,6 +62,7 @@ struct Captured {
     before: Vec<SessionBeforeCompactEvent>,
     compaction: Vec<CompactionEvent>,
     background: Vec<&'static str>,
+    background_start_gate: Option<Arc<tokio::sync::Notify>>,
     background_end_gate: Option<Arc<tokio::sync::Notify>>,
 }
 
@@ -71,6 +72,7 @@ impl Captured {
             before: Vec::new(),
             compaction: Vec::new(),
             background: Vec::new(),
+            background_start_gate: None,
             background_end_gate: None,
         }))
     }
@@ -207,7 +209,14 @@ async fn env_with(
             api.on_background_compaction_start(move |_event, _ctx| {
                 let captured = Arc::clone(&background_start_capture);
                 Box::pin(async move {
-                    captured.lock().unwrap().background.push("background_compaction_start");
+                    let gate = {
+                        let mut captured = captured.lock().unwrap();
+                        captured.background.push("background_compaction_start");
+                        captured.background_start_gate.clone()
+                    };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
                     Ok(None)
                 }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
@@ -1256,6 +1265,115 @@ async fn cancelling_background_compaction_waits_for_final_handler_settlement_lik
     );
     assert_eq!(expected, json!({"ok": true, "value": {"completedBeforeEnd": false}}));
     assert_eq!(json!({"completedBeforeEnd": completed_before_end}), expected["value"]);
+}
+
+#[tokio::test]
+async fn ready_background_cache_installs_from_an_ancestor_and_preserves_new_tail_like_frozen() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved background summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    env.captured.lock().unwrap().background_start_gate = Some(Arc::clone(&gate));
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_start") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background.last(),
+        Some(&"background_compaction_start")
+    );
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("status while pending".into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("tail");
+    gate.notify_one();
+    for _ in 0..100 {
+        if env
+            .session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let actual = json!({
+        "installed": env.session.session_manager().get_entries().iter().any(|entry| entry.entry_type() == "compaction"),
+        "tailPresent": env.session.messages().iter().any(|message| matches!(message,
+            pi_agent_core::agent::types::AgentMessage::Custom(value) if value.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("tail")))),
+        "tailText": env.session.messages().iter().find_map(|message| match message {
+            pi_agent_core::agent::types::AgentMessage::Custom(value) if value.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("tail")) => value.get("content").and_then(JsValue::as_string).cloned(),
+            _ => None,
+        }),
+    });
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-ancestor", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"installed": true, "tailPresent": true, "tailText": "status while pending"}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn runner_identity_preserves_aliases_but_distinguishes_new_instances_like_frozen() {
+    use pi_coding_agent::core::extensions::ExtensionRunner;
+    let env = env_with(json!({"enabled": false}), None, None).await;
+    let runner = env.session.extension_runner();
+    let alias = env.session.extension_runner();
+    let fresh = ExtensionRunner::new(
+        Vec::new(),
+        env.session.resource_loader().get_extensions().runtime,
+        env.session.cwd().clone(),
+        env.session.session_manager_handle(),
+        Arc::new(env.session.model_registry().clone()),
+        Some(env.session.settings_manager_handle()),
+    );
+    let actual = json!({"aliasSame": runner.same_instance(&alias), "freshSame": runner.same_instance(&fresh)});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle
+        .request(&json!({"operation": "runner-identity", "dir": env._dir.path().join("oracle").display().to_string()}));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"aliasSame": true, "freshSame": false}})
+    );
+    assert_eq!(actual, expected["value"]);
 }
 
 #[path = "support/scripted_registry.rs"]

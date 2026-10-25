@@ -364,3 +364,9 @@ Frozen :4622–4627 does not call a local provider when built-in compaction is d
 ## Re-pin pending background settlement (2026-10-25)
 
 Frozen :4584–4599 aborts and awaits the cache's generation promise before clearing that same cache; taking a pending cache uses that cancellation path. Native cache now stores the shared generation future using the existing futures-util dependency, and cancellation awaits it through final extension-end handler settlement before clearing a matching token. `cancelling_background_compaction_waits_for_final_handler_settlement_like_frozen` gates the real native end callback, starts manual compaction, and compares actual frozen cancellation with the same end gate. RED `/tmp/repin-agent-session-background-wait-red.log` observed manual work completing before end settlement (true) versus frozen false. Both paths release the gate and settle all tasks before asserting.
+
+## Re-pin background ancestor install and runner identity (2026-10-25)
+
+Frozen :4556–4573 permits a snapshot leaf that is an ancestor of the current branch and requires the same extension runner object. Removed native's additional current-leaf-equality install gate. Actual-frozen `ready_background_cache_installs_from_an_ancestor_and_preserves_new_tail_like_frozen` gates background start, appends a custom tail, releases generation, and proves automatic install plus exact tail preservation without another prompt. RED `/tmp/repin-agent-session-background-ancestor-red.log` observed native installedfalse versus frozen true.
+
+Parent explicitly approved a private Arc identity in ExtensionRunner::new, clone-preserving `same_instance`, and this cache comparison. Runner changes are small and do not touch dispatch algorithms or sandbox-profile ownership. The frozen alias/new-instance matrix verifies clones retain identity and fresh runners do not.
