@@ -78,7 +78,7 @@ fn take_claims_and_payload_cas_delivery_deletes_visible_peer_row() {
     .as_f64()
     .unwrap() as i64;
     register(&db, None);
-    let messages = take_runtime_mailbox_messages_for_delivery(&db, &address(), |_| true, 20).unwrap();
+    let messages = take_runtime_mailbox_messages_for_delivery(&db, &address(), |_| Ok(true), 20).unwrap();
     assert_eq!(messages.len(), 1);
     assert_eq!(messages[0].status, RuntimeMailboxMessageStatus::Claimed);
     let read = read_runtime_mailbox_message_for_delivery(&db, id).unwrap().unwrap();
@@ -269,7 +269,7 @@ fn frozen_source_limit_zero_discrepancy_fixture() {
     }
     register(&native_db, None);
     assert!(
-        take_runtime_mailbox_messages_for_delivery(&native_db, &address(), |_| true, 0)
+        take_runtime_mailbox_messages_for_delivery(&native_db, &address(), |_| Ok(true), 0)
             .unwrap()
             .is_empty()
     );

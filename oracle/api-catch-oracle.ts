@@ -16,7 +16,7 @@ async function main(): Promise<void> {
 			throw new Error("unexpected fetch after payload rejection");
 		});
 		try {
-			const options = { apiKey: "test-key", onPayload: () => { throw rejection; } };
+			const options = { apiKey: "test-key", ...request.options, onPayload: () => { throw rejection; } };
 			if (request.model.api === "openrouter-images") {
 				const result = await api.generateImages(request.model, { input: [] }, options);
 				process.stdout.write(`${JSON.stringify({ requests, events: [], result })}\n`);

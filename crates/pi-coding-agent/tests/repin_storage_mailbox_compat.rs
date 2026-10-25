@@ -60,7 +60,7 @@ fn source_and_native_mailbox_claims_accept_into_the_same_recipient_jsonl() {
         expected_refs.push(input["storeRef"].clone());
         if index == 0 {
             let messages =
-                take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| true, 10).unwrap();
+                take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| Ok(true), 10).unwrap();
             assert_eq!(messages.len(), 1);
             let message = pi_js_compat::js_json::from_value(&JsValue::from(
                 json!({"role":"user","content":[{"type":"text","text":text}],"inputSource":"extension","timestamp":1}),

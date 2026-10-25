@@ -1383,3 +1383,291 @@ async fn differential_google_vertex() {
     )
     .await;
 }
+
+#[tokio::test]
+async fn google_latest_alias_uses_server_managed_thinking_for_both_apis() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let text = text_events("latest");
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        for (case, id) in ["gemini-flash-latest", "GEMINI-FLASH-LATEST", "gemini-flash-lite-latest"]
+            .into_iter()
+            .enumerate()
+        {
+            let model = if api == "google-vertex" {
+                vertex_model(id)
+            } else {
+                gemini_model(id)
+            };
+            for (mode, enabled) in [true, false].into_iter().enumerate() {
+                run_scenario(
+                    &mut source,
+                    Scenario::new(500 + (index * 6 + case * 2 + mode) as u32, api, model.clone())
+                        .extra(json!({"thinking":{"enabled":enabled,"level":"HIGH"}}))
+                        .responses(vec![sse_events_response(&text)]),
+                )
+                .await;
+            }
+        }
+    }
+}
+
+#[tokio::test]
+async fn google_37_disabled_thinking_uses_low_not_minimal() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let text = text_events("disabled");
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        let model = if api == "google-vertex" {
+            vertex_model("gemini-3.7-flash")
+        } else {
+            gemini_model("gemini-3.7-flash")
+        };
+        run_scenario(
+            &mut source,
+            Scenario::new(310 + index as u32, api, model)
+                .simple()
+                .responses(vec![sse_events_response(&text)]),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn google_prefixed_model_ids_use_the_frozen_unanchored_thinking_match() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let text = text_events("prefixed");
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        let model = if api == "google-vertex" {
+            vertex_model("publishers/google/models/gemini-3.1-pro")
+        } else {
+            gemini_model("models/gemini-3.1-pro")
+        };
+        run_scenario(
+            &mut source,
+            Scenario::new(320 + index as u32, api, model)
+                .reasoning("minimal")
+                .responses(vec![sse_events_response(&text)]),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn google_empty_supplied_tool_ids_are_generated_like_frozen() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let events = vec![
+        json!({"candidates":[{"content":{"parts":[{"functionCall":{"id":"","name":"lookup","args":{"key":"value"}}}]},"finishReason":"STOP"}]}),
+    ];
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        let model = if api == "google-vertex" {
+            vertex_model("gemini-2.5-flash")
+        } else {
+            gemini_model("gemini-2.5-flash")
+        };
+        run_scenario(
+            &mut source,
+            Scenario::new(330 + index as u32, api, model).responses(vec![sse_events_response(&events)]),
+        )
+        .await;
+    }
+}
+
+#[test]
+fn google_generated_tool_counters_belong_to_each_frozen_api_module() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let events = vec![
+        json!({"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{}}}]},"finishReason":"STOP"}]}),
+    ];
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let mut expected = Vec::new();
+    for (index, api) in [
+        "google-generative-ai",
+        "google-vertex",
+        "google-generative-ai",
+        "google-vertex",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let model = if api == "google-vertex" {
+            vertex_model("gemini-2.5-flash")
+        } else {
+            gemini_model("gemini-2.5-flash")
+        };
+        let scenario = Scenario::new(350 + index as u32, api, model).responses(vec![sse_events_response(&events)]);
+        let result = source.request(&scenario.request());
+        assert_eq!(result["ok"], json!(true));
+        let id = result["output"]["result"]["content"][0]["id"].as_str().unwrap();
+        expected.push(id.rsplit('_').next().unwrap().parse::<u64>().unwrap());
+    }
+    assert_eq!(expected, vec![1, 1, 2, 2]);
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "differential_google_api::google_counter_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("PI_GOOGLE_COUNTER_CHILD", "1")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            panic!("Google counter child timed out");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let result = child.wait_with_output().unwrap();
+    assert!(result.status.success(), "{result:?}");
+    let actual: Vec<u64> = serde_json::from_slice(&result.stderr).unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+#[ignore = "isolated counter-domain child invoked by google_generated_tool_counters_belong_to_each_frozen_api_module"]
+async fn google_counter_child() {
+    assert_eq!(std::env::var("PI_GOOGLE_COUNTER_CHILD").as_deref(), Ok("1"));
+    let events = vec![
+        json!({"candidates":[{"content":{"parts":[{"functionCall":{"name":"lookup","args":{}}}]},"finishReason":"STOP"}]}),
+    ];
+    let mut counters = Vec::new();
+    for api in [
+        "google-generative-ai",
+        "google-vertex",
+        "google-generative-ai",
+        "google-vertex",
+    ] {
+        let model = if api == "google-vertex" {
+            vertex_model("gemini-2.5-flash")
+        } else {
+            gemini_model("gemini-2.5-flash")
+        };
+        let model = serde_json::from_value(model).unwrap();
+        let context = serde_json::from_value(user_context("hello")).unwrap();
+        let fetch = RecordingFetch::new(vec![sse_events_response(&events)]);
+        let options = StreamOptions {
+            request: ProviderRequestOptions {
+                api_key: Some("test-key".into()),
+                fetch: Some(fetch),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let stream = if api == "google-vertex" {
+            google_vertex::stream(model, context, options)
+        } else {
+            google_generative_ai::stream(model, context, options)
+        };
+        let (_, result) = collect_stream(stream).await;
+        let id = result["content"][0]["id"].as_str().unwrap();
+        counters.push(id.rsplit('_').next().unwrap().parse::<u64>().unwrap());
+    }
+    eprintln!("{}", serde_json::to_string(&counters).unwrap());
+}
+
+#[tokio::test]
+async fn raw_google_api_key_guards_reject_empty_values_before_http() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    for (index, options) in [json!({}), json!({"apiKey":""})].into_iter().enumerate() {
+        run_scenario(
+            &mut source,
+            Scenario::new(
+                360 + index as u32,
+                "google-generative-ai",
+                gemini_model("gemini-2.5-flash"),
+            )
+            .stream(options)
+            .responses(vec![]),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn vertex_project_location_empty_options_use_truthy_source_precedence() {
+    let mut source = TsOracle::spawn_with_environment(
+        "google-api-oracle.ts",
+        "packages/ai/src/api",
+        &[("NODE_TLS_REJECT_UNAUTHORIZED", "0".into())],
+    );
+    for (index, extra) in [
+        json!({"project":"","location":"us-central1"}),
+        json!({"project":"p","location":""}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        run_scenario(
+            &mut source,
+            Scenario::new(370 + index as u32, "google-vertex", vertex_model("gemini-2.5-flash"))
+                .stream(json!({"apiKey":"gcp-vertex-credentials"}))
+                .extra(extra)
+                .responses(vec![]),
+        )
+        .await;
+    }
+    run_scenario(&mut source,Scenario::new(372,"google-vertex",vertex_model("gemini-2.5-flash"))
+        .stream(json!({"apiKey":"gcp-vertex-credentials","env":{"GOOGLE_CLOUD_PROJECT":"env-project","GCLOUD_PROJECT":"secondary","GOOGLE_CLOUD_LOCATION":"global","GOOGLE_APPLICATION_CREDENTIALS":authorized_user_path()}}))
+        .extra(json!({"project":"","location":""})).token_responses(vec![token_response("token")])
+        .responses(vec![sse_events_response(&text_events("env precedence"))])).await;
+}
+
+#[tokio::test]
+async fn vertex_base_url_version_detection_uses_url_path_not_query() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let mut model = vertex_model("gemini-2.5-flash");
+    model["baseUrl"] = json!("https://proxy.example/v1?tenant=one");
+    run_scenario(
+        &mut source,
+        Scenario::new(380, "google-vertex", model).responses(vec![sse_events_response(&text_events("version path"))]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn vertex_full_resource_model_does_not_get_a_second_project_prefix() {
+    let mut source = TsOracle::spawn_with_environment(
+        "google-api-oracle.ts",
+        "packages/ai/src/api",
+        &[("NODE_TLS_REJECT_UNAUTHORIZED", "0".into())],
+    );
+    run_scenario(
+        &mut source,
+        Scenario::new(
+            390,
+            "google-vertex",
+            vertex_model("projects/model-project/locations/global/publishers/google/models/gemini-2.5-flash"),
+        )
+        .stream(
+            json!({"apiKey":"gcp-vertex-credentials","env":{"GOOGLE_APPLICATION_CREDENTIALS":authorized_user_path()}}),
+        )
+        .extra(json!({"project":"caller-project","location":"us-central1"}))
+        .token_responses(vec![token_response("token")])
+        .responses(vec![sse_events_response(&text_events("full resource"))]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn google_absent_function_name_keeps_the_literal_source_generated_id_prefix() {
+    let mut source = TsOracle::spawn("google-api-oracle.ts", "packages/ai/src/api");
+    let events =
+        vec![json!({"candidates":[{"content":{"parts":[{"functionCall":{"args":{}}}]},"finishReason":"STOP"}]})];
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        let model = if api == "google-vertex" {
+            vertex_model("gemini-2.5-flash")
+        } else {
+            gemini_model("gemini-2.5-flash")
+        };
+        run_scenario(
+            &mut source,
+            Scenario::new(400 + index as u32, api, model).responses(vec![sse_events_response(&events)]),
+        )
+        .await;
+    }
+}

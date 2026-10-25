@@ -1,5 +1,39 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Runtime-registration probe rejection (2026-10-25)
+
+Actual frozen baseline `/tmp/storage3-control-registration-source.log` preserves a coded TypeError from the injected live-process probe before replacement. Native API RED `/tmp/storage3-control-registration-api-red.log` accepted only bool. The existing registration option now returns Result<bool,CallbackError>; the existing ControlDbError source preserves it and aborts before listener/health mutation. The test compares full original error/call count and unchanged listener/health records. Default process probing is unchanged; no new carrier or callback family.
+
+## Mailbox eligibility callback rejection (2026-10-25)
+
+Actual frozen baseline `/tmp/storage3-control-eligibility-source.log` invokes the predicate twice, preserves its coded TypeError and leaves all three messages pending. Native API RED `/tmp/storage3-control-eligibility-api-red.log` could return only bool. Eligibility now returns Result<bool,CallbackError> through the existing ControlDbError callback source; failure aborts candidate collection before any claim. Tests throw at the first/second predicate and check exact original error/call count plus all unclaimed rows. Mechanical Ok adapters cover AgentSession, wait/question relay and existing fixtures; no outside-lane algorithm change or new carrier.
+
+## Detached-finalization reference bytes and reciprocal replay (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-finalization-red.log` shows new output references require label/path order while normalized existing references require path/label. Native used path/label for every reference, breaking canonical bytes and cross-runtime replay comparisons. The finalizer now constructs only its new output reference in the frozen order, leaving existing-reference normalization unchanged. The source/native fixture covers completed/failed/aborted outcomes, duplicate output-ref removal, complete stored bytes and TS-finalized→native-replay plus native-finalized→TS-replay.
+
+## Superseded runtime recovery and replay (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-recovery-red.log` exposes missing ordinary recovery branches: native rejected a live PID whose old incarnation was superseded by the registered supervisor, and rejected replay of an already recovered lost_runtime terminal row. Recovery now passes the replacement identity to the existing supersession authority and checks the frozen terminal/error/cleared-owner replay before active-runtime planning. Reconciliation supplies no replacement identity, preserving its existing behavior. Two source/native tests cover running→failed and cancelling→aborted, retained tool-call ID, unchanged replay result and exactly one terminal outbox row. Source creates both databases and primes replay through the real public API.
+
+## Agent metadata clearing and insertion order (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-agent-metadata-red.log` reproduces two ordinary failures: clearing lastActivity retained its previous value, and a combined activity/model update wrote model before currentActivity in canonical JSON. The activity helper now supplies the existing deletion sentinel for None; combined metadata is built in frozen currentActivity-then-model order. Source seeds both DBs; tests compare complete returned values and stored bytes. No new sentinel/carrier or metadata algorithm.
+
+## Attached acquisition lifecycle and legacy owner guards (2026-10-25)
+
+Actual-source terminal acquisition RED `/tmp/storage3-control-acquisition-red.log` returned invalid_agent for completed agents while native acquired ownership and advanced revision. The reader now propagates parsing failures and rejects non-recoverable lifecycles before ownership mutation, matching frozen ordering. Seven lifecycle states are tested with real registered supervisor processes and complete persisted agent/ownership comparisons.
+
+Actual-source shared-DB RED `/tmp/storage3-control-legacy-owner-valid-red.log` preserves an alive nonce owner when its proposed replacement lacks a nonce; native incorrectly superseded it. Acquisition now reuses the existing runtime-process supersession authority (both nonces required); the duplicate weaker helper is deleted. The test uses TS registration/creation, native acquisition and unchanged persisted state. The first legacy probe had a fixture DTO comparison type error, not a production RED.
+
+## Empty-parent creation guards (2026-10-25)
+
+Actual-source attachment RED `/tmp/storage3-control-attachment-parent-red.log` treats an empty parent ID as main-thread attachment; native rejected it. Actual-source child RED `/tmp/storage3-control-child-parent-valid-red.log` rejects empty parent IDs before DB access, while native opened a blocked path and raised EEXIST. Attachments now use the frozen falsey-parent main alias; failed/runtime child creation returns parent_not_found before opening the DB. The first child probe failed only because its fixture supplied a nonexistent native input field; it is not production evidence.
+
+## Detached-cancellation freshness rollback (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-cancellation-real-red.log` shows expired cancellation timestamps advanced native lifecycle/revision while frozen rejected the command and rolled back the whole mutation. The lifecycle writer now calls the existing retention freshness authority inside the transaction, after the agent CAS and before command insertion, matching frozen ordering. The fixture compares original error, complete agent and canonical command bytes for expired/fresh cases. Earlier cancellation probe logs failed on fixture-only enum serialization/type inference/native-object JSON representation and are not production RED evidence.
+
 ## Raw agent writes versus store copies (2026-10-25)
 
 Actual-source attachment creation RED `/tmp/storage3-control-agent-wire-red.log` shows typed agent serialization incorrectly applied store copyAccount order to a raw control-DB payload. Existing approved AgentNode order-only metadata now records object paths (including reference-array entries); no JSON values are duplicated. Raw control reads/creation/mutation retain original nested orders. Only copyAgent discards metadata for the objects it rebuilds (account root; result/reference, worker, transcript and event-stream subtrees), so store copies keep their distinct frozen constructor order. The fixture compares actual frozen/native attachment SQLite data bytes for five ordinary nested fields.

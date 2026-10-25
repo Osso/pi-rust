@@ -269,6 +269,9 @@ fn build_params(
 }
 
 fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> Option<Value> {
+    if crate::api::google_shared::uses_server_managed_thinking(&model.id) {
+        return None;
+    }
     let thinking = thinking?;
     if thinking.enabled && model.reasoning {
         let mut config = Map::new();
@@ -288,7 +291,7 @@ fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> O
 }
 
 fn get_disabled_thinking_config(model: &Model) -> Value {
-    if is_gemini3_pro_id(&model.id) {
+    if is_gemini3_pro_id(&model.id) || model.id == "gemini-3.7-flash" {
         return json!({"thinkingLevel": GoogleThinkingLevel::Low});
     }
     if is_gemini3_flash_id(&model.id) {
@@ -362,6 +365,7 @@ fn project_from_options_or_env(options: &GoogleVertexOptions) -> Result<JsString
     options
         .project
         .clone()
+        .filter(|project| !project.is_empty())
         .map(JsString::from)
         .or_else(|| get_provider_env_value("GOOGLE_CLOUD_PROJECT", env))
         .or_else(|| get_provider_env_value("GCLOUD_PROJECT", env))
@@ -376,6 +380,7 @@ fn location_from_options_or_env(options: &GoogleVertexOptions) -> Result<JsStrin
     options
         .location
         .clone()
+        .filter(|location| !location.is_empty())
         .map(JsString::from)
         .or_else(|| get_provider_env_value("GOOGLE_CLOUD_LOCATION", env))
         .ok_or_else(|| {

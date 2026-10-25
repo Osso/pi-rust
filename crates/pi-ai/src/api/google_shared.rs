@@ -25,6 +25,11 @@ pub fn clamp_google_max_output_tokens(max_tokens: f64) -> f64 {
     }
 }
 
+/// Latest alias rejects an explicit thinkingConfig; the server owns thinking.
+pub fn uses_server_managed_thinking(model_id: &str) -> bool {
+    model_id.to_lowercase() == "gemini-flash-latest"
+}
+
 /// Thinking level for Gemini 3 models; mirrors Google's `ThinkingLevel` enum values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
@@ -50,8 +55,8 @@ pub enum FunctionCallingConfigMode {
 /// One `Content` in the Gemini request body.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct GoogleContent {
-    pub parts: Vec<JsValue>,
     pub role: String,
+    pub parts: Vec<JsValue>,
 }
 
 /// Whether a streamed part is thinking content (`thought: true`).
@@ -99,13 +104,11 @@ pub fn convert_messages(model: &Model, context: &Context, now: f64) -> Vec<Googl
     let normalize_tool_call_id = |id: &str, _: &Model, _: &AssistantMessage| -> String {
         if require_ids {
             let sanitized: String = id
-                .chars()
-                .map(|character| {
-                    if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                        character
-                    } else {
-                        '_'
-                    }
+                .encode_utf16()
+                .map(|unit| {
+                    char::from_u32(u32::from(unit))
+                        .filter(|character| character.is_ascii_alphanumeric() || *character == '_' || *character == '-')
+                        .unwrap_or('_')
                 })
                 .collect();
             sanitized.chars().take(64).collect()
@@ -179,10 +182,10 @@ fn convert_assistant_block(model: &Model, same_provider_and_model: bool, block: 
 }
 
 fn convert_text_block(same_provider_and_model: bool, text: &crate::types::TextContent) -> Option<JsValue> {
-    let signature = resolve_thought_signature(same_provider_and_model, text.text_signature.as_deref());
-    if text.text.trim().is_empty() && signature.is_none() {
+    if text.text.trim().is_empty() {
         return None;
     }
+    let signature = resolve_thought_signature(same_provider_and_model, text.text_signature.as_deref());
     let mut part = JsObject::new();
     part.insert("text".into(), JsValue::String(sanitize_surrogates(&text.text).into()));
     insert_signature(&mut part, signature);
@@ -190,16 +193,13 @@ fn convert_text_block(same_provider_and_model: bool, text: &crate::types::TextCo
 }
 
 fn convert_thinking_block(same_provider_and_model: bool, thinking: &crate::types::ThinkingContent) -> Option<JsValue> {
+    if thinking.thinking.trim().is_empty() {
+        return None;
+    }
     if !same_provider_and_model {
-        if thinking.thinking.trim().is_empty() {
-            return None;
-        }
         return Some(pi_js_compat::js_json!({"text": sanitize_surrogates(&thinking.thinking)}));
     }
     let signature = resolve_thought_signature(same_provider_and_model, thinking.thinking_signature.as_deref());
-    if thinking.thinking.trim().is_empty() && signature.is_none() {
-        return None;
-    }
     let mut part = JsObject::new();
     part.insert("thought".into(), JsValue::Bool(true));
     part.insert(
@@ -464,17 +464,14 @@ pub(crate) fn is_gemma4_id(model_id: &str) -> bool {
 
 fn gemini3_suffix_matches(model_id: &str, suffix: &str) -> bool {
     let id = model_id.to_lowercase();
-    let Some(rest) = id.strip_prefix("gemini-3") else {
-        return false;
-    };
-    let rest = match rest.strip_prefix('.') {
-        Some(rest) => match rest.find('-') {
-            Some(index) if rest[..index].chars().all(|character| character.is_ascii_digit()) => &rest[index..],
-            _ => return false,
-        },
-        None => rest,
-    };
-    rest.starts_with(suffix)
+    id.match_indices("gemini-3").any(|(index, prefix)| {
+        let rest = &id[index + prefix.len()..];
+        let Some(version) = rest.strip_prefix('.') else {
+            return rest.starts_with(suffix);
+        };
+        let digits = version.bytes().take_while(u8::is_ascii_digit).count();
+        digits > 0 && version[digits..].starts_with(suffix)
+    })
 }
 
 /// `ThinkingLevel` → `ModelThinkingLevel` for `clampThinkingLevel`.

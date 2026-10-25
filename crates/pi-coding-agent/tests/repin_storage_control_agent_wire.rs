@@ -32,6 +32,7 @@ fn control_attachment_preserves_input_json_without_store_copy_normalization() {
             "eventStream",
             json!({"path":"/events","eventCount":2,"truncated":false,"byteLimit":3}),
         ),
+        (5, "parentId", json!("")),
     ] {
         let source_db = root.path().join(format!("source{case}.sqlite"));
         let native_db = JsString::from(root.path().join(format!("native{case}.sqlite")).to_str().unwrap());
@@ -65,5 +66,80 @@ fn control_attachment_preserves_input_json_without_store_copy_normalization() {
         })
         .unwrap();
         assert_eq!(stored, expected, "{field}");
+    }
+}
+
+#[test]
+fn empty_parent_child_guards_run_before_database_open() {
+    use pi_coding_agent::core::session_control_db::{
+        CreateChildError, CreateFailedMultiAgentChildInput, CreateFailedMultiAgentChildResult,
+        CreateMultiAgentChildWithRuntimeOwnershipInput, CreateMultiAgentChildWithRuntimeOwnershipResult,
+        MultiAgentRuntimeOwnerIdentity, create_failed_multi_agent_child,
+        create_multi_agent_child_with_runtime_ownership,
+    };
+    let root = tempfile::tempdir().unwrap();
+    let blocked = root.path().join("blocked");
+    std::fs::write(&blocked, "not a directory").unwrap();
+    let db = JsString::from(blocked.join("control.sqlite").to_str().unwrap());
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let identity = pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap();
+    for failed in [false, true] {
+        let lifecycle = if failed { "failed" } else { "running" };
+        let operation = if failed {
+            "createFailedMultiAgentChild"
+        } else {
+            "createMultiAgentChildWithRuntimeOwnership"
+        };
+        let agent = json!({"id":"child","parentId":"","displayName":"Child","agentType":"worker","lifecycle":lifecycle,"revision":1,"createdAt":"2026-10-25T00:00:00.000Z","updatedAt":"2026-10-25T00:00:00.000Z","cwd":"/fixture","permission":{"policy":"on-request","narrowed":true}});
+        let response=source.request(&json!({"id":1,"steps":[{"op":"call","args":[operation,[db,{"agent":agent,"agentId":"child","sessionPath":"/main.jsonl","nowIso":"2026-10-25T00:00:00.000Z","processIdentity":identity,"owner":{"sessionId":"supervisor","agentId":null}}]]}]}));
+        assert_eq!(
+            response["output"][0],
+            json!({"ok":true,"value":{"ok":false,"error":"parent_not_found"}}),
+            "{response}"
+        );
+        let agent: AgentSnapshot = from_value(&JsValue::from(agent)).unwrap();
+        if failed {
+            let result = create_failed_multi_agent_child(
+                &db,
+                &CreateFailedMultiAgentChildInput {
+                    agent,
+                    session_path: "/main.jsonl".into(),
+                    now_iso: "2026-10-25T00:00:00.000Z".into(),
+                },
+            );
+            assert!(
+                matches!(
+                    result,
+                    Ok(CreateFailedMultiAgentChildResult::Err {
+                        error: CreateChildError::ParentNotFound
+                    })
+                ),
+                "{result:?}"
+            );
+        } else {
+            let result = create_multi_agent_child_with_runtime_ownership(
+                &db,
+                &CreateMultiAgentChildWithRuntimeOwnershipInput {
+                    agent,
+                    agent_id: "child".into(),
+                    session_path: "/main.jsonl".into(),
+                    now_iso: "2026-10-25T00:00:00.000Z".into(),
+                    process_identity: identity.clone(),
+                    owner: MultiAgentRuntimeOwnerIdentity {
+                        session_id: "supervisor".into(),
+                        agent_id: None,
+                    },
+                },
+            );
+            assert!(
+                matches!(
+                    result,
+                    Ok(CreateMultiAgentChildWithRuntimeOwnershipResult::Err {
+                        error: CreateChildError::ParentNotFound
+                    })
+                ),
+                "{result:?}"
+            );
+        }
     }
 }

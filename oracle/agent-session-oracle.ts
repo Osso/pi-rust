@@ -184,6 +184,10 @@ async function run(request) {
 		"next-turn-threshold",
 		"auto-abort-hook",
 		"auto-duration-hook",
+		"manual-compact-events",
+		"auto-compact-events",
+		"manual-cancel-events",
+		"auto-cancel-events",
 		"background-events",
 		"background-disabled",
 		"background-cancel-wait",
@@ -198,6 +202,10 @@ async function run(request) {
 						"next-turn-threshold",
 						"auto-abort-hook",
 						"auto-duration-hook",
+						"manual-compact-events",
+						"auto-compact-events",
+						"manual-cancel-events",
+						"auto-cancel-events",
 					].includes(request.operation)
 						? { thresholdPercent: 50, reserveTokens: 0 }
 						: {}),
