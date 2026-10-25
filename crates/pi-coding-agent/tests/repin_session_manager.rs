@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::repin_storage_history as oracle;
 
 use pi_agent_core::agent::AgentMessage;
 use pi_coding_agent::core::session_manager::{SessionManager, SessionManagerError, SetMetadataControlDbPathOptions};

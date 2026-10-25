@@ -4,7 +4,7 @@ import { pathToFileURL } from "node:url";
 import type * as Source from "@pi-oracle-source/coding-agent/src/core/session-manager.ts";
 
 type Api = typeof Source;
-type Manager = InstanceType<Api["SessionManager"]>;
+type Manager = Source.SessionManager;
 const api = (await import(pathToFileURL(process.argv[2]).href)) as Api;
 const control = (await import(
 	new URL("./session-control-db.ts", pathToFileURL(process.argv[2])).href
