@@ -408,11 +408,11 @@ async fn on_payload_can_replace_the_request_body_and_on_response_sees_the_status
     let fetch = RecordingFetch::new(vec![
         ScriptedResponse::json(200, &success_body()).with_header("x-request-id", "r1"),
     ]);
-    let on_payload = Arc::new(|mut payload: Value, _model: ImagesModel| {
+    let on_payload = Arc::new(|mut payload: pi_js_compat::js_json::JsValue, _model: ImagesModel| {
         Box::pin(async move {
-            payload["custom"] = json!(true);
+            payload["custom"] = pi_js_compat::js_json!(true);
             Ok(Some(payload))
-        }) as BoxFuture<'static, Result<Option<Value>, CallbackError>>
+        }) as BoxFuture<'static, Result<Option<pi_js_compat::js_json::JsValue>, CallbackError>>
     });
     let responses = Arc::new(Mutex::new(Vec::new()));
     let recorder = Arc::clone(&responses);

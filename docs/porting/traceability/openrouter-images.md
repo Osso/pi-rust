@@ -2,7 +2,7 @@
 
 ## Q4 common-pin status
 
-Partial at remaining lossless interface/response boundaries. Corrected global-fetch oracle now drives frozen SDK and full current scenario matrix is GREEN, plus13 behavioral tests. Source abort text `Request was aborted.` restored after two RED behavioral tests and source SDK error proof (`core/error.mjs:67–69`). Ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`, `openrouter_images-sdk626-abort.log` and `differential_openrouter_images-sdk626-abort.log`. Nonstream SDK response JSON and image onPayload still cross scalar Value; these unapproved gaps remain pending re-port. [Audit/proof](../ai-scripted-provider-oracles.md). Historical full differential claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
+Superseded by the 2026-10-25 whole-module audit below. Corrected global-fetch oracle drives frozen SDK. Source abort text `Request was aborted.` restored after two RED behavioral tests and source SDK error proof (`core/error.mjs:67–69`). Historical ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. [Audit/proof](../ai-scripted-provider-oracles.md). Historical full differential claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
 
 Source: `packages/ai/src/api/openrouter-images.ts`, `packages/ai/src/api/openrouter-images.lazy.ts`.
 Rust: `crates/pi-ai/src/api/openrouter_images.rs`, `crates/pi-ai/src/api/openrouter_images_lazy.rs`.
@@ -12,9 +12,9 @@ Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/
 - `generateImages` → `generate_images(model, context, options) -> BoxFuture<'static, Result<AssistantImages, CallbackError>>`. Failures are encoded in the returned `AssistantImages` (`stopReason: "error" | "aborted"`), matching TypeScript; `Ok` is always returned.
 - The frozen `openai@6.26.0` client behavior is reused from `api::openai_sdk` (`SdkClient`, `create_chat_completion`, `format_request_error`), not reimplemented. `SdkClientConfig.default_headers` receives `providerHeadersToRecord({ ...model.headers, ...options.headers })` (exact-key merge, explicit `null` suppressions dropped).
 - `openrouterImagesApi()` → `openrouter_images_api() -> Arc<dyn ProviderImages>` wrapping `OpenRouterImagesApi`; Rust links the implementation directly (no dynamic import).
-- Request body is built with `serde_json::Map` insertion order (`model`, `messages`, `stream`, `modalities`), matching `JSON.stringify`.
+- Initial request body is built in source order (`model`, `messages`, `stream`, `modalities`), matching `JSON.stringify`. Image onPayload and nonstream SDK JSON are native `JsValue`; response captions retain exact UTF-16.
 - `onPayload`/`onResponse` use the image-specific callback types in `ImagesRequestOptions` (TypeScript parameterizes `ProviderRequestOptions` over `ImagesModel`).
-- Timeout: the SDK client default is 10 minutes; `timeoutMs` (including `0` meaning no timeout) races the request and maps expiry to the SDK's `Request timed out.` connection error, which the retry wrapper may retry.
+- Timeout: the SDK client default is 10 minutes; `timeoutMs` covers fetch acquisition/headers, not successful response-body reads. The old second whole-body timeout is removed. Source does not use pi's `maxRetryDelayMs`; retry requests increment the SDK attempt header.
 - Data URLs are parsed with the source regex semantics: `data:<mime>;base64,<data>`, non-empty mime and payload.
 
 ## Symbols / branches → proof
@@ -38,10 +38,10 @@ Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/
 | lazy API factory | `openrouter_images_api` | used by `images-models`/provider tests |
 
 ## Gaps
-- `2xx` non-JSON body handling still needs frozen6.26 SDK proof; the historical6.40 discrepancy claim is retired, not an approved deviation.
+- Pathological wrong-typed response shapes, scalar image URL/base64 carriers with unmatched units, fractional/negative retry counts, and SDK/runtime timer scheduling remain explicit gaps under the user-observable bar; no lossy conversion is used for human captions or callback JSON.
 - The TypeScript SDK logs, `withResponse()` response metadata beyond status/headers, and `dangerouslyAllowBrowser` are not observable here.
-- Arbitrary signal.reason is unproven. Current early/body-read abort cases preserve source SDK default `Request was aborted.` exactly.
-- Header names are lowercased by the SDK stand-in; JavaScript `Headers` does the same on the wire. Differential headers are compared after dropping `user-agent`/`x-stainless-*`, which are environment/SDK-internal.
+- Current early/body-read abort cases preserve source SDK default `Request was aborted.` exactly; arbitrary reason handling uses the shared SDK abort path.
+- Header names are lowercased by the SDK stand-in; JavaScript `Headers` does the same on the wire. The image oracle retains exact retry-count; host-version identity headers remain normalized, while shared SDK fixtures own that identity boundary.
 
 ## Discrepancies
 - None.
@@ -51,3 +51,11 @@ Tests: `crates/pi-ai/tests/openrouter_images.rs` (13 behavioral), `crates/pi-ai/
 Image SDK client key, base URL and model/options header values are native; shared SDK request construction owns ByteString and URL conversion. Content sanitation sites remain source-specific and unchanged.
 
 [Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+
+## Whole common-pin audit (2026-10-25)
+
+All exports and branches in frozen 185-line module and 10-line lazy factory compared with native: key guard, header precedence, source sanitation, modalities, callback replacement/catch, SDK timeout/retry options, response ID/usage/cache arithmetic/cost, first-choice caption, image URL forms/regex, and abort/error catch. Deleted duplicate body timeout; no new dependency or fallback.
+
+`differential_openrouter_images` now drives 19 request/response scenarios (0–13,15–19) plus native UTF-16 response/payload replacement. Genuine REDs: non-JSON 2xx produced the wrong SyntaxError instead of the source property error; native JSON rejected a valid unmatched caption; retry attempt stayed zero; successful slow body incorrectly timed out after headers. The widened image callback is mechanical shared-contract fallout in request.rs and its existing behavioral test. Callback string/object rejection now uses the source Error/JSON catch policy; empty API key never sends a request. Content-Type JSON/+json and 204/null decoding use the real SDK boundary, not unconditional JSON parse.
+
+Proof artifacts: `/tmp/ai-api-images-{red,retry-red,timeout-red,green}.log`. The source method's unused maxRetryDelayMs is not forwarded. Any remaining SDK host/timer/numeric/pathological boundaries are the explicit gap row above, not full live-provider acceptance.

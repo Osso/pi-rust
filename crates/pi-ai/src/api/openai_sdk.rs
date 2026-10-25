@@ -50,7 +50,7 @@ pub struct SdkResponse {
 pub struct SdkJsonResponse {
     pub status: u16,
     pub headers: Vec<(String, String)>,
-    pub data: Value,
+    pub data: JsValue,
 }
 
 #[derive(Debug)]
@@ -147,8 +147,17 @@ impl SdkClient {
         let status = response.status;
         let headers = response.headers.clone();
         let text = String::from_utf8_lossy(&read_success_body(response.body, signal.as_ref()).await?).into_owned();
-        let data = pi_js_compat::js_json::parse(&text)
-            .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.into_message())))?;
+        let json_content = headers.iter().any(|(name, value)| {
+            name.eq_ignore_ascii_case("content-type") && (value.contains("application/json") || value.contains("+json"))
+        });
+        let data = if status == 204 {
+            JsValue::Null
+        } else if json_content {
+            pi_js_compat::js_json::parse_lossless(&text)
+                .map_err(|error| ProviderRequestError::Other(CallbackError::new(error.into_message())))?
+        } else {
+            JsValue::String(text.into())
+        };
         Ok(SdkJsonResponse { status, headers, data })
     }
 
