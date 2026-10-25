@@ -423,7 +423,7 @@ fn take_pending_wait_coordination(
     let mailbox_messages = take_runtime_mailbox_messages_for_delivery(
         &recipient.control_db_path,
         &recipient.address,
-        is_runtime_coordination_mailbox_message,
+        |message| Ok(is_runtime_coordination_mailbox_message(message)),
         usize::MAX,
     )
     .map_err(|error| HandlerError::new(error.message()))?;

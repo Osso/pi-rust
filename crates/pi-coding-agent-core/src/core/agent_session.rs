@@ -2731,7 +2731,7 @@ impl AgentSession {
         let mut messages = crate::core::session_control_db::take_runtime_mailbox_messages_for_delivery(
             control_db_path,
             &recipient,
-            |message| is_runtime_mailbox_message_due(message, options),
+            |message| Ok(is_runtime_mailbox_message_due(message, options)),
             i64::MAX as usize,
         )
         .map_err(|cause| AgentSessionError::new(cause.message()))?;
@@ -5338,8 +5338,11 @@ impl AgentSession {
         }
         let levels = self.get_available_thinking_levels();
         let current = self.thinking_level();
-        let index = levels.iter().position(|level| *level == current).unwrap_or(0);
-        let next = levels[(index + 1) % levels.len()];
+        let next_index = levels
+            .iter()
+            .position(|level| *level == current)
+            .map_or(0, |index| (index + 1) % levels.len());
+        let next = levels[next_index];
         self.set_thinking_level(next)?;
         Ok(Some(next))
     }
@@ -6103,8 +6106,6 @@ impl AgentSession {
         guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
-        let compaction_started_during_tool_execution =
-            was_running_agent_turn && !self.inner.agent.pending_tool_calls().is_empty();
         self.disconnect_from_agent();
         self.abort().await?;
         self.cancel_background_compaction().await;
@@ -6123,7 +6124,6 @@ impl AgentSession {
                 custom_instructions,
                 &abort,
                 was_running_agent_turn,
-                compaction_started_during_tool_execution,
                 started_at,
                 "manual",
             )
@@ -6148,7 +6148,6 @@ impl AgentSession {
             }
             Err(error) => {
                 let aborted = error.message() == "Compaction cancelled";
-                *lock(&self.inner.compaction_abort_controller) = None;
                 self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: "manual".to_owned(),
@@ -6157,6 +6156,11 @@ impl AgentSession {
                     will_retry: false,
                     error_message: (!aborted).then(|| JsString::from("Compaction failed: ") + error.message()),
                 })));
+                let mut controller = lock(&self.inner.compaction_abort_controller);
+                if controller.as_ref() == Some(&controller_abort) {
+                    *controller = None;
+                }
+                drop(controller);
                 self.reconnect_to_agent();
                 Err(error)
             }
@@ -6217,13 +6221,11 @@ impl AgentSession {
         Ok(extension_compaction)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn compact_with_settings(
         &self,
         custom_instructions: Option<&JsString>,
         abort: &AbortSignal,
         was_running_agent_turn: bool,
-        compaction_started_during_tool_execution: bool,
         started_at: i64,
         reason: &str,
     ) -> Result<(crate::core::compaction::CompactionResult, bool), AgentSessionError> {
@@ -6267,9 +6269,47 @@ impl AgentSession {
         let duration_ms = (now_millis() - started_at) as f64;
         let compact_result = self.append_compaction_result(compact_result, Some(from_extension), duration_ms)?;
         let will_retry = reason == "manual"
-            && !compaction_started_during_tool_execution
             && (was_running_agent_turn || should_continue_after_manual_compaction(&self.inner.agent.messages()));
+        self.emit_session_compact_event(&compact_result.summary, from_extension, reason, will_retry)
+            .await;
         Ok((compact_result, will_retry))
+    }
+
+    async fn emit_session_compact_event(
+        &self,
+        summary: &JsString,
+        from_extension: bool,
+        reason: &str,
+        will_retry: bool,
+    ) {
+        let entry = lock(&self.inner.session_manager)
+            .get_entries()
+            .into_iter()
+            .find_map(|entry| match entry {
+                SessionEntry::Known(crate::core::session_manager::KnownSessionEntry::Compaction(entry))
+                    if &entry.summary == summary =>
+                {
+                    Some(entry)
+                }
+                _ => None,
+            });
+        let Some(compaction_entry) = entry else {
+            return;
+        };
+        let mut event = ExtensionEvent::SessionCompact(crate::core::extensions::types::SessionCompactEvent {
+            compaction_entry,
+            from_extension,
+            reason: compaction_reason(reason),
+            will_retry,
+        });
+        self.runner().emit(&mut event).await;
+    }
+
+    fn clear_auto_compaction_controller(&self, expected: &AbortController) {
+        let mut controller = lock(&self.inner.auto_compaction_abort_controller);
+        if controller.as_ref() == Some(expected) {
+            *controller = None;
+        }
     }
 
     fn append_compaction_result(
@@ -6700,7 +6740,6 @@ impl AgentSession {
             .await
         {
             CompactionExtensionDecision::Cancel => {
-                *lock(&self.inner.auto_compaction_abort_controller) = None;
                 self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
@@ -6709,6 +6748,7 @@ impl AgentSession {
                     will_retry: false,
                     error_message: None,
                 })));
+                self.clear_auto_compaction_controller(&controller_abort);
                 return Ok(false);
             }
             CompactionExtensionDecision::None => {}
@@ -6730,7 +6770,6 @@ impl AgentSession {
             .await
             {
                 CompactionExtensionDecision::Cancel => {
-                    *lock(&self.inner.auto_compaction_abort_controller) = None;
                     self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                         event_type: "compaction_end",
                         reason: reason.to_owned(),
@@ -6739,6 +6778,7 @@ impl AgentSession {
                         will_retry: false,
                         error_message: None,
                     })));
+                    self.clear_auto_compaction_controller(&controller_abort);
                     return Ok(false);
                 }
                 CompactionExtensionDecision::None => {}
@@ -6780,9 +6820,10 @@ impl AgentSession {
                 }
             }
         };
-        *lock(&self.inner.auto_compaction_abort_controller) = None;
-        match result {
+        let should_continue = match result {
             Ok((compaction_result, _)) => {
+                self.emit_session_compact_event(&compaction_result.summary, from_extension, reason, will_retry)
+                    .await;
                 self.emit(AgentSessionEvent::CompactionEnd(Box::new(CompactionEndEvent {
                     event_type: "compaction_end",
                     reason: reason.to_owned(),
@@ -6798,9 +6839,10 @@ impl AgentSession {
                     {
                         self.inner.agent.truncate_messages(messages.len() - 1);
                     }
-                    return Ok(true);
+                    true
+                } else {
+                    self.inner.agent.has_queued_messages()
                 }
-                Ok(self.inner.agent.has_queued_messages())
             }
             Err(error) => {
                 let aborted = abort.aborted() || error.message() == "Compaction cancelled";
@@ -6818,9 +6860,11 @@ impl AgentSession {
                         }
                     }),
                 })));
-                Ok(false)
+                false
             }
-        }
+        };
+        self.clear_auto_compaction_controller(&controller_abort);
+        Ok(should_continue)
     }
 
     pub fn set_auto_compaction_enabled(&self, enabled: bool) {

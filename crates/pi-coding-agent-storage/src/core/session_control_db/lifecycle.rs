@@ -485,13 +485,15 @@ fn detached_job_agent_details(
         label: Some(terminal.output.label.clone()),
         path: terminal.output.path.clone(),
     };
-    let mut file_refs = vec![output_ref.clone()];
-    file_refs.extend(
-        existing_file_refs
-            .into_iter()
-            .filter(|file_ref| file_ref.label != output_ref.label || file_ref.path != output_ref.path),
-    );
-    let file_refs_value = js_json::to_value(&file_refs).map_err(|error| ControlDbError::new(error.to_string()))?;
+    let mut file_refs = vec![pi_js_compat::js_json!({"label": output_ref.label, "path": output_ref.path})];
+    let existing = existing_file_refs
+        .into_iter()
+        .filter(|file_ref| file_ref.label != output_ref.label || file_ref.path != output_ref.path)
+        .map(|file_ref| js_json::to_value(&file_ref))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| ControlDbError::new(error.to_string()))?;
+    file_refs.extend(existing);
+    let file_refs_value = JsValue::Array(file_refs);
     let mut result = JsObject::new();
     result.insert("fileRefs".into(), file_refs_value);
     if terminal_lifecycle == "aborted" {

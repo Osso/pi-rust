@@ -19,9 +19,11 @@ pub use retention::{MAILBOX_MESSAGE_RETENTION_MS, is_mailbox_message_expired};
 mod schema;
 mod sessions;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use parking_lot::ReentrantMutex;
 use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 
@@ -240,7 +242,8 @@ pub struct RuntimeMailboxListener {
 
 #[derive(Clone, Default)]
 pub struct RuntimeMailboxRegistrationOptions {
-    pub is_runtime_process_alive: Option<Arc<dyn Fn(u32) -> bool + Send + Sync>>,
+    pub is_runtime_process_alive:
+        Option<Arc<dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync>>,
     pub reconcile_runtime_replacement: Option<bool>,
     pub runtime_instance_id: Option<String>,
 }
@@ -338,7 +341,7 @@ pub fn with_immediate_transaction<T>(
 }
 
 struct RetainedControlDb {
-    connection: Mutex<Option<Connection>>,
+    connection: ReentrantMutex<RefCell<Option<Connection>>>,
     active_calls: Mutex<usize>,
     retain_count: Mutex<usize>,
     retention_thread: OnceLock<std::thread::Thread>,
@@ -362,8 +365,9 @@ pub fn with_control_db<T>(
     if let Some(retained) = retained {
         *retained.active_calls.lock().expect("retained call mutex") += 1;
         let result = {
-            let guard = retained.connection.lock().expect("retained connection mutex");
-            match guard.as_ref() {
+            let guard = retained.connection.lock();
+            let connection = guard.borrow();
+            match connection.as_ref() {
                 Some(connection) => callback(connection),
                 None => Err(ControlDbError::new("SQLite database is closed")),
             }
@@ -408,7 +412,7 @@ fn close_released_control_db(control_db_path: &JsString, retained: &Arc<Retained
         .lock()
         .expect("retained control db mutex")
         .remove(control_db_path);
-    retained.connection.lock().expect("retained connection mutex").take();
+    retained.connection.lock().borrow_mut().take();
     if let Some(thread) = retained.retention_thread.get() {
         thread.unpark();
     }
@@ -443,7 +447,7 @@ fn open_retained_control_db(control_db_path: &JsString) -> Result<Arc<RetainedCo
     })();
     result?;
     let retained = Arc::new(RetainedControlDb {
-        connection: Mutex::new(Some(db)),
+        connection: ReentrantMutex::new(RefCell::new(Some(db))),
         active_calls: Mutex::new(0),
         retain_count: Mutex::new(0),
         retention_thread: OnceLock::new(),
@@ -465,17 +469,9 @@ fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &Js
             loop {
                 std::thread::park_timeout(std::time::Duration::from_secs(60));
                 let Some(retained) = weak.upgrade() else { break };
-                let guard = match retained.connection.lock() {
-                    Ok(guard) => guard,
-                    Err(error) => {
-                        eprintln!(
-                            "Message retention cleanup failed for {}: {error}",
-                            encode_node_utf8(&path)
-                        );
-                        break;
-                    }
-                };
-                let Some(db) = guard.as_ref() else { break };
+                let guard = retained.connection.lock();
+                let connection = guard.borrow();
+                let Some(db) = connection.as_ref() else { break };
                 if let Err(error) = retention::cleanup_expired_messages(db) {
                     eprintln!(
                         "Message retention cleanup failed for {}: {error}",
@@ -790,21 +786,21 @@ pub(crate) fn to_runtime_mailbox_message_status(value: impl Into<JsString>) -> R
 
 /// `getRuntimeProcessInstanceId`: throws when the process identity cannot be read.
 pub fn get_runtime_process_instance_id() -> Result<&'static str, ControlDbError> {
-    static INSTANCE: OnceLock<Result<String, JsString>> = OnceLock::new();
+    static INSTANCE: OnceLock<Result<String, ControlDbError>> = OnceLock::new();
     INSTANCE
         .get_or_init(|| process_instance_id_from(read_process_identity(std::process::id())))
         .as_deref()
-        .map_err(|message| ControlDbError::new(message.clone()))
+        .map_err(Clone::clone)
 }
 
 fn process_instance_id_from(
     identity: Result<ProcessIdentity, crate::core::runtime_process::ProcessIdentityError>,
-) -> Result<String, JsString> {
-    let identity = identity.map_err(|error| error.message)?;
+) -> Result<String, ControlDbError> {
+    let identity = identity.map_err(|error| ControlDbError::new(error.message))?;
     let value = serde_json::json!({
         "pid": identity.pid,
         "startTimeTicks": identity.start_time_ticks,
-        "incarnation": pi_agent_core::uuidv7(),
+        "incarnation": pi_ai::utils::random_uuid::random_uuid()?,
     });
     Ok(js_json::stringify(&value))
 }
@@ -1139,10 +1135,10 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
         sender_host: optional_text("senderHost"),
         kind: to_runtime_mailbox_message_kind(&require_native_string_field(message, "kind", &context)?),
         body: text("body")?,
-        file_refs: message
-            .get(&JsString::from("fileRefs"))
-            .filter(|value| !value.is_null())
-            .cloned(),
+        file_refs: parse_file_refs(message.get("fileRefs"), &context)?
+            .map(|refs| js_json::to_value(&refs))
+            .transpose()
+            .map_err(|error| ControlDbError::new(error.to_string()))?,
         target_checkpoint: parse_steering_checkpoint(message.get("targetCheckpoint"), &context)?,
         store_ref: RuntimeMailboxStoreRef {
             message_id: row.message_id.clone().into(),
@@ -1193,7 +1189,7 @@ mod tests {
     fn process_instance_id_propagates_identity_read_failure() {
         assert_eq!(
             process_instance_id_from(identity_read_failure("Invalid process stat for process 1")),
-            Err("Invalid process stat for process 1".into())
+            Err(ControlDbError::new("Invalid process stat for process 1"))
         );
     }
 

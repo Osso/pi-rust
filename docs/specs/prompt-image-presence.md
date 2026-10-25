@@ -4,9 +4,10 @@ Agent-session prompt images follow frozen `agent-session.ts`: omission and an ex
 
 ## What it must do
 
-- [ ] Preserve omitted, empty and populated images in input-extension events.
-- [ ] Preserve absence, explicit empty images and an input transform to empty images through `before_agent_start`.
-- [ ] Preserve optional images at RPC and initial print/interactive prompt callers; user-message image content remains unchanged.
+- [x] Preserve omitted, empty and populated images in input-extension events.
+- [x] Preserve absence, explicit empty images and an input transform to empty images through `before_agent_start`; preserve populated image content in user messages.
+- [x] Preserve optional images through real RPC stdin/stdout commands and registered input extensions.
+- [ ] Preserve optional images at initial print/interactive prompt callers.
 
 ## How it works
 
@@ -22,10 +23,11 @@ Agent-session prompt images follow frozen `agent-session.ts`: omission and an ex
 
 - `crates/pi-coding-agent/tests/agent_session_prompt_images.rs`
 - `oracle/agent-session-input-images.ts`: actual frozen extension handlers.
+- `crates/pi-coding-agent/tests/differential_rpc_mode.rs`: real RPC image-presence differential.
 
 ## Known gaps (current cycle)
 
-- [ ] Runtime proof for the new core image-presence cases is pending; workspace compilation passes.
+- [ ] Initial print/interactive callers have mechanical option propagation and workspace compilation proof, not a new mode-level extension-event probe.
 
 ## Out of scope
 

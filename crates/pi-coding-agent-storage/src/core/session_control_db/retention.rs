@@ -2,7 +2,7 @@
 use super::ControlDbError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-use rusqlite::{Connection, params};
+use rusqlite::{Connection, OptionalExtension, params};
 pub const MAILBOX_MESSAGE_RETENTION_MS: i64 = 86_400_000;
 pub(crate) const MAILBOX_CREATED_AT_MS_SQL: &str = "COALESCE(CASE WHEN json_valid(data) THEN
 	CASE WHEN json_type(data, '$.createdAt') = 'text' THEN
@@ -34,13 +34,42 @@ pub(crate) fn cleanup_expired_messages(db: &Connection) -> Result<(), ControlDbE
 }
 pub(super) fn cleanup_expired_messages_at(db: &Connection, now_ms: i64) -> Result<(), ControlDbError> {
     let cutoff = now_ms - MAILBOX_MESSAGE_RETENTION_MS;
-    db.execute(
-        &format!("DELETE FROM multi_agent_mailbox_messages WHERE {MAILBOX_CREATED_AT_MS_SQL} <= ?"),
-        params![cutoff],
-    )?;
-    db.execute(
-        "DELETE FROM shared_channel_messages WHERE created_at <= ?",
-        params![crate::utils::iso_time::format_iso_millis(cutoff)],
-    )?;
+    cleanup_expired_mailbox_messages(db, cutoff)?;
+    cleanup_expired_channel_messages(db, &crate::utils::iso_time::format_iso_millis(cutoff))
+}
+
+fn cleanup_expired_mailbox_messages(db: &Connection, cutoff: i64) -> Result<(), ControlDbError> {
+    let due = db
+        .query_row(
+            &format!("SELECT 1 FROM multi_agent_mailbox_messages WHERE {MAILBOX_CREATED_AT_MS_SQL} <= ? LIMIT 1"),
+            params![cutoff],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if due {
+        db.execute(
+            &format!("DELETE FROM multi_agent_mailbox_messages WHERE {MAILBOX_CREATED_AT_MS_SQL} <= ?"),
+            params![cutoff],
+        )?;
+    }
+    Ok(())
+}
+
+fn cleanup_expired_channel_messages(db: &Connection, cutoff: &str) -> Result<(), ControlDbError> {
+    let due = db
+        .query_row(
+            "SELECT 1 FROM shared_channel_messages WHERE created_at <= ? LIMIT 1",
+            params![cutoff],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some();
+    if due {
+        db.execute(
+            "DELETE FROM shared_channel_messages WHERE created_at <= ?",
+            params![cutoff],
+        )?;
+    }
     Ok(())
 }

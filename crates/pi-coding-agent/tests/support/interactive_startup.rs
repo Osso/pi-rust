@@ -344,11 +344,30 @@ async fn startup_capture_child() {
             return;
         }
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();
+        let mut event_frames = Vec::new();
+        if let Some(case) = request["eventCase"].as_str().map(str::to_owned) {
+            let replay = case.starts_with("replay-");
+            let messages = if replay { build_display_replay_messages(&case) } else { Vec::new() };
+            let events = if replay || case.starts_with("editor-") { Vec::new() } else { build_display_fixture_events(&case) };
+            if replay {
+                request["replayMessages"] = serde_json::to_value(&messages).unwrap();
+                for message in messages { mode.session().session_manager().append_message(message).unwrap(); }
+                mode.rebuild_chat_from_messages();
+                event_frames.push(capture_event_display_frame(&mode, &terminal));
+            }
+            request["events"] = serde_json::to_value(&events).unwrap();
+            for event in events {
+                mode.handle_event(event).await;
+                event_frames.push(capture_event_display_frame(&mode, &terminal));
+            }
+            event_frames.extend(drive_editor_display_fixture(&mode,&terminal,&case,&mut request).await);
+        }
         let mut output = serde_json::json!({
             "header":render(&mut *mode.header_container.borrow_mut()),"resources":render(&mut *mode.loaded_resources_container.borrow_mut()),"chat":render(&mut *mode.chat_container.borrow_mut()),
             "count":mode.footer_data_provider.get_available_provider_count(),"titles":terminal.borrow().titles.iter().map(|title|title.units().to_vec()).collect::<Vec<_>>(),"console":[],
             "skills":loader.get_skills().skills.iter().map(|skill|skill.name.clone()).collect::<Vec<_>>()
         });
+        if request["eventCase"].is_string() { output["eventFrames"] = serde_json::json!(event_frames); }
         if request["watchChanges"].as_bool().unwrap() {
             mode.ui.flush_pending().unwrap();
             terminal.borrow_mut().writes.clear();

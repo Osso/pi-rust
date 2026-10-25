@@ -23,7 +23,7 @@ Frozen: `packages/ai/src/api/mistral-conversations.ts` at [source lock](../sourc
 
 | Status | Boundary |
 |---|---|
-| open SDK gap | Full nested SDK media/tool/response-format transformations, defaults/key order for arbitrary replacement callback payloads, and nested Zod validation/error trees are not fully ported or proven. The Pi-generated paths and valid streamed shapes above are proven, not full SDK acceptance; coverage stays partial. |
+| gap | Full nested SDK media/tool/response-format transformations, defaults/key order for arbitrary replacement callback payloads, and nested Zod validation/error trees are not fully ported or proven. The Pi-generated paths and valid streamed shapes above are proven, not arbitrary runtime SDK-object acceptance; this is a recorded SDK/callback gap, not an unfinished module audit. |
 | gap | Wrong-typed/exotic SDK JSON, out-of-domain SDK enum strings, reference identity, numeric extremes and OS/runtime fault shapes use the project bar. Header-validation fixtures do not stand in for valid stream coverage. |
 | gap | Native HttpResponse always has a body; a fetch implementation returning a missing body has no typed native representation. No new carrier is added for that runtime shape. |
 

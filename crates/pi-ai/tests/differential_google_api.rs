@@ -624,7 +624,7 @@ fn runtime_normalization_preserves_sdk_identity_and_explicit_headers() {
     assert_eq!(explicit, original);
 }
 
-async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
+async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) -> Value {
     let request = scenario.request();
     let expected = oracle.request(&request);
     assert_eq!(expected["ok"], Value::Bool(true), "oracle failed: {expected}");
@@ -693,6 +693,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
     normalize_sdk_runtime_versions(&mut actual, &scenario.model, &scenario.stream);
     assert_json_eq(&actual, &expected, &format!("google scenario {}", scenario.id));
     assert_jwt_header_order(&actual, &expected, &format!("google scenario {}", scenario.id));
+    actual
 }
 
 fn tool(name: &str, strict: bool) -> Value {
@@ -1567,6 +1568,86 @@ async fn google_counter_child() {
         counters.push(id.rsplit('_').next().unwrap().parse::<u64>().unwrap());
     }
     eprintln!("{}", serde_json::to_string(&counters).unwrap());
+}
+
+#[test]
+fn google_sdk_global_endpoint_overrides_match_in_an_isolated_process() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let home = std::env::temp_dir().join(format!("google-adc-home-{}", std::process::id()));
+    let cloud = home.join(".config/gcloud");
+    std::fs::create_dir_all(&cloud).unwrap();
+    std::fs::copy(
+        authorized_user_path(),
+        cloud.join("application_default_credentials.json"),
+    )
+    .unwrap();
+    let mut child = Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "differential_google_api::google_environment_child",
+            "--ignored",
+            "--nocapture",
+        ])
+        .env("HOME", &home)
+        .env_remove("GOOGLE_APPLICATION_CREDENTIALS")
+        .env("PI_GOOGLE_ENV_CHILD", "1")
+        .env("GOOGLE_GEMINI_BASE_URL", "https://studio-global.invalid/root")
+        .env("GOOGLE_VERTEX_BASE_URL", "https://vertex-global.invalid/root")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while child.try_wait().unwrap().is_none() {
+        if Instant::now() >= deadline {
+            child.kill().unwrap();
+            child.wait().unwrap();
+            std::fs::remove_dir_all(&home).unwrap();
+            panic!("Google environment child timed out");
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    let result = child.wait_with_output().unwrap();
+    std::fs::remove_dir_all(&home).unwrap();
+    assert!(result.status.success(), "{}", String::from_utf8_lossy(&result.stderr));
+}
+
+#[tokio::test]
+#[ignore = "isolated global endpoint child invoked by google_sdk_global_endpoint_overrides_match_in_an_isolated_process"]
+async fn google_environment_child() {
+    assert_eq!(std::env::var("PI_GOOGLE_ENV_CHILD").as_deref(), Ok("1"));
+    let mut source = TsOracle::spawn_with_environment(
+        "google-api-oracle.ts",
+        "packages/ai/src/api",
+        &[("NODE_TLS_REJECT_UNAUTHORIZED", "0".into())],
+    );
+    let events = text_events("global endpoint");
+    for (index, api) in ["google-generative-ai", "google-vertex"].into_iter().enumerate() {
+        let mut model = if api == "google-vertex" {
+            vertex_model("gemini-2.5-flash")
+        } else {
+            gemini_model("gemini-2.5-flash")
+        };
+        model["baseUrl"] = json!("");
+        let actual = run_scenario(
+            &mut source,
+            Scenario::new(800 + index as u32, api, model).responses(vec![sse_events_response(&events)]),
+        )
+        .await;
+        assert_eq!(actual["result"]["stopReason"], json!("stop"));
+        assert_eq!(actual["requests"].as_array().unwrap().len(), 1);
+    }
+    let actual = run_scenario(
+        &mut source,
+        Scenario::new(802, "google-vertex", vertex_model("gemini-2.5-flash"))
+            .stream(json!({"project":"fixture-project","location":"us-central1"}))
+            .token_responses(vec![token_response("well-known-token")])
+            .responses(vec![sse_events_response(&events)]),
+    )
+    .await;
+    assert_eq!(actual["result"]["stopReason"], json!("stop"));
+    assert_eq!(actual["requests"].as_array().unwrap().len(), 2);
 }
 
 #[tokio::test]
