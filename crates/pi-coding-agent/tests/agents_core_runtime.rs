@@ -1198,7 +1198,10 @@ async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() 
         let start = tokio::time::Instant::now();
         let result = cancel_owned_agent_runtime(&store, &handles, &agent.id, None).await;
         if let Some(error) = failure {
-            assert_eq!(result.err().expect("source rejects failed dispatch").message, error);
+            let Err(actual) = result else {
+                panic!("source rejects failed dispatch");
+            };
+            assert_eq!(actual.message, error);
         } else {
             assert!(result.is_ok());
             assert_eq!(start.elapsed(), std::time::Duration::from_millis(17));
@@ -1998,6 +2001,64 @@ async fn background_command_reports_unavailable_and_validation_errors() {
             Some(NotifyType::Error)
         )
     );
+}
+
+#[tokio::test]
+async fn background_construction_failure_preserves_frozen_utf16_notification() {
+    let test = test_dir();
+    let error = JsString::from("failure ") + JsString::from_utf16(vec![0xd800]);
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let source = ts.request(&json!({"id":45,"op":"backgroundFailure","cwd":test.cwd,
+        "sessionDir":test._dir.path().join("source-sessions").to_str().unwrap(),
+        "db":test._dir.path().join("source-control.db").to_str().unwrap(),"error":error,
+    }));
+    assert_eq!(source["ok"], json!(true), "{source:?}");
+    let store = store_with_persistence(&test);
+    let ui = Arc::new(RecordingUi::default());
+    let options = MultiAgentExtensionOptions {
+        store: Some(store),
+        create_child_session: Some(ChildAgentSessionFactory::new(move |_| {
+            let error = error.clone();
+            Box::pin(async { Err(error) })
+        })),
+        ..Default::default()
+    };
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = multi_agent_extension(pi, &options);
+            Box::pin(async { result })
+        }),
+        &test.cwd.clone().into(),
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        &"<first-party:agents-core>".into(),
+    )
+    .await
+    .unwrap();
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&test.cwd.clone().into()), None).unwrap(),
+    ));
+    let (runner, _) =
+        test_context_with_extensions(&test, manager, Some(ui.clone()), None, false, vec![extension]).await;
+    let command = runner.get_command("bg").unwrap().handler;
+    command("task".into(), runner.create_command_context()).await.unwrap();
+    let notifications = ui.notifications.lock().unwrap().clone();
+    let actual = notifications
+        .into_iter()
+        .map(|(text, level)| {
+            json!([
+                text,
+                match level {
+                    Some(NotifyType::Error) => "error",
+                    _ => "unexpected",
+                }
+            ])
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), source["output"]);
 }
 
 #[tokio::test]

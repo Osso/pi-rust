@@ -1,5 +1,7 @@
 # agents-core traceability
 
+Agent-cap stop: see [successor handoff](../handoff-agents-core.md). Current merged code compiles under the workspace/all-target gate (`/tmp/agents-core-2-merged-check.log`). The final background construction-error UTF-16 fix has a frozen/native RED (`/tmp/agents-core-2-background-utf16-red.log`); its GREEN and final trace cleanup remain pending. Runtime coverage stays partial.
+
 ## Runtime re-pin lane — 2026-10-25
 
 Successor factory slice: child and attached factories now forward the parent's model registry, install browser-only restricted read definitions (including the configurable root), augment profile tools with ask_questions and browser read, and exclude change_working_directory. Attached sessions restore archived files through the control DB and leave settings creation to SDK instead of overriding policy. Actual frozen factory-option differential RED: `/tmp/agents-core-2-factory-red.log`; archive/policy behavioral RED: `/tmp/agents-core-2-attached-red.log`. Factory differential, archive and no-policy-override cases pass at `4fc421ff5` (`/tmp/agents-core-2-factory-green2.log`); one legacy tool-order assertion still needed the frozen ask_questions insertion order and is corrected in the next slice. Mechanical API fallout: main.rs and native factory fixtures initialize browser_agent_config_root. No storage internals changed.
@@ -23,6 +25,8 @@ Whole-module audit, dispatch/mailbox follow-up: transcript publication failures 
 Whole-module profile audit: requested unknown profile errors now precede persistence checks and list configured keys in frozen order. Spawn model metadata inherits the parent's model when needed, starts at medium rather than parent effort, and clamps profile effort to model capabilities; attachment metadata remains the unclamped configured profile metadata. Failed-child commit/publication errors now propagate. Actual public frozen/native five-vector RED: `/tmp/agents-core-2-spawn-profile-red.log`; pre-commit workspace check `/tmp/agents-core-2-profile-check.log`. GREEN pending.
 
 Final audit additions: list_agents treats an empty parentId as an absent filter (frozen deterministic RED `/tmp/agents-core-2-list-red.log`). Browser factory proof now executes the actual frozen/native read definition for both child and attached sessions, with allowed and forbidden paths under a root override. The runtime oracle is split into named scenario functions; strict protected no-emit typecheck passes (`/tmp/agents-core-2-oracle-typecheck.log`). Workspace/all-target check passes (`/tmp/agents-core-2-final-check.log`); focused GREEN pending after commit.
+
+Final scoped acceptance found one obsolete end-to-end expectation: real child completion already passed, but the test still demanded removed agent_start/agent_complete parent records. It now asserts their absence, matching actual frozen spawnWithoutJournal. Unreachable dispatch/background rejection paths use the shared uncaught authority after cleanup; background ownership release runs on rejection as well. New-line clippy findings (test err-expect and borrow) are fixed; wait tests moved after production items. Pre-commit workspace/all-target check `/tmp/agents-core-2-cleanup-check.log` passes. The updated [runtime spec](../../specs/agents-core-runtime.md) describes these contracts.
 
 ## Module HOME snapshot (2026-10-23)
 
