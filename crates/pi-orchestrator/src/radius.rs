@@ -31,7 +31,7 @@ pub fn radius_orchestrator_base_url(env: &BTreeMap<String, JsString>) -> Result<
     url::Url::parse(&encode_node_utf8(&radius_url(env)))
         .and_then(|url| url.join("/v1/"))
         .map(|v| JsString::from(v.to_string()))
-        .map_err(|e| JsString::from(e.to_string()))
+        .map_err(|_| JsString::from("Invalid URL"))
 }
 fn oauth(credential: Option<&Value>) -> Option<&Value> {
     credential.filter(|v| v["type"] == json!("oauth"))
@@ -167,7 +167,7 @@ impl RadiusPresence {
         let base = radius_orchestrator_base_url(&env)?;
         let url = url::Url::parse(&encode_node_utf8(&base))
             .and_then(|url| url.join(&encode_node_utf8(path)))
-            .map_err(|e| JsString::from(e.to_string()))?;
+            .map_err(|_| JsString::from("Invalid URL"))?;
         let token = radius_access_token((self.options.credential)().as_ref(), &env)?;
         let request = HttpRequest {
             method: "POST".into(),

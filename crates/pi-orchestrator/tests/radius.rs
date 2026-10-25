@@ -169,6 +169,50 @@ async fn radius_registration_matches_frozen_fake_fetch() {
     );
 }
 
+#[tokio::test]
+async fn invalid_radius_urls_keep_frozen_node_error_message() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    for (mode, key) in [("base", "PI_RADIUS_URL"), ("explicit", "PI_RADIUS_ORCHESTRATOR_URL")] {
+        let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(root.join("oracle/orchestrator-radius-url-error.mjs"))
+            .arg(source)
+            .arg(mode)
+            .output()
+            .await
+            .unwrap();
+        assert!(output.status.success());
+        let expected: String = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(expected, "Invalid URL");
+        let dir = tempfile::tempdir().unwrap();
+        let presence = RadiusPresence::new(
+            pi_orchestrator::storage::Storage(dir.path().to_str().unwrap().into()),
+            Arc::new(Fake::default()),
+            RadiusOptions {
+                env: Arc::new(move || {
+                    [
+                        ("PI_RADIUS_API_KEY".into(), "key".into()),
+                        (key.into(), "not a URL".into()),
+                    ]
+                    .into()
+                }),
+                credential: Arc::new(|| None),
+                now: Arc::new(|| "time".into()),
+                random: Arc::new(|| 0.5),
+                hostname: "test".into(),
+                platform: "linux".into(),
+                arch: "x64".into(),
+                pid: 1,
+            },
+        );
+        assert_eq!(presence.start(None).await.unwrap_err(), JsString::from(expected));
+    }
+}
+
 struct Coordinator(Mutex<Value>);
 impl RadiusPresenceCoordinator for Coordinator {
     fn get_live_instance(&self, _id: &JsString) -> Option<Value> {
