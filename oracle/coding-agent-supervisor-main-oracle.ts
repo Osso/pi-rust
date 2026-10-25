@@ -49,9 +49,14 @@ async function processRequest(api: Record<string, unknown>, request: OracleReque
     const createReviewer = api.createSupervisorInstructionReviewer as (evaluate: unknown) => unknown;
     const reviewer = request.defaultReviewer ? undefined : createReviewer(evaluate);
     const handleRequest = api.processSupervisorRequest as (...args: unknown[]) => Promise<void>;
+    const resources = await import(new URL("../../../ai/src/session-resources.ts", moduleUrl).href);
+    const unregister = request.cleanupError ? resources.registerSessionResourceCleanup((sessionId?: string) => {
+        if (sessionId === "resident-fixture") throw new Error("fixture cleanup failed");
+    }) : () => {};
     let processError: string | null = null;
     try { await handleRequest(database, claimed, session, reviewer); }
     catch (error) { processError = (error as Error).message; }
+    finally { unregister(); }
     const stored = db.readSupervisorRequest(database, id);
     return { status: stored.status, response: stored.response ?? null, feedback, calls, reviewed, processError };
 }

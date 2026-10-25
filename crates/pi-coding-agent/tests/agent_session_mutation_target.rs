@@ -159,6 +159,7 @@ async fn test_env() -> TestEnv {
 
 fn agent(id: &str, agent_type: &str, lifecycle: AgentLifecycle) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::from(id.to_owned()),
         parent_id: Some(JsString::from("main")),
         display_name: JsString::from(format!("Agent {id}")),

@@ -396,6 +396,7 @@ async fn effort_only_shown_for_reasoning_models() {
 
 fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> JsString {
     let mut agent = AgentSnapshot {
+        key_order: Vec::new(),
         id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
         parent_id: None,
         display_name: JsString::from(name.to_owned()),

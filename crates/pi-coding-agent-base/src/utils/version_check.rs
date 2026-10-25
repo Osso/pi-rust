@@ -3,58 +3,20 @@
 //! Version comparison follows `node-semver`'s strict parser and precedence rules; the release check
 //! goes through the injected `Fetch` contract.
 
-use pi_ai::request::{Fetch, HttpRequest};
+use pi_ai::request::{CallbackError, Fetch, HttpRequest, header_value};
 use pi_js_compat::{
-    js_format,
-    js_json::{self, JsString, JsValue, encode_node_utf8},
+    abort::AbortSignal,
+    js_json::{self, JsString, JsValue},
+    node_error::{NativeErrorClass, NativeNodeError},
 };
 
 use crate::config::package_config;
-use crate::utils::management_http::{FetchRetryOptions, fetch_with_retry};
 use crate::utils::pi_user_agent::get_pi_user_agent;
 
 const LATEST_VERSION_URL: &str = "https://pi.dev/api/latest-version";
-const DEFAULT_VERSION_CHECK_TIMEOUT_MS: u64 = 10_000;
+const DEFAULT_VERSION_CHECK_TIMEOUT_MS: f64 = 10_000.0;
 const MAX_SEMVER_LENGTH: usize = 256;
 const MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
-
-/// One nested network failure cause.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ErrorCause {
-    pub message: Option<JsString>,
-    pub code: Option<JsString>,
-}
-
-/// The parts of a fetch failure that `formatVersionCheckError` reports.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct VersionCheckError {
-    pub message: JsString,
-    pub causes: Vec<ErrorCause>,
-}
-
-/// `formatVersionCheckError`: include errno codes or the first cause message.
-pub fn format_version_check_error(error: &VersionCheckError) -> JsString {
-    let root_message = &error.message;
-    let mut codes: Vec<JsString> = Vec::new();
-    for cause in &error.causes {
-        if let Some(code) = &cause.code
-            && !codes.contains(code)
-        {
-            codes.push(code.clone());
-        }
-    }
-    if !codes.is_empty() {
-        return js_format!("{} ({})", root_message, JsString::join(codes, ", "));
-    }
-    match error
-        .causes
-        .iter()
-        .find_map(|cause| cause.message.as_ref().filter(|message| !message.is_empty()))
-    {
-        Some(cause_message) => js_format!("{} (cause: {})", root_message, cause_message),
-        None => root_message.clone(),
-    }
-}
 
 /// A parsed strict semver version.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -253,72 +215,66 @@ pub struct LatestPiRelease {
 /// Options for the release check.
 #[derive(Debug, Clone, Default)]
 pub struct LatestPiReleaseOptions {
-    pub timeout_ms: Option<u64>,
-    pub retry: bool,
+    pub timeout_ms: Option<f64>,
 }
 
-fn offline_mode_enabled() -> bool {
-    pi_js_compat::process_env::get("PI_OFFLINE").is_some_and(|value| !value.is_empty())
+fn read_version_check_disabled() -> bool {
+    ["PI_SKIP_VERSION_CHECK", "PI_OFFLINE"]
+        .iter()
+        .any(|name| pi_js_compat::process_env::get(name).is_some_and(|value| !value.is_empty()))
 }
 
-/// `getLatestPiRelease`: one request, optionally retried, `None` when offline or unusable.
+/// `getLatestPiRelease`: one request; failures propagate to the caller.
 pub async fn get_latest_pi_release(
     fetch: &dyn Fetch,
     current_version: &JsString,
     options: &LatestPiReleaseOptions,
-) -> Option<LatestPiRelease> {
-    if offline_mode_enabled() {
-        return None;
+) -> Result<Option<LatestPiRelease>, CallbackError> {
+    if read_version_check_disabled() {
+        return Ok(None);
     }
-    let response = match fetch_with_retry(
-        fetch,
-        HttpRequest {
-            method: "GET".to_owned(),
-            url: LATEST_VERSION_URL.to_owned(),
-            headers: vec![
-                (
-                    "user-agent".to_owned(),
-                    encode_node_utf8(&get_pi_user_agent(current_version)),
-                ),
-                ("accept".to_owned(), "application/json".to_owned()),
-            ],
-            body: None,
-        },
-        None,
-        &FetchRetryOptions {
-            max_retries: Some(if options.retry { 2 } else { 0 }),
-            retry_on_status: true,
-            timeout_ms: Some(options.timeout_ms.unwrap_or(DEFAULT_VERSION_CHECK_TIMEOUT_MS)),
-        },
-    )
-    .await
-    {
-        Ok(response) => response,
-        Err(_) => return None,
-    };
+    let signal = AbortSignal::timeout(options.timeout_ms.unwrap_or(DEFAULT_VERSION_CHECK_TIMEOUT_MS))?;
+    let response = fetch
+        .fetch(
+            HttpRequest {
+                method: "GET".to_owned(),
+                url: LATEST_VERSION_URL.to_owned(),
+                headers: vec![
+                    (
+                        "user-agent".to_owned(),
+                        header_value(&get_pi_user_agent(current_version))?,
+                    ),
+                    ("accept".to_owned(), "application/json".to_owned()),
+                ],
+                body: None,
+            },
+            Some(signal),
+        )
+        .await?;
     if !(200..300).contains(&response.status) {
-        return None;
+        return Ok(None);
     }
     let body = read_body(response.body).await?;
     parse_release_payload(&body)
 }
 
-fn parse_release_payload(body: &JsString) -> Option<LatestPiRelease> {
-    let data = match js_json::parse_lossless(body) {
-        Ok(data) => data,
-        Err(_) => return None,
+fn parse_release_payload(body: &JsString) -> Result<Option<LatestPiRelease>, CallbackError> {
+    let data = js_json::parse_lossless(body)
+        .map_err(|error| NativeNodeError::from_constructor(NativeErrorClass::SyntaxError, error.into_message()))?;
+    let Some(version) = data.get("version").and_then(JsValue::as_string) else {
+        return Ok(None);
     };
-    let version = data.get("version").and_then(JsValue::as_string)?.trim().to_owned();
+    let version = version.trim().to_owned();
     if version.is_empty() {
-        return None;
+        return Ok(None);
     }
     let package_name = trimmed_string_field(&data, "packageName");
     let note = trimmed_string_field(&data, "note");
-    Some(LatestPiRelease {
+    Ok(Some(LatestPiRelease {
         version,
         package_name,
         note,
-    })
+    }))
 }
 
 fn trimmed_string_field(data: &JsValue, field: &str) -> Option<JsString> {
@@ -333,27 +289,28 @@ pub async fn get_latest_pi_version(
     fetch: &dyn Fetch,
     current_version: &JsString,
     options: &LatestPiReleaseOptions,
-) -> Option<JsString> {
-    get_latest_pi_release(fetch, current_version, options)
-        .await
-        .map(|release| release.version)
+) -> Result<Option<JsString>, CallbackError> {
+    Ok(get_latest_pi_release(fetch, current_version, options)
+        .await?
+        .map(|release| release.version))
 }
 
-/// `checkForNewPiVersion`: automatic check honoring `PI_SKIP_VERSION_CHECK`; errors are swallowed.
+/// `checkForNewPiVersion`: automatic newer-only check; errors are swallowed here alone.
 pub async fn check_for_new_pi_version(fetch: &dyn Fetch, current_version: &JsString) -> Option<LatestPiRelease> {
-    if pi_js_compat::process_env::get("PI_SKIP_VERSION_CHECK").is_some_and(|value| !value.is_empty()) {
-        return None;
-    }
-    let release = get_latest_pi_release(fetch, current_version, &LatestPiReleaseOptions::default()).await?;
+    let release = get_latest_pi_release(fetch, current_version, &LatestPiReleaseOptions::default())
+        .await
+        .ok()??;
     is_newer_package_version(&release.version, current_version).then_some(release)
 }
 
-async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Option<JsString> {
+async fn read_body(mut body: Box<dyn pi_ai::request::HttpBody>) -> Result<JsString, CallbackError> {
     let mut bytes = Vec::new();
     while let Some(chunk) = body.next_chunk().await {
-        bytes.extend_from_slice(&chunk.ok()?);
+        bytes.extend_from_slice(&chunk?);
     }
-    Some(JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
+    let decoded = String::from_utf8_lossy(&bytes);
+    // Response.json() uses UTF-8 decoding with one leading BOM removed.
+    Ok(JsString::from(decoded.strip_prefix('\u{feff}').unwrap_or(&decoded)))
 }
 
 /// User agent used for version checks.
@@ -374,6 +331,7 @@ mod native_release_tests {
         let release = parse_release_payload(&JsString::from(
             r#"{"version":"\ud800","packageName":"pkg\udc00","note":"note\ud800"}"#,
         ))
+        .unwrap()
         .unwrap();
         assert_eq!(release.version.units(), &[0xd800]);
         assert_eq!(release.package_name.unwrap().units(), &[112, 107, 103, 0xdc00]);

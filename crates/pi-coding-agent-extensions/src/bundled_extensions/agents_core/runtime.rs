@@ -34,6 +34,40 @@ use super::viewer::AgentViewerParams;
 pub const MAIN_THREAD_AGENT_ID: &str = "main";
 const MESSAGE_CONTENT_LIMIT: usize = 2000;
 
+struct StoreArtifactRoot {
+    store: std::sync::Weak<MultiAgentStore>,
+    root: JsString,
+}
+
+static ARTIFACT_ROOTS_BY_STORE: Mutex<Vec<StoreArtifactRoot>> = Mutex::new(Vec::new());
+
+pub(super) fn remember_store_artifact_root(store: Option<&Arc<MultiAgentStore>>, root: Option<&JsString>) {
+    let (Some(store), Some(root)) = (store, root.filter(|root| !root.is_empty())) else {
+        return;
+    };
+    let mut roots = ARTIFACT_ROOTS_BY_STORE.lock().expect("artifact roots");
+    roots.retain(|entry| entry.store.strong_count() > 0);
+    let identity = Arc::downgrade(store);
+    if let Some(entry) = roots.iter_mut().find(|entry| entry.store.ptr_eq(&identity)) {
+        entry.root = root.clone();
+    } else {
+        roots.push(StoreArtifactRoot {
+            store: identity,
+            root: root.clone(),
+        });
+    }
+}
+
+pub(super) fn artifact_root_for_store(store: &Arc<MultiAgentStore>) -> Option<JsString> {
+    let identity = Arc::downgrade(store);
+    ARTIFACT_ROOTS_BY_STORE
+        .lock()
+        .expect("artifact roots")
+        .iter()
+        .find(|entry| entry.store.ptr_eq(&identity))
+        .map(|entry| entry.root.clone())
+}
+
 static DEFAULT_BROWSER_AGENT_CONFIG_ROOT: std::sync::OnceLock<
     Result<JsString, pi_js_compat::node_error::NativeNodeError>,
 > = std::sync::OnceLock::new();
@@ -67,6 +101,7 @@ pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, pi_js_
 
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
+    pub cancellation_settlement_timeout_ms: Option<u64>,
     pub latest_model_request_started_at: Arc<Mutex<Option<i64>>>,
     pub dispatches: Arc<Mutex<HashMap<JsString, SharedDispatch>>>,
     pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
@@ -238,7 +273,7 @@ pub fn deliver_terminal_outbox_for_store(
     };
     crate::core::terminal_outbox_delivery::deliver_terminal_outbox_projections(
         &crate::core::terminal_outbox_delivery::DeliverTerminalOutboxOptions {
-            artifact_root: None,
+            artifact_root: artifact_root_for_store(store),
             claim_id: pi_ai::utils::random_uuid::random_uuid()?.into(),
             control_db_path: persistence.control_db_path,
             now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),

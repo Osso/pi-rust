@@ -1,5 +1,17 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Storage-3 snapshot JSON ordering (2026-10-25)
+
+Actual-source RED `/tmp/storage3-store-agent-wire-red.log` shows root account position and nested copyAccount order loss. Main approved order-only metadata in the existing AgentNode and mechanical constructor initialization. `key_order` holds original root and spread-copied child key sequences, never duplicate JSON values. Snapshot copying appends the frozen optional-field copy order, even when a value is currently absent, so later metadata publication retains those positions. Fixed-copy account/result/worker/transcript/event-stream DTOs emit frozen constructor order; permission/model/activity/error/slot/worktree preserve input order. Main-thread snapshots retain their distinct constructor/permission order. Value equality ignores order metadata; wire tests assert exact JSON strings. Replacement metadata clears only the replaced child's prior order.
+
+## Storage-3 parent guard (2026-10-25)
+
+Expanded actual-source operation script reproduces an empty parent ID incorrectly producing a mailbox message (`/tmp/storage3-store-parent-red.log`). `contactParent` now treats both missing and empty parent IDs as `parent_not_found`, after reference validation and before clock/counter/state mutation, matching frozen truthiness. The script retains all prior operation/value assertions; byte-order contracts have separate wire tests.
+
+## Storage-3 snapshot and reference copy validation (2026-10-25)
+
+Actual-source RED `/tmp/storage3-store-copy-red.log` shows native publication accepted relative nested snapshot/reference paths, changed state and skipped frozen copy errors. Snapshot ingress/restore now validates result/event/transcript/worker/worktree paths in frozen copyAgent evaluation order. Owned snapshots remain immutable through returned copies, so getters need no new callback/error carrier. Message copies now return Result, validate `file_reference_copy` paths and retain only canonical path/label fields. Existing reference construction shares this typed validator. Publication preserves frozen pre-mutation/pre-clock failure ordering; lifecycle copy failures propagate before listener dispatch. Wrong-typed/exotic JSON reference shapes retain the standing input-gap classification; their decoder reason text can differ.
+
 ## Storage-3 live listener membership (2026-10-25)
 
 `repin_storage_listener_membership` compares actual frozen update, transition and lifecycle-notification dispatch after a callback removes a later subscriber or appends a new one. RED `/tmp/storage3-store-membership-red.log` invoked the removed update listener; frozen invoked only the first. Native dispatch now walks monotonic registration IDs in a BTreeMap, retrieving one live listener at a time without a lock across callbacks. This preserves frozen Set removal/append behavior rather than copying the listener set. The six dispatch scenarios pass atcf9a3361c (`/tmp/storage3-repin_storage_listener_membership-green-final.log`); the intersecting callback/state+wire10-test group, nine listener-throw subprocess cases, and three restore/persistence regressions also pass. Warning-mode Clippy passes; one redundant borrow in the mechanical abort diagnostic adapter was fixed atc0f49ae3c, leaving zero changed-line warnings. Strict protected fixture types and Biome pass. Whole-store acceptance remains open.

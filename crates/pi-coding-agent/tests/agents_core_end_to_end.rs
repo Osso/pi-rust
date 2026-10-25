@@ -117,6 +117,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         SessionManager::create(cwd, session_dir, Some(options)).map_err(|error| error.message().clone())
     });
     let child_factory = create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
+        browser_agent_config_root: None,
         agent_dir: Some(agent_dir.clone().into()),
         create_session,
         create_session_manager,

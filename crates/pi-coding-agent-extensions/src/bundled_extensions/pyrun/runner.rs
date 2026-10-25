@@ -297,6 +297,7 @@ pub type PyrunProgressCallback =
     Arc<dyn Fn(CanonicalPyrunProgressUpdate) -> Result<(), PyrunRunnerError> + Send + Sync>;
 
 struct PendingRequest {
+    id: u64,
     generation: u64,
     on_pi_request: Option<PyrunPiRequestHandler>,
     on_progress: Option<PyrunProgressCallback>,
@@ -321,6 +322,7 @@ pub struct PyrunRunnerClient {
     options: PyrunRunnerOptions,
     state: Arc<Mutex<RunnerState>>,
     next_generation: Arc<AtomicU64>,
+    next_request: Arc<AtomicU64>,
 }
 
 fn now_generation(counter: &AtomicU64) -> u64 {
@@ -344,6 +346,7 @@ impl PyrunRunnerClient {
                 pending: VecDeque::new(),
             })),
             next_generation: Arc::new(AtomicU64::new(0)),
+            next_request: Arc::new(AtomicU64::new(0)),
         }
     }
 
@@ -363,6 +366,7 @@ impl PyrunRunnerClient {
         let payload = js_json::stringify_lossless(&value);
         let (sender, receiver) = oneshot::channel();
         let generation = process.generation;
+        let request_id = self.next_request.fetch_add(1, Ordering::SeqCst);
         let abort_task = signal.map(|signal| {
             let state = Arc::clone(&self.state);
             let pid = process.pid;
@@ -372,9 +376,9 @@ impl PyrunRunnerClient {
                 signal.wait().await;
                 terminate_generation(&state, generation, pid, detached, inherited_group);
                 let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                reject_generation_locked(
+                reject_request_locked(
                     &mut state,
-                    generation,
+                    request_id,
                     PyrunRunnerError::new("Pyrun evaluation aborted"),
                 );
             })
@@ -382,6 +386,7 @@ impl PyrunRunnerClient {
         {
             let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             state.pending.push_back(PendingRequest {
+                id: request_id,
                 generation,
                 on_pi_request,
                 on_progress,
@@ -393,10 +398,10 @@ impl PyrunRunnerClient {
             let mut stdin = process.stdin.lock().await;
             if let Err(error) = stdin.write_all(format!("{payload}\n").as_bytes()).await {
                 drop(stdin);
-                self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
+                self.reject_request(request_id, PyrunRunnerError::new(error.to_string()));
             } else if let Err(error) = stdin.flush().await {
                 drop(stdin);
-                self.reject_generation(generation, PyrunRunnerError::new(error.to_string()));
+                self.reject_request(request_id, PyrunRunnerError::new(error.to_string()));
             }
         }
         match receiver.await {
@@ -422,9 +427,9 @@ impl PyrunRunnerClient {
         }
     }
 
-    fn reject_generation(&self, generation: u64, error: PyrunRunnerError) {
+    fn reject_request(&self, request_id: u64, error: PyrunRunnerError) {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        reject_generation_locked(&mut state, generation, error);
+        reject_request_locked(&mut state, request_id, error);
     }
 
     async fn ensure_process(&self) -> Result<ProcessHandle, PyrunRunnerError> {
@@ -690,6 +695,18 @@ fn terminate_generation(
     terminate_process(pid, detached, inherited_group);
 }
 
+fn reject_request_locked(state: &mut RunnerState, request_id: u64, error: PyrunRunnerError) {
+    let Some(index) = state.pending.iter().position(|pending| pending.id == request_id) else {
+        return;
+    };
+    if let Some(mut request) = state.pending.remove(index) {
+        if let Some(task) = request.abort_task.take() {
+            task.abort();
+        }
+        let _ = request.resolve.send(Err(error));
+    }
+}
+
 fn reject_generation_locked(state: &mut RunnerState, generation: u64, error: PyrunRunnerError) {
     let mut rejected = Vec::new();
     let mut index = 0;
@@ -723,11 +740,21 @@ async fn handle_stdout_line(
     generation: u64,
     line: &str,
 ) {
+    let request_id = state
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .pending
+        .iter()
+        .find(|request| request.generation == generation)
+        .map(|request| request.id);
+    let Some(request_id) = request_id else {
+        return;
+    };
     let parsed: Value = match js_json::parse_lossless(line) {
         Ok(parsed) => parsed,
         Err(error) => {
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-            reject_generation_locked(&mut state, generation, PyrunRunnerError::new(error.into_message()));
+            reject_request_locked(&mut state, request_id, PyrunRunnerError::new(error.into_message()));
             return;
         }
     };
@@ -742,11 +769,7 @@ async fn handle_stdout_line(
     }
     let action = {
         let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(index) = state
-            .pending
-            .iter()
-            .position(|request| request.generation == generation)
-        else {
+        let Some(index) = state.pending.iter().position(|request| request.id == request_id) else {
             return;
         };
         if is_final_result(&parsed) {
@@ -808,7 +831,7 @@ async fn handle_stdout_line(
                 && let Err(error) = callback(CanonicalPyrunProgressUpdate { raw: parsed })
             {
                 let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                reject_generation_locked(&mut state, generation, error);
+                reject_request_locked(&mut state, request_id, error);
             }
         }
     }
