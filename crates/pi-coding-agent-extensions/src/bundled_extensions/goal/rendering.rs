@@ -13,7 +13,7 @@ use crate::core::extensions::types::{
     CustomMessageContent, CustomMessagePayload, CustomMessageValue, EntryRenderOptions, EntryRenderer, ExtensionApi,
     ExtensionContext, HandlerError, MessageRenderOptions, MessageRenderer, SendMessageOptions,
 };
-use crate::core::session_manager::{CustomEntry, lock_session_manager};
+use crate::core::session_manager::CustomEntry;
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 
 use super::wait_countdown::{WaitCountdownRefresher, parse_review_deadline};
@@ -76,7 +76,7 @@ impl SupervisorStatusController {
         review_at: Option<&str>,
     ) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().clone();
+        let session_id = session.get_session_id().clone();
         self.refresher.clear_session(&session_id);
         let data = match review_at {
             Some(review_at) => {
@@ -111,7 +111,7 @@ impl SupervisorStatusController {
     /// `restore`.
     pub fn restore(&self, ctx: ExtensionContext) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().clone();
+        let session_id = session.get_session_id().clone();
         self.refresher.clear_session(&session_id);
         if let Some(review_at) = latest_future_review_at(&ctx)? {
             self.refresher.start(ctx, &review_at);
@@ -198,7 +198,7 @@ fn format_review_countdown(deadline_ms: i64, now_ms: i64) -> String {
 
 fn latest_future_review_at(ctx: &ExtensionContext) -> Result<Option<JsString>, HandlerError> {
     let session = ctx.session_manager()?;
-    let entries = lock_session_manager(&session).get_entries();
+    let entries = session.get_entries();
     for entry in entries.iter().rev() {
         let known = entry.known();
         let Some(crate::core::session_manager::KnownSessionEntry::Custom(entry)) = known.as_deref() else {

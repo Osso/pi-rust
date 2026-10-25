@@ -661,21 +661,6 @@ fn empty_tool_lists_produce_no_tools() {
 }
 
 #[test]
-fn old_strict_metadata_does_not_rewrite_frozen_tool_parameters() {
-    let mut strict_tool = tool(json!({"type": "object", "properties": {}}));
-    strict_tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
-        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-            strict: pi_ai::types::JsonSchemaStrictness::Require,
-        },
-    ));
-    let actual = convert_tools(&[strict_tool.clone()], false).unwrap();
-    assert_eq!(
-        actual[0]["functionDeclarations"][0]["parametersJsonSchema"],
-        pi_js_compat::js_json!(strict_tool.parameters)
-    );
-}
-
-#[test]
 fn tool_choice_maps_to_function_calling_modes() {
     assert_eq!(map_tool_choice("none"), FunctionCallingConfigMode::None);
     assert_eq!(map_tool_choice("any"), FunctionCallingConfigMode::Any);

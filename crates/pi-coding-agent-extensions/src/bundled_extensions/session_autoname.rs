@@ -9,7 +9,6 @@ use pi_js_compat::string::is_js_whitespace_unit;
 use serde_json::json;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, ToolDefinition};
-use crate::core::session_manager::lock_session_manager;
 
 const MAX_NAME_CHARS: usize = 80;
 type SharedToolName = Arc<Mutex<Option<JsString>>>;
@@ -26,7 +25,6 @@ pub fn session_autoname_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         approval_required: Some(false),
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {"name": {"type": "string", "description": "Short 2-4 word session title."}}, "required": ["name"]}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -79,12 +77,10 @@ fn describe_refusal(
         return Ok(Some("Session name must be a non-empty string.".into()));
     }
     let manager = ctx.session_manager()?;
-    if ctx.multi_agent_agent_id()?.is_some_and(|id| !id.is_empty())
-        || lock_session_manager(&manager).is_subagent_session()
-    {
+    if ctx.multi_agent_agent_id()?.is_some_and(|id| !id.is_empty()) || manager.is_subagent_session() {
         return Ok(Some("Child agent sessions cannot be named.".into()));
     }
-    let manager = lock_session_manager(&manager);
+    let manager = manager;
     if manager.get_session_file().is_none() {
         return Ok(Some("Only persisted sessions can be named.".into()));
     }

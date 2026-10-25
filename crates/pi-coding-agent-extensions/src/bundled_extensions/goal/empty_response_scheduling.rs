@@ -8,7 +8,6 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, UserMessageContent};
-use crate::core::session_manager::lock_session_manager;
 
 use super::stale_context::is_stale_context_error;
 
@@ -53,7 +52,7 @@ where
         let Ok(session) = ctx.session_manager() else {
             return;
         };
-        let session_id = lock_session_manager(&session).get_session_id().to_owned();
+        let session_id = session.get_session_id().to_owned();
         self.clear_session(&session_id);
         let scheduler = self.clone();
         let task_session_id = session_id.clone();

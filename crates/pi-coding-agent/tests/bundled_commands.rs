@@ -158,10 +158,7 @@ async fn loop_command_injects_prompt_at_interval() {
     assert_eq!(messages[0].content, CustomMessageContent::Text("check progress".into()));
     assert_eq!(messages[0].custom_type, "loop");
     assert!(messages[0].display);
-    let session_id =
-        pi_coding_agent::core::session_manager::lock_session_manager(&harness.context().session_manager().unwrap())
-            .get_session_id()
-            .clone();
+    let session_id = harness.context().session_manager().unwrap().get_session_id().to_owned();
     assert_eq!(
         messages[0].details,
         Some(json!({"generation": 1, "sessionId": session_id}))

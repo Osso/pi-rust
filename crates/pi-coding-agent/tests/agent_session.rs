@@ -1495,6 +1495,57 @@ async fn quota_fallback_visits_all_three_accounts_once_like_frozen() {
 }
 
 #[tokio::test]
+async fn idle_steer_returns_before_the_provider_turn_finishes() {
+    let fixture = fixture().await;
+    fixture
+        .session
+        .agent()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("earlier request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }));
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (started_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    fixture
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_context, _options, _state, _model| {
+                let (started, release) = (Arc::clone(&started_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("steered", Default::default()))
+                })
+            },
+        ))]);
+    let session = fixture.session.clone();
+    let mut steer = tokio::spawn(async move { session.steer("idle steer", &[]).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("provider started");
+    let returned = tokio::time::timeout(std::time::Duration::from_millis(100), &mut steer).await;
+    release.notify_one();
+    if returned.is_err() {
+        steer.await.expect("steer task").expect("steer result");
+    }
+    fixture.session.agent().wait_for_idle().await;
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "idle-steer", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": true}));
+    assert_eq!(
+        returned.is_ok(),
+        expected["value"].as_bool().expect("oracle result"),
+        "steer must return without waiting for the provider response"
+    );
+}
+
+#[tokio::test]
 async fn cycle_model_without_narrow_scope_returns_none() {
     let fixture = fixture().await;
     assert_eq!(
@@ -2705,7 +2756,6 @@ fn custom_grep_definition(
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {"pattern": {"type": "string"}}}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

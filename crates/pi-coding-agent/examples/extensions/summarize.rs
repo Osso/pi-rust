@@ -109,11 +109,7 @@ pub fn summarize_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
 }
 
 async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
-    let branch = ctx
-        .session_manager()?
-        .lock()
-        .map_err(|error| HandlerError::new(error.to_string()))?
-        .get_branch(None);
+    let branch = ctx.session_manager()?.get_branch(None);
     let conversation = conversation_text(&branch)?;
     let has_ui = ctx.has_ui()?;
     let ui = ctx.ui()?;

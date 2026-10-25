@@ -22,7 +22,7 @@ use crate::core::multi_agent_store::{
 };
 use crate::core::runtime_process::is_process_identity_alive;
 use crate::core::session_control_db::{CreateMultiAgentAttachmentResult, read_multi_agent_runtime_ownership};
-use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_manager::{SessionInfo, SessionManager};
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::{
@@ -169,7 +169,7 @@ pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolR
         Err(result) => return Ok(*result),
     };
     let session_manager = valid.ctx.session_manager()?;
-    let owner_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
+    let owner_session_id = session_manager.get_session_id().to_owned();
     let committed = match commit_running_child(&valid, constructed, &owner_session_id) {
         Ok(committed) => committed,
         Err(result) => return Ok(*result),
@@ -794,7 +794,7 @@ fn load_attach_session_target(
         ));
     }
     let session_manager = ctx.session_manager()?;
-    let session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
+    let session_dir = session_manager.get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
         let session = SessionManager::open(&path, Some(&session_dir), None)
             .map_err(|error| HandlerError::new(error.message().clone()))?;
@@ -1005,9 +1005,7 @@ fn recover_and_publish_dead_agent(input: &RecoverAgentsInput, agent: &AgentSnaps
     let Some(dead_ownership) = dead_ownership else {
         return Ok(());
     };
-    let owner_session_id = lock_session_manager(&input.ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let owner_session_id = input.ctx.session_manager()?.get_session_id().to_owned();
     let recovered = coordinator
         .recover_dead_child(&crate::core::lifecycle_coordinator::RecoverDeadChildCommandInput {
             agent: agent.clone(),

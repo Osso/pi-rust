@@ -42,7 +42,6 @@ use super::spawn_attach_runtime::{
     attach_session_agent, attach_session_agent_schema, recover_agents, spawn_agent, spawn_agent_schema,
 };
 use super::viewer::{ListAgentsParams, list_agents};
-use crate::core::session_manager::lock_session_manager;
 
 #[derive(Clone)]
 pub struct BackgroundDispatchContext {
@@ -315,7 +314,6 @@ pub(super) fn tool_definition(
         approval_required: Some(false),
         approval_kind: None,
         parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -612,9 +610,7 @@ async fn background_command(
     let Some(prepared_runtime) = prepare_background_runtime(background, &coordinator, &prompt, ctx).await? else {
         return Ok(());
     };
-    let session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let session_id = ctx.session_manager()?.get_session_id().to_owned();
     let created = coordinator
         .commit_running_child(
             &prepared_runtime.prepared,

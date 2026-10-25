@@ -43,7 +43,7 @@ pub(crate) fn register_with_clock(
         name:"read".into(),label:"read (audited)".into(),
         description:"Read the contents of a file with access logging. Some sensitive paths (.env, secrets, credentials) are blocked.".into(),
         parameters:serde_json::json!({"type":"object","properties":{"path":{"type":"string","description":"Path to the file to read (relative or absolute)"},"offset":{"type":"number","description":"Line number to start reading from (1-indexed)"},"limit":{"type":"number","description":"Maximum number of lines to read"}},"required":["path"]}),
-        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,render_call:None,render_result:None,
+        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,render_call:None,render_result:None,
         execute:Arc::new(move|_,params,_,_,ctx|{
             let log=log_execute.clone();let clock=clock.clone();let blocked=blocked.clone();
             Box::pin(async move{

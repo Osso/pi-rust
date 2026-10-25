@@ -429,7 +429,7 @@ async fn finish_turn(
     Ok(())
 }
 fn restore(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-    let entries = ctx.session_manager()?.lock().unwrap().get_entries();
+    let entries = ctx.session_manager()?.get_entries();
     let entries = serde_json::to_value(entries).unwrap();
     let entries = entries.as_array().unwrap();
     let saved = entries

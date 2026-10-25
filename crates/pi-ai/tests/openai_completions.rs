@@ -1,6 +1,6 @@
 use pi_ai::api::openai_completions::{OpenAICompletionsOptions, build_params, convert_messages, get_compat};
 use pi_ai::request::StreamOptions;
-use pi_ai::types::{CacheRetention, Context, Model, Tool};
+use pi_ai::types::{CacheRetention, Context, Model};
 use serde_json::{Value, json};
 
 fn model(provider: &str, id: &str, base_url: &str, reasoning: bool) -> Model {
@@ -16,10 +16,6 @@ fn model(provider: &str, id: &str, base_url: &str, reasoning: bool) -> Model {
 
 fn context(value: Value) -> Context {
     serde_json::from_value(value).expect("context")
-}
-
-fn tool(name: &str, parameters: Value) -> Tool {
-    Tool::new(name, "Tool", parameters)
 }
 
 fn assistant(content: Value, provider: &str, model_id: &str) -> Value {
@@ -240,47 +236,4 @@ fn old_thinking_budget_options_do_not_add_frozen_request_fields() {
     );
     assert!(params.get("thinking_token_budget").is_none());
     assert_eq!(params["max_completion_tokens"].as_f64(), Some(2000.0));
-}
-
-#[test]
-fn grammar_metadata_does_not_change_frozen_function_tools() {
-    let model = serde_json::from_value::<Model>(json!({
-        "id": "gpt-5", "name": "gpt-5", "api": "openai-completions", "provider": "openai",
-        "baseUrl": "https://api.openai.com/v1", "reasoning": true, "input": ["text"],
-        "cost": {"input": 0.0, "output": 0.0, "cacheRead": 0.0, "cacheWrite": 0.0},
-        "contextWindow": 128000, "maxTokens": 4096,
-        "compat": {"supportsOpenAIGrammarTools": true, "supportsStrictMode": true}
-    }))
-    .expect("model");
-    let mut grammar_tool = tool(
-        "query",
-        json!({"type": "object", "properties": {"input": {"type": "string"}}, "required": ["input"]}),
-    );
-    grammar_tool.constrained_sampling = Some(
-        serde_json::from_value(json!({"type": "grammar", "variants": {"openai_lark": "start: /[a-z]+/"}}))
-            .expect("sampling"),
-    );
-    let context = Context {
-        system_prompt: None,
-        messages: vec![],
-        tools: Some(vec![grammar_tool]),
-    };
-    let compat = get_compat(&model);
-    let params = build_params(
-        &model,
-        &context,
-        &StreamOptions::default(),
-        &OpenAICompletionsOptions::default(),
-        &compat,
-        CacheRetention::Short,
-    );
-    assert_eq!(
-        params["tools"][0]["type"],
-        pi_js_compat::js_json::JsValue::String(("function").into())
-    );
-    assert_eq!(params["tools"][0]["function"]["strict"].as_bool(), Some(false));
-    assert_eq!(
-        params["tools"][0]["function"]["parameters"],
-        pi_js_compat::js_json::JsValue::from(context.tools.as_ref().unwrap()[0].parameters.clone())
-    );
 }

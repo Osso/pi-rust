@@ -1,27 +1,16 @@
-# coding-agent messages traceability
+# coding-agent messages
 
-Pinned source: `packages/coding-agent/src/core/messages.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen `4f9e6f8a4`, `packages/coding-agent/src/core/messages.ts` (239 lines). Native `crates/pi-coding-agent-data/src/core/messages.rs`. Shared constants/builders/bash formatting are re-exported from [harness messages](messages.md); coding-agent adds processed-image omission.
 
-Rust module: `crates/pi-coding-agent-data/src/core/messages.rs`.
-Focused tests: `crates/pi-coding-agent/tests/messages.rs` (2).
+| Frozen symbols/branches | Native/proof |
+|---|---|
+| summary prefixes/suffixes, BashExecutionMessage, CustomMessage, BranchSummaryMessage | harness native records/constants; common-pin harness builder/format proofs |
+| CompactionSummaryMessage/Options, createCompactionSummaryMessage, createBranchSummaryMessage, createCustomMessage | all option fields/date timestamps preserved by shared constructors; common-pin harness builder proofs |
+| bashExecutionToText | output/no-output/cancel/exit/truncation branches shared with harness |
+| convertToLlm role conversion | 5 grouped frozen coding-agent conversion cases cover user/assistant/toolResult/custom/bash/branch/compaction, excluded bash, providerNative |
+| omitProcessedImages/omitMessageImages | image-only/mixed user/tool/custom content; before/after successful assistant; no assistant, error-only, aborted-only; same frozen differential plus 2 native image tests |
+| native is_cut_point_message | user/assistant only; native boundary test (not an export of this frozen file) |
 
-The coding-agent module duplicates the agent harness message module except for `isCutPointMessage`. The Rust port re-exports `pi_agent_core::harness::messages` instead of duplicating the constants, records, constructors, and `convertToLlm`; that module's differential proof (`serialize_conversation`) covers the conversion behavior.
+GREEN at 2683e5cbc: 4 native tests (`/tmp/ext-api-suite_core_4-messages.log`). Current added 5-case differential GREEN (`/tmp/ext-api-messages-frozen2.log`). Observations compare complete parsed provider values through native JsValue; the oracle imports the actual coding-agent module. The malformed providerNative fixture was corrected to the frozen format/value contract before proof; no implementation change or relaxed assertion.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `COMPACTION_SUMMARY_PREFIX/SUFFIX`, `BRANCH_SUMMARY_PREFIX/SUFFIX` | exact framing strings | re-exported from `pi_agent_core::harness::messages`; agent-core marker proof |
-| `BashExecutionMessage`, `CustomMessage`, `BranchSummaryMessage`, `CompactionSummaryMessage` | custom message records | `BashExecutionMessage` / `BranchSummaryMessage` re-exports; custom messages are `AgentMessage::Custom` JSON objects per the harness contract |
-| `isCutPointMessage` | user and assistant only | `is_cut_point_message`; `accepts_conversational_boundaries_and_rejects_continuation_messages` |
-| `bashExecutionToText` | command/output/exit/cancel/truncation text | re-exported `bash_execution_to_text`; agent-core tests |
-| `createBranchSummaryMessage` / `createCompactionSummaryMessage` | timestamp-ms custom messages | re-exported constructors; session-manager context tests |
-| `createCustomMessage` | custom message with content/details/display | re-exported `create_custom_message`; `converts_extension_custom_messages_to_user_text` |
-| `convertToLlm` | bash/custom/branch/compaction mapping, excluded bash, pass-through roles | re-exported `convert_to_llm`; `converts_extension_custom_messages_to_user_text` plus agent-core conversion proof |
-
-## Gaps
-
-- `CustomMessage` is represented by `AgentMessage::Custom` rather than a distinct struct, matching the agent-core typed boundary.
-- Timestamp strings parse through `iso_time::parse_javascript_date`; invalid timestamps map to `0` rather than a `NaN` timestamp.
-
-## Discrepancies
-
-None.
+Gap: owned-return identity and typed invalid-JS inputs follow repository approval; pathological timestamps/runtime values follow the realistic-input parity bar. Invalid dates retain native NaN through existing date carriers, not the retired zero coercion described by the old trace.

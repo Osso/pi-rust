@@ -156,11 +156,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                         )?;
                     }
                 }
-                let entries = ctx
-                    .session_manager()?
-                    .lock()
-                    .map_err(|e| HandlerError::new(e.to_string()))?
-                    .get_entries();
+                let entries = ctx.session_manager()?.get_entries();
                 let saved = entries
                     .iter()
                     .rev()

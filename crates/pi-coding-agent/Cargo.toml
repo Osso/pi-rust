@@ -770,6 +770,10 @@ name = "example_working_message_test"
 path = "tests/example_working_message_test.rs"
 
 [[test]]
+name = "clipboard_native_process"
+path = "tests/clipboard_native_process.rs"
+
+[[test]]
 name = "experimental"
 path = "tests/experimental.rs"
 

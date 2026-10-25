@@ -6,9 +6,10 @@ type CleanupInput = {
 	artifactRoot: string;
 	now: number;
 	paths: string[];
-	mode: "direct" | "wrapper";
+	mode: "direct" | "wrapper" | "references";
 };
 type CleanupApi = {
+	readLinuxProcessReferences(): Set<string> | undefined;
 	cleanupDetachedJobArtifacts(
 		database: string,
 		options: { artifactRoot: string; now: number },
@@ -23,6 +24,11 @@ type CleanupApi = {
 void runOracle((module, request) => {
 	const api = module as unknown as CleanupApi;
 	const input = request as unknown as CleanupInput;
+	if (input.mode === "references") {
+		const references = api.readLinuxProcessReferences();
+		if (!references) throw new Error("Linux process references unavailable");
+		return input.paths.map((path) => references.has(path));
+	}
 	if (input.mode === "wrapper") {
 		api.runDetachedJobArtifactCleanup(
 			input.database,

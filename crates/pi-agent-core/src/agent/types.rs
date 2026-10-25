@@ -11,8 +11,8 @@ use indexmap::IndexSet;
 
 use pi_ai::request::{BoxFuture, SimpleStreamOptions};
 use pi_ai::types::{
-    AssistantMessage, AssistantMessageEvent, ConstrainedSampling, Context, Message, Model, TextOrImageContent,
-    ToolCall, ToolCallExecution, ToolResultMessage, UserMessage,
+    AssistantMessage, AssistantMessageEvent, Context, Message, Model, TextOrImageContent, ToolCall, ToolCallExecution,
+    ToolResultMessage, UserMessage,
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -326,9 +326,6 @@ pub trait AgentTool: Send + Sync {
     fn parameters(&self) -> &Value;
     /// Human-readable label for UI display.
     fn label(&self) -> JsString;
-    fn constrained_sampling(&self) -> Option<ConstrainedSampling> {
-        None
-    }
     /// Per-tool execution mode override.
     fn execution_mode(&self) -> Option<ToolExecutionMode> {
         None

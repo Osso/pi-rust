@@ -8,7 +8,6 @@ use std::time::Duration;
 use tokio::task::JoinHandle;
 
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
-use crate::core::session_manager::lock_session_manager;
 
 use super::stale_context::is_stale_context_error;
 
@@ -84,7 +83,7 @@ impl ErrorStatusScheduler {
 
     pub fn schedule(&self, ctx: ExtensionContext, message: &JsString) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
-        let session_id = lock_session_manager(&session).get_session_id().clone();
+        let session_id = session.get_session_id().clone();
         self.clear_session(&session_id);
         let settings = ctx.settings_manager()?;
         let retry_delay_ms = match settings {

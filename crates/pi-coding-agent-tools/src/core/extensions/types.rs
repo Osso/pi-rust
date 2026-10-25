@@ -14,9 +14,7 @@ use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdateCallback};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
-use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
-};
+use pi_ai::types::{AssistantMessageEvent, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -1088,10 +1086,13 @@ impl ExtensionContext {
         self.read(|state| state.cwd.clone())
     }
 
-    /// The same handle the owning `AgentSession` uses, so extension reads and
-    /// writes observe live session state (`ctx.sessionManager` in the source).
-    pub fn session_manager(&self) -> Result<SharedSessionManager, HandlerError> {
-        self.read(|state| Arc::clone(&state.session_manager))
+    /// Live readonly session access with isolated snapshots and the frozen goal mutators.
+    pub fn session_manager(
+        &self,
+    ) -> Result<crate::core::readonly_session_manager::ReadonlySessionManager, HandlerError> {
+        self.read(|state| {
+            crate::core::readonly_session_manager::create_readonly_session_manager(Arc::clone(&state.session_manager))
+        })
     }
 
     pub fn model_registry(&self) -> Result<Arc<ModelRegistry>, HandlerError> {
@@ -1662,7 +1663,6 @@ pub struct ToolDefinition {
     pub approval_kind: Option<ApprovalKind>,
     /// JSON Schema for the tool parameters.
     pub parameters: Value,
-    pub constrained_sampling: Option<ConstrainedSampling>,
     pub render_shell: Option<RenderShell>,
     pub prepare_arguments: Option<PrepareArguments>,
     pub prepare_execution: Option<PrepareExecution>,
@@ -2540,8 +2540,6 @@ pub struct SessionBeforeForkResult {
 pub struct SessionBeforeCompactResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compaction: Option<CompactionResult>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

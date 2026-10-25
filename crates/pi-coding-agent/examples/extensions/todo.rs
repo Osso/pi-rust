@@ -65,7 +65,7 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(ToolDefinition {
         name:"todo".into(),label:"Todo".into(),description:"Manage a todo list. Actions: list, add (text), toggle (id), clear".into(),
         parameters:serde_json::json!({"type":"object","properties":{"action":{"type":"string","enum":["list","add","toggle","clear"]},"text":{"type":"string","description":"Todo text (for add)"},"id":{"type":"number","description":"Todo ID (for toggle)"}},"required":["action"]}),
-        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
+        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(move|_,params,_,_,_|{let state=execute.clone();Box::pin(async move {Ok(execute_todo(&mut state.lock().unwrap(),&params))})}),
         render_call:Some(infallible_render_call(|args,th,_| {
             let mut text=th.fg(C::ToolTitle,&th.bold("todo "))+&th.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("undefined")));
@@ -109,7 +109,7 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     .map_err(HandlerError::new)
 }
 fn restore(state: &Mutex<State>, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-    let entries = ctx.session_manager()?.lock().unwrap().get_branch(None);
+    let entries = ctx.session_manager()?.get_branch(None);
     let mut restored = State::default();
     for entry in entries {
         let value = pi_js_compat::js_json::to_value(&entry).map_err(|e| HandlerError::new(e.to_string()))?;

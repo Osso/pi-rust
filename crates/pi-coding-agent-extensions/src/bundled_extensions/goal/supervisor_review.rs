@@ -8,7 +8,6 @@ use crate::core::extensions::types::{BoxFuture, HandlerError};
 use crate::core::session_control_db::{
     SupervisorRequestKind, SupervisorResponse as SupervisorResponseKind, get_control_db_path,
 };
-use crate::core::session_manager::lock_session_manager;
 use crate::supervisor::client::{RequestSupervisorDecisionInput, request_supervisor_decision};
 use crate::supervisor::project_resolver::{DEFAULT_SUPERVISOR_KB_DIR, resolve_supervisor_project_for_cwd};
 
@@ -72,7 +71,7 @@ pub fn review_goal_with_resident_supervisor(
         let control_db_path = JsString::from(get_control_db_path(&get_user_state_root().map_err(HandlerError::from)?));
         let cwd = input.ctx.cwd()?;
         let session = input.ctx.session_manager()?;
-        let sender_session_id = lock_session_manager(&session).get_session_id().clone();
+        let sender_session_id = session.get_session_id().clone();
         let project_id = resolve_supervisor_project_for_cwd(&cwd, &kb_dir).map_err(HandlerError::new)?;
         let response = request_supervisor_decision(&RequestSupervisorDecisionInput {
             control_db_path,

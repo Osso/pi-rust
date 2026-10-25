@@ -6,7 +6,7 @@ use pi_js_compat::js_json::{self, JsString, encode_node_utf8};
 use pi_js_compat::string::encode_uri_component;
 
 use crate::core::extensions::types::HandlerError;
-use crate::core::session_manager::SessionManager;
+use crate::core::readonly_session_manager::ReadonlySessionManager;
 use crate::utils::paths::node_join;
 
 use super::goal_parsing::{parse_goal, parse_goal_json};
@@ -19,8 +19,8 @@ fn goal_path_for_session_id(cwd: &JsString, session_id: &JsString) -> Result<JsS
     Ok(node_join(goals_dir, format!("{encoded}.json")))
 }
 
-fn goal_path(cwd: &JsString, session: &SessionManager) -> Result<JsString, HandlerError> {
-    goal_path_for_session_id(cwd, session.get_session_id())
+fn goal_path(cwd: &JsString, session: &ReadonlySessionManager) -> Result<JsString, HandlerError> {
+    goal_path_for_session_id(cwd, &session.get_session_id())
 }
 
 fn old_project_goal_path(cwd: &JsString) -> JsString {
@@ -35,7 +35,7 @@ fn remove_file(file: &JsString) -> Result<(), HandlerError> {
     std::fs::remove_file(encode_node_utf8(file)).map_err(|error| HandlerError::new(error.to_string()))
 }
 
-fn save_goal_json(session: &mut SessionManager, goal: &Goal) -> Result<(), HandlerError> {
+fn save_goal_json(session: &ReadonlySessionManager, goal: &Goal) -> Result<(), HandlerError> {
     let serialized = js_json::to_value(goal).map_err(|error| HandlerError::new(error.to_string()))?;
     let mut text = JsString::from(js_json::stringify_lossless(&serialized));
     text.push_str("\n");
@@ -55,7 +55,7 @@ fn load_goal_file(file: &JsString) -> Option<Goal> {
 }
 
 /// `loadOrMigrateGoal`.
-pub fn load_or_migrate_goal(cwd: &JsString, session: &mut SessionManager) -> Result<Option<Goal>, HandlerError> {
+pub fn load_or_migrate_goal(cwd: &JsString, session: &ReadonlySessionManager) -> Result<Option<Goal>, HandlerError> {
     if let Some(stored_goal) = session
         .get_session_goal_json()
         .map_err(|error| HandlerError::new(error.message().clone()))?
@@ -67,7 +67,10 @@ pub fn load_or_migrate_goal(cwd: &JsString, session: &mut SessionManager) -> Res
 }
 
 /// `loadOrMigrateActiveGoal`.
-pub fn load_or_migrate_active_goal(cwd: &JsString, session: &mut SessionManager) -> Result<Option<Goal>, HandlerError> {
+pub fn load_or_migrate_active_goal(
+    cwd: &JsString,
+    session: &ReadonlySessionManager,
+) -> Result<Option<Goal>, HandlerError> {
     let goal = load_or_migrate_goal(cwd, session)?;
     Ok(goal.filter(|goal| goal.completed_at.is_none()))
 }
@@ -75,13 +78,13 @@ pub fn load_or_migrate_active_goal(cwd: &JsString, session: &mut SessionManager)
 /// `loadOrMigrateRunningGoal`.
 pub fn load_or_migrate_running_goal(
     cwd: &JsString,
-    session: &mut SessionManager,
+    session: &ReadonlySessionManager,
 ) -> Result<Option<Goal>, HandlerError> {
     let goal = load_or_migrate_active_goal(cwd, session)?;
     Ok(goal.filter(|goal| goal.paused_at.is_none()))
 }
 
-fn migrate_legacy_goal(cwd: &JsString, session: &mut SessionManager) -> Result<Option<Goal>, HandlerError> {
+fn migrate_legacy_goal(cwd: &JsString, session: &ReadonlySessionManager) -> Result<Option<Goal>, HandlerError> {
     for file in [goal_path(cwd, session)?, old_project_goal_path(cwd)] {
         let Some(goal) = load_goal_file(&file) else {
             continue;
@@ -94,14 +97,14 @@ fn migrate_legacy_goal(cwd: &JsString, session: &mut SessionManager) -> Result<O
 }
 
 /// `saveGoal`.
-pub fn save_goal(session: &mut SessionManager, goal: &Goal) -> Result<(), HandlerError> {
+pub fn save_goal(session: &ReadonlySessionManager, goal: &Goal) -> Result<(), HandlerError> {
     save_goal_json(session, goal)
 }
 
 /// `markGoalComplete`.
 pub fn mark_goal_complete(
     cwd: &JsString,
-    session: &mut SessionManager,
+    session: &ReadonlySessionManager,
     reason: impl Into<JsString>,
 ) -> Result<Option<Goal>, HandlerError> {
     let Some(goal) = load_or_migrate_active_goal(cwd, session)? else {
@@ -120,7 +123,7 @@ pub fn mark_goal_complete(
 /// `pauseGoal`.
 pub fn pause_goal(
     cwd: &JsString,
-    session: &mut SessionManager,
+    session: &ReadonlySessionManager,
     reason: impl Into<JsString>,
 ) -> Result<Option<Goal>, HandlerError> {
     let Some(goal) = load_or_migrate_active_goal(cwd, session)? else {
@@ -140,7 +143,7 @@ pub fn pause_goal(
 }
 
 /// `resumeGoal`.
-pub fn resume_goal(cwd: &JsString, session: &mut SessionManager) -> Result<Option<Goal>, HandlerError> {
+pub fn resume_goal(cwd: &JsString, session: &ReadonlySessionManager) -> Result<Option<Goal>, HandlerError> {
     let Some(goal) = load_or_migrate_active_goal(cwd, session)? else {
         return Ok(None);
     };
@@ -157,7 +160,7 @@ pub fn resume_goal(cwd: &JsString, session: &mut SessionManager) -> Result<Optio
 }
 
 /// `clearGoal`.
-pub fn clear_goal(cwd: &JsString, session: &mut SessionManager) -> Result<bool, HandlerError> {
+pub fn clear_goal(cwd: &JsString, session: &ReadonlySessionManager) -> Result<bool, HandlerError> {
     let has_stored_goal = session
         .get_session_goal_json()
         .map_err(|error| HandlerError::new(error.message().clone()))?

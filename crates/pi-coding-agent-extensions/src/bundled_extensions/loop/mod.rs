@@ -144,9 +144,7 @@ impl LoopController {
             state.next_generation += 1;
             state.next_generation
         };
-        let session_id = crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
-            .get_session_id()
-            .clone();
+        let session_id = ctx.session_manager()?.get_session_id().to_owned();
         let active = ActiveLoop {
             interval_ms,
             prompt,
@@ -183,12 +181,7 @@ impl LoopController {
         let Some(active) = state.active.as_mut().filter(|active| active.generation == generation) else {
             return Ok(());
         };
-        if active.session_id
-            != crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
-                .get_session_id()
-                .clone()
-            || active.in_flight
-        {
+        if active.session_id != ctx.session_manager()?.get_session_id().to_owned() || active.in_flight {
             return Ok(());
         }
         if !ctx.is_idle()? || ctx.has_pending_messages()? {
@@ -205,11 +198,7 @@ impl LoopController {
         let Some(active) = state.active.as_mut() else {
             return Ok(());
         };
-        if active.session_id
-            != crate::core::session_manager::lock_session_manager(&ctx.session_manager()?)
-                .get_session_id()
-                .clone()
-        {
+        if active.session_id != ctx.session_manager()?.get_session_id().to_owned() {
             return Ok(());
         }
         if event
@@ -411,7 +400,6 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
         approval_required: Some(true),
         approval_kind: None,
         parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

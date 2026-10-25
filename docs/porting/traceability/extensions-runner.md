@@ -17,6 +17,12 @@ Oracle imports actual ModelRegistry.inMemory/AuthStorage, not retired model-runt
 
 Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Two actual-frozen/native preparation scenarios and a real provider-turn prepare→activate case are GREEN in the [4b matrix](agent-session-runtime.md#4b-recovery-checkpoint-2026-10-23); existing prepared target is retained without reacquiring its held permit. No whole-runner acceptance inferred.
 
+## Readonly context boundary (2026-10-25)
+
+`createContext` now supplies the existing readonly façade through `ExtensionContext::session_manager`, matching frozen runner's `sessionManagerReadView`. Native readers no longer acquire a core mutex. Goal state helpers accept the façade and keep only the two allowed setters, matching frozen `extensions/goal/src/goal-state.ts:20,110`. No production unrestricted writer remained after the typed getter migration. Test harness fixture writers retain their own explicit core authority; runtime rename uses the bound session action rather than a context write. Core history traversal accepts the branch/file inputs directly, without changing traversal logic.
+
+RED: extension-facing direct snapshot/goal methods did not compile because the getter returned a mutable Arc (`/tmp/ext-api-readonly-red.log`). GREEN: new snapshot/live/goal/stale-context test, existing persisted goal/live-view test and real runtime replacement/rebind/name-read test, all focused (`/tmp/ext-api-readonly-{green,core,rebind}.log`). Workspace/all-target compilation passed (`/tmp/ext-api-readonly-all4.*`); its sole unused test import was subsequently removed. No broad test suite run. Parent integration `cad6ade44` was merged before the getter slice.
+
 ## Symbols → Rust
 
 | Source | Rust | Tests |

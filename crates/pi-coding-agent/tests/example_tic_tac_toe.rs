@@ -178,13 +178,18 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
     )
     .unwrap();
-    let mut runner = scheduler::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
+    let core_session = scheduler::session_manager(cwd);
+    let mut runner = ExtensionRunner::new(
+        vec![extension],
+        runtime,
+        cwd,
+        core_session.clone(),
+        Arc::new(model_registry),
+        None,
+    );
     scheduler::bind(&mut runner);
     let initial = details(["X  ", "   ", "   "], "playing", "O", 0, 0);
-    runner
-        .create_context()
-        .session_manager()
-        .unwrap()
+    core_session
         .lock()
         .unwrap()
         .append_message(serde_json::from_value(restored(initial)["message"].clone()).unwrap())

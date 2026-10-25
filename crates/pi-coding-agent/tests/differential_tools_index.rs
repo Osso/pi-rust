@@ -25,7 +25,6 @@ fn describe(name: ToolName, cwd: &str) -> Value {
             pi_coding_agent::core::extensions::types::ApprovalKind::ReadOnly => "read-only",
         }),
         "parameters": definition.parameters,
-        "constrainedSampling": definition.constrained_sampling,
         "executionMode": definition.execution_mode.map(|mode| mode.as_str()),
         "renderShell": definition.render_shell.map(|shell| match shell {
             RenderShell::Default => "default",
@@ -119,39 +118,6 @@ fn tools_index_factories_match_the_pinned_typescript_source() {
         })
         .collect::<Vec<_>>();
     assert_eq!(json!(all_keys), expected["allKeys"]);
-}
-
-#[test]
-fn tool_definitions_do_not_add_removed_experimental_sampling() {
-    env_probe::run_probe(
-        "experimental_sampling_probe",
-        &[("PI_EXPERIMENTAL", std::ffi::OsString::from("1"))],
-    );
-}
-
-#[test]
-#[ignore = "child process probe"]
-fn experimental_sampling_probe() {
-    if !env_probe::in_probe() {
-        return;
-    }
-    let cwd = "/tmp/pi-tools-index-differential";
-    let mut oracle = oracle::TsOracle::spawn(
-        "coding-agent-tools-index-oracle.ts",
-        "packages/coding-agent/src/core/tools/index.ts",
-    );
-    let expected = oracle.request(&json!({"id": 7, "operation": "coding_agent_tools_index", "cwd": cwd}));
-    assert_eq!(expected["ok"], json!(true), "{expected}");
-    for (index, name) in ToolName::ALL.into_iter().enumerate() {
-        let expected = &expected["output"]["definitions"][index]["constrainedSampling"];
-        assert_eq!(*expected, Value::Null, "frozen {}", name.as_str());
-        assert_eq!(
-            describe(name, cwd)["constrainedSampling"],
-            *expected,
-            "{}",
-            name.as_str()
-        );
-    }
 }
 
 #[test]

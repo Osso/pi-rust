@@ -5,7 +5,6 @@ use std::sync::Arc;
 use crate::core::extensions::types::{
     BoxFuture, ExtensionContext, HandlerError, InputEvent, InputSource, ToolResultEvent,
 };
-use crate::core::session_manager::lock_session_manager;
 
 use super::goal_state::{load_or_migrate_active_goal, save_goal};
 use super::goal_types::{
@@ -20,13 +19,13 @@ pub struct GoalReviewEvidenceController {
 fn append_evidence(ctx: &ExtensionContext, evidence: GoalReviewEvidenceEvent) -> Result<(), HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let Some(goal) = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))? else {
+    let Some(goal) = load_or_migrate_active_goal(&cwd, &session)? else {
         return Ok(());
     };
     let mut review_evidence = goal.review_evidence.clone().unwrap_or_default();
     review_evidence.push(evidence);
     save_goal(
-        &mut lock_session_manager(&session),
+        &session,
         &Goal {
             review_evidence: Some(review_evidence),
             ..goal
@@ -74,7 +73,7 @@ fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count
     }
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let Some(goal) = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))? else {
+    let Some(goal) = load_or_migrate_active_goal(&cwd, &session)? else {
         return Ok(());
     };
     let is_reviewed_goal = goal.created_at == reviewed_goal.created_at && goal.objective == reviewed_goal.objective;
@@ -86,7 +85,7 @@ fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count
     }
     let remaining: Vec<_> = evidence.into_iter().skip(evidence_count).collect();
     save_goal(
-        &mut lock_session_manager(&session),
+        &session,
         &Goal {
             review_evidence: if remaining.is_empty() { None } else { Some(remaining) },
             ..goal
@@ -100,7 +99,7 @@ fn create_evidence_review(review_goal: GoalSupervisorReview) -> GoalEvidenceRevi
         Box::pin(async move {
             let cwd = input.ctx.cwd()?;
             let session = input.ctx.session_manager()?;
-            let conversation_events = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?
+            let conversation_events = load_or_migrate_active_goal(&cwd, &session)?
                 .and_then(|goal| goal.review_evidence)
                 .unwrap_or_default();
             let mut payload = input.payload.clone();

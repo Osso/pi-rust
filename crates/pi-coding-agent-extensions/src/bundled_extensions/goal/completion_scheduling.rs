@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
 use crate::core::session_control_db::SupervisorResponse;
-use crate::core::session_manager::lock_session_manager;
 
 use super::goal_scheduling::{GoalScheduler, GoalSchedulingOptions, GoalWaitCallbacks, create_goal_scheduler};
 use super::goal_types::{Goal, GoalEvidenceReview, GoalReviewInput, GoalReviewKind, ReviewedGoalResponse};
@@ -109,7 +108,7 @@ async fn apply_completion_decision(
     ctx: ExtensionContext,
 ) -> Result<(), HandlerError> {
     if let Ok(session) = ctx.session_manager() {
-        scheduler.clear_session(lock_session_manager(&session).get_session_id());
+        scheduler.clear_session(&session.get_session_id());
     }
     match &reviewed.decision {
         SupervisorResponse::Complete { .. } => (options.on_complete)(waiting.clone(), ctx.clone()),

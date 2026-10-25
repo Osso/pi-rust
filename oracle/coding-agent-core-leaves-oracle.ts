@@ -130,6 +130,34 @@ const handlers: Record<string, Handler> = {
 		return api.isSupersededRuntimeIdentity(current, replacement);
 	}),
 	activityDetail: (api, request) => cases(request).map((args) => api.summarizeToolArguments(args) ?? null),
+	lifecycleReconcile: (api, request) => {
+		const Coordinator = api.LifecycleCoordinator as unknown as {
+			reconcileDeadDetachedRuntimes(db: unknown, now: unknown, artifactRoot: unknown): unknown;
+		};
+		return Coordinator.reconcileDeadDetachedRuntimes(request.db, request.now, request.artifactRoot ?? undefined);
+	},
+	lifecycleDetachedCancellation: (api, request) => {
+		const Coordinator = api.LifecycleCoordinator as unknown as new (options: unknown) => {
+			requestDetachedCancellation(input: unknown): unknown;
+		};
+		const coordinator = new Coordinator({
+			...(request.options as object),
+			createAgentId: () => "unused",
+			now: () => request.now,
+		});
+		return coordinator.requestDetachedCancellation(request.input);
+	},
+	detachedBootstrapError: (api, request) => {
+		try {
+			api.spawnGatedDetachedPayload(request.input);
+			throw new Error("Expected bootstrap failure");
+		} catch (error) {
+			return errorOf(error).message;
+		}
+	},
+	detachedControlEnqueue: (api, request) => request.response
+		? api.enqueueDetachedJobStatusResponse(request.input)
+		: api.enqueueDetachedJobStatusRequest(request.input),
 	detachedControlClaim: async (api, request) => {
 		const dbModule = await import(pathToFileURL(`${process.argv[2]}/core/session-control-db.ts`).href);
 		dbModule.registerRuntimeMailboxListener(request.db, request.recipient, process.pid);

@@ -255,7 +255,6 @@ pub fn create_image_generation_tool_definition(options: &ImageGenerationToolOpti
                 }
             }
         }),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

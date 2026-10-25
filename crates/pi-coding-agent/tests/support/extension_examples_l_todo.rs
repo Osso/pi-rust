@@ -179,7 +179,15 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
     } else {
         None
     };
-    let mut runner = fixture::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
+    let core_session = fixture::session_manager(cwd);
+    let mut runner = ExtensionRunner::new(
+        vec![extension],
+        runtime,
+        cwd,
+        core_session.clone(),
+        Arc::new(model_registry),
+        None,
+    );
     let effects = Arc::new(Mutex::new(Vec::<Value>::new()));
     let mut actions = fixture::actions();
     if let Some(tools) = request["allTools"].as_array() {
@@ -192,7 +200,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
             log.lock().unwrap().push(json!(["setActiveTools", names]));
             Ok(())
         });
-        let manager = runner.create_context().session_manager().unwrap();
+        let manager = core_session.clone();
         let log = effects.clone();
         actions.append_entry = Arc::new(move |kind, data| {
             manager
@@ -239,10 +247,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 Value::Null
             }
             "append_custom" => {
-                runner
-                    .create_context()
-                    .session_manager()
-                    .unwrap()
+                core_session
+                    .clone()
                     .lock()
                     .unwrap()
                     .append_custom_entry(
@@ -253,10 +259,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 Value::Null
             }
             "append" => {
-                runner
-                    .create_context()
-                    .session_manager()
-                    .unwrap()
+                core_session
+                    .clone()
                     .lock()
                     .unwrap()
                     .append_message(serde_json::from_value(case["message"].clone()).unwrap())
@@ -264,7 +268,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 Value::Null
             }
             "branch" => {
-                let manager = runner.create_context().session_manager().unwrap();
+                let manager = core_session.clone();
                 let mut manager = manager.lock().unwrap();
                 let id = manager.get_entries()[case["index"].as_u64().unwrap() as usize]
                     .id()
@@ -274,13 +278,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
                 Value::Null
             }
             "entries" => {
-                let entries = runner
-                    .create_context()
-                    .session_manager()
-                    .unwrap()
-                    .lock()
-                    .unwrap()
-                    .get_entries();
+                let entries = core_session.clone().lock().unwrap().get_entries();
                 json!(
                     entries
                         .iter()

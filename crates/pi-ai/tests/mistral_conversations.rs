@@ -733,39 +733,6 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
     assert_eq!(wire["messages"][1]["tool_call_id"], json!(normalized));
 }
 
-#[tokio::test]
-async fn ignores_old_strict_tool_metadata_and_keeps_plain_parameters() {
-    let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
-    let mut context = context();
-    let mut tool = Tool::new(
-        "inspect_schema",
-        "Inspect the schema",
-        json!({
-            "type": "object",
-            "properties": {"nested": {"type": "object", "properties": {"value": {"type": "string"}}}},
-            "required": ["nested"],
-        }),
-    );
-    tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
-        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-            strict: pi_ai::types::JsonSchemaStrictness::Require,
-        },
-    ));
-    context.tools = Some(vec![tool]);
-
-    collect(stream(
-        model("devstral-medium-latest", false),
-        context,
-        options(fetch, "fake-key"),
-    ))
-    .await;
-
-    let request = requests.lock().unwrap().first().cloned().expect("request");
-    let wire: Value = serde_json::from_slice(&request.body.expect("body")).expect("wire JSON");
-    assert_eq!(wire["tools"][0]["function"]["strict"], json!(false));
-    assert!(wire["tools"][0]["function"]["parameters"]["properties"]["nested"].is_object());
-}
-
 async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::types::ThinkingLevel>) -> Value {
     let (fetch, _) = fetch_with(ScriptedResponse {
         status: 500,

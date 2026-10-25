@@ -22,7 +22,6 @@ use crate::core::session_control_db::{
     EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessage, RuntimeMailboxMessageKind,
     RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_session_metadata,
 };
-use crate::core::session_manager::lock_session_manager;
 use pi_js_compat::abort::AbortSignal;
 
 use super::runtime_utils::create_failed_mailbox_message;
@@ -514,7 +513,7 @@ impl RuntimeLifecycleMirror {
     }
 
     pub fn bind(&self, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-        let session_id = lock_session_manager(&ctx.session_manager()?).get_session_id().clone();
+        let session_id = ctx.session_manager()?.get_session_id().clone();
         let mut state = self.state.lock().expect("mirror state");
         state.bound_ctx = Some(ctx.clone());
         if state.bound_session_id.as_ref() == Some(&session_id) && state.unsubscribe.is_some() {
@@ -618,9 +617,7 @@ fn enqueue_runtime_session_message(
         );
         return Ok(false);
     };
-    let session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let session_id = ctx.session_manager()?.get_session_id().to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
         recipient_host,
         kind: mailbox_kind(message.kind),
@@ -702,9 +699,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     let Some(recipient) = resolve_runtime_recipient(store, notification, ctx)? else {
         return Ok(());
     };
-    let current_session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let current_session_id = ctx.session_manager()?.get_session_id().to_owned();
     let sender_session_id = agent
         .as_ref()
         .and_then(|agent| agent.transcript.as_ref())
@@ -774,9 +769,7 @@ fn enqueue_runtime_mailbox_store_message(
         );
         return Ok(false);
     };
-    let session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let session_id = ctx.session_manager()?.get_session_id().to_owned();
     let input = EnqueueRuntimeMailboxMessageInput {
         recipient_host: None,
         kind: mailbox_kind(message.kind),
@@ -815,10 +808,10 @@ fn resolve_runtime_recipient(
     if !is_main_runtime_target(&message.to_agent_id) {
         return Ok(Some(RuntimeMailboxAddress {
             agent_id: Some(message.to_agent_id.clone()),
-            session_id: lock_session_manager(&ctx.session_manager()?).get_session_id().clone(),
+            session_id: ctx.session_manager()?.get_session_id().clone(),
         }));
     }
-    let current_session_id = lock_session_manager(&ctx.session_manager()?).get_session_id().clone();
+    let current_session_id = ctx.session_manager()?.get_session_id().clone();
     let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
@@ -832,7 +825,7 @@ fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<JsStr
     }
     let parent_session = {
         let session_manager = ctx.session_manager()?;
-        let manager = lock_session_manager(&session_manager);
+        let manager = session_manager;
         if !manager.is_subagent_session() {
             return Ok(None);
         }
@@ -928,7 +921,6 @@ pub fn register_mailbox_tools(
         approval_required: Some(false),
         approval_kind: None,
         parameters: send_agent_message_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -961,7 +953,6 @@ pub fn register_mailbox_tools(
         approval_required: Some(false),
         approval_kind: None,
         parameters: contact_parent_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

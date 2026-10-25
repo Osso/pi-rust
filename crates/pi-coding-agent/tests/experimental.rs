@@ -5,9 +5,7 @@ mod oracle;
 
 use std::ffi::OsString;
 
-use pi_agent_core::AgentTool;
 use pi_coding_agent::core::experimental::are_experimental_features_enabled;
-use pi_coding_agent::core::tools::{bash::BashTool, edit::EditTool, write::WriteTool};
 use serde_json::json;
 
 const PREFIX: &str = "EXPERIMENTAL_PROBE:";
@@ -27,7 +25,7 @@ fn probe(value: Option<&str>) -> String {
 }
 
 #[test]
-fn experimental_gate_and_tool_sampling_match_frozen_source() {
+fn experimental_gate_matches_frozen_source() {
     for value in [
         None,
         Some(""),
@@ -39,22 +37,13 @@ fn experimental_gate_and_tool_sampling_match_frozen_source() {
     ] {
         let environment = [("PI_EXPERIMENTAL", OsString::from(value.unwrap_or_default()))];
         let mut source = oracle::TsOracle::spawn_with_environment(
-            "coding-agent-tools-index-oracle.ts",
-            "packages/coding-agent/src/core/tools/index.ts",
+            "experimental-oracle.mts",
+            "packages/coding-agent/src/core/experimental.ts",
             &environment,
         );
         let response = source.request(&json!({ "id": 1, "cwd": "/tmp" }));
         assert_eq!(response["ok"], true, "{response}");
-        let definitions = response["output"]["definitions"].as_array().unwrap();
-        let sampling = ["bash", "edit", "write"].map(|name| {
-            definitions
-                .iter()
-                .find(|definition| definition["name"] == name)
-                .unwrap()["constrainedSampling"]
-                .clone()
-        });
-        assert_eq!(sampling, [json!(null), json!(null), json!(null)]);
-        let expected = format!("{} {}", value == Some("1"), serde_json::to_string(&sampling).unwrap());
+        let expected = response["output"].as_bool().unwrap().to_string();
         assert_eq!(probe(value), expected, "PI_EXPERIMENTAL={value:?}");
     }
 }
@@ -65,11 +54,5 @@ fn experimental_probe_child() {
     if !env_probe::in_probe() {
         return;
     }
-    let sampling = serde_json::to_string(&[
-        BashTool::new("/tmp").constrained_sampling(),
-        EditTool::new("/tmp").constrained_sampling(),
-        WriteTool::new("/tmp").constrained_sampling(),
-    ])
-    .unwrap();
-    println!("{PREFIX}{} {sampling}", are_experimental_features_enabled());
+    println!("{PREFIX}{}", are_experimental_features_enabled());
 }

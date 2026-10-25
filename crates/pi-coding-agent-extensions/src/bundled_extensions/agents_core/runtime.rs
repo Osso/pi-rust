@@ -20,7 +20,7 @@ use crate::core::extensions::types::{
     ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType, ToolDefinition,
 };
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions, is_active_lifecycle};
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::WaitingDesktopNotificationHandles;
@@ -409,7 +409,7 @@ impl MultiAgentPiRequestHandler {
             }
             Ok("messages.last") => {
                 let session_manager = ctx.session_manager()?;
-                let manager = lock_session_manager(&session_manager);
+                let manager = session_manager;
                 Ok(find_last_session_message(&manager.get_branch(None)))
             }
             Ok("messages.send") => {
@@ -656,7 +656,6 @@ pub fn register_agent_viewer_tools(
         approval_required: Some(false),
         approval_kind: None,
         parameters: agent_viewer_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

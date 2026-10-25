@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "extension_session_read_view.rs"]
+pub mod extension_session_read_view;
+
 #[path = "bundled_commands.rs"]
 pub mod bundled_commands;
 #[path = "bundled_extensions_gates.rs"]

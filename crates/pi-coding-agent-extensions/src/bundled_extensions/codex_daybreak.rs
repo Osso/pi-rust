@@ -7,7 +7,7 @@ use pi_js_compat::js_json::{JsString, JsValue};
 
 use crate::core::extensions::types::{ExtensionApi, ExtensionContext, HandlerError, NotifyType};
 use crate::core::footer_data_provider::ExtensionStatus;
-use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
+use crate::core::session_manager::KnownSessionEntry;
 
 const DAYBREAK_ENTRY: &str = "codex-daybreak";
 const DAYBREAK_BLUE: &str = "daybreak_blue";
@@ -46,7 +46,7 @@ fn update_status(ctx: &ExtensionContext, enabled: bool, model: Option<&Model>) -
 
 fn read_persisted_program(ctx: &ExtensionContext) -> Result<bool, HandlerError> {
     let manager = ctx.session_manager()?;
-    let branch = lock_session_manager(&manager).get_branch(None);
+    let branch = manager.get_branch(None);
     for entry in branch.iter().rev() {
         let known = entry.known();
         let Some(KnownSessionEntry::Custom(custom)) = known.as_deref() else {
