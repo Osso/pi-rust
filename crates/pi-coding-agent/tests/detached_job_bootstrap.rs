@@ -7,6 +7,27 @@ use pi_coding_agent::core::detached_job_bootstrap::{
     DetachedPayloadError, GatedDetachedPayloadInput, spawn_gated_detached_payload,
 };
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn existing_output_error_matches_frozen_node_open() {
+    let fixture = Fixture::new();
+    fs::write(fixture.output(), "keep").unwrap();
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    let expected = oracle.request(&pi_js_compat::js_json!({
+        "id": 28201, "module":"core/detached-job-bootstrap.ts", "operation":"detachedBootstrapError",
+        "input": {
+            "args": [], "command": fixture.command, "cwd": fixture.cwd,
+            "identityPath": fixture.identity, "stderrPath": fixture.output, "stdoutPath": fixture.output,
+        },
+    }));
+    assert_eq!(expected["ok"], pi_js_compat::js_json::JsValue::Bool(true));
+    let error = spawn_gated_detached_payload(&payload_input(&fixture, &[])).unwrap_err();
+    assert_eq!(error.message(), expected["output"].as_string().unwrap().clone());
+    assert_eq!(fs::read_to_string(fixture.output()).unwrap(), "keep");
+}
+
 struct Fixture {
     directory: tempfile::TempDir,
     output: JsString,
