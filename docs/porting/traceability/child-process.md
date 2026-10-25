@@ -6,6 +6,8 @@
 |---|---|
 | Child envp order is sorted by std Command; frozen uses JS own-key order — accepted runtime gap, user decision 2026-10-24 (AGENTS.md; parent2d1d3eba) | Frozen `/proc/self/environ` yields `2,10,Z_FIRST,A_SECOND`; native and direct std Command (without a native input map) yield `10,2,A_SECOND,Z_FIRST`. Original behavioral RED remains `/tmp/pi-rust-repin-core-tools/bash-envp-order-red-2.log`. Active `differential_bash_environment::native_child_envp_is_sorted_and_frozen_own_key_order_is_preserved_as_evidence` asserts both actual orders, identical complete names/values, and the direct std control. No order-preserving backend is added. This applies to std-based child spawns, not just bash; pre-spawn validation still follows JS own-key order. |
 
+Accepted-gap checkpoint `b448fe01`: `cargo test -j4 -p pi-coding-agent --test differential_bash_environment` passes 6/6 with no ignored tests (`envp-gap-runtime.log`). Target warning Clippy has 0 findings in the test; workspace all-target keep-going check has 0 errors/warnings; inventory remains PASS 686/186679, 454 done / 19 gap / 46 partial / 167 todo. Logs are under `/tmp/pi-rust-repin-core-tools/`. Production spawn and pre-spawn validation code are unchanged.
+
 ## Shared live-child SIGTERM
 
 `send_child_sigterm` moves find's existing helper unchanged into this authority. It consults the live handle, never caches a PID across reaping, and treats an already-gone process as a completed signal attempt. Find/grep retain distinct abort/close policies. Grep4 frozen child histories and find3 regressions GREEN (`grep-child-abort-green.log`), including closed pipes and inherited stderr after parent exit.
