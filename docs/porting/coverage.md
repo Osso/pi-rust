@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 454, `gap` 19, `partial` 46, `todo` 167.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 455, `gap` 19, `partial` 46, `todo` 166.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -515,7 +515,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/core/telemetry.ts` | 13 | 15 | done | `crates/pi-coding-agent-tools/src/core/telemetry.rs` | Env-flag truthiness and settings fallback; `PI_TELEMETRY` default matches the TS parameter.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/terminal-outbox-delivery.ts` | 84 | 17 | todo | `crates/pi-coding-agent-storage/src/core/terminal_outbox_delivery.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-storage/src/core/terminal_outbox_delivery.rs`; Projection claim/deliver/fail, cleanup cadence and retention threshold; 5 behavioral tests ([traceability](traceability/terminal-outbox-delivery.md)). |
 | `coding-agent/src/core/timings.ts` | 50 | 0 | done | `crates/pi-coding-agent-data/src/core/timings.rs` | `PI_TIMING` startup profiling; stderr format asserted through a child process.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/core/tool-capabilities.ts` | 24 | 0 | todo | `crates/pi-coding-agent-data/src/core/tool_capabilities.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-data/src/core/tool_capabilities.rs`; Child-disabled and supervisor-only tool names; differential `27004`. |
+| `coding-agent/src/core/tool-capabilities.ts` | 24 | 0 | done | `crates/pi-coding-agent-data/src/core/tool_capabilities.rs` | Whole common-pin three-export/order/membership comparison (9child/2supervisor/17standalone names,26lookups),retained constants/session boundary2/0 and read-only consumer audit. Native data already exact; no production edit. Compiler/scopedlint/protectedfixtures/style/inventory pass; [trace](traceability/tool-capabilities.md). |
 | `coding-agent/src/core/tool-detach-registry.ts` | 63 | 0 | todo | `crates/pi-coding-agent-data/src/core/tool_detach_registry.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-data/src/core/tool_detach_registry.rs`; Newest-first detach, running count, cancellable auto-detach timers. |
 | `coding-agent/src/core/tools/ask-architect.ts` | 95 | 22 | done | `crates/pi-coding-agent-tools/src/core/tools/ask_architect.rs` | 4 behavioral cases + differential (4 scenarios); public input/details types, factory with prompt metadata, and renderers; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/core/tools/ask-questions-panel.ts` | 244 | — | done | `crates/pi-coding-agent-tools/src/core/tools/ask_questions_panel.rs` | Ten complete frozen ANSI/UTF16 histories/99frames, eight retained plain-layout histories and raw aggregation unit; focus/navigation/toggles/Other/disabled-submit/finished-once covered. Post-round-2 runtime/compile/scopedlint gates pass; [checkpoint](question-tools-proof.md), [traceability](traceability/ask-questions-panel.md). |
