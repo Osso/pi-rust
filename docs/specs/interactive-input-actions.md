@@ -13,6 +13,12 @@ Escape first cancels a summary edit, selected child turn or Supervisor review. O
 
 Compaction queue delivery preserves extension-command ordering and steering/follow-up mode. The first ordinary prompt starts without blocking delivery of later queued messages. Retry turns receive queued messages through the matching session queue API. A rejected delivery clears partial session queues, restores the original compaction input and previews, and reports `Failed to send queued message(s): REASON` with correct singular/plural spelling.
 
+## Bash and manual compaction
+
+Bash input invokes `user_bash` interception before execution. Replacement results render and record through the session authority; custom operations reach normal execution. Output streams into the active component. Idle executions appear in chat; streaming executions remain pending until normal input flushes them to chat. Completion keeps queued-message previews intact and refreshes the footer only when idle and included in context.
+
+Manual compaction clears the old working status and relies on compaction events for its normal display. Only an error after a saved compaction is reported again by the command handler. Global interrupt respects focused dialog cancellation and key releases, and cancels a Supervisor review even when the editor does not handle Escape itself.
+
 ## Follow-up submission
 
 Alt+Enter reads expanded, trimmed editor text and ignores empty input. During compaction, extension commands execute immediately and other text queues as follow-up input. During streaming, submit through the session prompt API with follow-up behavior and show prompt failures. While idle, use the installed editor submit callback, not the session follow-up queue; clear the editor only if that callback exists. Custom editors inherit the default submit callback.

@@ -1,4 +1,70 @@
 #[tokio::test(flavor = "current_thread")]
+async fn native_audit_bash_renders_output_and_honors_interception() {
+    tokio::task::LocalSet::new().run_until(async {
+        use crate::core::extensions::types::{UserBashEvent,UserBashEventResult};
+        let runtime=crate::core::extensions::create_extension_runtime();
+        let factory:crate::core::extensions::ExtensionFactory=Arc::new(|api| {
+            api.on_user_bash(|event:UserBashEvent,_:crate::core::extensions::ExtensionContext| -> crate::core::extensions::BoxFuture<'static,Result<Option<UserBashEventResult>,HandlerError>> {
+                Box::pin(async move { Ok((event.command == "intercept-audit").then(||UserBashEventResult {result:Some(pi_js_compat::js_json!({"output":"Intercepted output","exitCode":0,"cancelled":false,"truncated":false})),operations:None})) })
+            }).unwrap();
+            Box::pin(async {Ok(())})
+        });
+        let extension=crate::core::extensions::load_extension_from_factory(factory,&"/tmp".into(),Arc::new(crate::core::event_bus::EventBusController::new()),runtime.clone(),&"/tmp/audit-bash-extension".into()).await.unwrap();
+        let loader=Arc::new(StaticResourceLoader {extensions:Some(crate::core::extensions::LoadExtensionsResult {extensions:vec![extension],errors:Vec::new(),runtime}),..Default::default()});
+        let (mode,_,_,_temp)=build_mode_with_loader(loader,None).await;
+        mode.init().await.unwrap();
+        mode.handle_bash_command("printf native-audit-output".into(),false).await;
+        let chat=JsString::join(mode.chat_container.borrow_mut().render(120),"\n");
+        assert!(chat.split('\n').any(|line|pi_tui::utils::strip_terminal_sequences(&line).trim() == "native-audit-output"),"{chat:?}");
+        mode.handle_bash_command("intercept-audit".into(),false).await;
+        let chat=JsString::join(mode.chat_container.borrow_mut().render(120),"\n");
+        assert!(chat.contains("Intercepted output"),"{chat:?}");
+        assert!(mode.pending_messages_container.borrow().children().is_empty());
+        mode.stop().unwrap();
+    }).await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_manual_compaction_has_single_event_display_authority() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, _, _, _temp) = build_mode().await;
+            let mut model = mode.session().model();
+            model.provider = "unconfigured-audit".to_owned();
+            mode.session().agent().set_model(model);
+            let loader = mode.create_working_loader(mode.get_working_loader_indicator(WorkingLoaderView::Main));
+            *mode.loading_animation.borrow_mut() = Some(Rc::clone(&loader));
+            mode.status_container.borrow_mut().add_child(loader);
+            mode.handle_compact_command(None).await;
+            assert!(mode.chat_container.borrow_mut().render(120).is_empty());
+            assert!(mode.status_container.borrow_mut().render(120).is_empty());
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_global_interrupt_cancels_review_without_editor_callback() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, terminal, _, _temp) = build_mode().await;
+            mode.init().await.unwrap();
+            mode.default_editor.borrow_mut().on_escape = None;
+            let cancelled = Arc::new(std::sync::atomic::AtomicBool::new(false));
+            let seen = Arc::clone(&cancelled);
+            let _registration = mode
+                .session()
+                .register_supervisor_review_cancellation(Arc::new(move || {
+                    seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                }));
+            terminal.borrow_mut().send_input("\u{1b}");
+            mode.ui.process_events();
+            assert!(cancelled.load(std::sync::atomic::Ordering::SeqCst));
+            mode.stop().unwrap();
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn native_audit_escape_preserves_plain_input_and_cancels_edits() {
     tokio::task::LocalSet::new()
         .run_until(async {
