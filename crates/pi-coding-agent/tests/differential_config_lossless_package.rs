@@ -30,7 +30,7 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
                 ("NO_COLOR", OsString::from("1")),
             ],
         );
-        let expected: JsValue = oracle.request(&json!({"cacheHome":"/cache/../normalized-cache"}));
+        let mut expected: JsValue = oracle.request(&json!({"cacheHome":"/cache/../normalized-cache"}));
         let output = Command::new(std::env::current_exe().unwrap())
             .args(["--ignored", "--exact", "package_snapshot_child", "--nocapture"])
             .env("PI_PACKAGE_DIR", directory.path())
@@ -40,8 +40,20 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
             .unwrap();
         assert!(output.status.success(), "{name}: {output:?}");
         let stdout = String::from_utf8(output.stdout).unwrap();
-        let actual =
+        let mut actual =
             json::parse_lossless(stdout.lines().find_map(|line| line.strip_prefix("RESULT:")).unwrap()).unwrap();
+        if name == "nul-name" {
+            // Approved runtime gap: Node truncates environment names at NUL.
+            assert_eq!(
+                actual.as_object_mut().unwrap().remove("override"),
+                Some(json!("/environment-agent"))
+            );
+            let frozen_default = expected["roots"]["getAgentDir"].clone();
+            assert_eq!(
+                expected.as_object_mut().unwrap().remove("override"),
+                Some(frozen_default)
+            );
+        }
         if actual != expected {
             let different: Vec<_> = expected
                 .as_object()

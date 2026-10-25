@@ -1,5 +1,7 @@
 # config — common-pin closure
 
+Baseline gap fixture (2026-10-25): the NUL application-name case asserts native override `/environment-agent` separately from frozen's default agent directory; Node truncates environment names at NUL (approved runtime-oddity gap). Every remaining field, including that default directory, and every realistic package case remain exact differentials.
+
 Source: `packages/coding-agent/src/config.ts`, immutable `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (602 lines). Rust: `crates/pi-coding-agent-base/src/config.rs`. Verified: 2026-10-23.
 
 Status: **done within the explicit runtime mapping and typed-input contract below**. Historical `532f7d12` evidence is not substituted for these common-pin proofs. Compiler/lint milestone gates remain separate from source coverage.
