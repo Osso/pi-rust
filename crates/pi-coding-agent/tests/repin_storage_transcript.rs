@@ -33,6 +33,59 @@ fn native_failure(path: &str, mode: &str) -> Value {
 }
 
 #[test]
+fn transcript_frames_are_bidirectionally_readable_without_restoration() {
+    let tmp = tempfile::tempdir().unwrap();
+    let plain = tmp.path().join("frames.jsonl");
+    let archive = tmp.path().join("frames.jsonl.zst");
+    let payload = "漢😀é\n".repeat(40000).into_bytes();
+    let mut ts = oracle::TsOracle::spawn("storage-transcript-oracle.mts", "packages/coding-agent/src/core");
+    let written = ts.request(&json!({"id":1,"op":"write","path":archive,"bytes":payload}));
+    assert_eq!(written["output"]["written"], true);
+    let ts_frame = std::fs::read(&archive).unwrap();
+    assert_eq!(read_session_transcript_bytes(plain.to_str().unwrap()).unwrap(), payload);
+    assert_eq!(std::fs::read(&archive).unwrap(), ts_frame);
+    assert!(!plain.exists());
+    let native_frame = zstd::stream::encode_all(&payload[..], 0).unwrap();
+    // A real empty skippable frame (0x184d2a50), not an arbitrary garbage tail.
+    let skip = [0x50, 0x2a, 0x4d, 0x18, 0, 0, 0, 0];
+    for (bytes, expected) in [
+        (native_frame.clone(), payload.clone()),
+        ([skip.as_slice(), native_frame.as_slice()].concat(), payload.clone()),
+        (
+            [native_frame.as_slice(), skip.as_slice(), ts_frame.as_slice()].concat(),
+            payload.repeat(2),
+        ),
+        (
+            [native_frame.as_slice(), b"non-frame trailing bytes"].concat(),
+            payload.clone(),
+        ),
+    ] {
+        std::fs::write(&archive, &bytes).unwrap();
+        let read = ts.request(&json!({"id":1,"op":"read","path":plain}));
+        assert_eq!(read["ok"], true, "{read}");
+        assert_eq!(read["output"]["bytes"], json!(expected));
+        assert_eq!(
+            read_session_transcript_bytes(plain.to_str().unwrap()).unwrap(),
+            expected
+        );
+        assert_eq!(read["output"]["text"], read["output"]["streamed"]);
+        let mut stream = create_session_transcript_read_stream(plain.to_str().unwrap()).unwrap();
+        let mut actual = Vec::new();
+        let mut chunk = [0; 13];
+        loop {
+            let count = stream.read(&mut chunk).unwrap();
+            if count == 0 {
+                break;
+            }
+            actual.extend_from_slice(&chunk[..count]);
+        }
+        assert_eq!(actual, expected);
+        assert_eq!(std::fs::read(&archive).unwrap(), bytes);
+        assert!(!plain.exists());
+    }
+}
+
+#[test]
 fn transcript_codec_errors_keep_frozen_error_identity_and_fields() {
     // Frozen session-transcript.ts:20 invokes Node zstdDecompressSync directly.
     let tmp = tempfile::tempdir().unwrap();
