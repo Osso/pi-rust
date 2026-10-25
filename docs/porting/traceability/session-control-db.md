@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Empty listener-path assertion (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-listener-path-red.log` omits the public trusted path for an empty registration path while native exposed sessionPath:"". Registration now timestamps only nonempty supplied paths, preserving the original path value in SQLite. Source/native GREEN `/tmp/storage3-control-listener-path-green.log` covers omitted, empty and ordinary absolute paths with real public registration/read APIs. No new carrier or path fallback.
+
 ## Public mailbox reference normalization (2026-10-25)
 
 Actual-source complete-wire RED `/tmp/storage3-control-file-refs-red.log` returns path/label references while native leaked original label/path order and unknown reference properties. The existing parse_file_refs/AgentFileReference serializer now supplies only the public projection; RuntimeMailboxMessage retains its existing lossless JsValue carrier. GREEN `/tmp/storage3-control-file-refs-green.log` compares the entire actual-source/native JSON string, including CJK filenames, and proves canonical SQLite bytes remain unchanged. This normalization follows frozen parseFileRefs; raw persistence still preserves its original fields/order.

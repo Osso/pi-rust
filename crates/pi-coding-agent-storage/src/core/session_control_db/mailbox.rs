@@ -1079,7 +1079,7 @@ fn register_runtime_mailbox_listener_in_transaction(
             pid,
             runtime_instance_id,
             session_path,
-            session_path.as_ref().map(|_| now_iso),
+            session_path.as_ref().filter(|path| !path.is_empty()).map(|_| now_iso),
             now_iso
         ],
     )?;

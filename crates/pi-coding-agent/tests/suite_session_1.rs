@@ -92,6 +92,8 @@ pub mod repin_storage_control_history;
 pub mod repin_storage_control_instance;
 #[path = "repin_storage_control_legacy_owner.rs"]
 pub mod repin_storage_control_legacy_owner;
+#[path = "repin_storage_control_listener_path.rs"]
+pub mod repin_storage_control_listener_path;
 #[path = "repin_storage_control_read_contention.rs"]
 pub mod repin_storage_control_read_contention;
 #[path = "repin_storage_control_recovery.rs"]

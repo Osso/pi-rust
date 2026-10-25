@@ -68,6 +68,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Permit nested retained-database callbacks on the same connection, including rollback of nested public writes in an outer immediate transaction.
 - [x] Skip retention writes when no mailbox/channel rows are due, so ordinary WAL readers succeed while another connection holds the writer lock.
 - [x] Normalize public mailbox file references to frozen path/label fields and order without rewriting their original canonical payloads.
+- [x] Leave empty listener paths unasserted, matching absent-path trust while preserving the supplied stored path.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.
