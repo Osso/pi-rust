@@ -11,12 +11,11 @@ use pi_coding_agent::core::{
         CreateAgentSessionFromServicesOptions, CreateAgentSessionServicesOptions, create_agent_session_from_services,
         create_agent_session_services,
     },
-    extensions::types::SessionStartEvent,
     sdk::CreateAgentSessionOptions,
     session_manager::{SessionManager, get_default_session_dir},
     settings_manager::SettingsManager,
 };
-use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
+use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::io::Write;
 use std::sync::{Arc, Mutex};
 
@@ -50,8 +49,6 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
             })
             .await?;
             let diagnostics = services.diagnostics.clone();
-            let reason = js_json::from_value(&JsValue::String(request.session_start_reason.into()))
-                .map_err(|e| JsString::from(e.to_string()))?;
             let result = create_agent_session_from_services(CreateAgentSessionFromServicesOptions {
                 no_supervisor: options.no_supervisor,
                 services: services.clone(),
@@ -69,10 +66,7 @@ fn create_factory(options: CreateAgentSessionOptions) -> CreateAgentSessionRunti
                 base_tools: Vec::new(),
                 multi_agent_store: None,
                 on_shared_channel_message_delivered: None,
-                session_start_event: Some(SessionStartEvent {
-                    reason,
-                    previous_session_file: request.previous_session_file,
-                }),
+                session_start_event: request.session_start_event,
             })
             .await?;
             Ok(CreateAgentSessionRuntimeResult {
@@ -97,7 +91,15 @@ pub async fn create_runtime(
             SessionManager::create(&paths.cwd, Some(&dir), None).map_err(pi_ai::request::CallbackError::from)?
         }
     };
-    create_agent_session_runtime(create_factory(options), &paths.cwd, &paths.agent_dir, manager, None).await
+    create_agent_session_runtime(
+        create_factory(options),
+        &paths.cwd,
+        &paths.agent_dir,
+        manager,
+        None,
+        None,
+    )
+    .await
 }
 
 pub async fn bind_session<W: Write + Send + 'static>(

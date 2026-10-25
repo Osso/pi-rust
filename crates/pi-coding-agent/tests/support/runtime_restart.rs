@@ -105,7 +105,9 @@ async fn new_session_parent_uses_frozen_truthiness_before_factory() {
             false,
             false,
             Some(Arc::new(move |request| {
-                if request.session_start_reason == "new" {
+                if request.session_start_event.as_ref().is_some_and(|event| {
+                    event.reason == pi_coding_agent::core::extensions::types::SessionStartReason::New
+                }) {
                     *observed.lock().unwrap() =
                         Some(json!({"parent":request.session_manager.get_header().unwrap().parent_session()}));
                 }

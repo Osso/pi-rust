@@ -2,6 +2,12 @@
 
 Rust: `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`.
 
+## Initial session-start event API (2026-10-25)
+
+Main-approved correction: `CreateAgentSessionRuntimeOptions` and initial creation use the existing `Option<SessionStartEvent>`. The flattened string reason/previous fields and main's lossy reason conversion are deleted. Lifecycle replacements construct their typed event; initial creation passes its optional event unchanged. Main, SDK example13, test RPC-demo harness and the Rust convenience factory forward it to the existing SDK option. Fixture observers and all creation callers are mechanical fallout, including the resource-display-home test helper (the276 production resource block is untouched).
+
+Genuine actual-source/runtime RED `runtime-initial-event-red.log`: source factory receives no initial event; native fabricated startup. `initial_runtime_preserves_absent_and_explicit_session_start_events_like_frozen` compares absence, new, and resume with a lone-unit previous path plus the unchanged factory rejection. `convenience_factory_emits_the_requested_session_start_event` creates the real SDK-backed runtime, binds extensions at the actual emission boundary, and observes the requested resume payload. No new carrier, alternate path, dependency or source delta.
+
 ## Missing-import error identity (2026-10-25)
 
 Actual frozen `importFromJsonl` returns `SessionImportFileNotFoundError` with `name`, `message` and `filePath`; native previously projected only its message into a generic Error. `missing_import_preserves_the_frozen_error_name_and_file_path` reproduces the complete visible error-value mismatch. The existing `SessionImportFileNotFoundError` now projects its fields into `NativeNodeError`/`CallbackError` and retains itself as the original Rust source; no new error carrier or constructor class is added.

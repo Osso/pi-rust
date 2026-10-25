@@ -61,6 +61,7 @@ async fn startup_archive_runs_before_factory_failure_without_blocking_the_factor
         &agent_dir.to_str().unwrap().into(),
         manager,
         None,
+        None,
     )
     .await
     {
