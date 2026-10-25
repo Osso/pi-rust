@@ -390,7 +390,7 @@ async fn create_agent_session_internal(
                     options.stream.session_id.as_ref(),
                     &[headers, options.stream.request.headers.take()],
                 );
-                options.stream.extra.insert("cwd".into(), cwd.into());
+                options.stream.cwd = Some(cwd);
                 let provider_retry = lock(&settings).get_provider_retry_settings();
                 let http_idle_timeout_ms = lock(&settings)
                     .get_http_idle_timeout_ms()

@@ -351,7 +351,7 @@ async fn stream_function_merges_auth_request_environment_headers_and_cwd_like_fr
     let expected = oracle.request(&request);
     let mut options = SimpleStreamOptions::default();
     options.stream.session_id = Some("wire-session".into());
-    options.stream.extra.insert("cwd".into(), "ignored-cwd".into());
+    options.stream.cwd = Some("ignored-cwd".into());
     options.stream.request.headers = Some(
         [
             ("x-conflict".to_owned(), Some("request".into())),
@@ -382,7 +382,7 @@ async fn stream_function_merges_auth_request_environment_headers_and_cwd_like_fr
     stream.result().await.unwrap();
     let options = captured.lock().unwrap().clone().unwrap();
     assert_eq!(
-        json!({"id":1,"cwd":options.stream.extra.get("cwd"),"headers":options.stream.request.headers,"env":options.stream.request.env,"apiKey":options.stream.request.api_key}),
+        json!({"id":1,"cwd":options.stream.cwd,"headers":options.stream.request.headers,"env":options.stream.request.env,"apiKey":options.stream.request.api_key}),
         expected
     );
 }
