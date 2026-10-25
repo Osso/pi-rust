@@ -3,7 +3,7 @@
 Source: `packages/coding-agent/src/cli/list-extensions.ts` (113 lines, pinned revision in
 `docs/porting/source-lock.json`).
 
-Rust: `crates/pi-coding-agent-tools/src/cli/list_extensions.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Historical proof below is unchanged.
+Rust: `crates/pi-coding-agent-tools/src/cli/list_extensions.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Current common-pin revalidation: `display-list-extensions.log` passes4 tests, including four frozen inventories, empty/newline cases and raw lone-surrogate basenames.
 
 No TypeScript test file covers this module. Coverage is a byte-level differential against the
 pinned source: `crates/pi-coding-agent/tests/differential_list_extensions.rs` (4 inventory cases +
@@ -36,5 +36,4 @@ event list, so the Rust and TypeScript counts are produced from the same data sh
 
 ## Deviations
 
-None. `basename` uses `Path::file_name`, which matches `node:path.basename` for the absolute paths
-extension loaders produce (trailing separators included); `/` maps to the empty string in both.
+None. Basenames use the shared lossless Node POSIX path authority, including root/trailing-separator and lone-unit cases.
