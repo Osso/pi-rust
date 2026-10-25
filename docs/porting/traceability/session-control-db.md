@@ -1,5 +1,7 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+Hostname reads share the existing OsStr→JsString Node byte-ingress decoder for routing, local claims and notification checks; no control-DB to_string_lossy path remains.
+
 Fixture: `oracle/control-db-oracle.mts` is the single ESM fixture; all Rust callers use it. This replaces the former CommonJS-classified .ts path after protected TS1479, without copies, alternate paths or compiler-option changes.
 
 ## Empty listener-path assertion (2026-10-25)

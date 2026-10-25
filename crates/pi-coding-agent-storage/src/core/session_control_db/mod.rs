@@ -311,6 +311,10 @@ pub fn get_control_db_path(directory: impl Into<JsString>) -> JsString {
     crate::utils::paths::node_join(directory, "control.sqlite")
 }
 
+fn read_local_hostname() -> JsString {
+    pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str())
+}
+
 pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&JsString>) -> JsString {
     agent_id.cloned().unwrap_or_default()
 }
