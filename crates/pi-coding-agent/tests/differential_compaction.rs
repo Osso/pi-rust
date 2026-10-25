@@ -301,6 +301,15 @@ fn differential_find_cut_point_and_turn_start() {
         },
         {
             "entries": [
+                message_entry("1", None, user_message("old user")),
+                message_entry("2", Some("1"), assistant_message("old assistant", usage(0.0, 0.0, 0.0, 0.0))),
+                entry("3", Some("2"), "2026-01-01T00:00:00.000Z", json!({ "type": "custom_message", "customType": "test", "content": "new turn", "display": true })),
+                message_entry("4", Some("3"), assistant_message("part one", usage(0.0, 0.0, 0.0, 0.0))),
+                message_entry("5", Some("4"), assistant_message("part two", usage(0.0, 0.0, 0.0, 0.0)))
+            ], "startIndex": 0, "endIndex": 5, "keepRecentTokens": 20000
+        },
+        {
+            "entries": [
                 entry("1", None, "2026-01-01T00:00:00.000Z", json!({ "type": "model_change", "provider": "openai", "modelId": "gpt-4" })),
                 message_entry("2", Some("1"), user_message("hi")),
                 message_entry("3", Some("2"), assistant_message("hello", usage(0.0, 0.0, 0.0, 0.0))),
