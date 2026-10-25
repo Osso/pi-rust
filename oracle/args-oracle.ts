@@ -56,6 +56,8 @@ const ARG_FIELDS = [
 	"noExtensions",
 	"print",
 	"export",
+	"exportTerminal",
+	"exportColumns",
 	"noSkills",
 	"skills",
 	"promptTemplates",

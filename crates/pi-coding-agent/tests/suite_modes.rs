@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "export_terminal.rs"]
+pub mod export_terminal;
+
 #[path = "support/mode_harness.rs"]
 mod mode_harness;
 
