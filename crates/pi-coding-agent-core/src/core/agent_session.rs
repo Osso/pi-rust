@@ -4781,9 +4781,12 @@ impl AgentSession {
         self.validate_model_authentication().await?;
         self.queue_steer(&expanded, images, None).await;
         drop(guard);
-        if let Err(error) = self.run_agent_continuation().await {
-            eprintln!("Failed to continue idle steering: {error}");
-        }
+        let session = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = session.run_agent_continuation().await {
+                eprintln!("Failed to continue idle steering: {error}");
+            }
+        });
         Ok(())
     }
 

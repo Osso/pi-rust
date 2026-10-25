@@ -146,6 +146,28 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "idle-steer") {
+		agent.state.messages.push({ role: "user", content: "earlier request", timestamp: 0 });
+		let release;
+		let markStarted;
+		const gate = new Promise((resolve) => { release = resolve; });
+		const started = new Promise((resolve) => { markStarted = resolve; });
+		core.setResponses([async () => {
+			markStarted();
+			await gate;
+			return fauxAssistantMessage("steered");
+		}]);
+		const steering = session.steer("idle steer");
+		await started;
+		const returnedBeforeResponse = await Promise.race([
+			steering.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100)),
+		]);
+		release();
+		await steering;
+		await session.abort();
+		session.dispose();
+		return returnedBeforeResponse;
+	}
 	if (request.operation === "quota-fallback") {
 		await session.prompt("quota test");
 		const result = { requestedProviders, provider: session.model.provider };

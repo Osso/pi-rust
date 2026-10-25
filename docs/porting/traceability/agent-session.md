@@ -302,3 +302,7 @@ Frozen :1514,5650–5691 now uses the existing shared `codex_quota_fallback` map
 ## Re-pin tool activity detail wiring (2026-10-25)
 
 After merging parent `4eff32510`, frozen :1745–1753 now calls the shared `agent_activity_detail::summarize_tool_arguments` on tool start, stores the exact UTF-16 detail with the active tool, and publishes it through `AgentCurrentActivity::Tool`. Extended the real provider/tool/store lifecycle test `publishes_multi_agent_activity_across_agent_and_tool_events` to assert `query: " inspect\n  files "` publishes `detail: "inspect files"`; RED `/tmp/repin-agent-session-activity-red.log` observed `None`. The shared helper's frozen differential remains owned by the runtime-services lane. No runtime-module or cross-lane semantic edits.
+
+## Re-pin idle steering return boundary (2026-10-25)
+
+Frozen :3360–3383 starts idle continuation without awaiting provider completion; native previously awaited the whole turn. `steer` now spawns the continuation with the same logged-error boundary. Actual-frozen `idle_steer_returns_before_the_provider_turn_finishes` uses a gated provider response and an existing transcript, proves the provider started, and asserts steering settled before releasing that response. RED `/tmp/repin-agent-session-steer-red3.log`: native false versus frozen true. No timeout or assertion was weakened; the response gate is released and the agent settles before test exit.
