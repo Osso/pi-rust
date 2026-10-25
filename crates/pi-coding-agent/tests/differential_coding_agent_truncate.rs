@@ -1,7 +1,7 @@
 #[path = "support/corpus.rs"]
 mod corpus;
 #[path = "support/oracle.rs"]
-mod oracle;
+pub(super) mod oracle;
 
 use corpus::Corpus;
 use pi_coding_agent::core::tools::truncate::{

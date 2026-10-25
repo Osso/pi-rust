@@ -29,10 +29,8 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
                 ThemeColor::Success
             };
             let prefix = theme.fg(color, &js_format!("[{}]", level.to_uppercase()));
-            let content = match &message.content {
-                CustomMessageContent::Text(text) => text,
-                _ => panic!("status-update content must be a string"),
-            };
+            let value = pi_js_compat::js_json::to_value(&message.content).expect("custom message content serializes");
+            let content = pi_js_compat::js_json::to_js_string(&value).expect("typed custom content converts to text");
             let mut text = js_format!("{} {}", prefix, content);
             if let Some(timestamp) = message
                 .details

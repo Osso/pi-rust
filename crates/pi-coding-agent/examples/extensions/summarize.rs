@@ -7,36 +7,39 @@ use pi_coding_agent::{
     core::extensions::*,
     modes::interactive::theme::{ThemeColor, get_markdown_theme},
 };
+use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::string::js_trim;
+use pi_js_compat::js_json::{self, JsValue as Value};
 use pi_tui::{
     Text,
     components::{dynamic_border::DynamicBorder, markdown::Markdown},
     tui::Component,
 };
-use serde_json::{Value, json};
 use std::{rc::Rc, sync::Arc};
 
-fn text_parts(content: &Value) -> Vec<&str> {
-    if let Some(text) = content.as_str() {
+fn text_parts(content: &Value) -> Vec<&JsString> {
+    if let Some(text) = content.as_string() {
         return vec![text];
     }
     content
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|part| part["type"] == "text")
-        .filter_map(|part| part["text"].as_str())
+        .filter(|part| part["type"] == json!("text"))
+        .filter_map(|part| part["text"].as_string())
         .collect()
 }
-fn conversation_text(entries: &[pi_coding_agent::core::session_manager::SessionEntry]) -> Result<String, HandlerError> {
+pub(crate) fn conversation_text(
+    entries: &[pi_coding_agent::core::session_manager::SessionEntry],
+) -> Result<JsString, HandlerError> {
     let mut sections = Vec::new();
     for entry in entries {
-        let entry = serde_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;
-        if entry["type"] != "message" {
+        let entry = js_json::to_value(entry).map_err(|e| HandlerError::new(e.to_string()))?;
+        if entry["type"] != json!("message") {
             continue;
         }
-        let role = entry["message"]["role"].as_str().unwrap_or_default();
+        let role = entry["message"]["role"].as_string().cloned().unwrap_or_default();
         if role != "user" && role != "assistant" {
             continue;
         }
@@ -44,34 +47,38 @@ fn conversation_text(entries: &[pi_coding_agent::core::session_manager::SessionE
         let mut lines = Vec::new();
         let parts = text_parts(content);
         if !parts.is_empty() {
-            let text = parts.join("\n");
-            let text = js_trim(&text);
+            let text = JsString::join(parts, "\n").trim();
             if !text.is_empty() {
-                lines.push(format!("{}: {text}", if role == "user" { "User" } else { "Assistant" }));
+                lines.push(js_format!(
+                    "{}: {}",
+                    if role == "user" { "User" } else { "Assistant" },
+                    text
+                ));
             }
         }
         if role == "assistant" {
             for part in content.as_array().into_iter().flatten() {
-                if part["type"] == "toolCall"
-                    && let Some(name) = part["name"].as_str()
+                if part["type"] == json!("toolCall")
+                    && let Some(name) = part["name"].as_string()
                 {
                     let args = part
                         .get("arguments")
                         .filter(|v| !v.is_null())
                         .cloned()
                         .unwrap_or(json!({}));
-                    lines.push(format!(
-                        "Tool {name} was called with args {}",
-                        pi_js_compat::js_json::stringify(&args)
+                    lines.push(js_format!(
+                        "Tool {} was called with args {}",
+                        name,
+                        pi_js_compat::js_json::stringify_lossless(&args)
                     ));
                 }
             }
         }
         if !lines.is_empty() {
-            sections.push(lines.join("\n"));
+            sections.push(JsString::join(lines, "\n"));
         }
     }
-    Ok(sections.join("\n\n"))
+    Ok(JsString::join(sections, "\n\n"))
 }
 struct Summary {
     text: JsString,
@@ -113,7 +120,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let conversation = conversation_text(&branch)?;
     let has_ui = ctx.has_ui()?;
     let ui = ctx.ui()?;
-    if js_trim(&conversation).is_empty() {
+    if conversation.trim().is_empty() {
         if has_ui {
             ui.notify(&JsString::from("No conversation text found"), Some(NotifyType::Warning))?;
         }
@@ -183,16 +190,17 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
 
 async fn complete_summary(
     model: pi_ai::types::Model,
-    conversation: String,
+    conversation: JsString,
     request: pi_ai::request::ProviderRequestOptions,
 ) -> Result<JsString, HandlerError> {
-    let prompt = format!(
-        "Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{conversation}\n</conversation>"
+    let prompt = js_format!(
+        "Summarize this conversation so I can resume it later.\nInclude goals, key decisions, progress, open questions, and next steps.\nKeep it concise and structured with headings.\n\n<conversation>\n{}\n</conversation>",
+        conversation
     );
     let context = Context {
         system_prompt: None,
         messages: vec![
-            serde_json::from_value(json!({
+            js_json::from_value(&json!({
                 "role":"user", "content":[{"type":"text","text":prompt}], "timestamp":now_millis()
             }))
             .expect("valid user message"),
@@ -201,7 +209,7 @@ async fn complete_summary(
     };
     let options = StreamOptions {
         request,
-        extra: serde_json::from_value(json!({"reasoningEffort":"high"})).expect("JSON object"),
+        extra: js_json::from_value(&json!({"reasoningEffort":"high"})).expect("JSON object"),
         ..Default::default()
     };
     let response = pi_ai::compat::complete(model, context, options)
