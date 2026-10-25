@@ -1,5 +1,7 @@
 # Extension examples N
 
+Current 4f9e6f8a4 module audits: [subagent](example-subagent.md), [GitLab Duo](example-gitlab-duo.md), [RPC client](example-rpc-extension-ui.md), [questionnaire](example-questionnaire.md). They supersede historical inherited-child-flag drift and native-only optionless-questionnaire proof: child flags now match frozen, and the empty-option case compares directly with the frozen guard.
+
 Pinned source `532f7d12`; native opt-in embedding, no default registration.
 Worktree base updated from `5d2454d` to `04f51ba` before extension API implementation.
 
