@@ -187,3 +187,9 @@ path writes JSONL session-info entries.
 read-only common pin, not regenerated. The existing asset identity test was
 RED on the old embedded package metadata; its exact comparison is retained.
 Built-in theme files are checked in the same test.
+
+## Successor session-selection correction (2026-10-25)
+
+Native RED (`/tmp/settings-models-main-sessions-red.log`) reproduced three realistic frozen mismatches: missing bare `.jsonl.zst` paths became ID searches; `--session` in another project prompted/forked instead of opening the original; archived `--session` paths skipped control-DB restoration. Each has a native filesystem/session regression in `tests/main.rs`; all 24 main tests pass (`/tmp/settings-models-main-sessions-green.log`). Picker validation and selected-path opening now use that same frozen restore-before-open boundary. The old-only new-session warning and cross-project prompt were removed.
+
+Parent approved removing the extra `openai-remote-compact` first-party registration; the frozen extension source still exists, so its native module/tests/coverage remain. This is a main registration correction, not extension deletion. Whole-main closure is still pending.

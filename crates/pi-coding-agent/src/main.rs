@@ -158,7 +158,6 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "bwrap",
     "pyrun",
     "loop",
-    "openai-remote-compact",
     "run-plan",
     "safe",
     "spec-validation",
@@ -1024,14 +1023,15 @@ pub fn resolve_session_path(
     session_dir: Option<&JsString>,
     control_db_path: Option<&JsString>,
 ) -> Result<ResolvedSession, JsString> {
-    let path_like = session_arg.contains("/") || session_arg.contains("\\") || session_arg.ends_with(".jsonl");
+    let transcript = crate::core::session_transcript::is_session_transcript_file(session_arg);
+    let path_like = session_arg.contains("/") || session_arg.contains("\\") || transcript;
     let resolved_session_arg_path = if path_like {
         Some(resolve_path(session_arg, cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?)
     } else {
         None
     };
     if let Some(resolved) = &resolved_session_arg_path
-        && (session_arg.ends_with(".jsonl") || Path::new(&encode_node_utf8(resolved)).exists())
+        && (transcript || Path::new(&encode_node_utf8(resolved)).exists())
     {
         return Ok(ResolvedSession::Path(resolved.clone()));
     }
@@ -1075,24 +1075,6 @@ pub fn resolve_session_path(
     }
 
     Ok(ResolvedSession::NotFound(session_arg.clone()))
-}
-
-/// `promptConfirm`.
-pub async fn prompt_confirm(message: &str) -> bool {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
-    let mut stdout = tokio::io::stdout();
-    let _ = stdout.write_all(format!("{message} [y/N] ").as_bytes()).await;
-    let _ = stdout.flush().await;
-
-    let stdin = tokio::io::stdin();
-    let mut reader = tokio::io::BufReader::new(stdin);
-    let mut answer = String::new();
-    if reader.read_line(&mut answer).await.is_err() {
-        return false;
-    }
-    let answer = answer.to_lowercase();
-    answer == "y" || answer == "yes"
 }
 
 // =============================================================================
@@ -1238,8 +1220,17 @@ fn report_session_error(error: &SessionManagerError) -> MainFailure {
     MainFailure::Exit(MainExit(1))
 }
 
-fn open_session_or_exit(path: &JsString, session_dir: Option<&JsString>) -> MainResult<SessionManager> {
-    SessionManager::open(path, session_dir, None).map_err(|error| report_session_error(&error))
+fn open_session_or_exit(
+    path: &JsString,
+    session_dir: Option<&JsString>,
+    control_db_path: Option<&JsString>,
+) -> MainResult<SessionManager> {
+    let restored = match control_db_path {
+        Some(db) => crate::core::session_archive_storage::restore_archived_session(db, path)
+            .map_err(|error| report_session_error(&error))?,
+        None => path.clone(),
+    };
+    SessionManager::open(&restored, session_dir, None).map_err(|error| report_session_error(&error))
 }
 
 fn fork_session_or_exit(
@@ -1318,8 +1309,10 @@ async fn select_session_for_process(
         let control_db_path = control_db_path.clone();
         let session_dir = session_dir.cloned();
         Arc::new(move |path: &JsString| {
+            let restored = crate::core::session_archive_storage::restore_archived_session(&control_db_path, path)
+                .map_err(|error| error.message().clone())?;
             let selected =
-                SessionManager::open(path, session_dir.as_ref(), None).map_err(|error| error.message().clone())?;
+                SessionManager::open(&restored, session_dir.as_ref(), None).map_err(|error| error.message().clone())?;
             crate::core::session_control_db::assert_main_session_runtime_available(
                 &control_db_path,
                 selected.get_session_id(),
@@ -1401,15 +1394,8 @@ pub async fn create_session_manager(
         })?;
 
         return match resolved {
-            ResolvedSession::Path(path) | ResolvedSession::Local(path) => open_session_or_exit(&path, session_dir),
-            ResolvedSession::Global { path, cwd: global_cwd } => {
-                console_log(Chalk::stdout().yellow(js_format!("Session found in different project: {}", global_cwd)));
-                let should_fork = prompt_confirm("Fork this session into current directory?").await;
-                if !should_fork {
-                    console_log(Chalk::stdout().dim("Aborted."));
-                    return Err(MainExit(0).into());
-                }
-                fork_session_or_exit(&path, cwd, session_dir, None)
+            ResolvedSession::Path(path) | ResolvedSession::Local(path) | ResolvedSession::Global { path, .. } => {
+                open_session_or_exit(&path, session_dir, control_db_path)
             }
             ResolvedSession::NotFound(arg) => {
                 console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
@@ -1423,7 +1409,7 @@ pub async fn create_session_manager(
         stop_theme_watcher();
         match outcome {
             crate::cli::session_picker::SelectSessionOutcome::Selected(path) => {
-                return open_session_or_exit(&path, session_dir);
+                return open_session_or_exit(&path, session_dir, control_db_path);
             }
             crate::cli::session_picker::SelectSessionOutcome::Cancelled => {
                 console_log(Chalk::stdout().dim("No session selected"));
@@ -1441,15 +1427,8 @@ pub async fn create_session_manager(
         && let Ok(Some(ResolvedSession::Local(path))) =
             find_local_session_by_exact_id(session_id, cwd, session_dir, control_db_path)
     {
-        return open_session_or_exit(&path, session_dir);
+        return open_session_or_exit(&path, session_dir, control_db_path);
     }
-    if let Some(session_id) = &session_id {
-        console_error(Chalk::stderr().yellow(js_format!(
-            "Warning: No project session found with id '{}'; creating a new session with that id.",
-            session_id
-        )));
-    }
-
     let options = session_id.map(|id| NewSessionOptions {
         id: Some(id),
         ..Default::default()

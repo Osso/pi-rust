@@ -441,6 +441,55 @@ async fn build_session_options_uses_scoped_models_and_tool_flags() {
 }
 
 #[tokio::test]
+async fn session_argument_opens_other_project_without_fork_or_prompt() {
+    let root = tempfile::tempdir().unwrap();
+    let project_a = root.path().join("a");
+    let project_b = root.path().join("b");
+    std::fs::create_dir_all(&project_a).unwrap();
+    std::fs::create_dir_all(&project_b).unwrap();
+    let sessions = JsString::from(root.path().join("sessions").to_str().unwrap());
+    let cwd_a = JsString::from(project_a.to_str().unwrap());
+    let cwd_b = JsString::from(project_b.to_str().unwrap());
+    let original = create_session(&cwd_a.to_utf8().unwrap(), &sessions.to_utf8().unwrap(), "original");
+    let parsed = parse_args(&args(&["--session", &original.get_session_id().to_utf8().unwrap()]));
+    let settings = SettingsManager::in_memory(Default::default(), Default::default());
+    let opened = create_session_manager(&parsed, &cwd_b, Some(&sessions), &settings, None)
+        .await
+        .unwrap();
+    assert_eq!(opened.get_session_id(), original.get_session_id());
+    assert_eq!(opened.get_session_file(), original.get_session_file());
+    assert_eq!(opened.get_cwd(), &cwd_a);
+}
+
+#[test]
+fn compressed_transcript_argument_is_a_path_even_when_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let resolved = resolve_session_path(&"saved.jsonl.zst".into(), &cwd, None, None).unwrap();
+    let expected = JsString::from(root.path().join("saved.jsonl.zst").to_str().unwrap());
+    assert_eq!(resolved, ResolvedSession::Path(expected));
+}
+
+#[tokio::test]
+async fn session_argument_restores_archive_before_open() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let sessions = JsString::from(root.path().join("sessions").to_str().unwrap());
+    let original = create_session(&cwd.to_utf8().unwrap(), &sessions.to_utf8().unwrap(), "archived");
+    let path = original.get_session_file().unwrap();
+    let db = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
+    let archived = pi_coding_agent::core::session_archive_storage::archive_session_file(&path).unwrap();
+    let parsed = parse_args(&args(&["--session", &archived.to_utf8().unwrap()]));
+    let settings = SettingsManager::in_memory(Default::default(), Default::default());
+    let opened = create_session_manager(&parsed, &cwd, Some(&sessions), &settings, Some(&db))
+        .await
+        .unwrap();
+    assert_eq!(opened.get_session_id(), original.get_session_id());
+    assert_eq!(opened.get_session_file(), Some(path));
+    assert!(std::path::Path::new(&path.to_utf8().unwrap()).exists());
+}
+
+#[tokio::test]
 async fn create_session_manager_honors_help_in_memory_and_session_ids() {
     let root = tempfile::tempdir().expect("temp dir");
     let agent_dir = root.path().join("agent");

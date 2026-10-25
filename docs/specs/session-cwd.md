@@ -14,6 +14,9 @@ Preserve the frozen `core/session-cwd.ts` contract at the [common pin](../portin
 
 ### Reopen and resume
 
+- [x] Main `--session` opens another project's original session without prompting or forking; archived selection restores through the control DB before open.
+- [x] Bare compressed transcript names count as paths even when absent. Native main regressions assert both boundaries.
+
 - [x] Reject absent/empty session-file names before reopen I/O; preserve selected cwd, optional session directory and the persisted control-db cwd.
 - [x] Resume prompts use the caught MissingSessionCwdError issue, even if the session file changes before the catch; never reopen the file to reconstruct the error.
 
