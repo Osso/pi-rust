@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Retention-free reads under writer contention (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-read-contention-valid-red.log` holds an owned SQLite BEGIN IMMEDIATE writer across both real-source and native reads. Frozen returns an empty mailbox; native's unconditional cleanup DELETE waits five seconds then fails database-locked. Mailbox/channel cleanup now performs the frozen due-row read before each conditional delete. GREEN `/tmp/storage3-control-read-contention-green.log` reads successfully while the writer remains held. Existing exact-age/invalid-birth differential remains GREEN in `/tmp/storage3-control-read-contention-clock.log`. This is ordinary WAL contention, not an injected OS fault or scheduling-race waiver. The first probe had a fixture-only JsString Display compile error and is not production evidence.
+
 ## Retained callback reentrancy (2026-10-25)
 
 Owned-process RED `/tmp/storage3-control-reentrant-red.log` proves frozen nested withControlDb/enqueue returns ID1 while native deadlocks on its non-reentrant connection mutex. Main approved exact parking_lot for RetainedControlDb only; [dependency purpose](../../dependencies.md) and Cargo.lock are tracked. Its ReentrantMutex protects the existing RefCell/optional connection; nested callbacks borrow the same connection, while closing waits for the active-call count to reach zero. GREEN `/tmp/storage3-control-reentrant-green.log` also verifies an outer immediate transaction rolls back a nested public enqueue, leaving exactly the original message to claim. The child is bounded and killed/waited on failure; no unsafe pointer, alternate connection, fallback or production API is added.
