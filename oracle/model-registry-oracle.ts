@@ -327,6 +327,66 @@ async function main(): Promise<void> {
 				commandCount: readCommandCount(),
 			};
 		}
+		if (request.operation === "registration_live_map") {
+			const provider = "registry-live-parent";
+			const side = "registry-live-side";
+			const config = request.config as { models: Record<string, unknown>[] };
+			const sideConfig = (name: string) => ({
+				...config,
+				apiKey: "side-key",
+				name,
+				models: [{ ...config.models[0], id: "side", name }],
+			});
+			let calls = 0;
+			registry.registerProvider(provider, {
+				...config,
+				oauth: {
+					name: "Live Parent",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (value: unknown) => value,
+					getApiKey: (value: { access: string }) => value.access,
+					modifyModels: (models: unknown[]) => {
+						calls++;
+						if (calls === 1) {
+							if (request.mode !== "append") registry.unregisterProvider(side);
+							if (request.mode !== "delete")
+								registry.registerProvider(side, sideConfig("Side new"));
+						}
+						return models;
+					},
+				},
+			});
+			if (request.mode !== "append")
+				registry.registerProvider(side, sideConfig("Side old"));
+			storage.set(provider, {
+				type: "oauth",
+				access: "access",
+				refresh: "refresh",
+				expires: 9999999999999,
+			});
+			const snapshot = () => {
+				const models = registry
+					.getAll()
+					.filter(
+						(model: { provider: string }) =>
+							model.provider === provider || model.provider === side,
+					);
+				return {
+					models,
+					serializedModels: JSON.stringify(models),
+					sideDisplay: registry.getProviderDisplayName(side),
+				};
+			};
+			registry.refresh();
+			const first = snapshot();
+			registry.refresh();
+			const second = snapshot();
+			registry.unregisterProvider(provider);
+			registry.unregisterProvider(side);
+			return { mode: request.mode, first, second, calls };
+		}
 		if (request.operation === "clear_alias_snapshot") {
 			if (
 				typeof request.command !== "string" ||
