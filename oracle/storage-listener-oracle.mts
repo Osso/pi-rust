@@ -5,26 +5,46 @@ import { format } from "node:util";
 const { MultiAgentStore } = await import(pathToFileURL(process.argv[2]).href);
 for await (const line of createInterface({ input: process.stdin })) {
 	const request = JSON.parse(line);
-	const store = new MultiAgentStore();
+	const store = new MultiAgentStore({ now: () => request.updated.updatedAt });
 	const logs: string[] = [];
-	const revisions: number[] = [];
+	const observed: unknown[] = [];
 	const original = console.error;
 	console.error = (...args: unknown[]) => logs.push(format(...args));
 	try {
 		store.publishLifecycleCoordinatorSnapshot(request.running);
-		store.subscribeAgentUpdates(() => {
+		const failing = () => {
 			throw request.failure;
-		});
-		store.subscribeAgentUpdates(
-			(_previous: unknown, current: { revision: number }) =>
-				revisions.push(current.revision),
-		);
-		store.publishLifecycleCoordinatorSnapshot(request.updated);
+		};
+		const observeSnapshot = (
+			_previous: unknown,
+			current: { revision: number },
+		) => observed.push(current.revision);
+		switch (request.kind) {
+			case "update":
+				store.subscribeAgentUpdates(failing);
+				store.subscribeAgentUpdates(observeSnapshot);
+				store.publishLifecycleCoordinatorSnapshot(request.updated);
+				break;
+			case "transition":
+				store.subscribeAgentTransitions(failing);
+				store.subscribeAgentTransitions(observeSnapshot);
+				store.publishLifecycleCoordinatorSnapshot(request.updated);
+				break;
+			case "notification":
+				store.subscribeLifecycleNotifications(failing);
+				store.subscribeLifecycleNotifications((message: unknown) =>
+					observed.push(message),
+				);
+				store.publishTerminalOutboxSnapshot(request.updated);
+				break;
+			default:
+				throw new Error(`unknown listener kind ${request.kind}`);
+		}
 		console.log(
 			JSON.stringify({
 				id: request.id,
 				logs,
-				revisions,
+				observed,
 				agent: store.getAgent(request.running.id),
 			}),
 		);

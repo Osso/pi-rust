@@ -131,6 +131,7 @@ fn initialize_supervisor_session(
             if should_append_terminal_agent_record(previous, current, &listener_ctx) {
                 let _ = append_parent_agent_record_for(&journal, AGENT_COMPLETE_CUSTOM_TYPE, current);
             }
+            Ok(())
         });
     *registration.journal_binding.lock().expect("journal binding") = Some(subscription);
     registration.runtime_lifecycle_mirror.bind(ctx)

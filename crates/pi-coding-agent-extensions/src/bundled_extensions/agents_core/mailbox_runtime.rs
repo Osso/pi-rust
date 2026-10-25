@@ -528,7 +528,7 @@ impl RuntimeLifecycleMirror {
         let subscription = store.subscribe_lifecycle_notifications(move |message| {
             let ctx = bound.lock().expect("mirror state").bound_ctx.clone();
             let Some(ctx) = ctx else {
-                return;
+                return Ok(());
             };
             if let Err(error) = enqueue_lifecycle_runtime_mailbox_message(&listener_store, message, &ctx) {
                 eprintln!(
@@ -536,6 +536,7 @@ impl RuntimeLifecycleMirror {
                     js_json::encode_node_utf8(&message.id)
                 );
             }
+            Ok(())
         });
         state.unsubscribe = Some(subscription);
         drop(state);

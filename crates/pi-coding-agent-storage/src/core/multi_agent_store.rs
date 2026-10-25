@@ -952,9 +952,9 @@ pub struct MultiAgentStoreOptions {
     pub now: Option<Arc<dyn Fn() -> String + Send + Sync>>,
 }
 
-type AgentTransitionListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
+type AgentTransitionListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync>;
 type AgentUpdateListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync>;
-type LifecycleNotificationListener = Arc<dyn Fn(&AgentMailboxMessage) + Send + Sync>;
+type LifecycleNotificationListener = Arc<dyn Fn(&AgentMailboxMessage) -> Result<(), CallbackError> + Send + Sync>;
 struct AbortHandler {
     token: Arc<()>,
     handler: Box<dyn Fn() + Send + Sync>,
@@ -1089,7 +1089,7 @@ impl MultiAgentStore {
 
     pub fn subscribe_lifecycle_notifications(
         &self,
-        listener: impl Fn(&AgentMailboxMessage) + Send + Sync + 'static,
+        listener: impl Fn(&AgentMailboxMessage) -> Result<(), CallbackError> + Send + Sync + 'static,
     ) -> AgentSubscription {
         let id = self.lifecycle_notifications.insert(Arc::new(listener));
         subscription(
@@ -1100,7 +1100,7 @@ impl MultiAgentStore {
 
     pub fn subscribe_agent_transitions(
         &self,
-        listener: impl Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync + 'static,
+        listener: impl Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync + 'static,
     ) -> AgentSubscription {
         let id = self.transitions.insert(Arc::new(listener));
         subscription(ListenerList::subscription_remover(self.transitions.clone()), id)
@@ -2313,7 +2313,9 @@ impl MultiAgentStore {
         let snapshot = copy_message(message);
         let listeners = listener_snapshot(&self.lifecycle_notifications);
         for listener in listeners {
-            listener(&snapshot);
+            if let Err(error) = listener(&snapshot) {
+                report_callback_error("MultiAgentStore lifecycle notification listener failed:", &error);
+            }
         }
     }
 
@@ -2328,7 +2330,9 @@ impl MultiAgentStore {
         let current_snapshot = copy_agent(current);
         let listeners = listener_snapshot(&self.transitions);
         for listener in listeners {
-            listener(&previous_snapshot, &current_snapshot);
+            if let Err(error) = listener(&previous_snapshot, &current_snapshot) {
+                report_callback_error("MultiAgentStore transition listener failed:", &error);
+            }
         }
     }
 

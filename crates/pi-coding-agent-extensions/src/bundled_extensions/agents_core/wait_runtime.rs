@@ -106,6 +106,7 @@ impl WaitAgentsWakeWatcher {
         let transition_notify = Arc::clone(&notify);
         let _transition_subscription = self.store.subscribe_agent_transitions(move |_previous, _current| {
             transition_notify.notify_waiters();
+            Ok(())
         });
         let wake_up: Arc<Mutex<Option<WaitAgentsWakeUp>>> = Arc::new(Mutex::new(None));
         let listener_notify = Arc::clone(&notify);
