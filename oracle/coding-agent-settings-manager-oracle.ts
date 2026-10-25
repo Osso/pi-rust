@@ -57,6 +57,7 @@ async function applyStep(manager: SettingsManagerInstance, step: Step, agentDir:
 			case "set_collapse_changelog": manager.setCollapseChangelog(step.value); break;
 			case "set_enable_install_telemetry": manager.setEnableInstallTelemetry(step.value); break;
 			case "set_packages": manager.setPackages(step.value); break;
+			case "roundtrip_packages": manager.setPackages(manager.getPackages()); break;
 			case "set_project_packages": manager.setProjectPackages(step.value); break;
 			case "set_extension_paths": manager.setExtensionPaths(step.value); break;
 			case "set_project_extension_paths": manager.setProjectExtensionPaths(step.value); break;

@@ -23,3 +23,5 @@ See [traceability](../porting/traceability/settings-manager.md). Only isolated d
 
 - [x] A directory at settings.json reports the Node read error during load and queued save; later scope writes continue.
 - [x] Invalid timeout text uses JS String rather than JSON serialization; native regression is recorded in `settings_manager.rs`.
+
+- [x] Package filter get/set round-trips preserve unknown properties and original key order. Typed edits replace known fields in place. Existing reciprocal TS/Rust persistence proof includes this case.

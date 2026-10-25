@@ -447,22 +447,57 @@ pub struct AgentProfileSettings {
     pub tools: Option<Vec<JsString>>,
 }
 
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct PackageFilter {
     pub source: JsString,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub autoload: Option<bool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extensions: Option<Vec<JsString>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skills: Option<Vec<JsString>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompts: Option<Vec<JsString>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub themes: Option<Vec<JsString>>,
+    /// Unknown lossless properties and original insertion order; typed fields own known values.
+    pub properties: pi_ai::types::ModelProperties,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+impl Serialize for PackageFilter {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut fields = JsObject::new();
+        fields.insert("source".into(), Value::String(self.source.clone()));
+        for (name, values) in [
+            ("extensions", &self.extensions),
+            ("skills", &self.skills),
+            ("prompts", &self.prompts),
+            ("themes", &self.themes),
+        ] {
+            if let Some(values) = values {
+                fields.insert(name.into(), strings_to_value(values));
+            }
+        }
+        self.properties.serialize(&Value::Object(fields), serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for PackageFilter {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error;
+        let (fields, properties): (JsObject, _) = pi_ai::types::ModelProperties::decode(
+            Value::deserialize(deserializer)?,
+            &["source", "extensions", "skills", "prompts", "themes"],
+        )
+        .map_err(D::Error::custom)?;
+        let optional = |name: &str| fields.get(name).cloned().unwrap_or(Value::Null);
+        Ok(Self {
+            source: js_json::from_value(fields.get("source").ok_or_else(|| D::Error::missing_field("source"))?)
+                .map_err(D::Error::custom)?,
+            extensions: js_json::from_value(&optional("extensions")).map_err(D::Error::custom)?,
+            skills: js_json::from_value(&optional("skills")).map_err(D::Error::custom)?,
+            prompts: js_json::from_value(&optional("prompts")).map_err(D::Error::custom)?,
+            themes: js_json::from_value(&optional("themes")).map_err(D::Error::custom)?,
+            properties,
+        })
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum PackageSource {
     Name(JsString),

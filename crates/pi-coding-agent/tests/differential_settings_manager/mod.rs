@@ -240,6 +240,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "set_collapse_changelog" => manager.set_collapse_changelog(value.as_bool().unwrap()),
         "set_enable_install_telemetry" => manager.set_enable_install_telemetry(value.as_bool().unwrap()),
         "set_packages" => manager.set_packages(parse_packages(value)),
+        "roundtrip_packages" => manager.set_packages(manager.get_packages().unwrap()),
         "set_project_packages" => {
             let result = manager.set_project_packages(parse_packages(value));
             return result.is_err();
@@ -745,7 +746,7 @@ pub(crate) fn bidirectional() {
     let project = temp.path().join("project");
     fs::create_dir_all(&agent).unwrap();
     fs::create_dir_all(project.join(".pi")).unwrap();
-    let global = json!({"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"}});
+    let global = json!({"packages":[{"skills":["skill"],"unknown":{"keep":true},"source":"npm:original"}],"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"}});
     let local = json!({"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"unknownProject":{"producer":"TS"}});
     let ask = |oracle: &mut oracle::TsOracle, steps: Vec<Value>| {
         let response = oracle.request(&json!({"id":"bidirectional","managerKey":"shared-fixture","agentDir":agent,"projectDir":project,"steps":steps}));
@@ -765,6 +766,7 @@ pub(crate) fn bidirectional() {
             json!({"op":"external_edit","scope":"project","content":local.to_string()}),
             json!({"op":"reload"}),
             json!({"op":"set_theme","value":"TS-created"}),
+            json!({"op":"roundtrip_packages"}),
             json!({"op":"set_show_images","value":false}),
             json!({"op":"set_project_skill_paths","value":["TS-skill"]}),
         ],
@@ -776,6 +778,17 @@ pub(crate) fn bidirectional() {
     )
     .unwrap();
     assert_eq!(snapshot(&rust), ts["snapshot"]);
+    rust.set_packages(rust.get_packages().unwrap());
+    rust.flush();
+    assert_eq!(
+        fs::read_to_string(agent.join("settings.json")).unwrap(),
+        ts["globalFile"].as_str().unwrap()
+    );
+    let ts_roundtrip = ask(
+        &mut oracle,
+        vec![json!({"op":"roundtrip_packages"}), json!({"op":"reload"})],
+    );
+    assert_eq!(ts_roundtrip["globalFile"], ts["globalFile"]);
     assert_eq!(rust.get_provider_retry_settings().timeout_ms, None);
     assert_eq!(rust.get_compaction_settings().unwrap().threshold_percent, Some(70.0));
     assert!(!rust.get_idle_compaction_enabled());
