@@ -131,7 +131,6 @@ fn stream_options(stream: &Value, extra: &Value, fetch: Arc<dyn Fetch>, signal: 
         "maxRetries",
         "maxRetryDelayMs",
         "temperature",
-        "samplingParams",
         "maxTokens",
         "cacheRetention",
         "sessionId",
@@ -149,7 +148,6 @@ fn stream_options(stream: &Value, extra: &Value, fetch: Arc<dyn Fetch>, signal: 
         request,
         cwd: None,
         temperature: stream.get("temperature").and_then(Value::as_f64),
-        sampling_params: stream.get("samplingParams").and_then(Value::as_object).cloned(),
         max_tokens: stream.get("maxTokens").and_then(Value::as_f64),
         transport: stream
             .get("transport")

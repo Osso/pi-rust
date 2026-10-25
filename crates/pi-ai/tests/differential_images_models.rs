@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 
 fn test_model(provider: &str, id: &str) -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "test-images".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -24,7 +25,6 @@ fn test_model(provider: &str, id: &str) -> ImagesModel {
         output: vec![Modality::Image],
         cost: Default::default(),
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
     }
 }
@@ -136,6 +136,36 @@ async fn image_refresh_preserves_an_existing_models_error() {
     assert_eq!(models.refresh(Some("p1")).await.unwrap_err(), original);
 }
 
+#[test]
+fn image_options_metadata_forwards_native_arbitrary_json() {
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let metadata = parse_lossless(r#"{"trace":"\ud800", "nested":{"\udc00":[true,7,null]}}"#).unwrap();
+    let mut oracle = oracle::TsOracle::spawn("images-models-oracle.ts", "packages/ai/src/images-models.ts");
+    let expected: JsValue = oracle.request(&pi_js_compat::js_json!({
+        "id":2,"operation":"generate","options":{"metadata":metadata}
+    }));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let models = create_images_models(Default::default());
+    models.set_provider(create_images_provider(CreateImagesProviderOptions {
+        id: "p1".into(),
+        name: None,
+        auth: ProviderAuth::api_key(Arc::new(StaticAuth { result: None })),
+        models: vec![],
+        refresh_models: None,
+        api: Arc::new(RecordingApi { calls: calls.clone() }),
+    }));
+    let options = ImagesOptions {
+        metadata: Some(metadata.as_object().unwrap().clone()),
+        ..Default::default()
+    };
+    block_on(models.generate_images(test_model("p1", "m1"), context(), options)).unwrap();
+    let calls = calls.lock().unwrap();
+    let observed = JsValue::Object(calls[0].options.metadata.clone().unwrap());
+    assert_eq!(observed, expected["output"]["calls"][0]["metadata"]);
+    assert_eq!(observed, metadata);
+}
+
 struct RejectingApi;
 
 impl ProviderImages for RejectingApi {
@@ -226,6 +256,7 @@ fn call_value(call: &Call) -> Value {
         "apiKey": call.options.request.api_key,
         "headers": call.options.request.headers,
         "env": call.options.request.env,
+        "metadata": call.options.metadata,
     })
 }
 

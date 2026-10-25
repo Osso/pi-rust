@@ -12,6 +12,7 @@ type Request = {
 		env?: Record<string, string>;
 	} | null;
 	options?: {
+		metadata?: Record<string, unknown>;
 		apiKey?: string;
 		headers?: Record<string, string | null>;
 		env?: Record<string, string>;
@@ -125,6 +126,7 @@ async function execute(request: Request, api: ImagesModelsApi) {
 						headers:
 							(options as { headers?: unknown } | undefined)?.headers ?? null,
 						env: (options as { env?: unknown } | undefined)?.env ?? null,
+						metadata: options?.metadata ?? null,
 					});
 					return {
 						api: "test-images",

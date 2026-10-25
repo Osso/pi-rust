@@ -136,7 +136,6 @@ async fn export_session_probe() {
         context_window: 200_000.0,
         auto_compaction_threshold: None,
         max_tokens: 8192.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     };

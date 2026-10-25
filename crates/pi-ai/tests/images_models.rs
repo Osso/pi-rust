@@ -14,8 +14,9 @@ use serde_json::json;
 
 fn test_model(provider: &str, id: &str) -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "test-images".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -24,7 +25,6 @@ fn test_model(provider: &str, id: &str) -> ImagesModel {
         output: vec![Modality::Image],
         cost: Default::default(),
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
     }
 }
@@ -528,13 +528,21 @@ fn options_metadata_and_extra_are_forwarded() {
     ));
     let model = models.get_model("p1", "m1").expect("model");
     let options = ImagesOptions {
-        metadata: Some(json!({"trace": "abc"}).as_object().expect("object").clone()),
+        metadata: Some(
+            pi_js_compat::js_json!({"trace": "abc"})
+                .as_object()
+                .expect("object")
+                .clone(),
+        ),
         extra: serde_json::Map::from_iter([("custom".to_owned(), json!(true))]),
         ..Default::default()
     };
     block_on(models.generate_images(model, context(), options)).expect("image generation");
     let recorded = &calls.lock().expect("calls lock")[0].options;
-    assert_eq!(recorded.metadata.as_ref().expect("metadata")["trace"], json!("abc"));
+    assert_eq!(
+        recorded.metadata.as_ref().expect("metadata")["trace"],
+        pi_js_compat::js_json!("abc")
+    );
     assert_eq!(recorded.extra["custom"], json!(true));
 }
 

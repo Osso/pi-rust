@@ -1275,7 +1275,6 @@ fn default_model() -> Model {
         context_window: 0.0,
         auto_compaction_threshold: None,
         max_tokens: 0.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }
