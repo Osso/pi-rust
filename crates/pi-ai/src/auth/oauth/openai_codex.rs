@@ -155,7 +155,7 @@ fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<O
         )));
     }
     use pi_js_compat::js_json::{self, JsValue};
-    let json = js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
+    let json = crate::auth::oauth::support::parse_response_json(&response.body)?;
     let access = json.get("access_token").and_then(JsValue::as_string);
     let refresh = json.get("refresh_token").and_then(JsValue::as_string);
     let expires_in = json.get("expires_in").and_then(JsValue::as_f64);
@@ -209,12 +209,15 @@ async fn refresh_access_token(
         ("client_id", CLIENT_ID),
     ]);
     let request = form_request(TOKEN_URL, body, false);
-    let response = send(&runtime.fetch, request, Some(signal)).await.map_err(|error| {
-        CallbackError::new(pi_js_compat::js_json::JsString::join(
-            ["OpenAI Codex token refresh error: ".into(), error.message],
-            "",
-        ))
-    })?;
+    let response = match send(&runtime.fetch, request, Some(signal)).await {
+        Ok(response) => response,
+        Err(error) => {
+            return Err(CallbackError::new(js_format!(
+                "OpenAI Codex token refresh error: {}",
+                error.error_or_string_message()?
+            )));
+        }
+    };
     let mut token = read_token_response(response, "refresh")?;
     token.expires += now;
     Ok(token)
@@ -343,18 +346,7 @@ async fn poll_device_auth(
                 "user_code": device.user_code,
             });
             let request = json_request(DEVICE_TOKEN_URL, &body, false);
-            let signal_for_error = signal.clone();
-            let response = match fetch_with_login_cancellation(&runtime, request, signal).await {
-                Ok(response) => response,
-                Err(_error) if signal_for_error.aborted() => {
-                    return Ok(OAuthDeviceCodePollResult::Failed {
-                        message: "Login cancelled".to_owned().into(),
-                    });
-                }
-                Err(error) => {
-                    return Ok(OAuthDeviceCodePollResult::Failed { message: error.message });
-                }
-            };
+            let response = fetch_with_login_cancellation(&runtime, request, signal).await?;
             if response.ok() {
                 let json = response.json.unwrap_or(Value::Null);
                 let authorization_code = json.get("authorization_code").and_then(Value::as_str);
@@ -563,7 +555,7 @@ async fn login_browser(
         return Err(AuthError::from(error.clone()));
     }
 
-    let code = match result {
+    let mut code = match result {
         Some(code) => Some(JsString::from(code)),
         None => match manual.and_then(Result::ok).filter(|input| !input.is_empty()) {
             Some(input) => match resolve_manual_code(&input, &state) {
@@ -577,7 +569,33 @@ async fn login_browser(
             None => None,
         },
     };
-    let Some(code) = code else {
+    if code.as_ref().is_none_or(JsString::is_empty) {
+        let input = interaction
+            .prompt(AuthPrompt {
+                signal: None,
+                kind: AuthPromptKind::Text {
+                    message: "Paste the authorization code (or full redirect URL):".into(),
+                    placeholder: None,
+                },
+            })
+            .await;
+        code = match input {
+            Ok(input) => match resolve_manual_code(&input, &state) {
+                Ok(code) => code,
+                Err(message) => {
+                    close_server(callback_server);
+                    manual_abort.abort(None);
+                    return Err(AuthError::failed(message));
+                }
+            },
+            Err(error) => {
+                close_server(callback_server);
+                manual_abort.abort(None);
+                return Err(error.into());
+            }
+        };
+    }
+    let Some(code) = code.filter(|code| !code.is_empty()) else {
         close_server(callback_server);
         manual_abort.abort(None);
         return Err(AuthError::failed("Missing authorization code"));

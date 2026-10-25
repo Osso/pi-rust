@@ -66,6 +66,8 @@ pub mod oauth_entropy_failures;
 pub mod oauth_load_contract;
 #[path = "oauth_page.rs"]
 pub mod oauth_page;
+#[path = "oauth_repin_edges.rs"]
+pub mod oauth_repin_edges;
 #[path = "openai_codex_oauth.rs"]
 pub mod openai_codex_oauth;
 #[path = "openai_completions.rs"]

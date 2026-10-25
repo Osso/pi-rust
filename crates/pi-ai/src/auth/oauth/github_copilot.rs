@@ -121,10 +121,15 @@ fn get_urls(domain: &str) -> Urls {
 
 /// `getBaseUrlFromToken`: derives the API host from the token's `proxy-ep`.
 pub fn get_base_url_from_token(token: &JsString) -> Option<JsString> {
-    let start = token.find("proxy-ep=")? + "proxy-ep=".len();
-    let rest = token.slice(start, token.len());
-    let end = rest.find(";").unwrap_or(rest.len());
-    let proxy_host = rest.slice(0, end);
+    let mut rest = token.clone();
+    let proxy_host = loop {
+        let start = rest.find("proxy-ep=")? + "proxy-ep=".len();
+        rest = rest.slice(start, rest.len());
+        let end = rest.find(";").unwrap_or(rest.len());
+        if end > 0 {
+            break rest.slice(0, end);
+        }
+    };
     let api_host = if proxy_host.starts_with("proxy.") {
         js_format!("api.{}", proxy_host.slice(6, proxy_host.len()))
     } else {
@@ -311,10 +316,7 @@ async fn poll_for_github_access_token(
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ]);
             let request = json_request(&url, "POST", form_headers(), Some(body));
-            let raw = match fetch_json(&runtime, request, &signal).await {
-                Ok(raw) => raw,
-                Err(error) => return Ok(OAuthDeviceCodePollResult::Failed { message: error.message }),
-            };
+            let raw = fetch_json(&runtime, request, &signal).await?;
             let object = match raw.as_object() {
                 Some(object) => object,
                 None => {
