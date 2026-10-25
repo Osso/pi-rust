@@ -74,6 +74,28 @@ Evidence: `/tmp/test-consolidate-proof/before-suite.log`, `baseline-results.json
 | `pi-tui` | `raw_editor` | Existing assertion output differs from the pinned oracle or expected contract. |
 | `pi-tui` | `verifier_regressions` | Existing assertion output differs from the pinned oracle or expected contract. |
 
+## FLAKY: unchanged-case variability accepted by main
+
+The composed after ledger contains 75 failed outcomes versus 76 before. These
+nine outcome changes are explicitly classified **FLAKY** by main (2026-10-25),
+not fixed or hidden by this layout change. Five cases change from failure to
+pass; four change from pass to failure. All assertions remain unchanged. The
+full comparison is saved in `/tmp/test-consolidate-proof/suite-comparison.json`.
+Strict pass/fail-set equality was therefore **not** obtained; the unchanged-case
+variability is an accepted verification limitation, not an all-green result.
+
+| Package / original target | Test | Before → after | Status |
+| --- | --- | --- | --- |
+| `pi-ai / anthropic_oauth` | `manual_state_mismatch_fails_with_the_source_message` | pass → fail | FLAKY |
+| `pi-coding-agent / detached_pyrun_runner_process` | `answers_status_requests_while_the_evaluation_runs` | fail → pass | FLAKY |
+| `pi-coding-agent / differential_tree_selector` | `tree_filters_search_labels_and_entry_types_match_frozen` | fail → pass | FLAKY |
+| `pi-coding-agent / differential_tree_selector` | `tree_terminal_height_numbers_match_frozen` | pass → fail | FLAKY |
+| `pi-coding-agent / example_file_trigger` | `private_watch_injects_clears_ignores_blank_and_preserves_failure_match_ts` | fail → pass | FLAKY |
+| `pi-coding-agent / host_relay_resident` | `spawn_failure_is_logged_like_frozen_without_executing_any_ssh` | fail → pass | FLAKY |
+| `pi-coding-agent-interactive / lib` | `modes::interactive::interactive_mode::ui_tests::fork_selector_forks_from_the_selected_user_message` | pass → fail | FLAKY |
+| `pi-coding-agent-interactive / lib` | `modes::interactive::interactive_mode::ui_tests::header_startup_and_registration_frames_match_frozen_expandability` | pass → fail | FLAKY |
+| `pi-coding-agent-interactive / lib` | `modes::interactive::interactive_mode::ui_tests::tree_selector_navigates_to_the_selected_entry` | fail → pass | FLAKY |
+
 ## Interactive timeout
 
 The unchanged `pi-coding-agent-interactive --lib` binary stalled with these two tests still active:
