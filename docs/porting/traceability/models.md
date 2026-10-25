@@ -12,6 +12,10 @@ Frozen `packages/ai/src/models.ts:1–451` at4f9e6f8a4; native `pi-ai/src/models
 | createProvider (:299–373) | replace whole list on successful refresh, shared inflight, retry after failure, per-api dispatch | actual-source inflight call count/last-known model snapshots/success/failure/retry; replacement RED→GREEN; stream matrix + retained mixed-API native test |
 | cost/thinking/equality (:385–451) | base rates only, owned cost return, exact level filters/clamp and id/provider equality | differential_ai_runtime: five cost cases (missing/zero/positive long-cache writes, fractional/negative short component, ignored tier metadata), six thinking maps × eight requested levels, seven equality pairs (nulls, API-irrelevance, provider/ID/canonical-Unicode differences) |
 
+## Required stream-acquisition propagation (2026-10-24)
+
+Provider raw/simple methods and ConfiguredProvider.dispatch now return CallbackError Results. Frozen models.ts:337–346 returns a lazy failure stream only for a missing implementation; calling a present implementation has no catch, so its synchronous rejection propagates unchanged. ModelsCollection retains its infallible outer stream: its setup at frozen :263–267/:279–283 returns the Provider Result into the shared lazy catch. This is mechanical propagation for the registered-stream prerequisite, not a new provider protocol. Current proof pending; prior matrix is historical for these changed paths.
+
 ## Removed source-absent architecture
 
 Publication/persistence/generations/supersession, RefreshModelsContext/Options/Result, check_auth/get_available/login/logout/provider-ID get_auth, deferred collection/provider hooks, filter_models and dynamic-overlay merging are not in frozen models.ts. They are deleted from the implementation, not retained as compatibility paths. ModelsStore's standalone module/tests/exports are retired with consumer migration; no frozen ai models-store module exists.

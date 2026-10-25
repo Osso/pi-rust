@@ -22,6 +22,8 @@ Preserve the frozen `packages/ai/src/compat.ts`, `api/lazy.ts`, `types.ts` and a
 - `crates/pi-ai/src/compat/mod.rs`: registered callback/API wrapper dispatch.
 - `crates/pi-coding-agent-models/src/core/model_registry.rs`: extension registration callback contract.
 - `crates/pi-ai/src/api/lazy.rs`: frozen caught async setup boundary.
+- `crates/pi-ai/src/models.rs`: Provider/createProvider pass acquisition Result unchanged; ModelsCollection returns its outer stream and delegates rejection conversion to lazy setup.
+- `crates/pi-ai/src/legacy_api_aliases.rs`: direct Result forwarding, no additional catch.
 - `crates/pi-agent-core/src/agent_loop.rs`: default consumer error boundary.
 
 ## Tests asserting this spec
