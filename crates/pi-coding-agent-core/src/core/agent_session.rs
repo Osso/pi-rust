@@ -7562,7 +7562,6 @@ fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core
         approval_required: Some(definition.approval_required),
         approval_kind: definition.approval_kind,
         parameters: definition.parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

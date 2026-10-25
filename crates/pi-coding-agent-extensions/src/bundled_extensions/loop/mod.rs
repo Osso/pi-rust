@@ -411,7 +411,6 @@ fn loop_tool_definition(controller: LoopController) -> ToolDefinition {
         approval_required: Some(true),
         approval_kind: None,
         parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

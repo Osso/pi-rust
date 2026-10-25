@@ -14,3 +14,5 @@ RED: `/tmp/settings-models-experimental-red-final.log` fails for `PI_EXPERIMENTA
 No semantic deviations. Pathological environment/runtime faults remain outside the user-observable parity bar.
 
 GREEN: `/tmp/settings-models-experimental-green.log` at 556c3d54a. Targeted warning-mode clippy passes at 02e7c6033 with no warnings on changed lines; strict dependency warnings are deferred by parent to the final gate. Manual changed-code readability audit found no violations.
+
+2026-10-25: process-isolated env-gate test now imports actual frozen core/experimental.ts and compares its boolean directly. Removed calls/assertions for source-absent constrained-sampling tool metadata; the seven env values and native child-process lifetime remain tested.

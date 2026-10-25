@@ -14,9 +14,7 @@ use indexmap::IndexMap;
 use pi_agent_core::agent::types::{AgentMessage, AgentToolResult, AgentToolUpdateCallback};
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_agent_core::harness::types::ToolExecutionMode;
-use pi_ai::types::{
-    AssistantMessageEvent, ConstrainedSampling, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage,
-};
+use pi_ai::types::{AssistantMessageEvent, ImageContent, Model, TextOrImageContent, ToolCallExecution, Usage};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -1662,7 +1660,6 @@ pub struct ToolDefinition {
     pub approval_kind: Option<ApprovalKind>,
     /// JSON Schema for the tool parameters.
     pub parameters: Value,
-    pub constrained_sampling: Option<ConstrainedSampling>,
     pub render_shell: Option<RenderShell>,
     pub prepare_arguments: Option<PrepareArguments>,
     pub prepare_execution: Option<PrepareExecution>,

@@ -93,7 +93,6 @@ fn definition(request: &Value, events: Arc<Mutex<Vec<Value>>>) -> Option<ToolDef
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type":"object"}),
-        constrained_sampling: None,
         render_shell: Some(if request["definition"] == "self" {
             RenderShell::SelfRender
         } else {
