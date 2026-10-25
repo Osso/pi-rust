@@ -2,7 +2,7 @@
 
 use pi_js_compat::{
     js_format,
-    js_json::{JsString, encode_node_utf8},
+    js_json::{JsString, JsValue, encode_node_utf8},
 };
 use std::sync::Arc;
 
@@ -143,7 +143,7 @@ pub fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: 
     {
         return url;
     }
-    match enterprise_domain {
+    match enterprise_domain.filter(|domain| !domain.is_empty()) {
         Some(domain) => js_format!("https://copilot-api.{}", domain),
         None => DEFAULT_BASE_URL.into(),
     }
@@ -151,41 +151,39 @@ pub fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: 
 
 /// `parseAvailableCopilotModelIds`.
 pub fn parse_available_copilot_model_ids(raw: &Value) -> Result<Vec<String>, String> {
-    let data = raw
-        .as_object()
-        .and_then(|raw| raw.get("data"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| "Invalid Copilot models response".to_owned())?;
+    parse_available_copilot_model_ids_native(&raw.into()).map_err(|error| error.to_string())
+}
 
-    let mut picker_ids = Vec::new();
-    for raw_item in data {
-        let Some(item) = raw_item.as_object() else { continue };
-        let Some(id) = item.get("id").and_then(Value::as_str) else {
-            continue;
-        };
-        let supports = item
-            .get("capabilities")
-            .and_then(Value::as_object)
-            .and_then(|capabilities| capabilities.get("supports"))
-            .and_then(Value::as_object);
-        if supports.and_then(|supports| supports.get("tool_calls")) == Some(&Value::Bool(false)) {
-            continue;
-        }
-        let policy_state = item
-            .get("policy")
-            .and_then(Value::as_object)
-            .and_then(|policy| policy.get("state"))
-            .and_then(Value::as_str);
-        if item.get("model_picker_enabled") == Some(&Value::Bool(true)) && policy_state != Some("disabled") {
-            picker_ids.push(id.to_owned());
-        }
-    }
-    Ok(picker_ids)
+fn parse_available_copilot_model_ids_native(raw: &JsValue) -> Result<Vec<String>, CallbackError> {
+    let data = raw
+        .get("data")
+        .and_then(JsValue::as_array)
+        .ok_or_else(|| CallbackError::new("Invalid Copilot models response"))?;
+    data.iter()
+        .filter(|item| selectable_copilot_model(item))
+        .filter_map(|item| item.get("id").and_then(JsValue::as_string))
+        .map(|id| {
+            id.to_utf8()
+                .map_err(|_| CallbackError::new("Copilot model ID contains an unpaired UTF-16 surrogate"))
+        })
+        .collect()
+}
+
+fn selectable_copilot_model(item: &JsValue) -> bool {
+    let picker_enabled = item.get("model_picker_enabled") == Some(&JsValue::Bool(true));
+    let policy_disabled =
+        item.get("policy").and_then(|policy| policy.get("state")) == Some(&JsValue::String("disabled".into()));
+    let tools_disabled = item
+        .get("capabilities")
+        .and_then(|caps| caps.get("supports"))
+        .and_then(|supports| supports.get("tool_calls"))
+        == Some(&JsValue::Bool(false));
+    picker_enabled && !policy_disabled && !tools_disabled
 }
 
 struct DeviceCodeResponse {
-    device_code: String,
-    user_code: String,
+    device_code: JsString,
+    user_code: JsString,
     verification_uri: String,
     interval: Option<f64>,
     expires_in: f64,
@@ -226,7 +224,7 @@ async fn fetch_json(
     runtime: &OAuthRuntime,
     request: HttpRequest,
     signal: Option<AbortSignal>,
-) -> Result<Value, CallbackError> {
+) -> Result<JsValue, CallbackError> {
     let response = send(&runtime.fetch, request, signal).await?;
     if !response.ok() {
         return Err(CallbackError::new(format!(
@@ -234,12 +232,10 @@ async fn fetch_json(
             response.status, response.status_text, response.body
         )));
     }
-    response
-        .json
-        .ok_or_else(|| CallbackError::new("Unexpected end of JSON input"))
+    crate::auth::oauth::support::parse_response_json(&response.body)
 }
 
-async fn fetch_json_with_timeout(runtime: &OAuthRuntime, request: HttpRequest) -> Result<Value, CallbackError> {
+async fn fetch_json_with_timeout(runtime: &OAuthRuntime, request: HttpRequest) -> Result<JsValue, CallbackError> {
     let signal = AbortSignal::timeout(MODELS_TIMEOUT_MS)
         .map_err(|error| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(error)))?;
     fetch_json(runtime, request, Some(signal)).await
@@ -251,25 +247,25 @@ async fn start_device_flow(runtime: &OAuthRuntime, domain: &str) -> Result<Devic
     let request = json_request(&urls.device_code, "POST", form_headers(), Some(body));
     let data = fetch_json(runtime, request, None).await?;
 
-    let device_code = data.get("device_code").and_then(Value::as_str);
-    let user_code = data.get("user_code").and_then(Value::as_str);
-    let verification_uri = data.get("verification_uri").and_then(Value::as_str);
+    let device_code = data.get("device_code").and_then(JsValue::as_string);
+    let user_code = data.get("user_code").and_then(JsValue::as_string);
+    let verification_uri = data.get("verification_uri").and_then(JsValue::as_string);
     let interval = data.get("interval");
     let expires_in = data.get("expires_in");
 
-    if interval.is_some_and(|interval| !interval.is_number()) {
+    if interval.is_some_and(|interval| !matches!(interval, JsValue::Number(_))) {
         return Err(CallbackError::new("Invalid device code response fields"));
     }
     let (Some(device_code), Some(user_code), Some(verification_uri), Some(expires_in)) = (
         device_code,
         user_code,
         verification_uri,
-        expires_in.and_then(Value::as_f64),
+        expires_in.and_then(JsValue::as_f64),
     ) else {
         return Err(CallbackError::new("Invalid device code response fields"));
     };
 
-    let parsed_uri = url::Url::parse(verification_uri)
+    let parsed_uri = url::Url::parse(&encode_node_utf8(verification_uri))
         .map_err(|_| CallbackError::new("Untrusted verification_uri in device code response"))?;
     if parsed_uri.scheme() != "https" && parsed_uri.scheme() != "http" {
         return Err(CallbackError::new("Untrusted verification_uri in device code response"));
@@ -279,7 +275,7 @@ async fn start_device_flow(runtime: &OAuthRuntime, domain: &str) -> Result<Devic
         device_code: device_code.to_owned(),
         user_code: user_code.to_owned(),
         verification_uri: parsed_uri.to_string(),
-        interval: interval.and_then(Value::as_f64),
+        interval: interval.and_then(JsValue::as_f64),
         expires_in,
     })
 }
@@ -289,7 +285,7 @@ async fn poll_for_github_access_token(
     domain: &str,
     device: &DeviceCodeResponse,
     signal: &AbortSignal,
-) -> Result<String, CallbackError> {
+) -> Result<JsString, CallbackError> {
     let urls = get_urls(domain);
     let options = OAuthDeviceCodePollOptions {
         interval_seconds: device.interval,
@@ -306,7 +302,10 @@ async fn poll_for_github_access_token(
         async move {
             let body = form_encode(&[
                 ("client_id", CLIENT_ID),
-                ("device_code", device_code.as_str()),
+                (
+                    "device_code",
+                    &crate::auth::oauth::support::to_form_usv_string(&device_code),
+                ),
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ]);
             let request = json_request(&url, "POST", form_headers(), Some(body));
@@ -319,10 +318,10 @@ async fn poll_for_github_access_token(
                     });
                 }
             };
-            if let Some(access_token) = object.get("access_token").and_then(Value::as_str) {
+            if let Some(access_token) = object.get("access_token").and_then(JsValue::as_string) {
                 return Ok(OAuthDeviceCodePollResult::Complete(access_token.to_owned()));
             }
-            let Some(error) = object.get("error").and_then(Value::as_str) else {
+            let Some(error) = object.get("error").and_then(JsValue::as_string) else {
                 return Ok(OAuthDeviceCodePollResult::Failed {
                     message: "Invalid device token response".to_owned().into(),
                 });
@@ -332,16 +331,17 @@ async fn poll_for_github_access_token(
             }
             if error == "slow_down" {
                 return Ok(OAuthDeviceCodePollResult::SlowDown {
-                    interval_seconds: object.get("interval").and_then(Value::as_f64),
+                    interval_seconds: object.get("interval").and_then(JsValue::as_f64),
                 });
             }
             let description = object
                 .get("error_description")
-                .and_then(Value::as_str)
-                .map(|description| format!(": {description}"))
+                .and_then(JsValue::as_string)
+                .filter(|description| !description.is_empty())
+                .map(|description| js_format!(": {}", description))
                 .unwrap_or_default();
             Ok(OAuthDeviceCodePollResult::Failed {
-                message: format!("Device flow failed: {error}{description}").into(),
+                message: js_format!("Device flow failed: {}{}", error, description),
             })
         }
     })
@@ -353,7 +353,9 @@ async fn refresh_access_token(
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,
 ) -> Result<OAuthCredential, CallbackError> {
-    let domain = enterprise_domain.unwrap_or(DEFAULT_DOMAIN);
+    let domain = enterprise_domain
+        .filter(|domain| !domain.is_empty())
+        .unwrap_or(DEFAULT_DOMAIN);
     let urls = get_urls(domain);
     let mut headers = vec![
         ("Accept".to_owned(), "application/json".to_owned()),
@@ -371,8 +373,7 @@ async fn refresh_access_token(
             response.status, response.status_text, response.body
         )));
     }
-    let raw =
-        pi_js_compat::js_json::parse_lossless(&response.body).map_err(|error| CallbackError::new(error.to_string()))?;
+    let raw = crate::auth::oauth::support::parse_response_json(&response.body)?;
     let token = raw.get("token").and_then(pi_js_compat::js_json::JsValue::as_string);
     let expires_at = raw.get("expires_at").and_then(pi_js_compat::js_json::JsValue::as_f64);
     let (Some(token), Some(expires_at)) = (token, expires_at) else {
@@ -438,7 +439,7 @@ async fn fetch_available_model_ids(
         None,
     );
     let raw = fetch_json_with_timeout(runtime, request).await?;
-    parse_available_copilot_model_ids(&raw).map_err(CallbackError::new)
+    parse_available_copilot_model_ids_native(&raw)
 }
 
 async fn enable_github_copilot_model(
@@ -464,7 +465,7 @@ async fn enable_github_copilot_model(
     headers.push(("x-interaction-type".to_owned(), "chat-policy".to_owned()));
     let request = json_request(&url, "POST", headers, Some(json!({"state": "enabled"}).to_string()));
     // Frozen policy enablement catches every fetch failure and does not pass the login signal.
-    let _ = send(&runtime.fetch, request, None).await;
+    let _ = runtime.fetch.fetch(request, None).await;
 }
 
 async fn enable_all_models(runtime: &OAuthRuntime, token: &JsString, enterprise_domain: Option<&str>) {
@@ -511,7 +512,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
 
     let device = start_device_flow(runtime, &domain).await.map_err(to_auth_error)?;
     interaction.notify(AuthEvent::DeviceCode {
-        user_code: (device.user_code.clone()).into(),
+        user_code: device.user_code.clone(),
         verification_uri: (device.verification_uri.clone()).into(),
         interval_seconds: device.interval,
         expires_in_seconds: Some(device.expires_in),
@@ -520,7 +521,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     let github_access_token = poll_for_github_access_token(runtime, &domain, &device, &signal)
         .await
         .map_err(to_auth_error)?;
-    let mut credentials = refresh_access_token(runtime, &github_access_token.into(), enterprise_domain.as_deref())
+    let mut credentials = refresh_access_token(runtime, &github_access_token, enterprise_domain.as_deref())
         .await
         .map_err(to_auth_error)?;
 

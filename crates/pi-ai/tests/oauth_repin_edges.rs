@@ -309,6 +309,281 @@ async fn manual_non_error_rejection_is_wrapped_as_an_error() {
 }
 
 #[tokio::test]
+async fn anthropic_callback_bind_error_matches_node_listen_fields() {
+    let _port = lock_callback_port().await;
+    let _listener = tokio::net::TcpListener::bind(("127.0.0.1", 53692)).await.unwrap();
+    let error = AnthropicOAuth::with_runtime(runtime(RecordingFetch::new(vec![]), 0.0))
+        .login(TestInteraction::new(vec![]))
+        .await
+        .unwrap_err()
+        .into_callback();
+    assert_eq!(
+        error.message,
+        "listen EADDRINUSE: address already in use 127.0.0.1:53692"
+    );
+    let AbortReason::Error(error) = error.thrown_value() else {
+        panic!("expected Node Error")
+    };
+    let value = error.value();
+    assert_eq!(value.get("code"), Some(&JsValue::String("EADDRINUSE".into())));
+    assert_eq!(value.get("errno"), Some(&JsValue::Number(-98.0)));
+    assert_eq!(value.get("syscall"), Some(&JsValue::String("listen".into())));
+    assert_eq!(value.get("address"), Some(&JsValue::String("127.0.0.1".into())));
+    assert_eq!(value.get("port"), Some(&JsValue::Number(53692.0)));
+}
+
+#[tokio::test]
+async fn browser_callbacks_reject_empty_codes_without_settling_login() {
+    let _port = lock_callback_port().await;
+    for codex in [false, true] {
+        let payload = pi_js_compat::base64::btoa(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"id"}}"#);
+        let body = format!(r#"{{"access_token":"e30.{payload}.sig","refresh_token":"r","expires_in":60}}"#);
+        let fetch = RecordingFetch::new(vec![ScriptedResponse::json(200, &body)]);
+        let provider: Box<dyn OAuthAuth> = if codex {
+            Box::new(OpenAICodexOAuth::with_runtime(runtime(fetch, 0.0)))
+        } else {
+            Box::new(AnthropicOAuth::with_runtime(runtime(fetch, 0.0)))
+        };
+        let answers = if codex {
+            vec![PromptAnswer::Text("browser".into()), PromptAnswer::Pending]
+        } else {
+            vec![PromptAnswer::Pending]
+        };
+        let interaction = TestInteraction::new(answers);
+        let login = tokio::spawn({
+            let interaction = interaction.clone();
+            async move { provider.login(interaction).await }
+        });
+        let url = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            loop {
+                if let Some(pi_ai::auth::AuthEvent::AuthUrl { url, .. }) = interaction
+                    .events()
+                    .into_iter()
+                    .find(|event| matches!(event, pi_ai::auth::AuthEvent::AuthUrl { .. }))
+                {
+                    break url;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+            }
+        })
+        .await
+        .unwrap();
+        let url = url::Url::parse(&url.to_utf8().unwrap()).unwrap();
+        let state = url
+            .query_pairs()
+            .find(|(key, _)| key == "state")
+            .unwrap()
+            .1
+            .into_owned();
+        let callback = if codex {
+            "http://127.0.0.1:1455/auth/callback"
+        } else {
+            "http://127.0.0.1:53692/callback"
+        };
+        let (status, _) = support::http_get(&format!("{callback}?code=&state={state}")).await;
+        assert_eq!(status, 400);
+        let (status, _) = support::http_get(&format!("{callback}?code=valid&state={state}&error=")).await;
+        assert_eq!(status, 200);
+        login.await.unwrap().unwrap();
+    }
+}
+
+#[test]
+fn empty_copilot_enterprise_domain_keeps_the_default_endpoint() {
+    assert_eq!(
+        pi_ai::oauth::get_github_copilot_base_url(None, Some("")),
+        "https://api.individual.githubcopilot.com"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn copilot_policy_enable_does_not_read_response_bodies() {
+    struct CountBody(Arc<AtomicUsize>);
+    impl pi_ai::request::HttpBody for CountBody {
+        fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Box::pin(async { None })
+        }
+    }
+    struct Policies {
+        scripted: Arc<RecordingFetch>,
+        reads: Arc<AtomicUsize>,
+    }
+    impl Fetch for Policies {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            signal: Option<AbortSignal>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            if request.url.ends_with("/policy") {
+                let reads = self.reads.clone();
+                Box::pin(async move {
+                    Ok(HttpResponse {
+                        status: 200,
+                        status_text: String::new(),
+                        headers: vec![],
+                        body: Box::new(CountBody(reads)),
+                    })
+                })
+            } else {
+                self.scripted.fetch(request, signal)
+            }
+        }
+    }
+    let reads = Arc::new(AtomicUsize::new(0));
+    let scripted = RecordingFetch::new(vec![
+        ScriptedResponse::json(
+            200,
+            r#"{"device_code":"d","user_code":"U","verification_uri":"https://github.com/login/device","interval":1,"expires_in":60}"#,
+        ),
+        ScriptedResponse::json(200, r#"{"access_token":"ghu"}"#),
+        ScriptedResponse::json(200, r#"{"token":"token","expires_at":1000}"#),
+        ScriptedResponse::json(200, r#"{"data":[]}"#),
+    ]);
+    let fetch = Arc::new(Policies {
+        scripted,
+        reads: reads.clone(),
+    });
+    GitHubCopilotOAuth::with_runtime(runtime(fetch, 0.0))
+        .login(TestInteraction::new(vec![PromptAnswer::Text(String::new())]))
+        .await
+        .unwrap();
+    assert_eq!(reads.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
+async fn copilot_device_json_errors_keep_the_syntax_error_brand() {
+    let provider = GitHubCopilotOAuth::with_runtime(runtime(
+        RecordingFetch::new(vec![ScriptedResponse::json(200, "bad")]),
+        0.0,
+    ));
+    let error = provider
+        .login(TestInteraction::new(vec![PromptAnswer::Text(String::new())]))
+        .await
+        .unwrap_err()
+        .into_callback();
+    assert_eq!(error.name, "SyntaxError");
+    assert_eq!(
+        error.message,
+        pi_js_compat::js_json::parse_lossless("bad").unwrap_err().into_message()
+    );
+}
+
+#[tokio::test]
+async fn codex_without_manual_callback_prompts_when_the_listener_cannot_bind() {
+    use pi_ai::oauth::*;
+    struct Callbacks;
+    impl OAuthLoginCallbacks for Callbacks {
+        fn on_auth(&self, _: OAuthAuthInfo) -> Result<(), CallbackError> {
+            Ok(())
+        }
+        fn on_device_code(&self, _: OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
+            Ok(())
+        }
+        fn on_prompt(&self, _: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
+            Box::pin(async { Err(CallbackError::new("fallback prompt used")) })
+        }
+        fn on_select(&self, _: OAuthSelectPrompt) -> BoxFuture<'_, Result<Option<JsString>, CallbackError>> {
+            Box::pin(async { Err(CallbackError::new("direct browser flow must not select")) })
+        }
+    }
+    let _port = lock_callback_port().await;
+    let _listener = tokio::net::TcpListener::bind(("127.0.0.1", 1455)).await.unwrap();
+    let error = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        login_openai_codex(Arc::new(Callbacks), None),
+    )
+    .await
+    .expect("must use the text prompt, not wait for absent manual input")
+    .unwrap_err();
+    assert_eq!(error.detail(), Some(&JsString::from("fallback prompt used")));
+}
+
+#[tokio::test]
+async fn browser_listener_closes_while_token_exchange_is_pending() {
+    struct DelayedFetch {
+        entered: Arc<tokio::sync::Notify>,
+        release: Arc<tokio::sync::Notify>,
+        scripted: Arc<RecordingFetch>,
+    }
+    impl Fetch for DelayedFetch {
+        fn fetch(
+            &self,
+            request: HttpRequest,
+            signal: Option<AbortSignal>,
+        ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            Box::pin(async move {
+                self.entered.notify_one();
+                self.release.notified().await;
+                self.scripted.fetch(request, signal).await
+            })
+        }
+    }
+    let _port = lock_callback_port().await;
+    for codex in [false, true] {
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let payload = pi_js_compat::base64::btoa(br#"{"https://api.openai.com/auth":{"chatgpt_account_id":"id"}}"#);
+        let body = format!(r#"{{"access_token":"e30.{payload}.sig","refresh_token":"r","expires_in":60}}"#);
+        let fetch = Arc::new(DelayedFetch {
+            entered: entered.clone(),
+            release: release.clone(),
+            scripted: RecordingFetch::new(vec![ScriptedResponse::json(200, &body)]),
+        });
+        let provider: Box<dyn OAuthAuth> = if codex {
+            Box::new(OpenAICodexOAuth::with_runtime(runtime(fetch, 0.0)))
+        } else {
+            Box::new(AnthropicOAuth::with_runtime(runtime(fetch, 0.0)))
+        };
+        let answers = if codex {
+            vec![PromptAnswer::Text("browser".into()), PromptAnswer::Text("code".into())]
+        } else {
+            vec![PromptAnswer::Text("code".into())]
+        };
+        let login = tokio::spawn(async move { provider.login(TestInteraction::new(answers)).await });
+        entered.notified().await;
+        let port = if codex { 1455 } else { 53692 };
+        let rebound = tokio::net::TcpListener::bind(("127.0.0.1", port)).await;
+        release.notify_one();
+        login.await.unwrap().unwrap();
+        assert!(
+            rebound.is_ok(),
+            "listener must close before awaiting the exchange result"
+        );
+    }
+}
+
+#[tokio::test]
+async fn anthropic_request_details_format_branded_causes_recursively() {
+    use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
+    struct Reject;
+    impl Fetch for Reject {
+        fn fetch(&self, _: HttpRequest, _: Option<AbortSignal>) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
+            Box::pin(async {
+                let cause = NativeNodeError::new("Error", "connect failed")
+                    .with_property("code", JsValue::String("ECONNREFUSED".into()))
+                    .with_property("errno", JsValue::Number(-111.0));
+                Err(
+                    NativeNodeError::from_constructor(NativeErrorClass::TypeError, "fetch failed")
+                        .with_cause(AbortReason::Error(cause))
+                        .into(),
+                )
+            })
+        }
+    }
+    let error = AnthropicOAuth::with_runtime(runtime(Arc::new(Reject), 0.0))
+        .refresh(OAuthCredential::new("r", "a", 0.0))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        error.detail(),
+        Some(&JsString::from(
+            "Anthropic token refresh request failed. url=https://platform.claude.com/v1/oauth/token; details=TypeError: fetch failed; cause=Error: connect failed; code=ECONNREFUSED; errno=-111"
+        ))
+    );
+}
+
+#[tokio::test]
 async fn invalid_token_json_keeps_syntax_error_identity() {
     let provider = OpenAICodexOAuth::with_runtime(runtime(
         RecordingFetch::new(vec![ScriptedResponse::json(200, "not json")]),
