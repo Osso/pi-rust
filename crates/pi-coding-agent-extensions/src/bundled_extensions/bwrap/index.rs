@@ -582,7 +582,7 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                                 theme.fg(ThemeColor::Error, "bwrap unavailable"),
                             )),
                         )?;
-                        ui.notify(&message.into(), Some(NotifyType::Error))?;
+                        ui.notify(&message, Some(NotifyType::Error))?;
                     }
                 }
             }

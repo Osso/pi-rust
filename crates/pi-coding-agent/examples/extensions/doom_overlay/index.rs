@@ -65,10 +65,7 @@ pub fn doom_overlay_extension(
                         | pi_js_compat::abort::AbortReason::DomException(error) => error.string_value(),
                         pi_js_compat::abort::AbortReason::Value(_) => error.error_or_string_message()?,
                     };
-                    ui.notify(
-                        &JsString::from(js_format!("Failed to load DOOM: {}", message)),
-                        Some(NotifyType::Error),
-                    )?;
+                    ui.notify(&js_format!("Failed to load DOOM: {}", message), Some(NotifyType::Error))?;
                     *active.lock().unwrap() = Active::default();
                 }
                 Ok(())

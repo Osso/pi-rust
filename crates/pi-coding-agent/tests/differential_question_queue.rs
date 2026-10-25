@@ -129,7 +129,7 @@ fn queued_notification_throw_reaches_the_outer_catch_without_enqueuing_its_failu
 async fn queued_notify_throw_probe() {
     use pi_js_compat::{abort::AbortReason, callback_error::CallbackError};
     let request =
-        js_json::parse_lossless(&std::env::var("PI_NOTIFY_THROW_REQUEST").expect("private probe request")).unwrap();
+        js_json::parse_lossless(std::env::var("PI_NOTIFY_THROW_REQUEST").expect("private probe request")).unwrap();
     let path = request["sessionFile"].as_string().unwrap();
     let manager = Arc::new(Mutex::new(
         SessionManager::open(path, None, Some(&JsString::from("/repo"))).unwrap(),
