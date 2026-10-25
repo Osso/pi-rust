@@ -18,7 +18,7 @@ use tokio::net::unix::OwnedWriteHalf;
 use tokio::net::{UnixListener, UnixStream};
 use tokio::sync::{mpsc, oneshot};
 
-use crate::utils::private_paths::{create_private_directory, remove_socket_file_if_present, set_private_socket_mode};
+use crate::utils::private_paths::{remove_socket_file_if_present, set_private_socket_mode};
 
 pub const RESIDENT_CONSOLE_PROTOCOL_VERSION: u32 = 1;
 
@@ -175,7 +175,15 @@ where
         assert_unix_socket_support()?;
         let socket_path = encode_node_utf8(&self.socket_path);
         if let Some(directory) = Path::new(&socket_path).parent() {
-            create_private_directory(directory)?;
+            use std::os::unix::fs::DirBuilderExt;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(directory)
+                .map_err(|error| {
+                    let path = crate::utils::paths::node_dirname(&self.socket_path);
+                    pi_js_compat::node_fs::node_fs_error(&error, "mkdir", &path)
+                })?;
         }
         let listener = listen_with_stale_socket_recovery(&self.socket_path, "Resident console socket").await?;
         set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
@@ -363,6 +371,13 @@ where
 {
     state.release_owner();
     let snapshot = state.host.get_snapshot();
+    *state.owner() = Some(Owner {
+        connection_id,
+        sender: sender.clone(),
+        unsubscribe: None,
+        marker: PhantomData,
+    });
+    state.write(sender, snapshot_message("attached", &snapshot));
     let sequence = Arc::clone(&state.sequence);
     let event_sender = sender.clone();
     let unsubscribe = state.host.subscribe(Arc::new(move |event: Event| {
@@ -370,13 +385,9 @@ where
         *sequence += 1;
         let _ = event_sender.send(Some(json!({"type": "event", "sequence": *sequence, "event": event})));
     }));
-    *state.owner() = Some(Owner {
-        connection_id,
-        sender: sender.clone(),
-        unsubscribe: Some(unsubscribe),
-        marker: PhantomData,
-    });
-    state.write(sender, snapshot_message("attached", &snapshot));
+    if let Some(owner) = state.owner().as_mut() {
+        owner.unsubscribe = Some(unsubscribe);
+    }
 }
 
 fn snapshot_message<Entry: Serialize>(kind: &str, snapshot: &ResidentConsoleSnapshot<Entry>) -> Value {
@@ -545,7 +556,9 @@ where
             "service": service,
         })));
         let mut line = String::new();
-        reader.read_line(&mut line).await.map_err(|error| error.to_string())?;
+        if reader.read_line(&mut line).await.map_err(|error| error.to_string())? == 0 {
+            return Err("Resident console disconnected before attach".into());
+        }
         let snapshot = parse_attach_response::<Entry>(&line, service)?;
         let (finished, _finished_rx) = tokio::sync::watch::channel(false);
         let state = Arc::new(ClientState {
@@ -643,6 +656,7 @@ impl<Event> ClientState<Event> {
         if self.finish_guard.swap(true, Ordering::SeqCst) {
             return;
         }
+        self.closed.store(true, Ordering::SeqCst);
         let failure = error.clone().unwrap_or_else(|| "Resident console disconnected".into());
         for (_, sender) in self.pending().drain() {
             let _ = sender.send(Err(failure.clone()));
