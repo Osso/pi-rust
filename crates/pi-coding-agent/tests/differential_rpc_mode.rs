@@ -492,7 +492,7 @@ fn rpc_external_falsey_steer_images_and_export_path_follow_core_truthiness() {
 fn assert_rpc_ui_roundtrip(replies: &[(&str, &str)], expected: &str) {
     let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"uiProbe":true}"#)]);
     session.send_both(r#"{"id":"dialogs","type":"prompt","message":"/rpc-ui-fixture"}"#);
-    for (method, fields) in replies.iter().copied() {
+    for &(method, fields) in replies {
         let source = session
             .ts
             .wait_for(|line| line.contains("\"type\":\"extension_ui_request\""));
