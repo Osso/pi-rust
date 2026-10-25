@@ -61,3 +61,16 @@ source serialized the supplied AbortSignal as `{}` in dialog options while
 the native calls recorder discarded signal/timeout entirely. The recorder now
 keeps all present dialog option fields (signal as its exact JSON `{}`), without
 changing runtime options or weakening source comparisons.
+
+## Default provisioner process proof
+
+`ask_secret_process` shadows authsudo with a private fake executable in each
+child's PATH. The frozen default provisioner and native default provisioner
+are both exercised (no injected provision callbacks) for success, exit 7 and
+abort-after-ready. Exact argv, raw JSON stdin, returned result/error, registration
+and UI calls compare across runtimes, including an unmatched UTF-16 secret
+unit that must survive as JSON escape text. No live broker is invoked.
+RED: success/failure wire matches, but abort native used kill-on-drop SIGKILL
+and did not reach the fake process's SIGTERM handler. Native now explicitly
+sends SIGTERM and waits for closure before returning the frozen cancellation.
+This fixes the real subprocess lifecycle instead of weakening the assertion.

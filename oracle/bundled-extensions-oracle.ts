@@ -1,6 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
 import { rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 type RequestId = string | number | null;
 
@@ -27,6 +28,7 @@ type Step = {
 	cwd?: string;
 	renameError?: string;
 	aborted?: boolean;
+	abortOnReady?: string;
 };
 
 type Request = {
@@ -352,11 +354,30 @@ async function executeStep(
 				onUpdate: unknown,
 				ctx: unknown,
 			) => unknown;
-			return await execute("call-1", step.params ?? {}, step.aborted ? AbortSignal.abort() : undefined, undefined, ctx);
+			return await executeToolWithAbort(execute, step, ctx);
 		}
 		default:
 			throw new Error(`unknown step: ${step.op}`);
 	}
+}
+
+async function executeToolWithAbort(
+    execute: (id: string, params: unknown, signal: unknown, onUpdate: unknown, ctx: unknown) => unknown,
+    step: Step,
+    ctx: unknown,
+): Promise<unknown> {
+    const controller = step.aborted || step.abortOnReady ? new AbortController() : undefined;
+    if (step.aborted) controller?.abort();
+    const deadline = Date.now() + 10_000;
+    const readyPath = step.abortOnReady;
+    const timer = readyPath ? setInterval(() => {
+        if (existsSync(readyPath) || Date.now() >= deadline) controller?.abort();
+    }, 10) : undefined;
+    try {
+        return await execute("call-1", step.params ?? {}, controller?.signal, undefined, ctx);
+    } finally {
+        if (timer) clearInterval(timer);
+    }
 }
 
 async function execute(request: Request, module: Record<string, unknown>) {

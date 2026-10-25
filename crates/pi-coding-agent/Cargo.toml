@@ -1191,3 +1191,7 @@ path = "tests/session_coordination_tools.rs"
 [[test]]
 name = "config_dispatch_process"
 path = "tests/config_dispatch_process.rs"
+
+[[test]]
+name = "ask_secret_process"
+path = "tests/ask_secret_process.rs"
