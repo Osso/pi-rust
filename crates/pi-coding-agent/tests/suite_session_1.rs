@@ -70,6 +70,8 @@ pub mod repin_runtime_mailbox_transcript;
 pub mod repin_storage_archive;
 #[path = "repin_storage_history.rs"]
 pub mod repin_storage_history;
+#[path = "repin_storage_listener_membership.rs"]
+pub mod repin_storage_listener_membership;
 #[path = "repin_storage_mailbox_acceptance.rs"]
 pub mod repin_storage_mailbox_acceptance;
 #[path = "repin_storage_retention.rs"]
