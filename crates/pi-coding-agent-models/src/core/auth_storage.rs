@@ -400,8 +400,17 @@ fn parse_api_key_config(credential: &JsValue) -> Result<JsString, StorageError> 
 fn to_credential(value: &JsValue) -> Result<Credential, StorageError> {
     js_json::from_value(value).map_err(|error| StorageError::new(error.to_string()))
 }
-fn oauth_value(value: pi_ai::oauth::OAuthCredentials) -> Result<JsValue, StorageError> {
-    Ok(value.to_js_value())
+fn oauth_value(value: &pi_ai::oauth::OAuthCredentials) -> JsValue {
+    let credential = value.to_js_value();
+    let mut fields = JsObject::new();
+    fields.insert("type".into(), JsValue::String("oauth".into()));
+    fields.extend(
+        credential
+            .as_object()
+            .expect("typed OAuth credential is an object")
+            .clone(),
+    );
+    JsValue::Object(fields)
 }
 fn source_now_millis() -> f64 {
     SystemTime::now()
@@ -616,7 +625,7 @@ impl AuthStorage {
         let provider = pi_ai::oauth::get_oauth_provider(id)
             .ok_or_else(|| StorageError::new(format!("Unknown OAuth provider: {id}")))?;
         let value = provider.login(callbacks).await.map_err(StorageError::from_auth)?;
-        self.set(id, value.to_js_value())
+        self.set(id, oauth_value(&value))
     }
     pub fn get_oauth_providers(&self) -> Vec<Arc<dyn pi_ai::oauth::OAuthProviderInterface>> {
         pi_ai::oauth::get_oauth_providers()
@@ -666,7 +675,7 @@ impl AuthStorage {
                         return Ok(None);
                     };
                     *lock(&captured) = Some(refreshed.clone());
-                    data.insert(id.into(), refreshed.new_credentials.to_js_value());
+                    data.insert(id.into(), oauth_value(&refreshed.new_credentials));
                     let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
                     {
                         let mut state = lock(&source);
@@ -685,7 +694,7 @@ impl AuthStorage {
                     return Err(error);
                 };
                 self.record_error(error)?;
-                self.set(provider_id, oauth_value(rotated.new_credentials.clone())?)?;
+                self.set(provider_id, oauth_value(&rotated.new_credentials))?;
                 Ok(Some(rotated))
             }
         }

@@ -45,6 +45,8 @@ pub struct OAuthCredential {
     pub expires: f64,
     /// Fields outside `refresh`/`access`/`expires`, preserved verbatim.
     pub extra: JsObject,
+    /// Property insertion order, retained across typed token updates.
+    pub key_order: Vec<JsString>,
 }
 
 impl OAuthCredential {
@@ -54,6 +56,7 @@ impl OAuthCredential {
             access: access.into(),
             expires,
             extra: JsObject::new(),
+            key_order: ["type", "refresh", "access", "expires"].map(JsString::from).to_vec(),
         }
     }
 
@@ -64,11 +67,19 @@ impl OAuthCredential {
         object.insert("access".into(), JsValue::String(self.access.clone()));
         object.insert("expires".into(), JsValue::Number(self.expires));
         object.extend(self.extra.clone());
-        JsValue::Object(object)
+        let mut ordered = JsObject::new();
+        for key in &self.key_order {
+            if let Some(value) = object.shift_remove(key) {
+                ordered.insert(key.clone(), value);
+            }
+        }
+        ordered.extend(object);
+        JsValue::Object(ordered)
     }
 
     pub fn from_js_value(value: &JsValue) -> Result<Self, String> {
         let mut object = value.as_object().cloned().ok_or("Expected OAuth object")?;
+        let key_order = object.keys().cloned().collect();
         let refresh = object
             .shift_remove(&pi_js_compat::js_json::JsString::from("refresh"))
             .and_then(|v| v.as_string().cloned())
@@ -87,6 +98,7 @@ impl OAuthCredential {
             access,
             expires,
             extra: object,
+            key_order,
         })
     }
 }

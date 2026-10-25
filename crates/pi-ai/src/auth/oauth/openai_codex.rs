@@ -107,6 +107,7 @@ struct OAuthToken {
     access: pi_js_compat::js_json::JsString,
     refresh: pi_js_compat::js_json::JsString,
     expires: f64,
+    id_token: Option<JsString>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -168,6 +169,7 @@ fn read_token_response(response: OAuthHttpResponse, operation: &str) -> Result<O
         access: access.to_owned(),
         refresh: refresh.to_owned(),
         expires: expires_in * 1000.0,
+        id_token: json.get("id_token").and_then(JsValue::as_string).cloned(),
     })
 }
 
@@ -221,15 +223,27 @@ async fn refresh_access_token(
 fn credentials_from_token(token: OAuthToken, now: f64) -> Result<OAuthCredential, CallbackError> {
     let account_id =
         get_account_id(&token.access).ok_or_else(|| CallbackError::new("Failed to extract accountId from token"))?;
+    let email = get_email(token.id_token.as_ref());
     let mut credential = OAuthCredential::new(token.refresh, token.access, now + token.expires);
     credential
         .extra
         .insert("accountId".into(), pi_js_compat::js_json::JsValue::String(account_id));
+    if let Some(email) = email {
+        credential
+            .extra
+            .insert("email".into(), pi_js_compat::js_json::JsValue::String(email));
+    }
+    credential.key_order = ["access", "refresh", "expires"]
+        .map(JsString::from)
+        .into_iter()
+        .chain(credential.extra.keys().cloned())
+        .chain(std::iter::once("type".into()))
+        .collect();
     Ok(credential)
 }
 
-fn get_account_id(access_token: &JsString) -> Option<pi_js_compat::js_json::JsString> {
-    let mut parts = access_token.split('.');
+fn decode_jwt(token: &JsString) -> Option<pi_js_compat::js_json::JsValue> {
+    let mut parts = token.split('.');
     parts.next()?;
     let encoded = parts.next()?;
     parts.next()?;
@@ -242,12 +256,24 @@ fn get_account_id(access_token: &JsString) -> Option<pi_js_compat::js_json::JsSt
         Err(_) => return None,
     };
     let text = JsString::from_utf16(bytes.into_iter().map(u16::from).collect());
-    let payload = match pi_js_compat::js_json::parse_lossless(text) {
-        Ok(payload) => payload,
-        Err(_) => return None,
-    };
+    pi_js_compat::js_json::parse_lossless(text).ok()
+}
+
+fn get_account_id(access_token: &JsString) -> Option<JsString> {
+    let payload = decode_jwt(access_token)?;
     let account_id = payload.get(JWT_CLAIM_PATH)?.get("chatgpt_account_id")?.as_string()?;
-    (!account_id.units().is_empty()).then(|| account_id.clone())
+    (!account_id.is_empty()).then(|| account_id.clone())
+}
+
+fn get_email(id_token: Option<&JsString>) -> Option<JsString> {
+    let payload = decode_jwt(id_token.filter(|token| !token.is_empty())?)?;
+    if let Some(email) = payload.get("email").and_then(pi_js_compat::js_json::JsValue::as_string)
+        && !email.is_empty()
+    {
+        return Some(email.clone());
+    }
+    let email = payload.get("profile")?.get("email")?.as_string()?;
+    (!email.is_empty()).then(|| email.clone())
 }
 
 async fn start_device_auth(runtime: &OAuthRuntime, signal: AbortSignal) -> Result<DeviceAuthInfo, CallbackError> {

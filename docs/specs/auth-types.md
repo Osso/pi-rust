@@ -12,6 +12,8 @@ Frozen `packages/ai/src/auth/types.ts:8–182` defines request credentials and a
 
 ### Values and failures
 
+- [ ] Retain OAuth credential property order across typed updates, including interleaved known/extra keys; provider construction order survives AuthStorage persistence.
+
 - [x] Preserve native UTF-16 auth names, credentials, event text and callback values; expose only auth_url/device_code/progress event shapes and the four frozen prompt kinds.
 - [x] Carry context env/file-existence rejections, notify throws and credential modifier failures through the shared native error carrier, without stringifying or silently discarding the reason.
 - [x] Preserve actual abort(undefined) defaulting to branded AbortError/code20, distinct from null and other falsy values.
@@ -31,7 +33,7 @@ Frozen `packages/ai/src/auth/types.ts:8–182` defines request credentials and a
 | crates/pi-ai/src/auth/{helpers,context,credential_store,resolve}.rs | Contract implementations and request/error propagation. |
 | crates/pi-ai/src/auth/oauth/*.rs; src/providers/{amazon_bedrock,cloudflare_auth,google_vertex}.rs | Login notification and context failure consumers. Other flow-module parity is separate. |
 | crates/pi-ai/src/oauth_registry.rs | Native extension callback adapter. |
-| `crates/pi-coding-agent-models/src/core/auth_storage.rs`, `crates/pi-coding-agent-data/src/core/runtime_credentials.rs` | Persistent/best-effort and runtime store adapters. |
+| `crates/pi-coding-agent-models/src/core/auth_storage.rs`, `crates/pi-coding-agent-data/src/core/runtime_credentials.rs` | Public app storage and runtime credential implementation. |
 | crates/pi-coding-agent-interactive/src/modes/interactive/{interactive_mode,login_options,components/oauth_selector}.rs | UI notifier and local login-method discriminator. |
 
 ## Tests asserting this spec
@@ -41,7 +43,7 @@ Frozen `packages/ai/src/auth/types.ts:8–182` defines request credentials and a
 | oracle/auth-types-contract.mts | Actual frozen export/type surface. |
 | crates/pi-ai/tests/auth_types_contract.rs; oracle/auth-types-errors-oracle.ts | Required model/store shape, optional callback, raw/native failures, undefined abort default and isolated listener lifetime. |
 | crates/pi-ai/tests/{auth,auth_resolve_contract,models,models_contract,provider_auth,differential_providers,lossless_auth_interaction}.rs | Auth values, callback/request consumers and native UTF-16. |
-| crates/pi-coding-agent/tests/{auth_storage,auth_storage_cross_process,runtime_credentials}.rs | Modifier rejection, persistence, lock protocol and runtime override behavior. |
+| crates/pi-coding-agent/tests/{auth_storage,auth_storage_cross_process,runtime_credentials}.rs | Backend rejection, persistence, lock protocol and runtime override behavior. |
 
 ## Known gaps (current cycle)
 
