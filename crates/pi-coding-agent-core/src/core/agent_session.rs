@@ -1021,7 +1021,7 @@ struct Inner {
     supervisor_review_cancellation_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     retry_attempt: AtomicU64,
     retry_abort_controller: Mutex<Option<AbortController>>,
-    quota_fallback_attempted: AtomicBool,
+    quota_fallback_visited_providers: Mutex<HashSet<String>>,
     compaction_abort_controller: Mutex<Option<AbortController>>,
     auto_compaction_abort_controller: Mutex<Option<AbortController>>,
     compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
@@ -1445,7 +1445,7 @@ impl AgentSession {
             supervisor_review_cancellation_handler: Mutex::new(None),
             retry_attempt: AtomicU64::new(0),
             retry_abort_controller: Mutex::new(None),
-            quota_fallback_attempted: AtomicBool::new(false),
+            quota_fallback_visited_providers: Mutex::new(HashSet::new()),
             compaction_abort_controller: Mutex::new(None),
             auto_compaction_abort_controller: Mutex::new(None),
             compaction_summary_materialization_abort_controller: Mutex::new(None),
@@ -4047,7 +4047,7 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
-                self.inner.quota_fallback_attempted.store(false, Ordering::SeqCst);
+                lock(&self.inner.quota_fallback_visited_providers).clear();
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
                     return;
@@ -5313,41 +5313,44 @@ impl AgentSession {
         &self,
         message: &AssistantMessage,
     ) -> Result<Option<Model>, pi_js_compat::node_error::NativeNodeError> {
-        if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
-            return Ok(None);
-        }
-        let Some(error_message) = message.error_message.as_ref() else {
-            return Ok(None);
-        };
-        if !quota_exhaustion(error_message) {
+        use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
+
+        if !is_quota_exhaustion_error(message) {
             return Ok(None);
         }
         let current_model = self.inner.agent.model();
         if message.provider != current_model.provider || message.model != current_model.id {
             return Ok(None);
         }
-        let Some(paired) = codex_provider_pair(&message.provider) else {
+        let Some((_, providers)) = CODEX_FALLBACK_PROVIDERS
+            .iter()
+            .find(|(provider, _)| *provider == message.provider)
+        else {
             return Ok(None);
         };
-        let Some(fallback) = self.inner.model_registry.find(paired, &message.model) else {
-            return Ok(None);
-        };
-        Ok(self
-            .inner
-            .model_registry
-            .has_configured_auth(&fallback)?
-            .then_some(fallback))
+        for provider in providers {
+            if lock(&self.inner.quota_fallback_visited_providers).contains(*provider) {
+                continue;
+            }
+            if let Some(fallback) = self.inner.model_registry.find(provider, &message.model)
+                && self.inner.model_registry.has_configured_auth(&fallback)?
+            {
+                return Ok(Some(fallback));
+            }
+        }
+        Ok(None)
     }
 
     async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let Some(fallback_model) = self.find_quota_fallback_model(message)? else {
             return Ok(false);
         };
-        self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
+        lock(&self.inner.quota_fallback_visited_providers).insert(message.provider.clone());
         let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
             self.inner.agent.truncate_messages(messages.len() - 1);
         }
+        let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(fallback_model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(
@@ -5355,6 +5358,8 @@ impl AgentSession {
                 &JsString::from(&fallback_model.id),
             )
             .map_err(AgentSessionError::from)?;
+        self.emit_model_select(&fallback_model, Some(&previous_model), ModelSelectSource::Fallback)
+            .await;
         Ok(true)
     }
 
@@ -5773,33 +5778,6 @@ fn validate_multi_agent_runtime_role(
         )));
     }
     Ok(())
-}
-
-fn codex_provider_pair(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openai-codex" => Some("openai-codex-gc"),
-        "openai-codex-gc" => Some("openai-codex"),
-        _ => None,
-    }
-}
-
-fn quota_exhaustion(message: &JsString) -> bool {
-    let lowercase = message.to_lowercase();
-    const NEEDLES: [&str; 7] = [
-        "gousagelimiterror",
-        "freeusagelimiterror",
-        "usage limit",
-        "available balance",
-        "insufficient_quota",
-        "out of budget",
-        "quota exceeded",
-    ];
-    if NEEDLES.iter().any(|needle| lowercase.contains(*needle)) {
-        return true;
-    }
-    lowercase.contains("billing limit")
-        || lowercase.contains("billing quota")
-        || lowercase.contains("billing exhausted")
 }
 
 // =============================================================================

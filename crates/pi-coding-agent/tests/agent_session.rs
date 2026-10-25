@@ -1409,6 +1409,83 @@ async fn cycle_model_matches_frozen_for_unregistered_scope_and_changed_metadata(
 }
 
 #[tokio::test]
+async fn quota_fallback_visits_all_three_accounts_once_like_frozen() {
+    let fixture = fixture_with_multi_agent(
+        Default::default(),
+        Vec::new(),
+        None,
+        Some(Vec::new()),
+        FixtureOverrides {
+            faux_provider_id: Some("openai-codex".to_owned()),
+            ..Default::default()
+        },
+    )
+    .await;
+    fixture.session.set_auto_retry_enabled(false);
+    let model = fixture.session.model();
+    for provider in ["openai-codex-gc", "openai-codex-team"] {
+        fixture
+            .session
+            .model_registry()
+            .register_provider(
+                provider,
+                pi_coding_agent::core::model_registry::ProviderConfigInput {
+                    api: Some(model.api.clone()),
+                    base_url: Some(model.base_url.clone()),
+                    api_key: Some("faux-key".into()),
+                    models: Some(vec![model.clone().into()]),
+                    ..Default::default()
+                },
+            )
+            .expect("fallback provider");
+    }
+    let providers = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let requested = Arc::clone(&providers);
+    fixture
+        .session
+        .agent()
+        .set_stream_fn(Arc::new(move |model, context, options| {
+            requested.lock().unwrap().push(model.provider.clone());
+            let account = faux_provider(RegisterFauxProviderOptions {
+                provider: Some(model.provider.clone()),
+                api: Some(model.api.clone()),
+                ..Default::default()
+            });
+            account.set_responses(vec![
+                faux_assistant_message(
+                    "",
+                    FauxAssistantMessageOptions {
+                        stop_reason: Some(pi_ai::StopReason::Error),
+                        error_message: Some("usage limit".into()),
+                        ..Default::default()
+                    },
+                )
+                .into(),
+            ]);
+            let stream = account.provider.stream_simple(model, context, options);
+            Box::pin(async move { stream.map_err(pi_agent_core::agent::AgentError::from) })
+        }));
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "quota-fallback", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected["ok"], true, "oracle: {expected}");
+    assert_eq!(
+        expected["value"]["requestedProviders"],
+        json!(["openai-codex", "openai-codex-gc", "openai-codex-team"])
+    );
+    fixture
+        .session
+        .prompt("quota test", PromptOptions::default())
+        .await
+        .expect("prompt");
+    assert_eq!(
+        json!({"requestedProviders": *providers.lock().unwrap(), "provider": fixture.session.model().provider}),
+        expected["value"]
+    );
+}
+
+#[tokio::test]
 async fn cycle_model_without_narrow_scope_returns_none() {
     let fixture = fixture().await;
     assert_eq!(
