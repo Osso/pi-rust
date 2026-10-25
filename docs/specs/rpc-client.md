@@ -4,7 +4,7 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 
 ## What it must do
 
-- [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors.
+- [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors. A failed asynchronous spawn retains a process identity until stop; another start must reject, and stop then permits a fresh attempt.
 - [ ] Preserve parsed external JSON envelopes, property presence, raw UTF-16 and unknown properties through correlation and event delivery.
 - [ ] Apply frozen success truthiness and Error construction before decoding a declared getter result; distinguish missing data from explicit null.
 - [ ] Settle wait/collection on the first `agent_end`, regardless of `willRetry`; subscribe before prompting. Remove terminal subscriptions during notification and retain the live listener-array iteration semantics.

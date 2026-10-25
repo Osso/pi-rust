@@ -430,17 +430,31 @@ impl RpcClient {
     pub async fn start(&self) -> Result<(), RpcClientError> {
         let mut process = self.inner.process.lock().await;
         let generation = self.begin_start(&process)?;
-        let spawned = spawn_process(&self.inner.options, self.inner.stderr())?;
-        install_process(&self.inner, generation, spawned, &mut process);
+        let spawn_error = match spawn_process(&self.inner.options, self.inner.stderr()) {
+            Ok(spawned) => {
+                install_process(&self.inner, generation, spawned, &mut process);
+                None
+            }
+            Err(error) => {
+                self.publish_spawn_failure(generation, &error);
+                Some(error)
+            }
+        };
         drop(process);
-
         tokio::time::sleep(STARTUP_DELAY).await;
-        self.verify_started(generation)
+        self.verify_started(generation)?;
+        spawn_error.map_or(Ok(()), Err)
+    }
+
+    fn publish_spawn_failure(&self, generation: u64, error: &RpcClientError) {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.active_generation = Some(generation);
+        sync.exit_error = Some(error.clone());
     }
 
     fn begin_start(&self, process: &ProcessState) -> Result<u64, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if process.child.is_some() || sync.stopping {
+        if sync.active_generation.is_some() || process.child.is_some() || sync.stopping {
             return Err(RpcClientError::AlreadyStartedOrStopping);
         }
         sync.exit = None;
@@ -456,7 +470,10 @@ impl RpcClient {
             });
         }
         match sync.exit {
-            Some(exit) => Err(process_exit_error(exit, &sync.stderr)),
+            Some(exit) => Err(sync
+                .exit_error
+                .clone()
+                .unwrap_or_else(|| process_exit_error(exit, &sync.stderr))),
             None => Ok(()),
         }
     }
