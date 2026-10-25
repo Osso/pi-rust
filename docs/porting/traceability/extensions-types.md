@@ -22,6 +22,10 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 
 `TerminalInputHandler` receives `&JsString`, `TerminalInputResult.data` is `Option<JsString>`, and `WorkingIndicatorOptions.frames` is `Option<Vec<JsString>>`. No scalar terminal adapter remains in those contracts. `raw_extension_ui_types.rs` tests lone high/low units and astral callback values plus lossless frame serialization; execution is pending whole coding integration compilation. Interactive dispatch is a separate native migration, not proof supplied by this contract change.
 
+## Custom rejection prerequisite (2026-10-24)
+
+`ExtensionUiContext::custom` now returns `Result<Option<JsValue>, CallbackError>`; the interactive response channel and mechanical host implementations use that existing carrier. This does not widen `ExtensionUiCustomResult`'s separate synchronous/asynchronous factory error contracts. Actual frozen exported-question/runtime-loop histories preserve TypeError/code/raw message and arbitrary primitive/object rejections. [Contract, approved coercion gap and proofs](../../specs/custom-ui-rejections.md).
+
 ## Native custom-component checkpoint
 
 `ExtensionUiComponent::render` returns `Vec<JsString>` and `handle_input` takes `&JsString`. Both synchronous and asynchronous `ExtensionUiCustomResult` error carriers are `JsString`. The question panel uses this single native interface. Mechanical signature updates cover the 19 extension-example implementers; native propagation inside their existing bodies is not claimed complete. Interactive implementers remain owned by the interactive lane. No scalar component adapter is introduced; actual coding-library proof remains pending compilation.

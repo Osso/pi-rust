@@ -20,7 +20,7 @@ impl ExtensionUiContext for PendingUi {
         &'a self,
         _: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         Box::pin(std::future::pending())
     }
 }
@@ -49,7 +49,7 @@ impl ExtensionUiContext for AnswerUi {
         &'a self,
         _: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let answer = self.0.clone();
         Box::pin(async move { Ok(Some(answer)) })
     }

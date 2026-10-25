@@ -1916,7 +1916,7 @@ enum UiRequest {
     Custom {
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, CallbackError>>,
     },
     AddTerminalInput {
         handler: TerminalInputHandler,
@@ -2217,14 +2217,14 @@ impl ExtensionUiContext for InteractiveUiContext {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let (respond, receiver) = tokio::sync::oneshot::channel();
         self.send(UiRequest::Custom {
             factory,
             options,
             respond,
         });
-        Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string()))? })
+        Box::pin(async move { receiver.await.map_err(|error| CallbackError::new(error.to_string()))? })
     }
 
     fn set_title(&self, title: &JsString) {
@@ -11321,7 +11321,7 @@ impl InteractiveMode {
         &self,
         factory: LocalExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, JsString>>,
+        respond: tokio::sync::oneshot::Sender<Result<Option<JsValue>, CallbackError>>,
     ) -> Result<(), CallbackError> {
         let context = self.extension_factory_context();
         let respond = Arc::new(std::sync::Mutex::new(Some(respond)));
@@ -11372,7 +11372,7 @@ impl InteractiveMode {
                 // A synchronous TS factory throw rejects before the chained
                 // async catch: no mounting, restoration, or disposal occurs.
                 if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-                    let _ = respond.send(Err(error));
+                    let _ = respond.send(Err(error.into()));
                 }
                 return Ok(());
             }
@@ -11399,7 +11399,7 @@ impl InteractiveMode {
                         }
                     });
                     if let Some(respond) = respond.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take() {
-                        let _ = respond.send(Err(error));
+                        let _ = respond.send(Err(error.into()));
                     }
                 }
             }

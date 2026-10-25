@@ -244,7 +244,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         opts: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let script = self.scripts.lock().unwrap().pop_front().unwrap_or(json!({}));
         let delay = script["delay"].as_u64().unwrap_or(0);
         let calls = self.calls.clone();
