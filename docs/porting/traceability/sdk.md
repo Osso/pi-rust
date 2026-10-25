@@ -49,6 +49,10 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
   reads the three identity carriers back through the extension context.
 - `extensions_result` comes from the resource loader.
 
+## Stream-option audit (2026-10-25)
+
+Actual frozen SDK + faux provider differential found native overwrote request headers/environment with auth values, omitted attribution/session headers and retained caller cwd. Auth now resolves first, request environment overrides auth keys, ordered header merging uses the existing attribution helper, and SDK cwd replaces caller cwd in the existing extra-options carrier. No new API/dependency. RED `/tmp/ext-api2-sdk-stream-red5.log` compares real captured provider inputs; post-commit GREEN pending. Earlier fixture setup errors are not RED evidence; an erroneous exitCode-only oracle catch left readline open, so its job and all children were terminated and verified gone. Oracle fatal errors now exit explicitly.
+
 ## Gaps
 
 - `base_tools` remains the injected tool override seam; when empty, `AgentSession`
