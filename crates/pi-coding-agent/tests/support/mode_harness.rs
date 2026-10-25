@@ -366,6 +366,9 @@ pub(crate) fn create_package_dir(length: usize) -> PathBuf {
     std::fs::create_dir(&directory).expect("unique package directory");
     let source = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("theme");
     copy_directory(&source, &directory.join("theme"));
+    let templates =
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../pi-coding-agent-tools/src/core/export_html/templates");
+    copy_directory(&templates, &directory.join("export-html"));
     directory
 }
 
