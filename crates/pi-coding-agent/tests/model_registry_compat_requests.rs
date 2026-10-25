@@ -329,6 +329,7 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
                             ..Default::default()
                         },
                     )
+                    .expect("simple acquisition")
                 }
                 "anthropic-messages" => pi_ai::api::anthropic_messages::stream(model, context, options),
                 "mistral-conversations" => pi_ai::api::mistral_conversations::stream_simple(
@@ -339,7 +340,8 @@ async fn schema_accepted_compat_values_reach_the_exact_frozen_provider_request()
                         reasoning: Some(pi_ai::types::ThinkingLevel::High),
                         ..Default::default()
                     },
-                ),
+                )
+                .expect("simple acquisition"),
                 "openai-completions" => pi_ai::api::openai_completions::stream(model, context, options),
                 _ => unreachable!("fixture API must be named explicitly"),
             };

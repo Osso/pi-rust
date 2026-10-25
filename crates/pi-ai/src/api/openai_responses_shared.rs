@@ -431,13 +431,11 @@ fn normalize_citation_text(text: &pi_js_compat::js_json::JsString) -> pi_js_comp
 
 fn normalize_id_part(part: &str) -> String {
     let sanitized: String = part
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                character
-            } else {
-                '_'
-            }
+        .encode_utf16()
+        .map(|unit| {
+            char::from_u32(u32::from(unit))
+                .filter(|character| character.is_ascii_alphanumeric() || *character == '_' || *character == '-')
+                .unwrap_or('_')
         })
         .collect();
     let normalized: String = sanitized.chars().take(64).collect();
@@ -450,10 +448,8 @@ fn build_foreign_responses_item_id(item_id: &str) -> String {
 }
 
 fn split_tool_call_id(id: &str) -> (&str, Option<&str>) {
-    match id.split_once('|') {
-        Some((call_id, item_id)) => (call_id, Some(item_id)),
-        None => (id, None),
-    }
+    let mut parts = id.split('|');
+    (parts.next().unwrap_or_default(), parts.next())
 }
 
 pub fn convert_responses_messages(
@@ -461,7 +457,7 @@ pub fn convert_responses_messages(
     context: &Context,
     allowed_tool_call_providers: &BTreeSet<String>,
     options: Option<&ConvertResponsesMessagesOptions>,
-) -> Result<Vec<JsValue>, String> {
+) -> Result<Vec<JsValue>, JsString> {
     let empty_options = ConvertResponsesMessagesOptions::default();
     let options = options.unwrap_or(&empty_options);
     let mut messages = Vec::new();
@@ -470,7 +466,7 @@ pub fn convert_responses_messages(
         if !allowed_tool_call_providers.contains(&model.provider) {
             return normalize_id_part(id);
         }
-        let Some((call_id, item_id)) = id.split_once('|') else {
+        let (call_id, Some(item_id)) = split_tool_call_id(id) else {
             return normalize_id_part(id);
         };
         let normalized_call_id = normalize_id_part(call_id);
@@ -494,7 +490,9 @@ pub fn convert_responses_messages(
     );
 
     let include_system_prompt = options.include_system_prompt.unwrap_or(true);
-    if include_system_prompt && let Some(system_prompt) = context.system_prompt.as_ref() {
+    if include_system_prompt
+        && let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty())
+    {
         // Frozen shared268: direct !==false, regardless of the model's API.
         let supports_developer_role = model
             .compat
@@ -579,9 +577,13 @@ pub fn convert_responses_messages(
                 for block in &assistant.content {
                     match block {
                         AssistantContent::Thinking(thinking) => {
-                            if let Some(signature) = thinking.thinking_signature.as_deref()
-                                && let Ok(item) = serde_json::from_str::<JsValue>(signature)
+                            if let Some(signature) = thinking
+                                .thinking_signature
+                                .as_deref()
+                                .filter(|signature| !signature.is_empty())
                             {
+                                let item = pi_js_compat::js_json::parse_lossless(signature)
+                                    .map_err(|error| error.into_message())?;
                                 output.push(item);
                             }
                         }
@@ -596,7 +598,9 @@ pub fn convert_responses_messages(
                             let msg_id = match parsed_signature.as_ref() {
                                 None => fallback_message_id,
                                 Some(parsed) if parsed.id.is_empty() => fallback_message_id,
-                                Some(parsed) if parsed.id.len() > 64 => format!("msg_{}", short_hash(&parsed.id)),
+                                Some(parsed) if parsed.id.encode_utf16().count() > 64 => {
+                                    format!("msg_{}", short_hash(&parsed.id))
+                                }
                                 Some(parsed) => parsed.id.clone(),
                             };
                             let mut message = object(vec![
@@ -759,14 +763,6 @@ fn parse_arguments(partial_json: Option<&pi_js_compat::js_json::JsString>) -> pi
     }
 }
 
-fn apply_message_phase_stop_reason(output: &mut AssistantMessage, item: &JsValue) {
-    if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("message")
-        && item.get("phase").and_then(ingress_metadata_text).as_deref() == Some("final_answer")
-    {
-        output.stop_reason = StopReason::Stop;
-    }
-}
-
 fn create_slot(
     slots: &mut BTreeMap<Option<u64>, Slot>,
     output_index: Option<u64>,
@@ -788,7 +784,6 @@ fn create_slot(
             Some(())
         }
         Some("message") => {
-            apply_message_phase_stop_reason(output, item);
             output.content.push(AssistantContent::Text(TextContent::new("")));
             let content_index = output.content.len() - 1;
             slots.insert(
@@ -871,14 +866,9 @@ fn append_provider_text_delta(
     sender: &AssistantMessageEventSender,
     content_index: usize,
     delta: &pi_js_compat::js_json::JsString,
-    saw_hosted_web_search_call: bool,
     citation_state: &mut Option<CitationTextState>,
     output: &mut AssistantMessage,
 ) {
-    if !saw_hosted_web_search_call {
-        emit_text_delta(sender, content_index, delta, output);
-        return;
-    }
     let last_character = match &output.content[content_index] {
         AssistantContent::Text(block) => block.text.units().last().copied(),
         _ => None,
@@ -942,20 +932,20 @@ fn finalize_response(
             total_tokens: usage.get("total_tokens").and_then(JsValue::as_f64).unwrap_or(0.0),
             cost: UsageCost::default(),
         };
-        output.usage.cost = calculate_cost(model, &output.usage);
+    }
+    output.usage.cost = calculate_cost(model, &output.usage);
 
-        let response_service_tier_text = response.get("service_tier").and_then(ingress_metadata_text);
-        let response_service_tier = response_service_tier_text.as_deref();
-        if let Some(options) = options {
-            let service_tier = match &options.resolve_service_tier {
-                Some(resolve) => resolve(response_service_tier, options.service_tier.as_deref()),
-                None => response_service_tier
-                    .map(str::to_owned)
-                    .or_else(|| options.service_tier.clone()),
-            };
-            if let Some(apply) = &options.apply_service_tier_pricing {
-                apply(&mut output.usage, service_tier.as_deref());
-            }
+    let response_service_tier_text = response.get("service_tier").and_then(ingress_metadata_text);
+    let response_service_tier = response_service_tier_text.as_deref();
+    if let Some(options) = options {
+        let service_tier = match &options.resolve_service_tier {
+            Some(resolve) => resolve(response_service_tier, options.service_tier.as_deref()),
+            None => response_service_tier
+                .map(str::to_owned)
+                .or_else(|| options.service_tier.clone()),
+        };
+        if let Some(apply) = &options.apply_service_tier_pricing {
+            apply(&mut output.usage, service_tier.as_deref());
         }
     }
 
@@ -1087,7 +1077,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
     options: Option<&OpenAIResponsesStreamOptions>,
 ) -> Result<(), ResponsesStreamFailure<S::Error>> {
     let mut saw_terminal_response_event = false;
-    let mut saw_hosted_web_search_call = false;
     let mut output_slots: BTreeMap<Option<u64>, Slot> = BTreeMap::new();
 
     loop {
@@ -1113,9 +1102,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             }
             "response.output_item.added" => {
                 let item = event.get("item").cloned().unwrap_or(JsValue::Null);
-                if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
-                    saw_hosted_web_search_call = true;
-                }
                 create_slot(&mut output_slots, output_index, &item, output, sender);
             }
             "response.reasoning_summary_text.delta" | "response.reasoning_text.delta" => {
@@ -1162,14 +1148,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     Some(Slot::Text { citation_state, .. }) => citation_state.clone(),
                     _ => None,
                 };
-                append_provider_text_delta(
-                    sender,
-                    content_index,
-                    &delta,
-                    saw_hosted_web_search_call,
-                    &mut citation_state,
-                    output,
-                );
+                append_provider_text_delta(sender, content_index, &delta, &mut citation_state, output);
                 if let Some(Slot::Text {
                     citation_state: slot_state,
                     ..
@@ -1229,10 +1208,6 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
             }
             "response.output_item.done" => {
                 let item = event.get("item").cloned().unwrap_or(JsValue::Null);
-                apply_message_phase_stop_reason(output, &item);
-                if item.get("type").and_then(ingress_metadata_text).as_deref() == Some("web_search_call") {
-                    saw_hosted_web_search_call = true;
-                }
                 get_or_create_slot(&mut output_slots, output_index, &item, output, sender);
                 let slot_kind = match output_slots.get(&output_index) {
                     Some(Slot::Thinking { .. }) => "thinking",
@@ -1284,11 +1259,7 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                     Some("message") if slot_kind == "text" => {
                         let content_index = content_index.expect("text slot has an index");
                         let provider_text = join_message_content(item.get("content"));
-                        let completed_text = if saw_hosted_web_search_call {
-                            normalize_citation_text(&provider_text)
-                        } else {
-                            provider_text
-                        };
+                        let completed_text = normalize_citation_text(&provider_text);
                         let existing = match &output.content[content_index] {
                             AssistantContent::Text(block) => block.text.clone(),
                             _ => Default::default(),
@@ -1374,13 +1345,19 @@ pub async fn process_responses_stream<S: ResponsesEventSource>(
                 let error = response.get("error");
                 let details = response.get("incomplete_details");
                 let message = match error.filter(|error| is_truthy(error)) {
-                    Some(error) => JsString::join(
-                        [
-                            format!("{}: ", js_string(error.get("code").filter(|code| is_truthy(code)))).into(),
-                            human_error_text(error.get("message").filter(|message| is_truthy(message))),
-                        ],
-                        "",
-                    ),
+                    Some(error) => {
+                        let code = error
+                            .get("code")
+                            .filter(|code| is_truthy(code))
+                            .map(|code| js_string(Some(code)))
+                            .unwrap_or_else(|| "unknown".into());
+                        let message = error
+                            .get("message")
+                            .filter(|message| is_truthy(message))
+                            .map(|message| human_error_text(Some(message)))
+                            .unwrap_or_else(|| "no message".into());
+                        pi_js_compat::js_format!("{}: {}", code, message)
+                    }
                     None => match details
                         .and_then(|details| details.get("reason"))
                         .and_then(ingress_metadata_text)

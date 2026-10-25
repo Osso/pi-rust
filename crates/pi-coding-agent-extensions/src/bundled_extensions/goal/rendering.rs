@@ -13,7 +13,6 @@ use crate::core::extensions::types::{
     CustomMessageContent, CustomMessagePayload, CustomMessageValue, EntryRenderOptions, EntryRenderer, ExtensionApi,
     ExtensionContext, HandlerError, MessageRenderOptions, MessageRenderer, SendMessageOptions,
 };
-use crate::core::session_manager::CustomEntry;
 use crate::modes::interactive::theme::{Theme, ThemeBg, ThemeColor};
 
 use super::wait_countdown::{WaitCountdownRefresher, parse_review_deadline};
@@ -295,16 +294,6 @@ pub fn create_supervisor_status_controller(
     })
 }
 
-/// `renderSupervisorStatusEntry`.
-pub fn render_supervisor_status_entry(
-    entry: &CustomEntry,
-    _options: &EntryRenderOptions,
-    theme: &Theme,
-) -> Option<ComponentRef> {
-    let (message, review_at) = status_details(entry.data.as_ref());
-    Some(create_status_component(&message, review_at.as_ref(), theme))
-}
-
 fn create_status_component(
     message: &JsString,
     review_at: Option<&JsString>,
@@ -415,17 +404,17 @@ pub fn create_supervisor_status_entry_renderer(refresher: WaitCountdownRefresher
             display_id.map_or_else(|| entry.id.clone(), |id| options.session_id.clone() + ":" + id.clone()),
         );
         DISPLAYS.with_borrow_mut(|displays| {
-            if let Some(display) = displays.get_mut(&key) {
-                if display.entry_id != entry.id {
-                    display.message = message.clone();
-                    display.review_at = review_at.clone();
-                    display.component.borrow_mut().update(&message, review_at.as_ref());
-                    if let Some(cleanup) = display.cleanup_countdown.take() {
-                        cleanup();
-                    }
-                    display.cleanup_countdown = bind_countdown(&refresher, display, review_at.as_ref());
-                    return None;
+            if let Some(display) = displays.get_mut(&key)
+                && display.entry_id != entry.id
+            {
+                display.message = message.clone();
+                display.review_at = review_at.clone();
+                display.component.borrow_mut().update(&message, review_at.as_ref());
+                if let Some(cleanup) = display.cleanup_countdown.take() {
+                    cleanup();
                 }
+                display.cleanup_countdown = bind_countdown(&refresher, display, review_at.as_ref());
+                return None;
             }
             // Re-rendering the first persisted entry uses the latest grouped details.
             let (message, review_at) = displays

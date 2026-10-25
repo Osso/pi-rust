@@ -151,6 +151,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "agents-core",
     "agent-viewer",
     "agents-mailbox",
+    "agents-status",
     "default-footer",
     "effort",
     "goal",
@@ -214,6 +215,7 @@ pub fn create_first_party_extension_factories(
         });
         let child_agent_session_factory =
             create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
+                browser_agent_config_root: None,
                 agent_dir: Some(agent_dir.clone()),
                 create_session: Arc::clone(&create_session),
                 create_session_manager,
@@ -225,6 +227,7 @@ pub fn create_first_party_extension_factories(
             });
         let attached_session_factory =
             create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                browser_agent_config_root: None,
                 agent_dir: Some(agent_dir),
                 create_session,
                 extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
@@ -345,7 +348,12 @@ fn pyrun_extension_factory(
                         .map(Some)
                 })
             });
-        options.pi_request_handlers.push(dispatcher);
+        options
+            .pi_request_handlers
+            .push(crate::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                dispatch: dispatcher,
+                dispose: None,
+            });
         let result = crate::bundled_extensions::pyrun::install_pyrun_extension(pi, options);
         Box::pin(async move { result })
     })

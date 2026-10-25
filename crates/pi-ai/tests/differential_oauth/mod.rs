@@ -39,12 +39,15 @@ struct HtmlCase {
 
 impl HtmlCase {
     fn request(&self, index: usize) -> serde_json::Value {
-        json!({
+        let mut request = json!({
             "name": index.to_string(),
             "kind": self.kind,
             "message": self.message,
-            "details": self.details,
-        })
+        });
+        if let Some(details) = &self.details {
+            request["details"] = json!(details);
+        }
+        request
     }
 }
 
@@ -72,6 +75,8 @@ fn html_cases() -> Vec<HtmlCase> {
         success("&lt;"),
         success("emoji 🙈 and é"),
         success("line\nbreak"),
+        success("Keep __DETAILS__ and __LOGO__ literal"),
+        error("__DETAILS__ __LOGO__", Some("Keep __LOGO__ literal")),
         error("Authentication failed", None),
         error("Access denied", Some("code=<bad> & \"quoted\"")),
         error("Access denied", Some("")),

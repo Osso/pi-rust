@@ -13,6 +13,7 @@ use crate::core::extensions::{ExtensionFactory, ExtensionRegistry};
 pub mod agent_viewer;
 pub mod agents_core;
 pub mod agents_mailbox;
+pub mod agents_status;
 pub mod approval_controls;
 pub mod ask_secret;
 pub mod browser_cli;
@@ -261,6 +262,17 @@ pub fn agents_extension_factories(options: &MultiAgentExtensionOptions) -> Vec<(
         Box::pin(async move { result })
     });
 
+    let status_store = Arc::clone(&store);
+    let status: ExtensionFactory = Arc::new(move |pi| {
+        let result = agents_status::agents_status_extension(
+            pi,
+            &agents_status::AgentsStatusExtensionOptions {
+                store: Some(Arc::clone(&status_store)),
+            },
+        );
+        Box::pin(async move { result })
+    });
+
     let mailbox: ExtensionFactory = Arc::new(move |pi| {
         let options = shared.clone();
         let result = agents_mailbox::agents_mailbox_extension(pi, &options);
@@ -271,6 +283,7 @@ pub fn agents_extension_factories(options: &MultiAgentExtensionOptions) -> Vec<(
         ("agents-core", core),
         ("agent-viewer", viewer),
         ("agents-mailbox", mailbox),
+        ("agents-status", status),
     ]
 }
 

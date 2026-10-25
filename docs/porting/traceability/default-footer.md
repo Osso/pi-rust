@@ -2,7 +2,7 @@
 
 ## Native representation checkpoint
 
-Render pipeline and helpers retain native pwd/branch/session-name/selected-agent/status/effort strings through style, truncation and final lines. Early `encode_node_utf8` on display/session names is removed. `raw_text_tests::selected_agent_label_retains_unmatched_units` runs the actual module for high/low/pair names. `/tmp/q18-default-footer-native-green1.log` is GREEN using narrowly documented context/store/theme fixtures; only helper behavior and module compilation are proven there, not live context, full render, store, registration or subscription semantics. Raw full-render source proof and legacy fixture adaptation remain pending.
+Render pipeline and helpers retain native pwd/branch/session-name/selected-agent/status/effort strings through style, truncation and final lines. Early `encode_node_utf8` on display/session names is removed. `raw_text_tests::selected_agent_label_retains_unmatched_units` runs the actual module for high/low/pair names. `/tmp/q18-default-footer-native-green1.log` is GREEN using narrowly documented context/store/theme fixtures; only helper behavior and module compilation are proven there, not live context, full render, store, registration or subscription semantics. Superseded by the whole-module re-pin and full-render proof below.
 
 Source: `packages/coding-agent/extensions/default-footer/src/index.ts`. Rust:
 `crates/pi-coding-agent-extensions/src/bundled_extensions/default_footer/mod.rs`.
@@ -45,3 +45,13 @@ Source: `packages/coding-agent/extensions/default-footer/src/index.ts`. Rust:
 
 
 Callable-status prerequisite (2026-10-24): extensionStatusLines calls the Result-bearing provider at the same frozen :244 read point. render_checked propagates callback/context errors; the ExtensionUiComponent adapter routes otherwise-unobserved render failure to the existing uncaught authority. Existing text fixtures only wrap Text; no layout/format change. [Contract](../../specs/extension-status.md).
+
+## Whole-module re-pin audit (2026-10-25)
+
+All exports/helpers above were compared to unmodified `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, including lifecycle selection/counting, current/override session stats and pwd, home formatting, model/effort/provider, width clipping, callable status failures, subscriptions/disposal and registration.
+
+The frozen `setBackgroundCompactionStatus` and `registerBackgroundCompactionStatus` are now ported: start sets `background-compaction` to `compacting context`, end/shutdown/startup clear it; every update requests render before startup installs its footer. `background_compaction_status_lifecycle_matches_frozen` compares the exact ordered UI call trace against the actual TS extension; it failed before the implementation and passes after it. Event types/dispatch/emission come from parent commits 78a227f9d/60589c908, merged through 1a02ec893, not a lane-specific event API.
+
+Proof: 13 behavioral tests including lifecycle source oracle and callback failure; original six-case full-render matrix; `footer_render_keeps_raw_session_and_selected_agent_text` compares complete rendered lines carrying high/low unmatched units. Current ledger: [bundled-ext-b](../bundled-ext-b-proof.md).
+
+Gap: pathological inputs, OS/runtime faults, numeric extremes and platform-specific path semantics follow the approved parity bar. No live TUI deployment is claimed.

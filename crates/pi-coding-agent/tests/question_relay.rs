@@ -374,6 +374,7 @@ async fn relay_requests_validation_and_cancellation_match_frozen_whole_module() 
     let mut oracle = oracle::TsOracle::spawn("question-relay-tools-oracle.ts", "packages/coding-agent");
     for (params, agent_id, requires) in [
         (questions(false), Some("child"), true),
+        (js_json::parse_lossless(r#"{"blocking":false,"questions":[{"question":"Q\ud800","header":"\udc00","options":[{"label":"A\ud800","description":"D\udc00"}]}],"metadata":{"key\ud800":"value\udc00"}}"#).unwrap(),Some("child"),true),
         (questions(true), Some("child"), true),
         (
             json!({"blocking":false,"questions":[{"question":"Free?","header":"Free"},{"question":"Many?","multiSelect":true,"options":[{"label":"A","description":""},{"label":"B"}]}]}),
@@ -432,6 +433,7 @@ async fn delivered_answer_parsing_and_unchecked_payload_fields_match_frozen() {
         "null",
         r#"{"type":"other"}"#,
         r#"{"type":"ask_questions_answer","answers":{"Choose?":"A"}}"#,
+        r#"{"type":"ask_questions_answer","answers":{"Q\ud800":"A\udc00"},"cancelled":false}"#,
         r#"{"type":"ask_questions_answer","answers":null,"cancelled":false}"#,
         r#"{"type":"ask_questions_answer","answers":{"Choose?":""},"cancelled":"declined"}"#,
     ] {

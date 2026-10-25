@@ -65,15 +65,12 @@ pub fn resolve_prompt_input(input: Option<&JsString>, description: &str) -> Opti
     match read_text_file(input) {
         Ok(content) => Some(content),
         Err(error) => {
-            eprintln!(
-                "{}",
-                encode_node_utf8(&js_format!(
-                    "Warning: Could not read {} file {}: {}",
-                    description,
-                    input,
-                    error.to_string()
-                ))
-            );
+            warn_resource_read(js_format!(
+                "Warning: Could not read {} file {}: Error: {}",
+                description,
+                input,
+                pi_js_compat::node_fs::node_read_error(&error, input)
+            ));
             Some(input.to_owned())
         }
     }
@@ -87,15 +84,17 @@ pub struct RuleFile {
 }
 
 /// Loads non-empty `.md` rule files in locale order.
-pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<RuleFile>> {
+pub fn load_rules_files_from_dir(dir_path: &JsString) -> Result<Vec<RuleFile>, JsString> {
     let encoded = encode_node_utf8(dir_path);
     let path = Path::new(&encoded);
     if !path.exists() || !path.is_dir() {
         return Ok(Vec::new());
     }
     let mut names = Vec::new();
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
+    for entry in
+        fs::read_dir(path).map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?
+    {
+        let entry = entry.map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?;
         let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.ends_with(".md") {
             names.push(name);
@@ -105,7 +104,9 @@ pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<Rul
     let mut files = Vec::new();
     for name in names {
         let file_path = node_join(dir_path, name);
-        let content = read_text_file(&file_path)?.trim();
+        let content = read_text_file(&file_path)
+            .map_err(|error| pi_js_compat::node_fs::node_read_error(&error, &file_path))?
+            .trim();
         if !content.is_empty() {
             files.push(RuleFile {
                 path: file_path,
@@ -117,7 +118,7 @@ pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<Rul
 }
 
 /// Joins the non-empty rule files with a blank line.
-pub fn load_rules_from_dir(dir_path: &JsString) -> std::io::Result<Option<JsString>> {
+pub fn load_rules_from_dir(dir_path: &JsString) -> Result<Option<JsString>, JsString> {
     let contents: Vec<JsString> = load_rules_files_from_dir(dir_path)?
         .into_iter()
         .map(|file| file.content)
@@ -157,6 +158,23 @@ struct LoadedContextFile {
     real_path: JsString,
 }
 
+fn warn_resource_read(message: JsString) {
+    let warning = crate::utils::chalk::Chalk::stdout().yellow(message);
+    eprintln!("{}", encode_node_utf8(&warning));
+}
+
+fn read_context_file(file_path: &JsString) -> Result<LoadedContextFile, JsString> {
+    let content =
+        read_text_file(file_path).map_err(|error| pi_js_compat::node_fs::node_read_error(&error, file_path))?;
+    let real_path = fs::canonicalize(encode_node_utf8(file_path))
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "realpath", file_path))?;
+    Ok(LoadedContextFile {
+        path: file_path.clone(),
+        content,
+        real_path: pi_js_compat::node_fs::decode_node_path(real_path.as_os_str()),
+    })
+}
+
 fn load_context_files_from_dir(dir: &JsString, candidates: &[&str]) -> Vec<LoadedContextFile> {
     let mut context_files = Vec::new();
     for filename in candidates {
@@ -164,40 +182,9 @@ fn load_context_files_from_dir(dir: &JsString, candidates: &[&str]) -> Vec<Loade
         if !path_exists(&file_path) {
             continue;
         }
-        let metadata = match fs::metadata(encode_node_utf8(&file_path)) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                eprintln!(
-                    "{}",
-                    encode_node_utf8(&js_format!(
-                        "Warning: Could not read {}: {}",
-                        file_path,
-                        error.to_string()
-                    ))
-                );
-                continue;
-            }
-        };
-        if !metadata.is_file() {
-            continue;
-        }
-        match read_text_file(&file_path) {
-            Ok(content) => {
-                let real_path = canonicalize_path(&file_path);
-                context_files.push(LoadedContextFile {
-                    path: file_path,
-                    content,
-                    real_path,
-                });
-            }
-            Err(error) => eprintln!(
-                "{}",
-                encode_node_utf8(&js_format!(
-                    "Warning: Could not read {}: {}",
-                    file_path,
-                    error.to_string()
-                ))
-            ),
+        match read_context_file(&file_path) {
+            Ok(file) => context_files.push(file),
+            Err(error) => warn_resource_read(js_format!("Warning: Could not read {}: Error: {}", file_path, error)),
         }
     }
     context_files
@@ -251,10 +238,6 @@ fn list_ancestor_dirs(cwd: &JsString) -> Vec<JsString> {
     ancestor_dirs
 }
 
-fn process_cwd() -> JsString {
-    crate::utils::paths::process_cwd().expect("process cwd must be available for resource discovery")
-}
-
 /// Native path identity is encoded only for the filesystem operation.
 fn path_exists(path: &JsString) -> bool {
     Path::new(&encode_node_utf8(path)).exists()
@@ -264,14 +247,16 @@ fn read_text_file(path: &JsString) -> std::io::Result<JsString> {
     fs::read(encode_node_utf8(path)).map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
 }
 
-fn resolve_from_process_cwd(input: &JsString) -> JsString {
-    resolve_path(input, &process_cwd(), &PathInputOptions::default()).unwrap_or_else(|_| input.to_owned())
+fn resolve_from_process_cwd(input: &JsString) -> Result<JsString, JsString> {
+    crate::utils::paths::node_resolve("", input).map_err(|error| error.message().clone())
 }
 
 /// Loads `AGENTS.md`/`CLAUDE.md` context files from the agent dir and cwd ancestors.
-pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Vec<ContextFile> {
-    let resolved_cwd = resolve_from_process_cwd(cwd);
-    let resolved_agent_dir = resolve_from_process_cwd(agent_dir);
+pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Result<Vec<ContextFile>, CallbackError> {
+    let base = crate::utils::paths::process_cwd().map_err(CallbackError::from)?;
+    let resolved_cwd = resolve_path(cwd, &base, &PathInputOptions::default()).map_err(CallbackError::from)?;
+    let resolved_agent_dir =
+        resolve_path(agent_dir, &base, &PathInputOptions::default()).map_err(CallbackError::from)?;
     let global_project_memory_real_path =
         canonicalize_path(node_join(&resolved_agent_dir, PROJECT_MEMORY_RELATIVE_PATH.join("/")));
     let ancestor_dirs = list_ancestor_dirs(&resolved_cwd);
@@ -302,7 +287,7 @@ pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Vec<C
         append_unique_context_files(&mut context_files, project_context_files, &mut seen_paths);
     }
 
-    context_files
+    Ok(context_files)
 }
 
 // =============================================================================
@@ -357,12 +342,6 @@ pub struct LoadedRulesFiles {
     pub rules_files: Vec<RuleFile>,
 }
 
-/// A file-backed prompt source (`{ path }`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadedPathSource {
-    pub path: JsString,
-}
-
 /// `ResourceLoader` interface consumed by AgentSession.
 pub trait ResourceLoader: Send + Sync {
     /// Extension load result (`{ extensions, errors, runtime }`).
@@ -374,9 +353,7 @@ pub trait ResourceLoader: Send + Sync {
     fn get_rules_files(&self) -> LoadedRulesFiles;
     fn get_rules_content(&self) -> Option<JsString>;
     fn get_system_prompt(&self) -> Option<JsString>;
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource>;
     fn get_append_system_prompt(&self) -> Vec<JsString>;
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource>;
     fn extend_resources(&self, paths: ResourceExtensionPaths) -> Result<(), JsString>;
     fn reload(&self) -> BoxFuture<'_, Result<(), JsString>>;
     /// `reload(options)` from the source interface.
@@ -397,9 +374,7 @@ pub struct StaticResourceLoader {
     pub rules_files: LoadedRulesFiles,
     pub rules_content: Option<JsString>,
     pub system_prompt: Option<JsString>,
-    pub system_prompt_source: Option<LoadedPathSource>,
     pub append_system_prompt: Vec<JsString>,
-    pub append_system_prompt_sources: Vec<LoadedPathSource>,
 }
 
 impl StaticResourceLoader {
@@ -445,16 +420,8 @@ impl ResourceLoader for StaticResourceLoader {
         self.system_prompt.clone()
     }
 
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource> {
-        self.system_prompt_source.clone()
-    }
-
     fn get_append_system_prompt(&self) -> Vec<JsString> {
         self.append_system_prompt.clone()
-    }
-
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource> {
-        self.append_system_prompt_sources.clone()
     }
 
     fn extend_resources(&self, _paths: ResourceExtensionPaths) -> Result<(), JsString> {
@@ -567,6 +534,7 @@ pub struct DefaultResourceLoaderOptions {
     pub append_system_prompt_override: Option<AppendSystemPromptOverride>,
 }
 
+#[derive(Clone)]
 struct ResourceLoaderState {
     extensions_result: LoadExtensionsResult,
     skills: Vec<Skill>,
@@ -579,9 +547,7 @@ struct ResourceLoaderState {
     rules_files: Vec<RuleFile>,
     rules_content: Option<JsString>,
     system_prompt: Option<JsString>,
-    system_prompt_source_path: Option<JsString>,
     append_system_prompt: Vec<JsString>,
-    append_system_prompt_source_paths: Vec<JsString>,
     last_skill_paths: Vec<JsString>,
     last_prompt_paths: Vec<JsString>,
     last_theme_paths: Vec<JsString>,
@@ -610,9 +576,7 @@ impl Default for ResourceLoaderState {
             rules_files: Vec::new(),
             rules_content: None,
             system_prompt: None,
-            system_prompt_source_path: None,
             append_system_prompt: Vec::new(),
-            append_system_prompt_source_paths: Vec::new(),
             last_skill_paths: Vec::new(),
             last_prompt_paths: Vec::new(),
             last_theme_paths: Vec::new(),
@@ -722,7 +686,7 @@ impl DefaultResourceLoader {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn resolve_resource_path(&self, path: &JsString) -> JsString {
+    fn resolve_resource_path(&self, path: &JsString) -> Result<JsString, JsString> {
         resolve_path(
             path,
             &self.cwd,
@@ -731,10 +695,10 @@ impl DefaultResourceLoader {
                 ..PathInputOptions::default()
             },
         )
-        .unwrap_or_else(|_| path.to_owned())
+        .map_err(|error| error.message().clone())
     }
 
-    fn resolve_extension_load_path(&self, path: &JsString) -> JsString {
+    fn resolve_extension_load_path(&self, path: &JsString) -> Result<JsString, JsString> {
         resolve_path(
             path,
             &self.cwd,
@@ -743,22 +707,19 @@ impl DefaultResourceLoader {
                 ..PathInputOptions::default()
             },
         )
-        .unwrap_or_else(|_| path.to_owned())
+        .map_err(|error| error.message().clone())
     }
 
-    fn merge_paths(&self, primary: &[JsString], additional: &[JsString]) -> Vec<JsString> {
+    fn merge_paths(&self, primary: &[JsString], additional: &[JsString]) -> Result<Vec<JsString>, JsString> {
         let mut merged = Vec::new();
         let mut seen = HashSet::new();
         for path in primary.iter().chain(additional) {
-            let resolved = self.resolve_resource_path(path);
-            let canonical_path = canonicalize_path(&resolved);
-            if seen.contains(&canonical_path) {
-                continue;
+            let resolved = self.resolve_resource_path(path)?;
+            if seen.insert(canonicalize_path(&resolved)) {
+                merged.push(resolved);
             }
-            seen.insert(canonical_path);
-            merged.push(resolved);
         }
-        merged
+        Ok(merged)
     }
 
     fn disabled_extension_names(&self) -> HashSet<JsString> {
@@ -770,16 +731,20 @@ impl DefaultResourceLoader {
             .collect()
     }
 
-    fn is_extension_path_disabled_with(&self, disabled: &HashSet<JsString>, extension_path: &JsString) -> bool {
+    fn is_extension_path_disabled_with(
+        &self,
+        disabled: &HashSet<JsString>,
+        extension_path: &JsString,
+    ) -> Result<bool, JsString> {
         if disabled.is_empty() {
-            return false;
+            return Ok(false);
         }
-        let resolved_path = self.resolve_resource_path(extension_path);
-        is_extension_path_disabled(
+        let resolved_path = self.resolve_resource_path(extension_path)?;
+        Ok(is_extension_path_disabled(
             &disabled.iter().cloned().collect::<Vec<_>>(),
             extension_path,
             &resolved_path,
-        )
+        ))
     }
 
     fn is_extension_factory_disabled_with(&self, disabled: &HashSet<JsString>, extension_path: &JsString) -> bool {
@@ -789,12 +754,15 @@ impl DefaultResourceLoader {
         is_extension_factory_disabled(&disabled.iter().cloned().collect::<Vec<_>>(), extension_path)
     }
 
-    fn filter_disabled_extension_paths(&self, extension_paths: Vec<JsString>) -> Vec<JsString> {
+    fn filter_disabled_extension_paths(&self, extension_paths: Vec<JsString>) -> Result<Vec<JsString>, JsString> {
         let disabled = self.disabled_extension_names();
-        extension_paths
-            .into_iter()
-            .filter(|path| !self.is_extension_path_disabled_with(&disabled, path))
-            .collect()
+        let mut enabled = Vec::new();
+        for path in extension_paths {
+            if !self.is_extension_path_disabled_with(&disabled, &path)? {
+                enabled.push(path);
+            }
+        }
+        Ok(enabled)
     }
 
     /// Forces untrusted project settings and loads user/global plus temporary extensions.
@@ -817,21 +785,32 @@ impl DefaultResourceLoader {
         let pre_trust_extensions = self.load_pre_trust_extensions(resolve_project_trust).await?;
         self.settings().reload();
         let mut resource_sets = self.resolve_resource_sets().await?;
-        let mut state = ResourceLoaderState::default();
+        let mut state = self.state().clone();
+        state.extension_skill_source_infos.clear();
+        state.extension_prompt_source_infos.clear();
+        state.extension_theme_source_infos.clear();
+        *self.state() = state.clone();
 
-        self.load_extensions_into(&mut state, &resource_sets, pre_trust_extensions)
-            .await?;
+        let extensions = self
+            .load_extensions_into(&mut state, &resource_sets, pre_trust_extensions)
+            .await;
+        self.publish_reload_step(extensions, &state)?;
         state.resource_metadata_by_path = std::mem::take(&mut resource_sets.metadata_by_path);
-        self.load_skills_into(&mut state, &resource_sets)?;
-        self.load_prompts_into(&mut state, &resource_sets)?;
-        self.load_themes_into(&mut state, &resource_sets)?;
-        self.load_agents_files_into(&mut state);
-        self.load_rules_into(&mut state)?;
+        self.publish_reload_step(self.load_skills_into(&mut state, &resource_sets), &state)?;
+        self.publish_reload_step(self.load_prompts_into(&mut state, &resource_sets), &state)?;
+        self.publish_reload_step(self.load_themes_into(&mut state, &resource_sets), &state)?;
+        self.publish_reload_step(self.load_agents_files_into(&mut state), &state)?;
+        self.publish_reload_step(self.load_rules_into(&mut state), &state)?;
         self.load_system_prompts_into(&mut state);
 
         state.loaded = true;
         *self.state() = state;
         Ok(())
+    }
+
+    fn publish_reload_step(&self, result: Result<(), JsString>, state: &ResourceLoaderState) -> Result<(), JsString> {
+        *self.state() = state.clone();
+        result
     }
 
     async fn load_pre_trust_extensions(
@@ -900,9 +879,9 @@ impl DefaultResourceLoader {
         let primary_paths = if self.no_extensions {
             resource_sets.cli_extensions.clone()
         } else {
-            self.merge_paths(&resource_sets.cli_extensions, &resource_sets.enabled_extensions)
+            self.merge_paths(&resource_sets.cli_extensions, &resource_sets.enabled_extensions)?
         };
-        let extension_paths = self.filter_disabled_extension_paths(primary_paths);
+        let extension_paths = self.filter_disabled_extension_paths(primary_paths)?;
         let mut extensions_result = self
             .load_final_extension_set(&extension_paths, pre_trust_extensions)
             .await?;
@@ -911,7 +890,7 @@ impl DefaultResourceLoader {
             if !is_local_path(path) {
                 continue;
             }
-            let resolved = self.resolve_resource_path(path);
+            let resolved = self.resolve_resource_path(path)?;
             if !path_exists(&resolved) {
                 extensions_result
                     .errors
@@ -939,7 +918,7 @@ impl DefaultResourceLoader {
         if !self.no_skills {
             primary_paths.extend(resource_sets.enabled_skills.iter().cloned());
         }
-        let skill_paths = self.merge_paths(&primary_paths, &self.additional_skill_paths);
+        let skill_paths = self.merge_paths(&primary_paths, &self.additional_skill_paths)?;
         state.last_skill_paths = skill_paths.clone();
         self.update_skills_from_paths(state, &skill_paths)?;
         self.push_missing_path_diagnostics(
@@ -947,7 +926,7 @@ impl DefaultResourceLoader {
             &self.additional_skill_paths,
             "Skill path does not exist",
             PathCheck::Local,
-        );
+        )?;
         Ok(())
     }
 
@@ -960,7 +939,7 @@ impl DefaultResourceLoader {
         if !self.no_prompt_templates {
             primary_paths.extend(resource_sets.enabled_prompts.iter().cloned());
         }
-        let prompt_paths = self.merge_paths(&primary_paths, &self.additional_prompt_template_paths);
+        let prompt_paths = self.merge_paths(&primary_paths, &self.additional_prompt_template_paths)?;
         state.last_prompt_paths = prompt_paths.clone();
         self.update_prompts_from_paths(state, &prompt_paths)?;
         self.push_missing_path_diagnostics(
@@ -968,7 +947,7 @@ impl DefaultResourceLoader {
             &self.additional_prompt_template_paths,
             "Prompt template path does not exist",
             PathCheck::Local,
-        );
+        )?;
         Ok(())
     }
 
@@ -981,7 +960,7 @@ impl DefaultResourceLoader {
         if !self.no_themes {
             primary_paths.extend(resource_sets.enabled_themes.iter().cloned());
         }
-        let theme_paths = self.merge_paths(&primary_paths, &self.additional_theme_paths);
+        let theme_paths = self.merge_paths(&primary_paths, &self.additional_theme_paths)?;
         state.last_theme_paths = theme_paths.clone();
         self.update_themes_from_paths(state, &theme_paths)?;
         self.push_missing_path_diagnostics(
@@ -989,7 +968,7 @@ impl DefaultResourceLoader {
             &self.additional_theme_paths,
             "Theme path does not exist",
             PathCheck::Any,
-        );
+        )?;
         Ok(())
     }
 
@@ -999,12 +978,12 @@ impl DefaultResourceLoader {
         paths: &[JsString],
         message: &str,
         check: PathCheck,
-    ) {
+    ) -> Result<(), JsString> {
         for path in paths {
             if check == PathCheck::Local && !is_local_path(path) {
                 continue;
             }
-            let resolved = self.resolve_resource_path(path);
+            let resolved = self.resolve_resource_path(path)?;
             if path_exists(&resolved) {
                 continue;
             }
@@ -1021,14 +1000,15 @@ impl DefaultResourceLoader {
                 collision: None,
             });
         }
+        Ok(())
     }
 
-    fn load_agents_files_into(&self, state: &mut ResourceLoaderState) {
+    fn load_agents_files_into(&self, state: &mut ResourceLoaderState) -> Result<(), JsString> {
         let agents_files = LoadedAgentsFiles {
             agents_files: if self.no_context_files {
                 Vec::new()
             } else {
-                load_project_context_files(&self.cwd, &self.agent_dir)
+                load_project_context_files(&self.cwd, &self.agent_dir).map_err(|error| error.message)?
             },
         };
         let resolved_agents_files = match &self.agents_files_override {
@@ -1036,6 +1016,7 @@ impl DefaultResourceLoader {
             None => agents_files,
         };
         state.agents_files = resolved_agents_files.agents_files;
+        Ok(())
     }
 
     fn load_rules_into(&self, state: &mut ResourceLoaderState) -> Result<(), JsString> {
@@ -1061,10 +1042,6 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(base_system_prompt.as_ref()),
             None => base_system_prompt,
         };
-        state.system_prompt_source_path = system_prompt_source
-            .as_ref()
-            .filter(|source| path_exists(source))
-            .map(resolve_from_process_cwd);
 
         let append_sources = match &self.append_system_prompt_source {
             Some(sources) => sources.clone(),
@@ -1078,11 +1055,6 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(&base_append),
             None => base_append,
         };
-        state.append_system_prompt_source_paths = append_sources
-            .iter()
-            .filter(|source| path_exists(source))
-            .map(|source| resolve_from_process_cwd(source))
-            .collect();
     }
 
     async fn load_current_extension_set(
@@ -1114,8 +1086,8 @@ impl DefaultResourceLoader {
         let extension_paths = self.filter_disabled_extension_paths(if self.no_extensions {
             cli_enabled_extensions
         } else {
-            self.merge_paths(&cli_enabled_extensions, &enabled_extensions)
-        });
+            self.merge_paths(&cli_enabled_extensions, &enabled_extensions)?
+        })?;
         let mut extensions_result = self.load_extensions_cached(&extension_paths, None).await?;
         if !include_inline_factories {
             return Ok(extensions_result);
@@ -1165,15 +1137,14 @@ impl DefaultResourceLoader {
             .errors
             .iter()
             .map(|error| self.resolve_extension_load_path(&error.path))
-            .collect();
-        let remaining_paths: Vec<JsString> = extension_paths
-            .iter()
-            .filter(|path| {
-                let resolved_path = self.resolve_extension_load_path(path);
-                !preloaded_by_path.contains_key(&resolved_path) && !failed_preload_paths.contains(&resolved_path)
-            })
-            .cloned()
-            .collect();
+            .collect::<Result<_, _>>()?;
+        let mut remaining_paths = Vec::new();
+        for path in extension_paths {
+            let resolved = self.resolve_extension_load_path(path)?;
+            if !preloaded_by_path.contains_key(&resolved) && !failed_preload_paths.contains(&resolved) {
+                remaining_paths.push(path.clone());
+            }
+        }
         let remaining_extensions = self
             .load_extensions_cached(&remaining_paths, Some(pre_trust.runtime.clone()))
             .await?;
@@ -1193,10 +1164,12 @@ impl DefaultResourceLoader {
             })
             .cloned()
             .collect();
-        let mut ordered_extensions: Vec<crate::core::extensions::types::Extension> = extension_paths
-            .iter()
-            .filter_map(|path| loaded_by_path.get(&self.resolve_extension_load_path(path)).cloned())
-            .collect();
+        let mut ordered_extensions = Vec::new();
+        for path in extension_paths {
+            if let Some(extension) = loaded_by_path.get(&self.resolve_extension_load_path(path)?) {
+                ordered_extensions.push(extension.clone());
+            }
+        }
         ordered_extensions.extend(inline_extensions);
 
         let mut errors = pre_trust.errors.clone();
@@ -1222,21 +1195,24 @@ impl DefaultResourceLoader {
         }
     }
 
-    fn normalize_extension_paths(&self, entries: &[ExtendedResourcePath]) -> Vec<ExtendedResourcePath> {
+    fn normalize_extension_paths(
+        &self,
+        entries: &[ExtendedResourcePath],
+    ) -> Result<Vec<ExtendedResourcePath>, JsString> {
         entries
             .iter()
             .map(|entry| {
                 let metadata = match &entry.metadata.base_dir {
                     Some(base_dir) => PathMetadata {
-                        base_dir: Some(self.resolve_resource_path(base_dir)),
+                        base_dir: Some(self.resolve_resource_path(base_dir)?),
                         ..entry.metadata.clone()
                     },
                     None => entry.metadata.clone(),
                 };
-                ExtendedResourcePath {
-                    path: self.resolve_resource_path(&entry.path),
+                Ok(ExtendedResourcePath {
+                    path: self.resolve_resource_path(&entry.path)?,
                     metadata,
-                }
+                })
             })
             .collect()
     }
@@ -1388,9 +1364,11 @@ impl DefaultResourceLoader {
             return self.get_default_source_info_for_path(resource_path).map(Some);
         }
 
-        let normalized_resource_path = resolve_from_process_cwd(resource_path);
-        if let Some(source_info) =
-            extra_source_infos.and_then(|infos| find_path_prefix_match(infos, &normalized_resource_path))
+        let normalized_resource_path = resolve_from_process_cwd(resource_path)?;
+        if let Some(source_info) = extra_source_infos
+            .map(|infos| find_path_prefix_match(infos, &normalized_resource_path))
+            .transpose()?
+            .flatten()
         {
             return Ok(Some(SourceInfo {
                 path: resource_path.to_owned(),
@@ -1402,8 +1380,10 @@ impl DefaultResourceLoader {
             let exact_metadata = metadata_by_path
                 .get(&normalized_resource_path)
                 .or_else(|| metadata_by_path.get(resource_path));
-            let metadata =
-                exact_metadata.or_else(|| find_path_prefix_match(metadata_by_path, &normalized_resource_path));
+            let metadata = match exact_metadata {
+                Some(exact) => Some(exact),
+                None => find_path_prefix_match(metadata_by_path, &normalized_resource_path)?,
+            };
             if let Some(metadata) = metadata {
                 return Ok(Some(create_source_info(resource_path, metadata)));
             }
@@ -1431,7 +1411,7 @@ impl DefaultResourceLoader {
             ));
         }
 
-        let normalized_path = resolve_from_process_cwd(file_path);
+        let normalized_path = resolve_from_process_cwd(file_path)?;
         let config_dir = package_config().config_dir_name.clone();
         let roots_by_scope = [
             (node_join(&self.agent_dir, "skills"), SourceScope::User),
@@ -1506,7 +1486,7 @@ impl DefaultResourceLoader {
         }
 
         for path in paths {
-            let resolved = self.resolve_resource_path(path);
+            let resolved = self.resolve_resource_path(path)?;
             if !path_exists(&resolved) {
                 diagnostics.push(ResourceDiagnostic {
                     diagnostic_type: ResourceDiagnosticType::Warning,
@@ -1617,10 +1597,17 @@ impl DefaultResourceLoader {
                     extension.read().hidden = Some(input.is_named() && input.hidden());
                     extensions.push(extension);
                 }
-                Err(error) => errors.push(crate::core::extensions::types::ExtensionLoadError {
-                    path: extension_path,
-                    error: error.message,
-                }),
+                Err(error) => {
+                    let message = match CallbackError::from(error).thrown_value() {
+                        pi_js_compat::abort::AbortReason::Error(error)
+                        | pi_js_compat::abort::AbortReason::DomException(error) => error.message,
+                        pi_js_compat::abort::AbortReason::Value(_) => "failed to load extension".into(),
+                    };
+                    errors.push(crate::core::extensions::types::ExtensionLoadError {
+                        path: extension_path,
+                        error: message,
+                    });
+                }
             }
         }
 
@@ -1704,30 +1691,15 @@ impl ResourceLoader for DefaultResourceLoader {
         self.state().system_prompt.clone()
     }
 
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource> {
-        self.state()
-            .system_prompt_source_path
-            .clone()
-            .map(|path| LoadedPathSource { path })
-    }
-
     fn get_append_system_prompt(&self) -> Vec<JsString> {
         self.state().append_system_prompt.clone()
     }
 
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource> {
-        self.state()
-            .append_system_prompt_source_paths
-            .iter()
-            .map(|path| LoadedPathSource { path: path.clone() })
-            .collect()
-    }
-
     fn extend_resources(&self, paths: ResourceExtensionPaths) -> Result<(), JsString> {
-        let skill_paths = self.normalize_extension_paths(&paths.skill_paths);
-        let prompt_paths = self.normalize_extension_paths(&paths.prompt_paths);
-        let theme_paths = self.normalize_extension_paths(&paths.theme_paths);
-        let mut state = self.state();
+        let skill_paths = self.normalize_extension_paths(&paths.skill_paths)?;
+        let prompt_paths = self.normalize_extension_paths(&paths.prompt_paths)?;
+        let theme_paths = self.normalize_extension_paths(&paths.theme_paths)?;
+        let mut state = self.state().clone();
 
         for entry in &skill_paths {
             state
@@ -1745,25 +1717,26 @@ impl ResourceLoader for DefaultResourceLoader {
                 .insert(entry.path.clone(), create_source_info(&entry.path, &entry.metadata));
         }
 
+        *self.state() = state.clone();
         if !skill_paths.is_empty() {
             let added: Vec<JsString> = skill_paths.iter().map(|entry| entry.path.clone()).collect();
-            state.last_skill_paths = self.merge_paths(&state.last_skill_paths, &added);
+            state.last_skill_paths = self.merge_paths(&state.last_skill_paths, &added)?;
             let last_skill_paths = state.last_skill_paths.clone();
-            self.update_skills_from_paths(&mut state, &last_skill_paths)?;
+            self.publish_reload_step(self.update_skills_from_paths(&mut state, &last_skill_paths), &state)?;
         }
 
         if !prompt_paths.is_empty() {
             let added: Vec<JsString> = prompt_paths.iter().map(|entry| entry.path.clone()).collect();
-            state.last_prompt_paths = self.merge_paths(&state.last_prompt_paths, &added);
+            state.last_prompt_paths = self.merge_paths(&state.last_prompt_paths, &added)?;
             let last_prompt_paths = state.last_prompt_paths.clone();
-            self.update_prompts_from_paths(&mut state, &last_prompt_paths)?;
+            self.publish_reload_step(self.update_prompts_from_paths(&mut state, &last_prompt_paths), &state)?;
         }
 
         if !theme_paths.is_empty() {
             let added: Vec<JsString> = theme_paths.iter().map(|entry| entry.path.clone()).collect();
-            state.last_theme_paths = self.merge_paths(&state.last_theme_paths, &added);
+            state.last_theme_paths = self.merge_paths(&state.last_theme_paths, &added)?;
             let last_theme_paths = state.last_theme_paths.clone();
-            self.update_themes_from_paths(&mut state, &last_theme_paths)?;
+            self.publish_reload_step(self.update_themes_from_paths(&mut state, &last_theme_paths), &state)?;
         }
         Ok(())
     }
@@ -1799,14 +1772,11 @@ enum PathCheck {
 }
 
 fn load_rule_scope_files(shared_dir: &JsString, scope: RulesScope) -> Result<Vec<RuleFile>, JsString> {
-    let mut files = load_rules_files_from_dir(shared_dir).map_err(|error| JsString::from(error.to_string()))?;
+    let mut files = load_rules_files_from_dir(shared_dir)?;
     if scope == RulesScope::Shared {
         return Ok(files);
     }
-    files.extend(
-        load_rules_files_from_dir(&node_join(shared_dir, scope.as_str()))
-            .map_err(|error| JsString::from(error.to_string()))?,
-    );
+    files.extend(load_rules_files_from_dir(&node_join(shared_dir, scope.as_str()))?);
     Ok(files)
 }
 
@@ -1919,13 +1889,19 @@ fn dedupe_themes(themes: Vec<Theme>) -> LoadedThemes {
     }
 }
 
-fn find_path_prefix_match<'a, T>(entries: &'a IndexMap<JsString, T>, normalized_path: &JsString) -> Option<&'a T> {
-    entries.iter().find_map(|(source_path, value)| {
-        let normalized_source_path = resolve_from_process_cwd(source_path);
-        let is_match = normalized_path == &normalized_source_path
-            || normalized_path.starts_with(js_format!("{}{}", normalized_source_path, std::path::MAIN_SEPARATOR));
-        is_match.then_some(value)
-    })
+fn find_path_prefix_match<'a, T>(
+    entries: &'a IndexMap<JsString, T>,
+    normalized_path: &JsString,
+) -> Result<Option<&'a T>, JsString> {
+    for (source_path, value) in entries {
+        let normalized_source_path = resolve_from_process_cwd(source_path)?;
+        if normalized_path == &normalized_source_path
+            || normalized_path.starts_with(js_format!("{}{}", normalized_source_path, std::path::MAIN_SEPARATOR))
+        {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
 }
 
 fn is_under_path(target: &JsString, root: &JsString) -> bool {

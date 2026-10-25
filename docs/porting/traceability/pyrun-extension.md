@@ -85,3 +85,129 @@ Shared JS stringify/object enumeration is used at this module's audited observab
 
 
 Callable-status consumer adaptation (2026-10-24): create_pi_capability_snapshot and create_canonical_pyrun_eval_params return Result so the frozen footerData.getExtensionStatuses read propagates the original callback failure. The detached launch helper carries CallbackError to HandlerError::from; existing test data unwraps success. No launch/activation/order, process or detached-runtime behavior change. [Status contract](../../specs/extension-status.md).
+
+## Re-pin detached-output (2026-10-25)
+
+| Frozen symbol / branch | Native proof | Status |
+| --- | --- | --- |
+| `PyrunArtifactWriter.appendProgress`: immediate <=25 MiB head; permanent tail mode; FIFO drop to 50 MiB bound | `pyrun_capped_artifacts_match_frozen_bytes_and_preserve_live_offsets`, small and 56 MiB progress inputs | done |
+| `finish`: terminal reserve, 256-byte marker reserve, omitted byte/record counters, ordered tail, terminal wins above cap | same test, exact SHA256/byte lengths against actual frozen writer including 51 MiB terminal | done |
+| Live append-only offsets | exact pre-settlement head length and unchanged output prefix | done |
+| Runner progress and terminal writes | shared writer owned by settlement; no legacy uncapped output path | ported; runner process regression pending |
+| ENOSPC, exotic filesystem fault identity and numeric extremes | repository parity policy | gap |
+
+Writer differential: `/tmp/bundled3-pyrun-writer-green.log`.
+
+## Re-pin detached-progress (2026-10-25)
+
+| Frozen symbol / branch | Native proof | Status |
+| --- | --- | --- |
+| `isConsoleProgressUpdate`; console buffering, first stream/stream change; pending/dense threshold of 100 | `pyrun_progress_batches_across_reads_and_flushes_like_frozen` compares snapshots with frozen, including 60+60 records across two reads | done |
+| First pending flush timer; no timer reset on subsequent updates; timed flush | same paused-time differential, sparse and dense cases | done |
+| Non-console, terminal and truncation records flush; last result retained | same status/truncation/result cases | done |
+| `close` cancels timer and discards unreported updates | same close-before-deadline case | done |
+| Observer integration | one accumulator across polls, close on every return; removed old per-read batching | ported; observer regression pending |
+| Callback throw from timer | process-uncaught authority; synchronous consume failures return the error | runtime failure-shape gap under repository policy |
+
+Differential: `/tmp/bundled3-pyrun-progress-green.log`.
+
+## Re-pin detached-evaluation (2026-10-25)
+
+| Frozen surface | Native implementation / proof | Status |
+| --- | --- | --- |
+| Artifact root/manifest correlation, cancellation settlement, replay/error/lost runtime, script existence | existing real control-DB replay/collision/cancellation tests | proven |
+| Restore ignores truncation markers | `repin_replays_capped_artifacts_without_treating_truncation_as_terminal` RED/GREEN | proven |
+| Restore diagnostic before lost runtime; live diagnostic before liveness; empty diagnostic default; completion marker | `repin_restored_runner_error_writes_failure_before_lost_runtime`, `repin_observed_runner_error_wakes_and_keeps_the_original_diagnostic` RED/GREEN, live child terminated | proven |
+| Read cursor: 1 MiB bounded reads, fragmentation, immediate drain before liveness/wait | seek/read chunk replaces whole-file read; existing fragmented UTF-16 test; explicit unread-byte state | ported |
+| Watch-driven wakeups, 1-second timer, watcher error close and pending notification permit | native fs-watch utility + Notify, watcher dropped on completion/error, real live-runner test | proven normal path |
+| Progress flush timing | one 1-second accumulator across observation reads; separate frozen progress differential | proven |
+| Foreground/detached observation, abort, detached signal removal | real live child resume/detach/abort tests; activated ownership excludes further signal handling | proven |
+| Initial launch via compiled current executable; activation write-failure injection | existing foreground-launch/activation-seam **proof gaps**, not parity approvals | gap |
+| Watch setup/runtime OS faults, exotic I/O error shapes and scheduling races | repository exclusion policy | gap |
+
+All sixteen observation/replay tests passed: `/tmp/bundled3-evaluation-green.log`.
+No live provider or user state was used.
+
+## Re-pin index registration and durable bridge
+
+Whole index comparison found missing command availability gating, stale prompt
+guidelines, absent runtime-mailbox registration, and incorrect detaching of an
+in-memory store. These now match frozen. `pyrun_registration` is a standalone
+process-global-env target: frozen/native exact prompt definition and unavailable/
+available command behavior (malformed runner arguments are deferred), installed
+mailbox missing-database error, and a real foreground child exit with a non-persisted
+store plus detach registry. RED/GREEN logs: `/tmp/bundled3-pyrun-registration-red.log`,
+`/tmp/bundled3-pyrun-registration-red2.log`, `/tmp/bundled3-pyrun-registration-green2.log`.
+Resolved runner options are captured in executor state, not re-read at launch.
+Settings/context/store accessors now propagate errors instead of defaulting them.
+
+Runtime bridge validates sender/owner/process, dispatches with original toolCallId
+and context signal, and durably replies with result/undefined or exact error text.
+Successful DB-backed mailbox dispatch still needs a dedicated end-to-end proof.
+Remaining index audit work: standalone supervisor/active-tool dispatch checks,
+custom tool-definition prompt options and custom handler disposal.
+
+Dispatcher follow-up: eleven frozen/native scenarios prove standalone rejection
+for agents/messages/session-resume, all seven active-tool mappings, and custom
+handler fall-through. RED accepted an unavailable standalone capability; GREEN
+`/tmp/bundled3-pyrun-dispatcher-green.log` rejects it before custom dispatch.
+
+Custom API follow-up: `PyrunToolDefinitionOptions` now preserves explicit empty
+prompt snippets/guidelines. `PyrunPiRequestHandler` models the source callable plus
+optional dispose property; shutdown disposes the runner, then each handler in order
+with fallible propagation. Actual-frozen prompt/disposal differential is GREEN in
+`/tmp/bundled3-pyrun-custom-green2.log` (three standalone registration tests).
+Mechanical fallout: `crates/pi-coding-agent/src/main.rs` wraps its existing dispatcher
+with no disposer; existing custom-handler and tool-definition tests adapt to the
+explicit native option structures. No handler behavior was changed outside this lane.
+
+## Re-pin inherited process groups
+
+Frozen `runner.ts` adds `inheritedProcessGroupId`: native options now retain it,
+Linux `/proc/<pid>/stat` group lookup uses the final `)` boundary, current process
+is excluded, and disposal/abort signals every inherited group member before the
+runner when no detached group was signalled. Detached runners pass their own PID,
+matching source; control polling is now the frozen one second, not 25 ms.
+`pyrun_dispose_terminates_inherited_process_group_members_like_frozen` creates a
+private process group with a real parent/grandchild and proves both frozen and
+native disposal stop the whole group. RED missing option; GREEN
+`/tmp/bundled3-pyrun-inherited-green2.log`. Cleanup is bounded and group-owned.
+
+Three existing detached-runner cases now run through a dedicated self-spawn child
+in its own process group instead of executing a process-owning runner in the test
+supervisor. They still assert the exact returned terminal revision, not just exit
+success. Four complete fixture option literals gained `inherited_process_group_id: None`.
+Windows taskkill is a platform gap; uncommon signal/proc filesystem fault identity
+and races follow the repository runtime-fault gap policy.
+
+## Re-pin runner FIFO failure isolation
+
+Two outstanding requests in one live runner exposed a realistic mismatch: native
+progress failure rejected both; frozen rejects only the request whose callback
+failed, then delivers the next terminal result to the second request. Native
+pending entries now carry internal request IDs (the source uses object identity),
+so stdin errors, abort, parse and callback failures reject that entry only; process
+exit still rejects the generation. Actual frozen/native two-request RED/GREEN:
+`/tmp/bundled3-pyrun-queue-{red,green}.log`.
+
+## Re-pin detached-bridge
+
+| Frozen symbol / branch | Proof | Status |
+| --- | --- | --- |
+| enqueue request/persist metadata/message ID/routing/body order | actual frozen and native SQLite writers compared as exact normalized stored JSON bytes | proven |
+| enqueue response result/null/undefined/error | same byte differential, three response variants including lone UTF-16 unit in arbitrary JSON | proven |
+| parse protocol/command/method/requestId/toolCallId/truthy identity/replyTo | frozen parses native body; native deserializes frozen parsed result; existing empty/non-string toolCallId rejection | proven normal writer/ID paths |
+| validate sender/running lifecycle/supervisor/owner/process PID+startTicks | complete source comparison, native uses the same DB reads/equalities | dedicated live ownership-validation **proof gap** |
+| Wrong-typed identity/replyTo and OS/random failure shapes | source parser accepts exotic truthy shapes where native typed carrier rejects; repository adversarial/runtime-fault gap policy | gap |
+
+RED caught `createdAt` inserted by the shared DB writer at the end of the object;
+source inserts it second. Native bridge now supplies it at the source position.
+`/tmp/bundled3-pyrun-bridge-both.log` is GREEN. Random IDs and wall-clock timestamps
+are normalized only after checking the persisted IDs correlate with their bodies.
+
+Index follow-up: actual frozen dispatcher resolves a metadata-only name from a
+nondefault context control DB; native previously omitted that DB and reported
+`No session found`. Context DB forwarding now matches, with real JSONL+SQLite
+RED/GREEN `/tmp/bundled3-pyrun-resume-{red,green}.log`. Empty optional session ID,
+code and executed prefix now follow JS truthiness. Exact rendered lines with
+blank leading output rows match frozen: `/tmp/bundled3-pyrun-render-{red,green}.log`.

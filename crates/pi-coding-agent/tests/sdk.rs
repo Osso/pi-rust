@@ -98,6 +98,48 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 }
 
 #[tokio::test]
+async fn default_loader_factories_run_before_persisted_session_settings_restore_like_frozen() {
+    use pi_coding_agent::core::permissions::presets::SandboxProfileName;
+    use pi_coding_agent::core::resource_loader::InlineExtension;
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    let temp = tempfile::tempdir().unwrap();
+    let root: JsString = temp.path().to_str().unwrap().into();
+    let mut oracle = oracle::TsOracle::spawn("sdk-no-model-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"id":100,"operation":"resource_order","root":root}));
+    let mut settings = SettingsManager::in_memory(Default::default(), Default::default());
+    settings.set_session_sandbox_profile(Some(SandboxProfileName::FullAccess));
+    let settings = Arc::new(Mutex::new(settings));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let seen_factory = Arc::clone(&seen);
+    let factory_settings = Arc::clone(&settings);
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(root.clone()),
+        agent_dir: Some(root.clone()),
+        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
+        session_manager: Some(SessionManager::in_memory(Some(&root), None).unwrap()),
+        settings_manager: Some(Arc::clone(&settings)),
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: None,
+            factory: Arc::new(move |_| {
+                seen_factory
+                    .lock()
+                    .unwrap()
+                    .push(factory_settings.lock().unwrap().get_session_sandbox_profile());
+                Box::pin(async { Ok(()) })
+            }),
+        }],
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        json!({"id":100,"seen":seen.lock().unwrap().clone(),"final":settings.lock().unwrap().get_session_sandbox_profile()}),
+        expected
+    );
+    result.session.dispose();
+}
+
+#[tokio::test]
 async fn no_auth_startup_and_restart_persistence_match_frozen() {
     use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
     use pi_coding_agent::core::agent_session_services::AgentSessionServices;

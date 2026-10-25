@@ -205,14 +205,6 @@ async fn create_agent_session_internal(
             SessionManager::create(&cwd, Some(&session_dir), None).map_err(pi_ai::request::CallbackError::from)?
         }
     };
-    let persisted_settings = session_manager
-        .read_persisted_session_settings()
-        .map_err(pi_ai::request::CallbackError::from)?;
-    lock(&settings_manager).set_session_sandbox_profile(
-        persisted_settings
-            .as_ref()
-            .and_then(|settings| settings.sandbox_profile),
-    );
     let resource_loader = match options.resource_loader.clone() {
         Some(loader) => loader,
         None => {
@@ -235,6 +227,14 @@ async fn create_agent_session_internal(
 
     let (existing_session, restored_identities) = session_manager.build_session_context_with_identities();
     let has_existing_session = !existing_session.messages.is_empty();
+    let persisted_settings = session_manager
+        .read_persisted_session_settings()
+        .map_err(pi_ai::request::CallbackError::from)?;
+    lock(&settings_manager).set_session_sandbox_profile(
+        persisted_settings
+            .as_ref()
+            .and_then(|settings| settings.sandbox_profile),
+    );
 
     let mut model = options.model.clone();
     let mut model_fallback_message: Option<JsString> = None;

@@ -1269,6 +1269,7 @@ impl pi_agent_core::agent::types::AgentTool for EchoTool {
 fn running_agent(id: &str) -> pi_coding_agent::core::multi_agent_store::AgentSnapshot {
     use pi_coding_agent::core::multi_agent_store::{AgentLifecycle, AgentPermission, AgentSnapshot};
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::from(id.to_owned()),
         parent_id: None,
         display_name: JsString::from("Child"),
@@ -1305,7 +1306,7 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
     use pi_coding_agent::core::multi_agent_store::{AgentCurrentActivity, MultiAgentStore, MultiAgentStoreOptions};
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+        now: Some(Arc::new(|| Ok("2026-06-21T00:00:00.000Z".into()))),
     }));
     store
         .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))
@@ -3183,7 +3184,7 @@ async fn thinking_phase_deadline_reports_the_child_subject() {
     use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-21T00:00:00.000Z".to_owned())),
+        now: Some(Arc::new(|| Ok("2026-06-21T00:00:00.000Z".into()))),
     }));
     store
         .publish_lifecycle_coordinator_snapshot(&running_agent("child-agent"))

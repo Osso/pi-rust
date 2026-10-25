@@ -7,6 +7,7 @@ type RuntimeMailboxMessage = {
 	id: number;
 	recipient: { agentId: string | null; sessionId: string };
 	sender: { agentId: string | null; sessionId: string };
+	senderHost?: string;
 	kind: string;
 	body: string;
 	fileRefs?: Array<{ label?: string; path: string }>;
@@ -17,6 +18,7 @@ type RuntimeMailboxMessage = {
 };
 
 type SharedChannelMessage = {
+	originHost?: string;
 	body: string;
 	createdAt: string;
 	id: number;

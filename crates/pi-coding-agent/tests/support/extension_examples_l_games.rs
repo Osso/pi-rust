@@ -15,6 +15,7 @@ use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
@@ -105,8 +106,8 @@ struct Ui {
     item: Value,
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
-        Arc::new(
+    fn theme(&self) -> Result<Arc<pi_coding_agent::modes::interactive::theme::Theme>, pi_ai::request::CallbackError> {
+        Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
                     (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
@@ -116,7 +117,7 @@ impl ExtensionUiContext for Ui {
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
-        )
+        ))
     }
 
     fn notify(
@@ -134,7 +135,7 @@ impl ExtensionUiContext for Ui {
     ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let trace = self.trace.clone();
         let item = self.item.clone();
-        let theme = self.theme();
+        let theme = self.theme().unwrap();
         ui_thread::run(move || {
             Box::pin(async move {
                 let completed = Arc::new(Mutex::new(false));

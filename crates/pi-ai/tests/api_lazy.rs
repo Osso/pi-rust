@@ -1,3 +1,6 @@
+#[path = "support/oracle.rs"]
+mod oracle;
+
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -143,6 +146,39 @@ async fn lazy_stream_forwards_events_and_result() {
     assert_eq!(types.len(), 2);
     let result = stream.result().await.unwrap();
     assert_eq!(result.stop_reason, StopReason::Stop);
+}
+
+#[tokio::test]
+async fn lazy_forward_ends_iteration_without_reading_the_inner_result() {
+    use serde_json::json;
+    use std::time::Duration;
+
+    let model = model();
+    let message = done_message(&model, "no terminal event");
+    let mut oracle = oracle::TsOracle::spawn("lazy-forward-oracle.ts", "packages/ai/src/api/lazy.ts");
+    let expected = oracle.request(&json!({"model": model, "message": message}));
+    for inner_result in [None, Some(message.clone())] {
+        let (sender, inner) = create_assistant_message_event_stream();
+        sender.push(AssistantMessageEvent::Start {
+            partial: message.clone(),
+        });
+        sender.end(inner_result);
+        let mut outer = lazy_stream(model.clone(), move || Box::pin(async move { Ok(inner) }));
+        let mut events = Vec::new();
+        loop {
+            let event = tokio::time::timeout(Duration::from_millis(500), outer.next())
+                .await
+                .expect("forwarding must end iteration without awaiting result()");
+            let Some(event) = event else {
+                break;
+            };
+            events.push(event.unwrap());
+        }
+        let settled = tokio::time::timeout(Duration::from_millis(25), outer.result())
+            .await
+            .is_ok();
+        assert_eq!(json!({"events":events,"resultSettled":settled}), expected);
+    }
 }
 
 #[tokio::test]

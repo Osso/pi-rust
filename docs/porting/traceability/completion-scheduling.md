@@ -11,3 +11,13 @@ All exports and branches audited against the frozen file. Native `CompletionWait
 | review payload | objective/completionReport/wakeEvidence forwarded to goal_completion_review. | retained native focused tests; new matrix pending |
 
 This row remains partial until the completion/wake branch matrix is green. Runtime scheduling races and pathological inputs use the repository gap policy.
+
+## Successor branch proof
+
+`goal_completion_scheduling_decision_matrix_matches_frozen` runs all six decisions
+through the actual frozen scheduler and native paused-time scheduler. It compares
+initial/succeeding grouped status, review payload, evidence consumption (absent for
+error/set), complete/continue callbacks and epoch guard invalidation. Generic wait
+wake/error/clear differentials cover the shared agent-wake callbacks. Result: GREEN
+(`/tmp/bundled3-completion-matrix2.log`, included in 35-test goal integration proof).
+Runtime timer/microtask races and numeric extremes are a gap under repository policy.

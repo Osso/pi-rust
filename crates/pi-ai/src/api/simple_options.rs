@@ -25,7 +25,6 @@ pub fn build_base_options(
     api_key: Option<&pi_js_compat::js_json::JsString>,
 ) -> StreamOptions {
     let stream = options.map(|options| &options.stream).cloned().unwrap_or_default();
-    let sampling_params = merge_sampling_params(model, &stream);
     StreamOptions {
         cwd: stream.cwd.clone(),
         request: crate::request::ProviderRequestOptions {
@@ -33,7 +32,7 @@ pub fn build_base_options(
             api_key: api_key
                 .filter(|key| !key.is_empty())
                 .cloned()
-                .or_else(|| stream.request.api_key.clone().filter(|key| !key.is_empty())),
+                .or_else(|| stream.request.api_key.clone()),
             fetch: stream.request.fetch.clone(),
             env: stream.request.env.clone(),
             on_payload: stream.request.on_payload.clone(),
@@ -44,7 +43,7 @@ pub fn build_base_options(
             max_retry_delay_ms: stream.request.max_retry_delay_ms,
         },
         temperature: stream.temperature,
-        sampling_params,
+        sampling_params: None,
         max_tokens: Some(clamp_max_tokens_to_context(
             model,
             context,
@@ -58,17 +57,6 @@ pub fn build_base_options(
         metadata: stream.metadata.clone(),
         extra: Default::default(),
     }
-}
-
-fn merge_sampling_params(model: &Model, stream: &StreamOptions) -> Option<crate::types::JsonObject> {
-    if model.sampling_params.is_none() && stream.sampling_params.is_none() {
-        return None;
-    }
-    let mut merged = model.sampling_params.clone().unwrap_or_default();
-    for (key, value) in stream.sampling_params.clone().unwrap_or_default() {
-        merged.insert(key, value);
-    }
-    Some(merged)
 }
 
 pub fn clamp_reasoning(effort: Option<ThinkingLevel>) -> Option<ThinkingLevel> {
@@ -208,7 +196,7 @@ mod tests {
     }
 
     #[test]
-    fn base_options_merge_sampling_params() {
+    fn base_options_drop_old_sampling_params() {
         let mut model = model();
         model.sampling_params = Some(JsonObject::from_iter([
             ("top_p".to_owned(), json!(0.9)),
@@ -235,12 +223,6 @@ mod tests {
             base.request.api_key.as_ref(),
             Some(&pi_js_compat::js_json::JsString::from("key"))
         );
-        assert_eq!(
-            base.sampling_params,
-            Some(JsonObject::from_iter([
-                ("top_p".to_owned(), json!(0.9)),
-                ("seed".to_owned(), json!(2)),
-            ]))
-        );
+        assert_eq!(base.sampling_params, None);
     }
 }

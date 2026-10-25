@@ -318,6 +318,10 @@ name = "detached_job_bootstrap"
 path = "tests/detached_job_bootstrap.rs"
 
 [[test]]
+name = "pyrun_registration"
+path = "tests/pyrun_registration.rs"
+
+[[test]]
 name = "detached_pyrun_runner_process"
 path = "tests/detached_pyrun_runner_process.rs"
 
@@ -1224,3 +1228,16 @@ path = "tests/config_dispatch_process.rs"
 [[test]]
 name = "ask_secret_process"
 path = "tests/ask_secret_process.rs"
+
+[[test]]
+name = "claude_memory_enrich_lifecycle"
+path = "tests/claude_memory_enrich_lifecycle.rs"
+
+[[test]]
+name = "codex_usage_auth_boundary"
+path = "tests/codex_usage_auth_boundary.rs"
+
+[[test]]
+name = "bwrap-detached-lifecycle"
+path = "tests/bin/bwrap_detached_lifecycle.rs"
+harness = false

@@ -12,6 +12,8 @@ pub mod agent_identity_paths;
 pub mod agents_core_runtime;
 #[path = "agents_core_shared_viewer.rs"]
 pub mod agents_core_shared_viewer;
+#[path = "agents_status.rs"]
+pub mod agents_status;
 #[path = "approval_reviewer.rs"]
 pub mod approval_reviewer;
 #[path = "args.rs"]
@@ -104,3 +106,5 @@ pub mod differential_changelog;
 pub mod differential_codex_hosted_abort;
 #[path = "differential_codex_quota.rs"]
 pub mod differential_codex_quota;
+#[path = "session_message_route.rs"]
+pub mod session_message_route;

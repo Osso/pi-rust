@@ -134,20 +134,15 @@ fn vertex_options(env: Value, max_retries: Option<f64>, fetch: Arc<dyn pi_ai::re
 }
 
 #[tokio::test]
-async fn gemini_stream_simple_without_an_api_key_returns_an_error_stream() {
-    let message = collect(gemini_stream_simple(
+async fn gemini_stream_simple_without_an_api_key_rejects_acquisition() {
+    let Err(error) = gemini_stream_simple(
         gemini_model("gemini-2.5-flash"),
         context(),
         SimpleStreamOptions::default(),
-    ))
-    .await;
-    assert_eq!(message.stop_reason, pi_ai::types::StopReason::Error);
-    assert_eq!(
-        message.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "No API key for provider: google"
-        ))
-    );
+    ) else {
+        panic!("direct streamSimple must reject before returning a stream");
+    };
+    assert_eq!(error.message, "No API key for provider: google");
 }
 
 #[tokio::test]

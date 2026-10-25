@@ -21,8 +21,8 @@ struct Ui {
     item: Mutex<Value>,
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
-        fixture_theme()
+    fn theme(&self) -> Result<Arc<pi_coding_agent::modes::interactive::theme::Theme>, pi_ai::request::CallbackError> {
+        Ok(fixture_theme())
     }
     fn custom<'a>(
         &'a self,
@@ -433,6 +433,7 @@ fn oracle_environment(request: &Value) -> Vec<(&'static str, std::ffi::OsString)
 
 struct FixtureTui;
 impl ExtensionUiTuiBackend for FixtureTui {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,

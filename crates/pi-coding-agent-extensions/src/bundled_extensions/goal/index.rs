@@ -274,11 +274,6 @@ async fn review_goal_set_objective(
         })),
         decision => {
             let reason = decision_reason(&decision);
-            let ui = ctx.ui()?;
-            ui.notify(
-                &(JsString::from("Supervisor goal set review failed: ") + &reason),
-                Some(NotifyType::Error),
-            )?;
             Ok(Err(text_result(
                 JsString::from("Goal not set: ") + &reason,
                 empty_details(),
@@ -338,8 +333,6 @@ async fn run_set_goal_action(options: SetGoalActionOptions<'_>) -> Result<AgentT
         pi: options.pi,
         before_save: options.before_goal_save,
     })?;
-    let ui = options.ctx.ui()?;
-    ui.notify(&result.message, Some(result.severity))?;
     let details = match &result.goal {
         Some(goal) => {
             let mut details = Map::new();
@@ -365,14 +358,10 @@ fn run_pause_goal_action(
     let session = ctx.session_manager()?;
     if load_or_migrate_active_goal(&cwd, &session)?.is_none() {
         update_goal_footer_status(ctx)?;
-        let ui = ctx.ui()?;
-        ui.notify(&"No active goal to pause".into(), Some(NotifyType::Info))?;
         return Ok(text_result("No active goal to pause.", empty_details()));
     }
     let reason = reason_input.map(JsString::trim).unwrap_or_default();
     if reason.is_empty() {
-        let ui = ctx.ui()?;
-        ui.notify(&"Reason is required to pause a goal".into(), Some(NotifyType::Error))?;
         return Ok(text_result("Reason is required to pause a goal.", empty_details()));
     }
     let Some(goal) = pause_goal(&cwd, &session, &reason)? else {
@@ -382,8 +371,6 @@ fn run_pause_goal_action(
     if let Some(after_goal_change) = after_goal_change {
         after_goal_change()?;
     }
-    let ui = ctx.ui()?;
-    ui.notify(&(JsString::from("Goal paused: ") + &reason), Some(NotifyType::Info))?;
     let mut details = Map::new();
     details.insert("objective".into(), Value::String(goal.objective));
     details.insert("reason".into(), Value::String(reason.to_owned()));
@@ -403,18 +390,11 @@ fn run_resume_goal_action(
     let goal = resume_goal(&cwd, &session)?;
     update_goal_footer_status(ctx)?;
     let Some(goal) = goal else {
-        let ui = ctx.ui()?;
-        ui.notify(&"No paused goal to resume".into(), Some(NotifyType::Info))?;
         return Ok(text_result("No paused goal to resume.", empty_details()));
     };
     if let Some(after_goal_change) = after_goal_change {
         after_goal_change()?;
     }
-    let ui = ctx.ui()?;
-    ui.notify(
-        &(JsString::from("Goal resumed: ") + &goal.objective),
-        Some(NotifyType::Info),
-    )?;
     if ctx.is_idle()? {
         pi.send_user_message(
             UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
@@ -448,27 +428,23 @@ async fn apply_completion_decision(
     if matches!(decision, GoalSupervisorResponse::Complete { .. }) {
         let cwd = ctx.cwd()?;
         let session = ctx.session_manager()?;
-        let Some(goal) = mark_goal_complete(&cwd, &session, completion_report)? else {
+        let Some(_) = mark_goal_complete(&cwd, &session, completion_report)? else {
             return Ok(text_result("No active goal to complete.", empty_details()));
         };
         update_goal_footer_status(ctx)?;
-        let ui = ctx.ui()?;
-        ui.notify(
-            &(JsString::from("Goal complete: ") + &goal.objective),
-            Some(NotifyType::Info),
-        )?;
         return Ok(text_result(
             JsString::from("Goal marked complete: ") + completion_report,
             empty_details(),
         ));
     }
     let reason = decision_reason(&decision);
-    append_status(
-        ctx.clone(),
-        &(JsString::from("Completion report rejected: ") + &reason + "\n\nSubmitted report:\n" + completion_report),
-        None,
-        decision.display_id(),
-    )?;
+    let rejection =
+        JsString::from("Completion report rejected: ") + &reason + "\n\nSubmitted report:\n" + completion_report;
+    let status_message = match &decision {
+        GoalSupervisorResponse::Continue { instructions, .. } => rejection + "\n\n" + instructions,
+        _ => rejection,
+    };
+    append_status(ctx.clone(), &status_message, None, decision.display_id())?;
     if matches!(decision, GoalSupervisorResponse::Continue { .. }) {
         let instructions = decision_instructions(&decision);
         send_supervisor_instructions(pi, &instructions, decision.display_id())?;
@@ -499,11 +475,6 @@ async fn apply_completion_decision(
             empty_details(),
         ));
     }
-    let ui = ctx.ui()?;
-    ui.notify(
-        &(JsString::from("Supervisor goal review failed: ") + &reason),
-        Some(NotifyType::Error),
-    )?;
     Ok(text_result(
         JsString::from("Goal review failed: ") + &reason,
         empty_details(),
@@ -581,8 +552,6 @@ fn run_clear_goal_action(
         after_goal_change()?;
     }
     let message = if cleared { "Goal cleared" } else { "No active goal" };
-    let ui = ctx.ui()?;
-    ui.notify(&message.into(), Some(NotifyType::Info))?;
     Ok(text_result(message, empty_details()))
 }
 
@@ -594,8 +563,6 @@ fn run_goal_status_action(ctx: &ExtensionContext) -> Result<AgentToolResult, Han
         Some(goal) => goal_view_message(goal),
         None => "No active goal — use /goal set <objective>".into(),
     };
-    let ui = ctx.ui()?;
-    ui.notify(&JsString::from(&message), Some(NotifyType::Info))?;
     let details = match &goal {
         Some(goal) => {
             let mut details = Map::new();
@@ -1208,8 +1175,7 @@ fn register_goal_command(pi: &ExtensionApi, runtime: &GoalExtensionRuntime) -> R
             let pi = pi_for_command.clone();
             let clear = Arc::clone(&clear);
             Box::pin(async move {
-                handle_goal_command(&args, &ctx, &pi, clear.as_ref());
-                Ok(())
+                handle_goal_command(&args, &ctx, &pi, clear.as_ref())
             }) as BoxFuture<'static, Result<(), HandlerError>>
         }),
     )
@@ -1220,113 +1186,102 @@ fn handle_goal_command(
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     clear_retry: &(dyn Fn(&JsString) + Send + Sync),
-) {
-    let parsed_args = parse_goal_args(args);
-    let action = match parsed_args {
+) -> Result<(), HandlerError> {
+    match parse_goal_args(args) {
         ParseGoalArgsResult::Error(error) => {
-            let _ = ctx.ui().map(|ui| ui.notify(&error.into(), Some(NotifyType::Error)));
-            return;
+            ctx.ui()?.notify(&error.into(), Some(NotifyType::Error))?;
+            Ok(())
         }
-        ParseGoalArgsResult::Parsed(action) => action,
-    };
-    match action {
-        ParsedGoalArgs::View => {
-            let _ = show_goal(ctx);
-        }
-        ParsedGoalArgs::Pause => {
-            let goal = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .and_then(|(cwd, session)| pause_goal(&cwd, &session, USER_PAUSE_REASON).ok())
-                .flatten();
-            if goal.is_some()
-                && let Ok(session) = ctx.session_manager()
-            {
-                clear_retry(&session.get_session_id());
-            }
-            let message = if goal.is_some() {
-                format!("Goal paused: {USER_PAUSE_REASON}")
-            } else {
-                "No active goal to pause".to_owned()
-            };
-            let _ = ctx
-                .ui()
-                .map(|ui| ui.notify(&JsString::from(&message), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-        }
-        ParsedGoalArgs::Resume => {
-            let goal = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .and_then(|(cwd, session)| resume_goal(&cwd, &session).ok())
-                .flatten();
-            if goal.is_some()
-                && let Ok(session) = ctx.session_manager()
-            {
-                clear_retry(&session.get_session_id());
-            }
-            let message = match &goal {
-                Some(goal) => JsString::from("Goal resumed: ") + &goal.objective,
-                None => "No paused goal to resume".into(),
-            };
-            let _ = ctx
-                .ui()
-                .map(|ui| ui.notify(&JsString::from(&message), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-            if goal.is_some() && ctx.is_idle().unwrap_or(false) {
-                let _ = pi.send_user_message(
-                    UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
-                    None,
-                );
-            }
-        }
-        ParsedGoalArgs::Clear => {
-            let cleared = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .map(|(cwd, session)| clear_goal(&cwd, &session).unwrap_or(false))
-                .unwrap_or(false);
-            if cleared && let Ok(session) = ctx.session_manager() {
-                clear_retry(&session.get_session_id());
-            }
-            let message = if cleared { "Goal cleared" } else { "No active goal" };
-            let _ = ctx.ui().map(|ui| ui.notify(&message.into(), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-        }
-        ParsedGoalArgs::Set { objective } => {
-            let session_id = ctx
-                .session_manager()
-                .ok()
-                .map(|session| session.get_session_id().to_owned());
-            let before_save = |clear_retry: &(dyn Fn(&JsString) + Send + Sync)| {
-                if let Some(session_id) = &session_id {
-                    clear_retry(session_id);
-                }
-                Ok(())
-            };
-            let result = set_goal(SetGoalParams {
-                objective,
-                ctx,
-                pi,
-                before_save: Some(&|| before_save(clear_retry)),
-            });
-            if let Ok(result) = result {
-                if result.ok && !ctx.is_idle().unwrap_or(true) {
-                    let _ = pi.send_user_message(
-                        UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
-                        Some(crate::core::extensions::types::SendUserMessageOptions {
-                            deliver_as: Some(crate::core::extensions::types::UserMessageDelivery::FollowUp),
-                            expand_prompt_templates: None,
-                        }),
-                    );
-                }
-                let _ = ctx.ui().map(|ui| ui.notify(&result.message, Some(result.severity)));
-            }
-        }
+        ParseGoalArgsResult::Parsed(action) => match action {
+            ParsedGoalArgs::View => show_goal(ctx),
+            ParsedGoalArgs::Pause => pause_goal_from_command(ctx, clear_retry),
+            ParsedGoalArgs::Resume => resume_goal_from_command(ctx, pi, clear_retry),
+            ParsedGoalArgs::Clear => clear_goal_from_command(ctx, clear_retry),
+            ParsedGoalArgs::Set { objective } => set_goal_from_command(objective, ctx, pi, clear_retry),
+        },
     }
+}
+
+fn pause_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let goal = pause_goal(&ctx.cwd()?, &ctx.session_manager()?, USER_PAUSE_REASON)?;
+    if goal.is_some() {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = if goal.is_some() {
+        format!("Goal paused: {USER_PAUSE_REASON}")
+    } else {
+        "No active goal to pause".to_owned()
+    };
+    ctx.ui()?.notify(&message.into(), Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)
+}
+
+fn resume_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let goal = resume_goal(&ctx.cwd()?, &ctx.session_manager()?)?;
+    if goal.is_some() {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = match &goal {
+        Some(goal) => JsString::from("Goal resumed: ") + &goal.objective,
+        None => "No paused goal to resume".into(),
+    };
+    ctx.ui()?.notify(&message, Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)?;
+    if goal.is_some() && ctx.is_idle()? {
+        pi.send_user_message(
+            UserMessageContent::Text("Continue working toward the active goal.".into()),
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+fn clear_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let cleared = clear_goal(&ctx.cwd()?, &ctx.session_manager()?)?;
+    if cleared {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = if cleared { "Goal cleared" } else { "No active goal" };
+    ctx.ui()?.notify(&message.into(), Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)
+}
+
+fn set_goal_from_command(
+    objective: JsString,
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let result = set_goal(SetGoalParams {
+        objective,
+        ctx,
+        pi,
+        before_save: Some(&|| {
+            clear_retry(&ctx.session_manager()?.get_session_id());
+            Ok(())
+        }),
+    })?;
+    if result.ok && !ctx.is_idle()? {
+        pi.send_user_message(
+            UserMessageContent::Text("Continue working toward the active goal.".into()),
+            Some(crate::core::extensions::types::SendUserMessageOptions {
+                deliver_as: Some(crate::core::extensions::types::UserMessageDelivery::FollowUp),
+                expand_prompt_templates: None,
+            }),
+        )?;
+    }
+    ctx.ui()?.notify(&result.message, Some(result.severity))?;
+    Ok(())
 }
 
 fn show_goal(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
