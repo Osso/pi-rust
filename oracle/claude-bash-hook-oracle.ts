@@ -17,7 +17,7 @@ void runOracle(async (api, request) => {
 	for (const input of cases) {
 		const dir = mkdtempSync(join(tmpdir(), "pi-claude-bash-hook-oracle-"));
 		const script = join(dir, "hook.sh");
-		writeFileSync(script, `#!/bin/sh\nprintf '%s' '${input.output ?? ""}'\n`);
+		writeFileSync(script, `#!/bin/sh\ncat > /dev/null\nprintf '%s' '${input.output ?? ""}'\n`);
 		chmodSync(script, 0o755);
 		process.env.PI_CLAUDE_BASH_HOOK = script;
 		const event = {

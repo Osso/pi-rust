@@ -40,7 +40,7 @@ impl TestDir {
         let path = self.path().join(name);
         let capture_line = capture
             .map(|capture| format!("cat > '{}'\n", capture.display()))
-            .unwrap_or_default();
+            .unwrap_or_else(|| "cat > /dev/null\n".to_owned());
         let body = format!("#!/bin/sh\n{capture_line}printf '%s' '{output}'\n");
         executable_script::write_executable_script(&path, &body);
         path
