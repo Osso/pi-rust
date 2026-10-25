@@ -57,6 +57,86 @@ fn cancellation_matching_ignores_incarnation_like_frozen() {
     assert_eq!(JsValue::Array(actual), expected["output"]);
 }
 
+#[test]
+fn status_persistence_and_reciprocal_claims_match_frozen() {
+    use pi_coding_agent::core::detached_job_control::{
+        EnqueueDetachedJobStatusRequestInput, EnqueueDetachedJobStatusResponseInput,
+        enqueue_detached_job_status_response,
+    };
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    for response in [false, true] {
+        let native = fixture();
+        let frozen = fixture();
+        let request = EnqueueDetachedJobStatusRequestInput {
+            control_db_path: native.control_db_path.clone(),
+            identity: identity(),
+            requester_address: native.recipient.clone(),
+            request_id: "status-raw".into(),
+            runner_address: native.recipient.clone(),
+            session_path: native.session_path.clone(),
+        };
+        let status = js_json::parse_lossless(r#"{"phase":"running","text":"raw-\ud800"}"#).unwrap();
+        if response {
+            enqueue_detached_job_status_response(&EnqueueDetachedJobStatusResponseInput {
+                control_db_path: native.control_db_path.clone(),
+                identity: identity(),
+                reply_to: native.recipient.clone(),
+                request_id: request.request_id.clone(),
+                runner_address: native.recipient.clone(),
+                session_path: native.session_path.clone(),
+                status: status.clone(),
+            })
+            .unwrap();
+        } else {
+            enqueue_detached_job_status_request(&request).unwrap();
+        }
+        let expected = oracle.request(&pi_js_compat::js_json!({
+            "id": 28102, "module":"core/detached-job-control.ts", "operation":"detachedControlEnqueue",
+            "response": response,
+            "input": {
+                "controlDbPath": frozen.control_db_path, "identity": identity(),
+                "requesterAddress": frozen.recipient, "replyTo": frozen.recipient,
+                "requestId": request.request_id, "runnerAddress": frozen.recipient,
+                "sessionPath": frozen.session_path, "status": status,
+            },
+        }));
+        assert_eq!(expected["ok"], JsValue::Bool(true));
+        let frozen_wire = persisted_message(&frozen);
+        let native_wire = persisted_message(&native);
+        assert_eq!(native_wire, frozen_wire, "response={response}");
+
+        let frozen_commands = oracle.request(&pi_js_compat::js_json!({
+            "id": 28103, "module":"core/detached-job-control.ts", "operation":"detachedControlClaim",
+            "db": native.control_db_path, "recipient": native.recipient, "identity": identity(),
+        }));
+        assert_eq!(frozen_commands["ok"], JsValue::Bool(true));
+        assert_eq!(frozen_commands["output"].as_array().unwrap().len(), 1);
+        let native_commands =
+            claim_detached_job_runtime_commands(&frozen.control_db_path, &frozen.recipient, &identity()).unwrap();
+        assert_eq!(native_commands.len(), 1);
+        match (&native_commands[0], response) {
+            (DetachedJobRuntimeCommand::Status(command), false) => assert_eq!(command.request_id, request.request_id),
+            (DetachedJobRuntimeCommand::Response(command), true) => assert_eq!(command.result, Some(status)),
+            _ => panic!("wrong reciprocal command: {:?}", native_commands),
+        }
+    }
+}
+
+fn persisted_message(fixture: &Fixture) -> String {
+    let db = rusqlite::Connection::open(encode_node_path(&fixture.control_db_path)).unwrap();
+    let raw: String = db
+        .query_row("SELECT data FROM multi_agent_mailbox_messages", [], |row| row.get(0))
+        .unwrap();
+    let mut data = js_json::parse_lossless(&raw).unwrap();
+    assert!(data["createdAt"].as_string().is_some());
+    data["createdAt"] = JsValue::String("TIMESTAMP".into());
+    js_json::stringify_lossless(&data)
+}
+
+fn encode_node_path(path: &JsString) -> String {
+    pi_js_compat::js_json::encode_node_utf8(path)
+}
+
 fn test_process_identity(name: &str) -> ProcessIdentity {
     let mut value: u32 = 0;
     for character in name.chars() {

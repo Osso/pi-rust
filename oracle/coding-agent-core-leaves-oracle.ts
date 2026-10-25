@@ -130,6 +130,9 @@ const handlers: Record<string, Handler> = {
 		return api.isSupersededRuntimeIdentity(current, replacement);
 	}),
 	activityDetail: (api, request) => cases(request).map((args) => api.summarizeToolArguments(args) ?? null),
+	detachedControlEnqueue: (api, request) => request.response
+		? api.enqueueDetachedJobStatusResponse(request.input)
+		: api.enqueueDetachedJobStatusRequest(request.input),
 	detachedControlClaim: async (api, request) => {
 		const dbModule = await import(pathToFileURL(`${process.argv[2]}/core/session-control-db.ts`).href);
 		dbModule.registerRuntimeMailboxListener(request.db, request.recipient, process.pid);
