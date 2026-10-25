@@ -475,6 +475,7 @@ fn project_trust_context(
 async fn create_runtime(
     options: &RuntimeFactoryOptions,
     request: CreateAgentSessionRuntimeOptions,
+    auth_storage: crate::core::auth_storage::AuthStorage,
 ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
     let mut session_manager = request.session_manager;
     let parsed = &options.parsed;
@@ -613,7 +614,7 @@ async fn create_runtime(
         agent_dir: Some(options.agent_dir.clone()),
         settings_manager: Some(runtime_settings_manager),
         model_registry: None,
-        auth_storage: None,
+        auth_storage: Some(auth_storage),
         extension_flag_values: Some(parsed.unknown_flags.clone()),
         resource_loader_options: Some(resource_loader_options),
         resource_loader: None,
@@ -757,9 +758,11 @@ async fn create_runtime(
 
 /// Builds the `createRuntime` factory captured by `main`.
 pub fn create_runtime_factory(options: RuntimeFactoryOptions) -> CreateAgentSessionRuntimeFactory {
+    let auth_storage = crate::core::auth_storage::AuthStorage::create(None).map_err(CallbackError::from);
     Arc::new(move |request| {
         let options = options.clone();
-        Box::pin(async move { create_runtime(&options, request).await })
+        let auth_storage = auth_storage.clone();
+        Box::pin(async move { create_runtime(&options, request, auth_storage?).await })
     })
 }
 
@@ -1719,6 +1722,26 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
     }
 }
 
+fn apply_global_http_proxy(settings: &SettingsManager) {
+    let global = settings.get_global_settings();
+    let proxy = global
+        .get("httpProxy")
+        .and_then(|value| value.as_string())
+        .map(encode_node_utf8);
+    let http = pi_js_compat::process_env::get("HTTP_PROXY");
+    let https = pi_js_compat::process_env::get("HTTPS_PROXY");
+    let resolved =
+        crate::core::http_dispatcher::resolve_http_proxy_settings(proxy.as_deref(), http.as_deref(), https.as_deref());
+    for (name, value) in [
+        ("HTTP_PROXY", resolved.http_proxy),
+        ("HTTPS_PROXY", resolved.https_proxy),
+    ] {
+        if let Some(value) = value {
+            pi_js_compat::process_env::set(name, &value);
+        }
+    }
+}
+
 fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
     let parsed = parse_args(args);
     if parsed.no_supervisor != Some(true) {
@@ -1801,7 +1824,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
 
     let mut cwd = process_cwd().map_err(CallbackError::from)?;
     let agent_dir = get_agent_dir()?;
-    let _bootstrap_settings_manager = SettingsManager::create(
+    let bootstrap_settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
         SettingsManagerCreateOptions {
@@ -1809,6 +1832,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         },
     )
     .map_err(CallbackError::from)?;
+    apply_global_http_proxy(&bootstrap_settings_manager);
     let fetch = configure_http_dispatcher(crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
 
     let package_effects = DefaultPackageCommandEffects {
@@ -2145,6 +2169,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let resource_loader = Arc::clone(&services.resource_loader);
     let (image_auto_resize, theme, http_idle_timeout_ms) = {
         let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        apply_global_http_proxy(&settings);
         (
             settings.get_image_auto_resize(),
             settings.get_theme().cloned(),

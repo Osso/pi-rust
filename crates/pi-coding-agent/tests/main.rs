@@ -852,6 +852,92 @@ async fn runtime_factory_uses_the_supplied_project_trust_context() {
 }
 
 #[tokio::test]
+async fn runtime_factory_keeps_runtime_credentials_across_recreation() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let factory = create_runtime_factory(RuntimeFactoryOptions {
+        parsed: parse_args(&args(&["--no-session", "--no-supervisor"])),
+        agent_dir: cwd.clone(),
+        startup_default_project_trust: DefaultProjectTrust::Never,
+        trust_store: Arc::new(ProjectTrustStore::new(&cwd).unwrap()),
+        trust_prompt_mode: AppMode::Print,
+        app_mode: AppMode::Print,
+        project_trust_by_cwd: Arc::new(Mutex::new(HashMap::new())),
+        additional_extension_paths: Vec::new(),
+        additional_skill_paths: Vec::new(),
+        additional_prompt_template_paths: Vec::new(),
+        additional_theme_paths: Vec::new(),
+        extension_factories: Vec::new(),
+        orchestration: None,
+    });
+    for iteration in 0..2 {
+        let result = factory(CreateAgentSessionRuntimeOptions {
+            cwd: cwd.clone(),
+            agent_dir: cwd.clone(),
+            session_manager: SessionManager::in_memory(Some(&cwd), None).unwrap(),
+            no_supervisor: Some(true),
+            session_start_event: None,
+            project_trust_context: None,
+        })
+        .await
+        .unwrap();
+        if iteration == 0 {
+            result
+                .services
+                .auth_storage
+                .set_runtime_api_key("native-fixture", &"runtime-secret".into());
+        } else {
+            assert!(result.services.auth_storage.has_auth("native-fixture").unwrap());
+        }
+        result.session.dispose();
+    }
+}
+
+#[test]
+fn startup_proxy_child() {
+    if std::env::var("PI_MAIN_PROXY_CHILD").as_deref() != Ok("1") {
+        return;
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let code = runtime
+        .block_on(pi_coding_agent::main_runner::main(
+            &args(&["--version"]),
+            Default::default(),
+        ))
+        .unwrap();
+    assert_eq!(code, 0);
+    assert_eq!(
+        pi_js_compat::process_env::get("HTTP_PROXY").as_deref(),
+        Some("http://127.0.0.1:12345")
+    );
+    assert_eq!(pi_js_compat::process_env::get("HTTPS_PROXY").as_deref(), Some(""));
+}
+
+#[test]
+fn bootstrap_applies_global_proxy_without_overwriting_existing_environment() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("settings.json"),
+        r#"{"httpProxy":"  http://127.0.0.1:12345  "}"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "startup_proxy_child", "--nocapture"])
+        .env("PI_MAIN_PROXY_CHILD", "1")
+        .env("PI_CODING_AGENT_DIR", root.path())
+        .env("PI_CODING_AGENT_STATE_DIR", root.path().join("state"))
+        .env("HTTPS_PROXY", "")
+        .env_remove("HTTP_PROXY")
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8(output.stderr).unwrap());
+}
+
+#[tokio::test]
 async fn debug_repl_provider_reports_the_documented_gap() {
     let controller = (debug_repl_gap_provider())();
     assert_eq!(
