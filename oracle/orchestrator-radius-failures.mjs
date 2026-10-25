@@ -6,9 +6,16 @@ globalThis.Date = class extends NativeDate {
     constructor(...args) { super(...(args.length ? args : ["2026-10-21T00:00:00.000Z"])); }
 };
 let randomCalls = 0;
-Math.random = () => scenario === "random_consumption" ? (++randomCalls === 1 ? 0.1 : 0.9) : 0.5;
+Math.random = () => {
+    if (scenario !== "random_consumption") return 0.5;
+    randomCalls += 1;
+    return randomCalls === 1 ? 0.1 : 0.9;
+};
 const schedules = [], errors = [], requests = [], updates = [];
-globalThis.setTimeout = (_callback, delay) => { schedules.push(delay); return schedules.length; };
+globalThis.setTimeout = (_callback, delay) => {
+    schedules.push(delay);
+    return schedules.length;
+};
 globalThis.clearTimeout = () => {};
 console.error = message => errors.push(message);
 const registration = (id, interval) => ({ id, heartbeatIntervalMs: interval, expiresInMs: interval * 2 });
@@ -47,7 +54,10 @@ let available = true;
 radius.setCoordinator({
     getLiveInstance: () => available ? instance : undefined,
     listLiveInstances: () => available ? [instance] : [],
-    updateInstance: value => { instance = value; updates.push(value); },
+    updateInstance: value => {
+        instance = value;
+        updates.push(value);
+    },
 });
 await radius.start("desk");
 if (!machine) instance = await radius.registerPi(instance);

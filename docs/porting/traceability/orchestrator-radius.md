@@ -1,17 +1,17 @@
 # Orchestrator radius
 
 Source: `packages/orchestrator/src/radius.ts` at the [common pin](../source-lock.json). Rust: `crates/pi-orchestrator/src/radius.rs`.
-Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
+Status: **done** (realistic-input user-observable parity). [Q3 proof and native approvals](../orchestrator-proof.md).
 
 | Export/branch | Behavioral proof |
 | --- | --- |
 | getRadiusUrl/getRadiusOrchestratorBaseUrl/getRadiusAccessToken/isRadiusEnabled | URL/credential precedence native tests; actual fake-fetch frozen registration differential; coding-agent AuthStorage reused |
 | RadiusPresence start/stop/registerPi/disconnectPi; registerMachine | frozen HTTP path/body and machine persistence; cached machine short-circuit; timers canceled on stop/disconnect |
 | machine/Pi heartbeats; backoff; reRegisterMachineAndPis/reRegisterPi | frozen fake-fetch and paused-time matrices: transient 500 backoff/reset, third 404 recovery, live-Pi coordinator update; no request before exact deadline |
-| re-registration failure, coordinator disappearance, ignored disconnect 404 | implemented from source, additional failure-matrix assertions remain unproven |
+| re-registration failure, coordinator disappearance, ignored disconnect 404 | Owned-process actual-frozen five-case failure matrix: exact recovery console bytes, requests, deadlines, missing coordinator instance, disconnect404, and lazy jitter consumption. |
 
 ## Explicit proof gaps
-- Re-registration failure, coordinator disappearance and disconnect-404 branches lack complete frozen failure matrices.
+- These branches now have exact request/console and paused-time behavioral proof in radius_failure_process.rs; its only ignored function is the parent-invoked child helper.
 
 Successful maybePost disconnect ignores an unreadable 200 body, matching frozen (`radius_body.rs`); reverting status-only success is killed by this assertion. Registration/error bodies remain read. Heartbeat unreadable-body behavior shares the same implementation but has no new direct differential.
 
@@ -23,4 +23,6 @@ Recovery error RED `/tmp/runtime-services-red-radius-failures.log`: a Pi registr
 
 Invalid-URL RED `/tmp/runtime-services-red-radius-url.log`: an ordinary malformed base URL leaked url-crate reason text instead of Node `Invalid URL`. Both base derivation and explicit-base POST URL validation now preserve the frozen message. Native/frozen public start tests cover both settings; GREEN at 1a1adf3e4 (`/tmp/runtime-services-green-radius-url.log`).
 
-Jitter-consumption RED `/tmp/runtime-services-red-radius-random.log`: a 404 incorrectly consumes randomness, changing the following 500 retry from frozen 1025ms to native 1225ms under a concrete two-draw fixture. The decision helper now requests a random draw only in the transient branch, preserving frozen control flow. Fifth owned-process case compares exact logged delay; GREEN pending at commit.
+Jitter-consumption RED `/tmp/runtime-services-red-radius-random.log`: a 404 incorrectly consumes randomness, changing the following 500 retry from frozen 1025ms to native 1225ms under a concrete two-draw fixture. The decision helper now requests a random draw only in the transient branch, preserving frozen control flow. Fifth owned-process case compares exact logged delay; GREEN at d0a069a05 (`/tmp/runtime-services-green-radius-random.log`).
+
+Current-pin scope: whole frozen source read (all exported functions, coordinator/heartbeat/register/recovery/error helpers). Five failure scenarios pass; URL base/explicit failures pass; existing machine/Pi retry/recovery deadline matrix passes at 1a1adf3e4. Registration serialized-wire proof passes at 3419a6f47; its body order remains unchanged. Warning-mode orchestrator clippy exits0 with zero orchestrator warnings at d0a069a05 (`/tmp/runtime-services-clippy-radius.log`). Manual changed-line readability pass; subsequent oracle edits only split statements, with no behavior change. Gap: adversarial record shapes, URL IDNA/OS faults, numeric/timer extremes and cross-producer runtime scheduling oddities remain excluded.
