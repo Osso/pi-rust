@@ -33,8 +33,8 @@ impl Workspace {
 
     fn manager(&self) -> SettingsManager {
         SettingsManager::create(
-            &JsString::from((&self.project_dir.to_string_lossy()).as_ref()),
-            Some(&JsString::from((&self.agent_dir).to_string_lossy().as_ref())),
+            &JsString::from(self.project_dir.to_string_lossy().as_ref()),
+            Some(&JsString::from(self.agent_dir.to_string_lossy().as_ref())),
             SettingsManagerCreateOptions::default(),
         )
         .unwrap()
@@ -42,8 +42,8 @@ impl Workspace {
 
     fn untrusted(&self) -> SettingsManager {
         SettingsManager::create(
-            &JsString::from((&self.project_dir.to_string_lossy()).as_ref()),
-            Some(&JsString::from((&self.agent_dir).to_string_lossy().as_ref())),
+            &JsString::from(self.project_dir.to_string_lossy().as_ref()),
+            Some(&JsString::from(self.agent_dir.to_string_lossy().as_ref())),
             SettingsManagerCreateOptions {
                 project_trusted: Some(false),
             },
@@ -128,7 +128,7 @@ fn project_enabled_models_override_global() {
 
     assert_eq!(manager.get_enabled_models(), Some(Vec::new()));
     manager
-        .set_enabled_models(Some(&[JsString::from("faux/faux-1").into()]), SettingsScope::Project)
+        .set_enabled_models(Some(&[JsString::from("faux/faux-1")]), SettingsScope::Project)
         .unwrap();
     assert_eq!(manager.get_enabled_models(), Some(vec![JsString::from("faux/faux-1")]));
 }
@@ -466,18 +466,15 @@ fn session_dir_expands_tilde_but_shell_path_is_literal() {
         manager.get_session_dir(),
         (Some(format!("{home}/sessions"))).map(JsString::from)
     );
-    assert_eq!(manager.get_shell_path(), (Some("~".to_owned())).map(JsString::from));
+    assert_eq!(manager.get_shell_path(), Some(JsString::from("~".to_owned())));
 
     workspace.write_global(r#"{"sessionDir":"/tmp/sessions","shellPath":"/bin/zsh"}"#);
     let manager = workspace.manager();
     assert_eq!(
         manager.get_session_dir(),
-        (Some("/tmp/sessions".to_owned())).map(JsString::from)
+        Some(JsString::from("/tmp/sessions".to_owned()))
     );
-    assert_eq!(
-        manager.get_shell_path(),
-        (Some("/bin/zsh".to_owned())).map(JsString::from)
-    );
+    assert_eq!(manager.get_shell_path(), Some(JsString::from("/bin/zsh".to_owned())));
 
     let manager = SettingsManager::in_memory(Settings::new(), SettingsManagerCreateOptions::default());
     assert_eq!(manager.get_session_dir(), None);

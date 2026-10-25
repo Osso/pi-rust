@@ -144,7 +144,7 @@ fn oversized_results_spill_the_full_text_and_keep_the_tail() {
 
     let path = spill.full_output_path.clone().expect("spill path");
     assert_eq!(
-        std::fs::read_to_string(&encode_node_utf8(&path)).expect("spill file"),
+        std::fs::read_to_string(encode_node_utf8(&path)).expect("spill file"),
         full_text
     );
     let text = result_text(&capped);

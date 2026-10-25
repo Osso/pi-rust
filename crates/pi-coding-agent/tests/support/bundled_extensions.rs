@@ -85,7 +85,7 @@ impl ExtensionUiContext for RecordingUi {
     ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>>
     {
         let title = title.to_owned();
-        let placeholder = placeholder.map(Clone::clone);
+        let placeholder = placeholder.cloned();
         let opts = opts.cloned();
         Box::pin(async move {
             self.calls.lock().unwrap().inputs.push((title, placeholder, opts));

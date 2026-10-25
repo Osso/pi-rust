@@ -599,7 +599,7 @@ impl pi_tui::autocomplete::AutocompleteProvider for FixtureProvider {
         let mut lines = lines.to_vec();
         lines[line] = pi_js_compat::js_format!("{}{}", lines[line].slice(0, col - prefix.len()), item.value);
         pi_tui::autocomplete::CompletionResult {
-            lines: lines.into_iter().map(JsString::from).collect::<Vec<_>>(),
+            lines: lines.into_iter().collect::<Vec<_>>(),
             cursor_line: line,
             cursor_col: col - prefix.len() + item.value.len(),
         }
@@ -783,7 +783,7 @@ fn configure_faux(
         })
     });
     faux.set_responses((0..20).map(|_| FauxResponseStep::Factory(response.clone())).collect());
-    scripted_registry::register_scripted_provider(&runtime, faux.provider);
+    scripted_registry::register_scripted_provider(runtime, faux.provider);
     model
 }
 

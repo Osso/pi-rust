@@ -104,7 +104,7 @@ async fn run_case(case: Value) -> Value {
     let version = case["currentJson"]
         .as_str()
         .map(|input| {
-            js_json::parse_lossless(&JsString::from(input))
+            js_json::parse_lossless(JsString::from(input))
                 .unwrap()
                 .as_string()
                 .unwrap()

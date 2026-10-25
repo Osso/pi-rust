@@ -594,7 +594,7 @@ fn configure_faux(
         })
     });
     faux.set_responses((0..20).map(|_| FauxResponseStep::Factory(response.clone())).collect());
-    scripted_registry::register_scripted_provider(&runtime, faux.provider);
+    scripted_registry::register_scripted_provider(runtime, faux.provider);
     model
 }
 

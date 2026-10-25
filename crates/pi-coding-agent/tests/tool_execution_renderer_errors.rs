@@ -77,7 +77,7 @@ fn erring_definition() -> ToolDefinition {
 }
 
 fn plain(lines: &[JsString]) -> JsString {
-    JsString::join(lines.iter().map(|line| strip_terminal_sequences(line)), "\n")
+    JsString::join(lines.iter().map(strip_terminal_sequences), "\n")
 }
 
 #[test]

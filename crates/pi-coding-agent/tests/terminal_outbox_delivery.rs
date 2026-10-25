@@ -121,7 +121,7 @@ fn terminal_job_in_root(fixture: &Fixture, job_id: &str, root: &str) {
             file_refs: None,
         })
         .expect("register");
-    fs::write(&encode_node_utf8(&artifacts.output_path), "done").expect("output");
+    fs::write(encode_node_utf8(&artifacts.output_path), "done").expect("output");
     let terminal = create_detached_job_terminal_input(
         &artifacts,
         &ownership.identity,

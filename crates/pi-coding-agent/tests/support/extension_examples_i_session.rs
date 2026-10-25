@@ -282,7 +282,8 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     let theme = Arc::new(
         load_theme_from_path(
             &JsString::from(
-                (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("theme/dark.json")
                     .to_str()
                     .expect("fixture path must be UTF-8"),
             ),

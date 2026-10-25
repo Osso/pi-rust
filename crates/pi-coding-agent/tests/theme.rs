@@ -579,7 +579,7 @@ fn theme_validation_probe() {
 
     let (_directory, path) = write("{\"name\":\"x\"}");
     let error = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
         None,
     )
     .unwrap_err()
@@ -590,7 +590,7 @@ fn theme_validation_probe() {
 
     let (_directory, path) = write("{\"name\":\"x\",\"colors\":{}}");
     let error = load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
         None,
     )
     .unwrap_err()
@@ -601,7 +601,7 @@ fn theme_validation_probe() {
     let (_directory, path) = write("[]");
     assert!(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             None
         )
         .unwrap_err()
@@ -624,7 +624,7 @@ fn theme_validation_probe() {
     let (_directory, path) = write(&serde_json::to_string(&slash).unwrap());
     assert_eq!(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             None
         )
         .unwrap_err()
@@ -638,7 +638,7 @@ fn theme_validation_probe() {
     let (_directory, path) = write(&serde_json::to_string(&bad).unwrap());
     assert_eq!(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             None
         )
         .unwrap_err()
@@ -653,7 +653,7 @@ fn theme_validation_probe() {
     let (_directory, path) = write(&serde_json::to_string(&circular).unwrap());
     assert_eq!(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             None
         )
         .unwrap_err()
@@ -667,7 +667,7 @@ fn theme_validation_probe() {
     let (_directory, path) = write(&serde_json::to_string(&missing_var).unwrap());
     assert_eq!(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             None
         )
         .unwrap_err()

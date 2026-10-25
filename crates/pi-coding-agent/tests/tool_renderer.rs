@@ -25,7 +25,7 @@ fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Th
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
     let theme = std::sync::Arc::new(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             Some(ColorMode::Truecolor),
         )
         .expect("built-in dark theme"),
@@ -113,10 +113,9 @@ fn trims_tui_spacing_lines_from_custom_tool_result_html() {
         .expect("render result");
     assert_eq!(
         rendered.expanded.as_ref(),
-        (Some(
+        Some(JsString::from(
             "<div class=\"ansi-line\"><span style=\"color:#800000\">one</span></div><div class=\"ansi-line\">two</div>"
         ))
-        .map(JsString::from)
         .as_ref()
     );
 }
@@ -274,7 +273,7 @@ fn forwards_content_details_and_error_state() {
     let captured = captured.lock().unwrap();
     assert_eq!(captured.len(), 2);
     assert_eq!(captured[0].content, content);
-    assert_eq!(captured[0].details, Some(details).map(JsValue::from));
+    assert_eq!(captured[0].details, Some(JsValue::from(details)));
     assert_eq!(captured[0].is_error, Some(true));
 }
 
