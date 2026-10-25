@@ -1,8 +1,14 @@
 // Named fixtures around the actual frozen AgentSession; no source rewriting.
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { runPromptLifecycleScenario } from "./agent-session-prompt-lifecycle.ts";
+import { runInputImagesScenario } from "./agent-session-input-images.ts";
 
 export async function runAgentSessionScenario(request, context) {
+	if (["input-images", "input-image-propagation"].includes(request.operation))
+		return runInputImagesScenario(
+			context,
+			request.operation === "input-image-propagation",
+		);
 	if (request.operation === "prompt-steering-lifecycle")
 		return runPromptLifecycleScenario(context);
 	if (request.operation === "runner-identity")

@@ -2,6 +2,8 @@
 
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
+#[path = "agent_session_prompt_images.rs"]
+mod prompt_images;
 #[path = "support/oracle.rs"]
 mod tools_oracle;
 

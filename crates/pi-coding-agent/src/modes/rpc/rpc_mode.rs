@@ -294,7 +294,7 @@ fn start_prompt(
     state: &Arc<RpcState>,
     id: Option<JsValue>,
     message: JsString,
-    images: Vec<pi_ai::types::ImageContent>,
+    images: Option<Vec<pi_ai::types::ImageContent>>,
     streaming_behavior: Option<StreamingBehavior>,
 ) {
     let session = state.current_session();
