@@ -204,19 +204,13 @@ async fn overlapping_expired_in_memory_refreshes_both_read_a_like_frozen() {
 }
 
 #[test]
-fn one_off_stored_read_never_creates_missing_auth_files() {
+fn public_missing_get_does_not_add_credentials_to_the_created_auth_file() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("not-created/auth.json");
-    assert_eq!(
-        pi_coding_agent::core::auth_storage::read_stored_credential(
-            "fake",
-            Some(&JsString::from(path.to_str().unwrap()))
-        )
-        .unwrap(),
-        None
-    );
-    assert!(
-        !path.parent().unwrap().exists(),
-        "one-off read must not create auth state"
-    );
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(storage.get("fake"), None);
+    assert!(storage.list_providers().is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(before, b"{}");
 }

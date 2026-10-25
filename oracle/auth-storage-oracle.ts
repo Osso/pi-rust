@@ -28,6 +28,16 @@ async function main(): Promise<void> {
 			credentialJson?: string;
 			providerJson?: string;
 		};
+		if (request.op === "backend-rejection") {
+			const backend = new api.InMemoryAuthStorageBackend();
+			backend.withLock(() => ({ result: undefined, next: "{}" }));
+			let thrown: unknown;
+			try {
+				await backend.withLockAsync(async () => { throw raw.reason; });
+			} catch (error) { thrown = error; }
+			const after = backend.withLock((current: string) => ({ result: JSON.parse(current) }));
+			return { thrown, after };
+		}
 		if (request.op === "rotation-all-sync-fail") {
 			const calls: string[] = [];
 			let syncs = 0;

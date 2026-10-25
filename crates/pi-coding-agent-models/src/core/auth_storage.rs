@@ -7,7 +7,7 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime};
 
-use pi_ai::auth::types::{AuthError, Credential, CredentialModifier, CredentialStore};
+use pi_ai::auth::types::{AuthError, Credential};
 use pi_ai::request::BoxFuture;
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 
@@ -68,12 +68,6 @@ impl StorageError {
     pub fn is_aborted(&self) -> bool {
         matches!(self, Self::Aborted(_))
     }
-    fn into_auth_error(self) -> AuthError {
-        match self {
-            Self::Aborted(error) => AuthError::Aborted(Box::new(error)),
-            Self::Failure { error, .. } => AuthError::from(error),
-        }
-    }
 }
 
 impl From<crate::config::ConfigError> for StorageError {
@@ -122,7 +116,7 @@ pub trait AuthStorageBackend: Send + Sync {
     /// Runs `operation` while holding the file lock.
     fn with_lock(&self, operation: LockOperation<'_>) -> Result<(), StorageError>;
 
-    /// Runs `operation` while holding the file lock, honoring cancellation.
+    /// Runs `operation` while holding the file lock.
     fn with_lock_async(&self, operation: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>>;
 }
 
@@ -405,9 +399,6 @@ fn parse_api_key_config(credential: &JsValue) -> Result<JsString, StorageError> 
 }
 fn to_credential(value: &JsValue) -> Result<Credential, StorageError> {
     js_json::from_value(value).map_err(|error| StorageError::new(error.to_string()))
-}
-fn credential_value(value: Credential) -> Result<JsValue, StorageError> {
-    js_json::to_value(&value).map_err(|error| StorageError::new(error.to_string()))
 }
 fn oauth_value(value: pi_ai::oauth::OAuthCredentials) -> Result<JsValue, StorageError> {
     Ok(value.to_js_value())
@@ -776,84 +767,6 @@ impl AuthStorage {
         pi_ai::env_api_keys::get_env_api_key(provider_id, None)
             .map_err(|error| StorageError::from_callback(pi_ai::request::CallbackError::from_rejection(error.into())))
     }
-}
-
-// Legacy resolver adapters retained until its consumers move to the frozen public API.
-fn resolved_credential(credential: Credential) -> Credential {
-    let Credential::ApiKey(mut key) = credential else {
-        return credential;
-    };
-    if let Some(value) = &key.key {
-        let env = key
-            .env
-            .as_ref()
-            .map(|e| e.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
-        key.key = resolve_config_value(value, env.as_ref());
-    }
-    Credential::ApiKey(key)
-}
-impl CredentialStore for AuthStorage {
-    fn read(&self, id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let id = id.to_owned();
-        Box::pin(async move {
-            self.reload();
-            self.get(&id)
-                .as_ref()
-                .map(to_credential)
-                .transpose()
-                .map(|v| v.map(resolved_credential))
-                .map_err(StorageError::into_auth_error)
-        })
-    }
-    fn modify(&self, id: &str, modifier: CredentialModifier) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        let id = id.to_owned();
-        Box::pin(async move {
-            let outcome = Arc::new(Mutex::new(None));
-            let captured = outcome.clone();
-            let source = self.source_state.clone();
-            self.storage
-                .with_lock_async(Box::new(move |current| {
-                    Box::pin(async move {
-                        let mut data = parse_auth_data(current.as_deref())?;
-                        let old = data.get(&JsString::from(&id)).map(to_credential).transpose()?;
-                        let next = modifier(old.clone()).await.map_err(StorageError::from_auth)?;
-                        let Some(next) = next else {
-                            *lock(&captured) = old;
-                            return Ok(None);
-                        };
-                        data.insert(id.into(), credential_value(next.clone())?);
-                        let content = js_json::stringify_lossless_pretty(&JsValue::Object(data.clone()));
-                        lock(&source).data = data;
-                        *lock(&captured) = Some(next);
-                        Ok(Some(content))
-                    })
-                }))
-                .await
-                .map_err(StorageError::into_auth_error)?;
-            Ok(lock(&outcome).take())
-        })
-    }
-    fn delete(&self, id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
-        let id = id.to_owned();
-        Box::pin(async move { self.remove(id).map_err(StorageError::into_auth_error) })
-    }
-}
-pub fn read_stored_credential(
-    id: &str,
-    path: Option<&JsString>,
-) -> Result<Option<Credential>, crate::config::ConfigError> {
-    let path = match path {
-        Some(path) => path.clone(),
-        None => default_auth_path()?,
-    };
-    let path = normalize_path(path, &Default::default())?;
-    Ok(read_credential_file(id, &path))
-}
-fn read_credential_file(id: &str, path: &JsString) -> Option<Credential> {
-    let content = std::fs::read_to_string(js_json::encode_node_utf8(path)).ok()?;
-    let data = parse_auth_data(Some(&content)).ok()?;
-    data.get(&JsString::from(id))
-        .and_then(|value| to_credential(value).ok())
 }
 
 pub fn ordered_provider_ids(data: &AuthStorageData) -> Vec<JsString> {
