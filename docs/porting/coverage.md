@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 535, `gap` 21, `partial` 44, `todo` 86.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 536, `gap` 21, `partial` 44, `todo` 85.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -624,7 +624,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/response-tool.ts` | 48 | 22 | done | `crates/pi-coding-agent/src/supervisor/response_tool.rs` | Tool metadata/schema and advisory text; 8-case differential ([traceability](traceability/supervisor-response-tool.md)).; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/supervisor/service.ts` | 310 | 16 | todo | `crates/pi-coding-agent/src/supervisor/service.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/src/supervisor/service.rs`; Prompt building, response parsing, durable completion/expiry/preemption; 4 behavioral tests + prompt/parse differential |
+| `coding-agent/src/supervisor/service.ts` | 310 | 16 | done | `crates/pi-coding-agent/src/supervisor/service.rs` | Whole frozen module: cumulative prompts, stateless instruction veto helpers/context, native parsing and cancelled/deadline/preemption priority with awaited cleanup. Three pure + six actual-DB runtime differentials and original completion/expiry tests GREEN. [Traceability](traceability/supervisor-service.md). |
 | `coding-agent/src/utils/ansi.ts` | 60 | 0 | done | `crates/pi-coding-agent-base/src/utils/ansi.rs` | Differential 26001 (237 inputs); focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/changelog.ts` | 201 | 3 | done | `crates/pi-coding-agent-base/src/utils/changelog.rs` | Differential 24 link cases, parse, 3 comparisons, 4 new-entry queries; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/child-process.ts` | 137 | 0 | done | `crates/pi-coding-agent-base/src/utils/child_process.rs` | Focused process tests; collects stdout/stderr; shared Node errno mapping (`node_errno_name`/`node_error_code`) re-exported from `pi-js-compat::node_fs` for every spawn and fs caller; [filesystem prerequisite proof](traceability/node-fs-errors.md); re-run vs 4f9e6f8a4 pending |
