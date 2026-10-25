@@ -1,5 +1,9 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Storage-3 parent guard (2026-10-25)
+
+Expanded actual-source operation script reproduces an empty parent ID incorrectly producing a mailbox message (`/tmp/storage3-store-parent-red.log`). `contactParent` now treats both missing and empty parent IDs as `parent_not_found`, after reference validation and before clock/counter/state mutation, matching frozen truthiness. The script retains all prior operation/value assertions; byte-order contracts have separate wire tests.
+
 ## Storage-3 snapshot and reference copy validation (2026-10-25)
 
 Actual-source RED `/tmp/storage3-store-copy-red.log` shows native publication accepted relative nested snapshot/reference paths, changed state and skipped frozen copy errors. Snapshot ingress/restore now validates result/event/transcript/worker/worktree paths in frozen copyAgent evaluation order. Owned snapshots remain immutable through returned copies, so getters need no new callback/error carrier. Message copies now return Result, validate `file_reference_copy` paths and retain only canonical path/label fields. Existing reference construction shares this typed validator. Publication preserves frozen pre-mutation/pre-clock failure ordering; lifecycle copy failures propagate before listener dispatch. Wrong-typed/exotic JSON reference shapes retain the standing input-gap classification; their decoder reason text can differ.

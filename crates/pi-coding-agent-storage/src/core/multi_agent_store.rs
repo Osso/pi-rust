@@ -1762,7 +1762,7 @@ impl MultiAgentStore {
             });
         };
         let file_refs = validate_mailbox_file_refs(input.file_refs.as_ref(), "contact_parent")?;
-        let Some(parent_id) = current.parent_id.clone() else {
+        let Some(parent_id) = current.parent_id.clone().filter(|parent| !parent.is_empty()) else {
             return Ok(ParentContactResult::ParentNotFound {
                 current: Box::new(copy_agent(&current)),
             });

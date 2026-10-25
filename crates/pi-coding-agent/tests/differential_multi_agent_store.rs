@@ -311,6 +311,11 @@ fn script() -> Vec<Value> {
         ),
         step("listMailboxMessages", vec![]),
         step("getAgent", vec![json!("child")]),
+        step(
+            "publishLifecycleCoordinatorSnapshot",
+            vec![agent("no-parent", Some(""), "running", 1)],
+        ),
+        step("contactParent", vec![json!("no-parent"), json!({"body":"no parent"})]),
     ]
 }
 
@@ -344,10 +349,7 @@ fn store_operation_scripts_match_the_pinned_typescript_module() {
         );
         match (expected.get("ok"), actual) {
             (Some(Value::Bool(true)), Ok(value)) => {
-                // TypeScript builds mailbox payloads with a different key order per creation
-                // site (terminal notifications vs. parent contact vs. outbound records), so
-                // object key order is not part of the store contract; every consumer parses
-                // the JSON. Compare parsed values instead of serialized key order.
+                // Compare complete values here; storage wire fixtures separately check byte ordering.
                 assert_eq!(expected["value"], value, "step {index} {:?} mismatch", step["op"]);
             }
             (Some(Value::Bool(false)), Err(error)) => {
