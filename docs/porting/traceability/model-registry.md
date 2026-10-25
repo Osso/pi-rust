@@ -2,7 +2,7 @@
 
 Source: `packages/coding-agent/src/core/model-registry.ts` at [4f9e6f8a4](../source-lock.json), locked1000 lines. Native: `crates/pi-coding-agent-models/src/core/model_registry.rs`, `model_registry/schema.rs`, `model_registry/registered_providers.rs`. Old import paths re-export this one implementation.
 
-Implementation and scoped behavior matrices are present. Current parent-merge, constructor-dependency renewal and final gates are pending; the coverage row remains partial until that checkpoint. This is not whole-package/provider acceptance.
+Implementation, full symbol/branch map and scoped behavior matrices are present. Parent36aba9a2 is merged at0639d2d8; constructor dependency renewal and checkpoint gates pass below. The coverage row stays partial pending parent independent acceptance. This is not whole-package/provider acceptance.
 
 ## Exports and every private function
 
@@ -50,7 +50,7 @@ The defaults cache-hit branch inside `getBuiltInDefaults` is structurally unreac
 |---|---|
 | Configuration and compat |35 real-file full model/error/serialized-order comparisons;49 real SDK shared requests and real Smithy loopback HTTP for4thinking values/1strict control. No request fields or metadata stripped. `q15e-thinking-registry-green-2.log` |
 | Registration inputs |7source cases plus native loaded-Model copy proving Infinity and lone-unit unknown compat survive before JSON. Empty model URL uses ??; empty provider-only URL follows the source truthiness gate. `q15e-registration-reentry-green.log` |
-| Constructor/auth/modifiers |10constructor,16status/key/auth,6fresh/expired key rejection,10modifier-entrypoint and bounded callback-reentry/live-map cases. Prior constructor proof must be renewed after parent5f14994a's path-helper change. |
+| Constructor/auth/modifiers |10constructor,16status/key/auth,6fresh/expired key rejection,10modifier-entrypoint and bounded callback-reentry/live-map cases. Constructor10-case matrix renewed after parent5f14994a's path-helper change (`q15e-post-parent-registry-boundaries`), GREEN. |
 | Synchronous dispatch |4raw/simple × TypeError/code/detail/raw UTF16 cases GREEN9256b49b; before a stream exists, callbackCount1. Six positive dispatches and six registration/upsert/OAuth/reset/unregister states GREEN20afdd27, zero HTTP. `q15e-registry-dispatch-lifecycle-2` |
 | Required consumers |Default Agent full events/state GREEN3 atbcf84da0; low-level loop/continue original iteration/result rejection GREEN6 at946208f0. Actual frozen lazyApi raw/simple catch + genuinely-uncaught conversion process boundary GREEN atfec20b12. GitLab's four UTF16 cases and source/native uncaught child GREEN8cb4039b; unused scalar import removed9c739f37. Shared lazy/compat/alias/models regressions GREEN47. |
 | CLI/catalog |Actual fresh frozen main --list-models has no preloaded memo, requires the cache-only ID and matches the real native binary's stdout/stderr/exit. Cache bytes unchanged; forced offline refresh failure retained. GREEN4828dd79, `q15e-registry-actual-cli-cache-1`. Same-process memo/registry refresh/root-switch graph remains valid; Architect/Supervisor services are type-checked, not launched. |
@@ -99,4 +99,8 @@ Frozen-absent behavior now remains only unknown ordered metadata: completions su
 
 ## Remaining checkpoint work
 
-Current parent merge, constructor proof renewal after the path-helper delta, scoped strict TS/Biome/fmt, workspace all-target0error/0warning,0owned Clippy including migration causes, readability audit and source inventory. Independent acceptance belongs to the parent; do not present provider/package-wide parity from this module's evidence.
+At0639d2d8 (parent36aba9a2 integrated): workspace/all-target check0errors/0warnings; all-feature/all-target warning Clippy0errors/1664existing warnings/0owned hunks and0new warning signatures against the pre-stream1665 baseline, including unchanged callers. Owned Codex identity conversion was removedcc320248; its target passes strict Clippy. Strict pinned-source/8fixture TS and Biome pass after595d8104; approved fixture-only ES2024 for unchanged TUI /v, no source/shared-builder change. Inventory686rows/186679lines PASS; fmt PASS.
+
+Current scoped regressions: Agent31+loop43, shared lazy/compat/alias/models47, renewed default Agent/low-level cases9 and constructor10, complete GitLab6native targets (including4negative acquisitions and uncaught process proof), Codex2direct/lazy controls, source/native lazy2targets and16existing authority tests after parent's hook-diagnostic merge. The intentionally ignored private child entrypoints are invoked by active parent process tests. Exact commands/revisions/results and invalidation accounting remain in the proof ledger; `q15e-stream-postmerge-*` and `q15e-stream-final-*` contain gate artifacts. No unchanged broad gate was rerun for a milestone alone.
+
+Manual changed-line Rust/TS readability audit: one rejection authority, pure success adapters, explicit catch-only conversion and process boundaries, bounded/reaped child probes; extracted the default Agent oracle from the growing registry fixture and removed its new any annotations. No new blocker/suppression/dependency. Metrics CLI unavailable, so no automated complexity claim. Independent acceptance belongs to the parent; do not present provider/package-wide parity from this module's evidence.
