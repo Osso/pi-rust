@@ -1829,7 +1829,7 @@ pub fn create_failed_multi_agent_child(
     if input.agent.lifecycle != AgentLifecycle::Failed || input.agent.revision != 1 {
         return Err(ControlDbError::new("Failed child creation requires failed revision 1"));
     }
-    let Some(parent_id) = input.agent.parent_id.clone() else {
+    let Some(parent_id) = input.agent.parent_id.clone().filter(|parent| !parent.is_empty()) else {
         return Ok(CreateFailedMultiAgentChildResult::Err {
             error: CreateChildError::ParentNotFound,
         });
@@ -2017,7 +2017,7 @@ pub fn create_multi_agent_child_with_runtime_ownership(
             "Child runtime ownership requires running revision 1",
         ));
     }
-    let Some(parent_id) = input.agent.parent_id.clone() else {
+    let Some(parent_id) = input.agent.parent_id.clone().filter(|parent| !parent.is_empty()) else {
         return Ok(CreateMultiAgentChildWithRuntimeOwnershipResult::Err {
             error: CreateChildError::ParentNotFound,
         });
@@ -2153,7 +2153,7 @@ fn read_attachment_parent_snapshot(
     session_path: &JsString,
     agent: &AgentSnapshot,
 ) -> Result<ActiveParentSnapshot, CreateAttachmentError> {
-    let Some(parent_id) = agent.parent_id.clone() else {
+    let Some(parent_id) = agent.parent_id.clone().filter(|parent| !parent.is_empty()) else {
         return Ok(ActiveParentSnapshot {
             agent: None,
             data: None,

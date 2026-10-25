@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Empty-parent creation guards (2026-10-25)
+
+Actual-source attachment RED `/tmp/storage3-control-attachment-parent-red.log` treats an empty parent ID as main-thread attachment; native rejected it. Actual-source child RED `/tmp/storage3-control-child-parent-valid-red.log` rejects empty parent IDs before DB access, while native opened a blocked path and raised EEXIST. Attachments now use the frozen falsey-parent main alias; failed/runtime child creation returns parent_not_found before opening the DB. The first child probe failed only because its fixture supplied a nonexistent native input field; it is not production evidence.
+
 ## Detached-cancellation freshness rollback (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-cancellation-real-red.log` shows expired cancellation timestamps advanced native lifecycle/revision while frozen rejected the command and rolled back the whole mutation. The lifecycle writer now calls the existing retention freshness authority inside the transaction, after the agent CAS and before command insertion, matching frozen ordering. The fixture compares original error, complete agent and canonical command bytes for expired/fresh cases. Earlier cancellation probe logs failed on fixture-only enum serialization/type inference/native-object JSON representation and are not production RED evidence.
