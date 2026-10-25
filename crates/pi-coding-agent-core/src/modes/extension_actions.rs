@@ -15,7 +15,6 @@ use crate::core::extensions::types::{
     ExtensionCommandContextActions, ForkOptions, HandlerError, NavigateTreeOptions, NewSessionOptions, RestartOptions,
     SessionTransitionResult, SwitchSessionOptions, WithSessionCallback,
 };
-use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::session_manager::SharedSessionManager;
 
 type SharedSession = Arc<Mutex<AgentSession>>;
@@ -30,15 +29,9 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
     let switch_session_runtime = runtime.clone();
     let reload_runtime = runtime.clone();
     let restart_runtime = runtime.clone();
-    let set_sandbox_profile_session = Arc::clone(&session);
     ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
-        set_sandbox_profile: Arc::new(move |profile: Option<SandboxProfileName>, scope: SandboxProfileScope| {
-            lock(&set_sandbox_profile_session)
-                .set_sandbox_profile(profile, scope)
-                .map_err(|error| HandlerError::new(error.to_string()))
-        }),
         wait_for_idle: Arc::new(move || {
             let session = lock(&wait_for_idle_session).clone();
             Box::pin(async move { session.agent().wait_for_idle().await })

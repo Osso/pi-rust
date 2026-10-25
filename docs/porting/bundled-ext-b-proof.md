@@ -45,7 +45,7 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - RED status/custom shell: `/tmp/ext-b-bwrap-status-red.log`; GREEN `/tmp/ext-b-bwrap-status-green.log` (2/2, suite_extensions filter `bwrap_repin::`).
 - RED worker-null/zero-notice: `/tmp/ext-b-bwrap-worker-red.log`; GREEN `/tmp/ext-b-bwrap-worker-green.log` (8/8, extensions --lib filter `bwrap::index::operation_tests::`).
 - Commands use `cargo test -j3 -p <crate> --test <suite> <filter>` (or --lib). All proofs cover bwrap implementation commit (this change). No actual host sandbox.
-- Index stays partial: explicit unimplemented full-access detached-job/registry forwarding, recorded in traceability.
+- Temporary index detached-job/registry gap is closed by the real-process proof below.
 
 ## Usage (implementation in progress)
 
@@ -68,3 +68,27 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN `suite_interactive differential_default_footer::`: original matrix 1/1, `/tmp/ext-b-footer-oracle-green.log`.
 - GREEN new raw full-render test `suite_interactive differential_default_footer::footer_render_keeps`: 1/1, `/tmp/ext-b-footer-raw-green.log`.
 - All cover footer implementation commit (this change); relevant edits alone invalidate them. Oracle fixture change adds lifecycle invocation, not a transformed source.
+
+### Bwrap index closure
+
+- RED `cargo test -j3 -p pi-coding-agent --test bwrap-detached-lifecycle`: no detached result details, `/tmp/ext-b-bwrap-detach-red.log`.
+- GREEN same command: installed full-access extension forwards store/lifecycle/registry, registry detaches real runner, lifecycle reaches Completed, output.log is exactly `readydone`; `/tmp/ext-b-bwrap-detach-green.log`.
+- Standalone harness owns internal-runner dispatch; it does not invoke bwrap, a real sandbox, or providers. Mechanical new test target in Cargo.toml.
+- Proof covers bwrap index closure commit (this change). No realistic detached-job gap remains.
+
+## Final targeted gate
+
+- `eceb9cc11`: `cargo clippy -j3 -p pi-coding-agent-extensions --lib` PASS; `/tmp/ext-b-clippy-extensions.log`. 116 existing extension warnings, zero on lane-changed lines (each diagnostic intersected with the lane diff). No warning suppression added.
+- Same revision: `cargo check -j3 -p pi-coding-agent-extensions --lib` PASS; `/tmp/ext-b-check-extensions.log`.
+- Same revision: fixture Clippy `cargo clippy -j3 -p pi-coding-agent --no-deps` with explicit targets suite_extensions, suite_tools, suite_core_1, suite_core_2, suite_interactive, default_footer_extension, claude_memory_enrich_lifecycle, codex_usage_auth_boundary, bwrap-detached-lifecycle: PASS; `/tmp/ext-b-clippy-fixtures.log`. Zero warnings intersect lane-changed fixture lines. Existing unrelated warnings remain.
+- Readability: manual changed-line review of nine assigned modules, new process fixtures and changed TS oracle. `rust-code-analysis-cli` is unavailable (ENOENT), so no automated complexity claim is made. Native orchestration functions retain existing longer frozen control flow; new helpers/tests have explicit names and bounded nesting. No new abstraction, fallback or suppression.
+- Footer oracle strict typecheck found unknown dynamic-export types (including the pre-existing component access); explicit fixture function signatures now type the same runtime imports. Uses the pinned compiler/source config with scoped ES2024 target/lib per oracle-gate.md. No source patch or weakened assertion. Type-only fixture annotations do not invalidate runtime/Rust proof.
+
+### Final state
+
+All nine assigned rows are `done`; each module retains only explicit approved/runtime exclusions in its traceability, with no pending realistic-path gap. The temporary bwrap detached-job gap was fixed, not waived.
+
+- `2d5c70edb`: protected pinned-compiler strict typecheck of `oracle/default-footer-oracle.ts` PASS; `/tmp/ext-b-footer-types-green.log`. The command creates a temporary config with `buildSourceTsconfig`, scoped ES2024 target/lib, then runs the frozen `node_modules/typescript/bin/tsc --project <temporary config>` inside `python3 scripts/test-sandbox.py`.
+- `python3 scripts/source-inventory.py`: PASS, 686 unique rows / 186679 lines, no missing/extra/duplicate/count drift; `/tmp/ext-b-inventory-final.log`. Documentation-only ledger updates do not invalidate this proof.
+- `cargo fmt --all --check` passed before each lane commit. Working tree clean at final checkpoint; no push/deploy, live provider or real host sandbox was run.
+- Independent verification is the parent integration gate; this lane obeyed the explicit no-agent instruction and ran only bounded checks.

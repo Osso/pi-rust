@@ -179,3 +179,35 @@ supervisor. They still assert the exact returned terminal revision, not just exi
 success. Four complete fixture option literals gained `inherited_process_group_id: None`.
 Windows taskkill is a platform gap; uncommon signal/proc filesystem fault identity
 and races follow the repository runtime-fault gap policy.
+
+## Re-pin runner FIFO failure isolation
+
+Two outstanding requests in one live runner exposed a realistic mismatch: native
+progress failure rejected both; frozen rejects only the request whose callback
+failed, then delivers the next terminal result to the second request. Native
+pending entries now carry internal request IDs (the source uses object identity),
+so stdin errors, abort, parse and callback failures reject that entry only; process
+exit still rejects the generation. Actual frozen/native two-request RED/GREEN:
+`/tmp/bundled3-pyrun-queue-{red,green}.log`.
+
+## Re-pin detached-bridge
+
+| Frozen symbol / branch | Proof | Status |
+| --- | --- | --- |
+| enqueue request/persist metadata/message ID/routing/body order | actual frozen and native SQLite writers compared as exact normalized stored JSON bytes | proven |
+| enqueue response result/null/undefined/error | same byte differential, three response variants including lone UTF-16 unit in arbitrary JSON | proven |
+| parse protocol/command/method/requestId/toolCallId/truthy identity/replyTo | frozen parses native body; native deserializes frozen parsed result; existing empty/non-string toolCallId rejection | proven normal writer/ID paths |
+| validate sender/running lifecycle/supervisor/owner/process PID+startTicks | complete source comparison, native uses the same DB reads/equalities | dedicated live ownership-validation **proof gap** |
+| Wrong-typed identity/replyTo and OS/random failure shapes | source parser accepts exotic truthy shapes where native typed carrier rejects; repository adversarial/runtime-fault gap policy | gap |
+
+RED caught `createdAt` inserted by the shared DB writer at the end of the object;
+source inserts it second. Native bridge now supplies it at the source position.
+`/tmp/bundled3-pyrun-bridge-both.log` is GREEN. Random IDs and wall-clock timestamps
+are normalized only after checking the persisted IDs correlate with their bodies.
+
+Index follow-up: actual frozen dispatcher resolves a metadata-only name from a
+nondefault context control DB; native previously omitted that DB and reported
+`No session found`. Context DB forwarding now matches, with real JSONL+SQLite
+RED/GREEN `/tmp/bundled3-pyrun-resume-{red,green}.log`. Empty optional session ID,
+code and executed prefix now follow JS truthiness. Exact rendered lines with
+blank leading output rows match frozen: `/tmp/bundled3-pyrun-render-{red,green}.log`.

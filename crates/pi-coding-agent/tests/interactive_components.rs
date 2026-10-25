@@ -102,6 +102,7 @@ impl MarkdownTheme for PlainMarkdownTheme {
 
 fn agent(id: &str, display_name: &str, lifecycle: AgentLifecycle) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::from(id.to_string()),
         parent_id: None,
         display_name: JsString::from(display_name.to_string()),

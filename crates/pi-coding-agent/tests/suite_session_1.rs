@@ -66,8 +66,12 @@ pub mod repin_control_sessions;
 pub mod repin_resident_session;
 #[path = "repin_runtime_mailbox_transcript.rs"]
 pub mod repin_runtime_mailbox_transcript;
+#[path = "repin_session_manager.rs"]
+pub mod repin_session_manager;
 #[path = "repin_storage_archive.rs"]
 pub mod repin_storage_archive;
+#[path = "repin_storage_copy_validation.rs"]
+pub mod repin_storage_copy_validation;
 #[path = "repin_storage_history.rs"]
 pub mod repin_storage_history;
 #[path = "repin_storage_listener_membership.rs"]

@@ -34,9 +34,7 @@ Re-pin correction: the full-access operation now passes its configured shell int
   payloads, stdout JSON, and exit codes match; argv differs only in the program
   path. Error stacks from Node are not reproduced; the worker writes the error
   message and exits 1.
-- The full-access bash override creates the local bash definition with default
-  options; detached-job/background-job wiring is owned by the bash tool port and
-  is not re-applied here.
+- Full-access bash forwards the context lifecycle and detach registry; its lifecycle controller owns the same multi-agent store, so no parallel store field is introduced in BashBackgroundJobs.
 - `find`/`grep` matching now uses raw UTF-16 minimatch AST and the shared native
   ECMAScript regex adapter. Actual frozen worker/Node options, exact tested
   failure branches, engine provenance, and explicit approved limits are in
@@ -60,8 +58,8 @@ Index audit covers worker invocation/parse/abort, all operation adapters, MIME l
 | done | Backend environment/invocation and profiles | Two frozen differentials including empty env; `full_access_preserves_configured_shell` real process. |
 | done | Worker operations/error propagation, MIME and lossless argv | Eight `operation_tests`; signalled fake worker and zero-limit regressions RED→GREEN. |
 | done | `/bwrap` unavailable and full-access notifications | `status_command_reports_unavailable_sandbox_but_not_full_access` RED→GREEN. |
-| gap | Index full-access `backgroundJobs`/`detachRegistry` forwarding | Existing native override still creates default BashToolOptions; no claim of detached-runner parity here. This is an explicit realistic-path gap, not an approved deviation. |
+| done | Index full-access `backgroundJobs`/`detachRegistry` forwarding | `bwrap-detached-lifecycle` RED→GREEN proves the installed extension detaches via registry, observes Completed through the lifecycle and retains exact ready/done output from a real child runner. |
 | gap | non-Linux unsupported-platform statuses/prompts | Linux is the implemented runtime; Windows/non-Linux execution is not exercised. |
 | gap | adversarial JSON, exotic fds, OS faults and scheduling races | Approved user-observable parity exclusions. |
 
-Proof log/revision mapping: [lane ledger](../bundled-ext-b-proof.md). Backend row closes; index stays partial with the explicit detached-job gap.
+Proof log/revision mapping: [lane ledger](../bundled-ext-b-proof.md). Both backend and index rows close. The temporary detached-job gap is fixed, not accepted as a deviation.

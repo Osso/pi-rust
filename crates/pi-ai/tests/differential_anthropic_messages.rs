@@ -785,7 +785,7 @@ async fn observe(request: &Value, controller: Option<pi_js_compat::abort::AbortC
     };
     let (events, result) = if request["kind"] == json!("streamSimple") {
         let options = simple_stream_options(&request["options"], fetch.clone(), signal);
-        collect(stream_simple(model, context, options)).await
+        collect(stream_simple(model, context, options).expect("simple acquisition")).await
     } else {
         let options = stream_options(&request["options"], fetch.clone(), signal);
         collect(stream(model, context, options)).await

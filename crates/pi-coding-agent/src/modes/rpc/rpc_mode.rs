@@ -1101,7 +1101,7 @@ mod tests {
             .await
             .unwrap();
         let observed = pi_js_compat::js_json!({
-            "stringTheme":ui.set_theme(&"dark".into()), "objectTheme":ui.set_theme_object(ui.theme()),
+            "stringTheme":ui.set_theme(&"dark".into()), "objectTheme":ui.set_theme_object(ui.theme().unwrap()),
             "editor":ui.get_editor_text().unwrap(), "themes":ui.get_all_themes(), "namedTheme":ui.get_theme(&"dark".into()).map(|_| true),
             "toolsExpanded":ui.get_tools_expanded(), "editorComponent":ui.get_editor_component().map(|_| true), "custom":custom
         });

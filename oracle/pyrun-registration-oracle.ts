@@ -1,5 +1,17 @@
 import { runOracle } from "./coding-agent-utils-oracle-support.ts";
 runOracle(async (api, request) => {
+	if (request.operation === "resume") {
+		let selected: string | undefined;
+		const dispatch = (api.createPyrunPiDispatcher as (pi: unknown, options: unknown) => (request: unknown, ctx: unknown, signal: undefined) => Promise<unknown>)({}, {});
+		const result = await dispatch({ method: "sessions.resume", params: { name: "metadata-only" } }, { cwd: request.cwd, controlDbPath: request.controlDbPath, sessionManager: { getCwd: () => request.cwd, getSessionDir: () => request.sessionDir }, async switchSession(path: string) { selected = path; return { cancelled: false }; } }, undefined);
+		return { result, selected };
+	}
+	if (request.operation === "render-empty") {
+		type Component = {render(width: number): string[]};
+		const tool = (api.createPyrunToolDefinition as (evaluate: unknown) => {renderCall(...args: unknown[]): Component; renderResult(...args: unknown[]): Component})(async () => ({}));
+		const theme = { fg(_key: unknown, text: string) { return text; }, bold(text: string) { return text; } };
+		return { call: tool.renderCall({code: "", session_id: ""}, theme, {}).render(80), result: tool.renderResult({content:[{type:"text",text:"\n\nvalue"}],details:{executed:""}}, {}, theme, {args:{code:""},isError:false}).render(80) };
+	}
 	if (request.operation === "definition") {
 		const tool = (api.createPyrunToolDefinition as (evaluate: unknown, options: unknown) => {promptSnippet: string; promptGuidelines: string[]})(async () => ({}), request.options);
 		return { promptSnippet: tool.promptSnippet, promptGuidelines: tool.promptGuidelines };

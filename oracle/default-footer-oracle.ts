@@ -63,7 +63,10 @@ async function runLifecycle(register: LifecycleRegistration): Promise<unknown[]>
 }
 
 void runOracle(async (api, request) => {
-	if (request.operation === "lifecycle") return runLifecycle(api.default);
+	if (request.operation === "lifecycle") return runLifecycle(api.default as LifecycleRegistration);
+	const createFooter = api.createDefaultFooterComponent as (
+		input: Record<string, unknown>,
+	) => { render(width: number): string[] };
 	const cases = requireCases(request) as AnyRecord[];
 	const themeModule = await loadSource("src/modes/interactive/theme/theme.ts");
 	themeModule.initTheme(undefined, false);
@@ -98,7 +101,7 @@ void runOracle(async (api, request) => {
 			getSessionOverride: () => overrideValue,
 			onBranchChange: () => () => {},
 		};
-		const component = api.createDefaultFooterComponent({
+		const component = createFooter({
 			ctx,
 			footerData,
 			getAgentCounts: input.agentCounts ? () => input.agentCounts : undefined,

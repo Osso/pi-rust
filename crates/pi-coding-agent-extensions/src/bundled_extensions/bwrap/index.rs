@@ -757,7 +757,24 @@ fn register_sandboxed_bash_tool(
                         ..Default::default()
                     },
                 ),
-                None => create_bash_tool_definition(&cwd, Default::default()),
+                None => {
+                    let background_jobs = if ctx.multi_agent_store()?.is_some() {
+                        Some(Arc::new(crate::core::tools::bash::BashBackgroundJobs {
+                            get_lifecycle: None,
+                            lifecycle: ctx.detached_job_lifecycle()?,
+                        }))
+                    } else {
+                        None
+                    };
+                    create_bash_tool_definition(
+                        &cwd,
+                        crate::core::tools::bash::BashToolOptions {
+                            background_jobs,
+                            detach_registry: ctx.tool_detach_registry()?,
+                            ..Default::default()
+                        },
+                    )
+                }
             };
             (tool.execute)(id, params, signal, on_update, Some(ctx)).await
         })

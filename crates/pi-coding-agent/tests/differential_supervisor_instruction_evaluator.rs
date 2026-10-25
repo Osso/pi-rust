@@ -22,7 +22,7 @@ struct Script {
     started: i64,
     abort_during_stream: bool,
 }
-fn write_models(root: &std::path::Path) {
+pub(super) fn write_models(root: &std::path::Path) {
     let mut providers = JsObject::new();
     let mut auth = JsObject::new();
     for provider in ["openai-codex", "openai-codex-gc", "openai-codex-team"] {

@@ -328,3 +328,189 @@ async fn pyrun_dispose_terminates_inherited_process_group_members_like_frozen() 
     }
     process_env::clear();
 }
+
+#[tokio::test]
+async fn pyrun_progress_failure_rejects_only_its_queued_request_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::{
+        CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerError, PyrunRunnerOptions,
+    };
+    let _environment = ENVIRONMENT.lock().await;
+    process_env::set("PI_PYRUN_RUNNER_ARGS", "[]");
+    let script = "import sys,json,time\nsys.stdin.readline()\nsys.stdin.readline()\nprint(json.dumps({'type':'console','text':'progress'}),flush=True)\nprint(json.dumps({'type':'completed','value':42}),flush=True)\ntime.sleep(0.2)";
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-runner-queue-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"options":{"command":"python3","args":["-u","-c",script]}}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
+        command: Some("python3".into()),
+        args: Some(vec!["-u".into(), "-c".into(), script.into()]),
+        ..Default::default()
+    });
+    let first: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"first"})).unwrap();
+    let second: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"second"})).unwrap();
+    let (first, second) = tokio::join!(
+        runner.evaluate(
+            first,
+            Some(std::sync::Arc::new(|_| Err(PyrunRunnerError::new("progress rejected")))),
+            None,
+            None
+        ),
+        runner.evaluate(second, None, None, None)
+    );
+    let actual = [first, second]
+        .into_iter()
+        .map(|result| match result {
+            Ok(result) => json!({"result":result}),
+            Err(error) => json!({"error":error.message()}),
+        })
+        .collect::<Vec<_>>();
+    runner.dispose();
+    assert_eq!(json!(actual), expected["output"]);
+    process_env::clear();
+}
+
+#[tokio::test]
+async fn pyrun_resume_resolves_metadata_name_in_the_context_control_db_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::{index::create_pyrun_pi_dispatcher, runner::PiRequest};
+    use pi_coding_agent::core::{
+        extensions::types::{ExtensionCommandContextActions, SessionTransitionResult},
+        session_manager::SessionManager,
+    };
+    use std::sync::{Arc, Mutex};
+    let _environment = ENVIRONMENT.lock().await;
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let path = directory.path().join("target.jsonl");
+    let control = directory.path().join("control.sqlite");
+    std::fs::write(&path,format!("{}\n{}\n",json::stringify_lossless(&json!({"type":"session","version":3,"id":"target-id","timestamp":"2026-01-01T00:00:00.000Z","cwd":cwd})),json::stringify_lossless(&json!({"type":"message","id":"user-1","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"hello","timestamp":0}})))).unwrap();
+    let mut manager = SessionManager::open(&path.to_str().unwrap().into(), Some(&cwd.into()), None).unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&control.to_str().unwrap().into()), Default::default())
+        .unwrap();
+    manager.set_session_name(Some(&"metadata-only".into())).unwrap();
+    let runtime = support::runtime();
+    let api = Arc::new(Mutex::new(None));
+    let capture = api.clone();
+    let extension = support::extension(&runtime, cwd, "resume", move |api| {
+        *capture.lock().unwrap() = Some(api.clone())
+    })
+    .await;
+    let mut runner = ExtensionRunner::new(
+        vec![extension],
+        runtime,
+        cwd,
+        Arc::new(Mutex::new(manager)),
+        support::model_registry().await,
+        None,
+    );
+    let mut context = support::context_actions();
+    let control_path = control.to_str().unwrap().to_owned();
+    context.get_control_db_path = Some(Arc::new(move || Some(control_path.clone().into())));
+    runner.bind_core(support::actions(), context, None).unwrap();
+    let selected = Arc::new(Mutex::new(None));
+    let selection = selected.clone();
+    runner.bind_command_context(Some(ExtensionCommandContextActions {
+        show_approval_selector: Arc::new(|| Ok(())),
+        show_sandbox_selector: Arc::new(|| Ok(())),
+        wait_for_idle: Arc::new(|| Box::pin(async {})),
+        new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        navigate_tree: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
+        switch_session: Arc::new(move |path, _| {
+            *selection.lock().unwrap() = Some(path);
+            Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })
+        }),
+        reload: Arc::new(|| Box::pin(async { Ok(()) })),
+        restart: Arc::new(|_| Box::pin(async { Ok(()) })),
+    }));
+    let dispatcher = create_pyrun_pi_dispatcher(&api.lock().unwrap().take().unwrap(), &Default::default());
+    let actual = dispatcher(
+        PiRequest {
+            method: "sessions.resume".into(),
+            params: json!({"name":"metadata-only"}),
+        },
+        runner.create_context(),
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-registration-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/index.ts",
+    );
+    let expected =
+        oracle.request(&json!({"id":1,"operation":"resume","cwd":cwd,"sessionDir":cwd,"controlDbPath":control}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(
+        json!({"result":actual,"selected":selected.lock().unwrap().clone()}),
+        expected["output"]
+    );
+}
+
+#[test]
+fn pyrun_empty_optional_text_renders_like_frozen() {
+    use pi_coding_agent::{
+        bundled_extensions::pyrun::index::create_pyrun_tool_definition,
+        core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState},
+        modes::interactive::theme::{ColorMode, ColorValue, REQUIRED_COLORS, Theme},
+        utils::ansi::strip_ansi,
+    };
+    let colors = REQUIRED_COLORS
+        .iter()
+        .map(|key| ((*key).into(), ColorValue::Text("#808080".into())))
+        .collect::<Vec<_>>();
+    let theme = Theme::new(&colors, &colors, ColorMode::Truecolor, None, None).unwrap();
+    let tool = create_pyrun_tool_definition(
+        std::sync::Arc::new(|_, _, _, _, _| Box::pin(async { unreachable!() })),
+        Default::default(),
+    );
+    let ctx = ToolRenderContext {
+        args: json!({"code":"","session_id":""}),
+        tool_call_id: "call".into(),
+        invalidate: std::sync::Arc::new(|| {}),
+        last_component: None,
+        call_component: None,
+        state: ToolRenderState::default(),
+        cwd: "/tmp".into(),
+        execution_started: false,
+        args_complete: true,
+        is_partial: false,
+        expanded: false,
+        show_images: false,
+        is_error: false,
+    };
+    let call = tool.render_call.unwrap()(&ctx.args, &theme, &ctx)
+        .unwrap()
+        .borrow_mut()
+        .render(80)
+        .iter()
+        .map(strip_ansi)
+        .collect::<Vec<_>>();
+    let result =
+        json::from_value(&json!({"content":[{"type":"text","text":"\n\nvalue"}],"details":{"executed":""}})).unwrap();
+    let output = tool.render_result.unwrap()(
+        &result,
+        &ToolRenderResultOptions {
+            expanded: false,
+            is_partial: false,
+        },
+        &theme,
+        &ctx,
+    )
+    .unwrap()
+    .borrow_mut()
+    .render(80)
+    .iter()
+    .map(strip_ansi)
+    .collect::<Vec<_>>();
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-registration-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/index.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"operation":"render-empty"}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(json!({"call":call,"result":output}), expected["output"]);
+}

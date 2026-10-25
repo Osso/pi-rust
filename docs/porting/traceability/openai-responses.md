@@ -1,51 +1,29 @@
-# openai-responses traceability
+# OpenAI Responses API traceability
 
-## Q4 common-pin status
+Frozen: `packages/ai/src/api/openai-responses.ts` at [source lock](../source-lock.json), 297 lines. Native: `crates/pi-ai/src/api/openai_responses.rs`; SDK transport: `openai_sdk.rs`; message/tool/event algorithms: [shared module](openai-responses-shared.md).
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed native output floor and explicit-cache field. Shared usage/tool/incomplete-event fixes advance the exact differential to scenario10 affinity-header drift. Restored frozen sendSessionIdHeader (default true), x-client-request-id and options-header precedence; removed xAI include override and incremented retry headers. Current20 recorded scenarios pass at dbcc11de (`responses-retry-green.log`). Shared-module differentials still expose old grammar/custom-tool conversion and namespace drift, so this is not whole-module parity. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
+## Whole-module audit (2026-10-25)
 
-Source: `packages/ai/src/api/openai-responses.ts` and `openai-responses.lazy.ts`.
-Rust: `crates/pi-ai/src/api/openai_responses.rs`.
-Tests: module unit tests, `crates/pi-ai/tests/differential_openai_responses.rs` (20 recorded-fetch scenarios).
-
-## Symbols → proof
-| TS | Rust | Test |
+| Source symbols / branches | Native representation | Behavioral proof |
 |---|---|---|
-| `OPENAI_TOOL_CALL_PROVIDERS` | constant | conversion scenarios |
-| `OPENAI_RESPONSES_MIN_OUTPUT_TOKENS` | constant | scenario 0 (maxTokens 5 -> 16) |
-| `hasHeader`, `getClientApiKey` | same-named helpers | header/auth scenarios |
-| `detectSessionAffinityFormat` | `detect_session_affinity_format` | 0, 10; unit test |
-| `resolveCacheRetention` | `resolve_cache_retention` | 8, 9 |
-| `getCompat` | `get_compat` | all request scenarios; unit test |
-| `getPromptCacheRetention` | `get_prompt_cache_retention` | 8 |
-| `formatOpenAIResponsesError` | `format_sdk_error`/`format_request_error` with `"OpenAI API error"` | 12-14 |
-| `OpenAIResponsesOptions` | `OpenAIResponsesOptions` | 2, 3, 7 |
-| `stream` | `stream` / `OpenAIResponsesApi` | all |
-| `streamSimple` | `stream_simple` | 3 |
-| `createClient` (headers, copilot, affinity) | `create_client` | 0, 1, 8-10 |
-| `buildParams` | `build_params` | all request comparisons |
-| developer/system role | `convert_responses_messages` | 0 vs 1 |
-| reasoning effort/summary/off | `build_params` | 2, 3 |
-| xAI include | `build_params` | 11 |
-| tool strict/grammar conversion | shared converter | 4, 5 |
-| service-tier pricing | `apply_service_tier_pricing` | 7; unit test |
-| lazy wrapper | `open_ai_responses_api` | module compiles; `LazyApi` behavior covered by `api_lazy` tests |
+| `OpenAIResponsesOptions`, `buildParams`: model/input/stream/cache/store, truthy maxTokens, temperature, serviceTier including null, function tools | native payload; only the three frozen option fields, no old toolChoice/sampling merge | `responses_options_match_frozen_selection_empty_session_and_sdk_retry`; existing21 scenarios |
+| `hasHeader`, `getClientApiKey`: API key, caller Authorization/CF gateway auth, missing/blank key | native header/key checks; direct Simple returns Result | `response_auth_headers_and_service_tier_precedence_match_frozen`, twelve-case `differential_simple_acquisition` |
+| `resolveCacheRetention`, `getCompat`, `getPromptCacheRetention` | explicit retention / scoped env / short default; nullish compat defaults; conditional24h | existing none/long/Copilot/proxy/session cases; native lossless registry compat fixtures |
+| `createClient`: model→Copilot→nonempty session→caller headers | ordered header merge and shared SDK6.26 request path | exact requests in all source scenarios; empty session omission regression |
+| `stream`: output initialization, payload replacement, SDK request options, response callback, start, shared stream, abort/unknown-stop guards, done, catch scratch cleanup | async producer; original callback branding and raw JSON kept | exact events/results; open-tool success/error/incomplete/arguments.done five-case fixture; `differential_api_catches` |
+| `streamSimple`: synchronous auth, base selection, model reasoning clamp, standard clamp | Result before stream acquisition; lazy wrapper owns async catch | common-pin direct missing/empty auth matrix; simple high scenario; shared base-option differential |
+| `getServiceTierCostMultiplier`, `applyServiceTierPricing`: flex0.5, gpt-5.5 priority2.5, other priority2, default1; response tier wins | same cost arithmetic and native shared pricing callback | unit pricing table plus eight actual-source request/response-tier cases |
+| lazy factory | native `LazyApi` factory | [lazy EOF/acquisition/uncaught proof](api-lazy.md) |
 
-## Differential normalization
-- Timestamps (`Date.now()` in TypeScript, `now_millis()` in Rust) become `0`.
-- Environment identity headers (`user-agent`, `x-stainless-*`) become `<env>`.
-- JSON syntax-error text for malformed streams is the V8 `SyntaxError` message from `pi_js_compat::js_json` and is compared byte-for-byte (the malformed-stream scenario has no normalization).
-- Event `partial` is snapshotted at `push` time by the oracle.
+Genuine REDs removed old-only toolChoice/sampling request fields, empty session headers, dropped valid null serviceTier, and capped SDK retries with pi's unrelated maxRetryDelayMs. SDK retry attempt counts remain exact. Callback catches no longer erase raw rejection strings/objects or branded status/body fields. No frozen logic correction or new dependency.
 
-## Gaps
-- `streamSimple` throws synchronously in TypeScript when the API key is missing; the Rust `ProviderStreams` contract cannot throw, so it returns an immediate error stream (typed-API deviation).
-- `onPayload`/`onResponse` callbacks are exercised by Rust behavior but not serialized through the JSON oracle.
+## Explicit gaps
 
-## Discrepancies
-- None. The TypeScript source accepts arbitrary `service_tier` strings; Rust stores them as strings unchanged.
+- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the one-line user-observable boundary; no new representation is claimed for them. Default SDK malformed-SSE diagnostics have bounded actual-source/native stderr proof, including raw heartbeat/event/data lines.
+- Event partials are immutable native push-time snapshots (approved); native callbacks use the existing typed contracts. Unset Rust-only fetch injection uses the default HTTP client.
 
-## Q18 provider request integration (2026-10-22)
+Proof commands and exact revisions/logs belong in [AI API re-pin proof](../ai-api-repin-proof.md). Historical narrow ingress/error proofs remain [linked](lossless-provider-ingress.md), [linked](lossless-provider-errors.md).
 
-Client key selection, default/model/header merges and affinity session IDs stay native. SDK request construction owns URL/header conversion; no affinity-value UTF-8 projection remains.
+## Shared SDK SSE diagnostics
 
-[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+`malformed_sse_console_diagnostics_match_frozen_sdk` compares the actual frozen SDK console formatter against native child-process stderr for ordinary, heartbeat-prefixed and multiline/event-prefixed malformed data. Genuine RED was completely missing native diagnostics. The decoder now retains source raw-line state across heartbeat segments, preserves event type, and does not emit an unterminated final event. Seven additional LF/CRLF/CR/comment/multiline/thread/EOF request/event/result cases exercise the same shim. The Node logger caches its console method, so the oracle installs one stable forwarding spy before module import and switches only its recording target; it does not patch source or alter formatting. Source body errors and SDK host/runtime fault branches are not generalized from these fixtures.

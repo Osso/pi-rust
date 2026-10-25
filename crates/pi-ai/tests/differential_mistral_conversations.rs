@@ -192,7 +192,7 @@ async fn observe(scenario: &Value) -> Value {
             reasoning: scenario["options"]["reasoning"].as_str().and_then(parse_thinking_level),
             thinking_budgets: None,
         };
-        stream_simple(model, context, simple)
+        stream_simple(model, context, simple).expect("simple acquisition")
     } else {
         stream(model, context, MistralOptions::from_stream_options(options))
     };

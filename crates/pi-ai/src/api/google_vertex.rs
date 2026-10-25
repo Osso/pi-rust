@@ -246,7 +246,7 @@ async fn prepare_params(
     };
     on_payload(params.clone(), model.clone())
         .await
-        .map_err(|error| error.message)
+        .map_err(|error| super::openai_sdk::format_callback_error(&error, None))
         .map(|replacement| replacement.unwrap_or(params))
 }
 

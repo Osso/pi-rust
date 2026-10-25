@@ -11,13 +11,43 @@ async function main(): Promise<void> {
 	const { ModelRegistry } = await load("model-registry.ts");
 	const { AuthStorage } = await load("auth-storage.ts");
 	const { createEventBus } = await load("event-bus.ts");
+	const { SettingsManager } = await load("settings-manager.ts");
+	const { initTheme } = await load("../modes/interactive/theme/theme.ts");
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const runtime = createExtensionRuntime();
-		const extensions = request.values ? await Promise.all(request.values.map((value: unknown, index: number) => loadExtensionFromFactory((api: { on: (event: string, handler: () => never) => void }) => api.on("session_start", () => { throw value; }), "/tmp", createEventBus(), runtime, `<inline:${index}>`))) : [];
-		const runner = new ExtensionRunner(extensions, runtime, "/tmp", SessionManager.inMemory("/tmp"), ModelRegistry.inMemory(AuthStorage.inMemory()));
+		let extensions = request.values ? await Promise.all(request.values.map((value: unknown, index: number) => loadExtensionFromFactory((api: { on: (event: string, handler: () => never) => void }) => api.on("session_start", () => { throw value; }), "/tmp", createEventBus(), runtime, `<inline:${index}>`))) : [];
+		if (request.operation === "approval_commands") {
+			const module = await load("../../extensions/approval-controls/src/index.ts");
+			extensions = [await loadExtensionFromFactory(module.default, "/tmp", createEventBus(), runtime, "<inline>")];
+		}
+		const settings = ["sandbox", "approval_commands"].includes(request.operation) ? SettingsManager.inMemory() : undefined;
+		const runner = new ExtensionRunner(extensions, runtime, "/tmp", SessionManager.inMemory("/tmp"), ModelRegistry.inMemory(AuthStorage.inMemory()), settings);
 		let output: unknown;
-		if (request.values) {
+		if (request.operation === "approval_commands") {
+			initTheme("dark", false);
+			const { theme } = await load("../modes/interactive/theme/theme.ts");
+			let notify: unknown[] = [], status: unknown[] = [], editor: string[] = [];
+			let sandboxSelector = 0, approvalSelector = 0;
+			runner.bindCommandContext({ showSandboxSelector: () => { sandboxSelector++; }, showApprovalSelector: () => { approvalSelector++; }, waitForIdle: async () => {}, newSession: async () => ({ cancelled: false }), fork: async () => ({ cancelled: false }), navigateTree: async () => ({ cancelled: false }), switchSession: async () => ({ cancelled: false }), reload: async () => {}, restart: async () => {} });
+			runner.setUIContext({ theme, notify: (message: string, type?: string) => notify.push([message, type ?? null]), setStatus: (key: string, text?: string) => status.push([key, text ?? null]), setEditorText: (text: string) => editor.push(text) }, "tui");
+			const steps: unknown[] = [];
+			for (const action of request.actions) {
+				let error: string | null = null;
+				try { await runner.getCommand(action.name).handler(action.args, runner.createCommandContext()); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
+				steps.push({ error, notify, status, editor, sandboxSelector, approvalSelector, profile: settings.getExplicitSandboxProfile() ?? null });
+				notify = []; status = []; editor = []; sandboxSelector = 0; approvalSelector = 0;
+			}
+			output = steps;
+		} else if (request.operation === "sandbox") {
+			if (request.initializeTheme !== false) initTheme("dark", false);
+			const results: unknown[] = [];
+			for (const action of request.actions) {
+				if (action.reset) runner.bindCommandContext();
+				try { runner.createCommandContext().setSandboxProfile(action.profile, action.scope); results.push(null); } catch (error) { results.push(error instanceof Error ? error.message : String(error)); }
+			}
+			output = { results, profile: settings.getExplicitSandboxProfile() ?? null };
+		} else if (request.values) {
 			const errors: unknown[] = [];
 			runner.onError((error: { error: string }) => errors.push(error.error));
 			await runner.emit({ type: "session_start", reason: "startup" });

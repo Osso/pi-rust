@@ -49,8 +49,8 @@ impl ExtensionUiTuiBackend for Backend {
 }
 struct Ui(Trace);
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
-        Arc::new(
+    fn theme(&self) -> Result<Arc<pi_coding_agent::modes::interactive::theme::Theme>, pi_ai::request::CallbackError> {
+        Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
                     (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
@@ -60,7 +60,7 @@ impl ExtensionUiContext for Ui {
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
-        )
+        ))
     }
     fn custom<'a>(
         &'a self,
@@ -75,7 +75,7 @@ impl ExtensionUiContext for Ui {
             let component = factory(
                 ExtensionUiFactoryContext {
                     tui: ExtensionUiTui::new(Arc::new(Backend(self.0.clone()))),
-                    theme: self.theme(),
+                    theme: self.theme().unwrap(),
                     keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                 },
                 ExtensionUiDone::new(Rc::new(move |v| {
