@@ -60,3 +60,11 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN `cargo test -j3 -p pi-coding-agent --test suite_core_2 differential_codex_usage::`, 5/5 including raw bidirectional DTO/text oracle, all-account bridge/credentials; `/tmp/ext-b-usage-all-green.log`.
 - Proof covers usage closure commit (this change). HTTP/payload/report behavior proof at f8724a65d remains valid except credential lookup, now covered above.
 - Mechanical fallout: native map fixture adapters and standalone auth target registration in Cargo.toml; no dependencies or cross-lane algorithms.
+
+## Default footer
+
+- RED frozen ordered UI trace: `cargo test -j3 -p pi-coding-agent --test default_footer_extension background_compaction_status_lifecycle_matches_frozen`, `/tmp/ext-b-footer-lifecycle-red.log`.
+- GREEN full focused target `default_footer_extension`: 13/13, `/tmp/ext-b-footer-behavior-green.log`.
+- GREEN `suite_interactive differential_default_footer::`: original matrix 1/1, `/tmp/ext-b-footer-oracle-green.log`.
+- GREEN new raw full-render test `suite_interactive differential_default_footer::footer_render_keeps`: 1/1, `/tmp/ext-b-footer-raw-green.log`.
+- All cover footer implementation commit (this change); relevant edits alone invalidate them. Oracle fixture change adds lifecycle invocation, not a transformed source.
