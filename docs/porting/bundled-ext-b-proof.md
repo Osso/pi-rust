@@ -83,3 +83,12 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - Same revision: fixture Clippy `cargo clippy -j3 -p pi-coding-agent --no-deps` with explicit targets suite_extensions, suite_tools, suite_core_1, suite_core_2, suite_interactive, default_footer_extension, claude_memory_enrich_lifecycle, codex_usage_auth_boundary, bwrap-detached-lifecycle: PASS; `/tmp/ext-b-clippy-fixtures.log`. Zero warnings intersect lane-changed fixture lines. Existing unrelated warnings remain.
 - Readability: manual changed-line review of nine assigned modules, new process fixtures and changed TS oracle. `rust-code-analysis-cli` is unavailable (ENOENT), so no automated complexity claim is made. Native orchestration functions retain existing longer frozen control flow; new helpers/tests have explicit names and bounded nesting. No new abstraction, fallback or suppression.
 - Footer oracle strict typecheck found unknown dynamic-export types (including the pre-existing component access); explicit fixture function signatures now type the same runtime imports. Uses the pinned compiler/source config with scoped ES2024 target/lib per oracle-gate.md. No source patch or weakened assertion. Type-only fixture annotations do not invalidate runtime/Rust proof.
+
+### Final state
+
+All nine assigned rows are `done`; each module retains only explicit approved/runtime exclusions in its traceability, with no pending realistic-path gap. The temporary bwrap detached-job gap was fixed, not waived.
+
+- `2d5c70edb`: protected pinned-compiler strict typecheck of `oracle/default-footer-oracle.ts` PASS; `/tmp/ext-b-footer-types-green.log`. The command creates a temporary config with `buildSourceTsconfig`, scoped ES2024 target/lib, then runs the frozen `node_modules/typescript/bin/tsc --project <temporary config>` inside `python3 scripts/test-sandbox.py`.
+- `python3 scripts/source-inventory.py`: PASS, 686 unique rows / 186679 lines, no missing/extra/duplicate/count drift; `/tmp/ext-b-inventory-final.log`. Documentation-only ledger updates do not invalidate this proof.
+- `cargo fmt --all --check` passed before each lane commit. Working tree clean at final checkpoint; no push/deploy, live provider or real host sandbox was run.
+- Independent verification is the parent integration gate; this lane obeyed the explicit no-agent instruction and ran only bounded checks.
