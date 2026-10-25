@@ -72,7 +72,6 @@ fn model() -> Model {
         cost: ModelCost {
             properties: Default::default(),
             rates: ModelCostRates::default(),
-            tiers: None,
         },
         context_window: 400000.0,
         auto_compaction_threshold: None,

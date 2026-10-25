@@ -1270,7 +1270,6 @@ fn default_model() -> Model {
         cost: ModelCost {
             properties: Default::default(),
             rates: ModelCostRates::default(),
-            tiers: None,
         },
         context_window: 0.0,
         auto_compaction_threshold: None,
