@@ -22,7 +22,6 @@ use crate::core::runtime_process::is_verified_pi_runtime_process;
 use crate::utils::child_process::node_spawn_error_message;
 use crate::utils::lockfile::{self, LockOptions};
 use crate::utils::paths::{node_dirname, node_join, node_resolve};
-use crate::utils::private_paths::create_private_directory;
 
 pub const SUPERVISOR_AUTOSTART_ENV: &str = "PI_SUPERVISOR_AUTOSTARTED";
 
@@ -186,7 +185,14 @@ async fn with_supervisor_start_lock(
     probe: &SupervisorProbe,
 ) -> StartupResult {
     let directory = node_dirname(&input.control_db_path);
-    create_private_directory(Path::new(&encode_node_utf8(&directory))).map_err(startup_error)?;
+    use std::os::unix::fs::DirBuilderExt;
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(encode_node_utf8(&directory))
+        .map_err(|error| {
+            NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(&error, "mkdir", &directory))
+        })?;
     let options = LockOptions {
         stale_ms: 5000,
         update_ms: Some(1000),
@@ -273,7 +279,7 @@ fn resolve_current_supervisor_launch_invocation() -> Result<SupervisorLaunchInvo
     })
 }
 
-/// `setsid` is the existing native detachment mechanism. Target-exec races remain a pending parity row.
+/// `setsid` is the approved native detachment mechanism; late target-exec failures are a recorded gap.
 async fn launch_supervisor(invocation: SupervisorLaunchInvocation) -> Result<(), NativeNodeError> {
     preflight_supervisor_target(&invocation)?;
     let mut command = tokio::process::Command::new("setsid");

@@ -95,6 +95,122 @@ fn options(socket_path: &str, host: Arc<TestHost>) -> ResidentConsoleServerOptio
     }
 }
 
+struct ImmediateEventHost;
+
+impl ResidentConsoleHost<Value, Value> for ImmediateEventHost {
+    fn get_snapshot(&self) -> Snapshot {
+        snapshot()
+    }
+
+    fn enqueue_prompt(
+        &self,
+        _text: JsString,
+        _id: JsString,
+    ) -> Pin<Box<dyn std::future::Future<Output = Result<(), JsString>> + Send>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn subscribe(&self, listener: Arc<dyn Fn(Value) + Send + Sync>) -> Unsubscribe {
+        listener(json!({"type": "ready"}));
+        Box::new(|| {})
+    }
+}
+
+#[tokio::test]
+async fn sends_snapshot_before_events_emitted_during_subscription() {
+    let (_directory, path) = socket_path();
+    let server = ResidentConsoleServer::new(ResidentConsoleServerOptions {
+        socket_path: path.clone().into(),
+        service: ResidentConsoleService::Supervisor,
+        host: Arc::new(ImmediateEventHost),
+    });
+    server.start().await.unwrap();
+    let mut stream = UnixStream::connect(&path).await.unwrap();
+    stream
+        .write_all(b"{\"type\":\"attach\",\"version\":1,\"service\":\"supervisor\"}\n")
+        .await
+        .unwrap();
+    let mut lines = BufReader::new(stream).lines();
+    let first: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    let second: Value = serde_json::from_str(&lines.next_line().await.unwrap().unwrap()).unwrap();
+    assert_eq!(first["type"], "attached");
+    assert_eq!(second, json!({"type":"event", "sequence":1,"event":{"type":"ready"}}));
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn rejects_new_prompts_after_remote_disconnect() {
+    let (_directory, path) = socket_path();
+    let host = TestHost::new();
+    let server = ResidentConsoleServer::new(options(&path, host));
+    server.start().await.unwrap();
+    let client: ResidentConsoleClient<Value, Value> =
+        ResidentConsoleClient::connect(&path, ResidentConsoleService::Supervisor)
+            .await
+            .unwrap();
+    let (sent, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let _unsubscribe = client.on_disconnect(Arc::new(move |error| {
+        sent.send(error).unwrap();
+    }));
+    server.close().await.unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), received.recv())
+            .await
+            .unwrap(),
+        Some(None)
+    );
+    let result = tokio::time::timeout(Duration::from_secs(2), client.prompt("late", "not queued")).await;
+    assert_eq!(
+        result.expect("disconnected prompt must not hang"),
+        Err("Resident console is closed".into())
+    );
+    client.close().await;
+}
+
+#[tokio::test]
+async fn reports_node_errors_for_existing_file_parent_and_connecting_to_a_directory() {
+    let (directory, path) = socket_path();
+    let blocked = directory.path().join("blocked");
+    std::fs::write(&blocked, "not a directory").unwrap();
+    let server = ResidentConsoleServer::new(options(blocked.join("console.sock").to_str().unwrap(), TestHost::new()));
+    assert_eq!(
+        server.start().await.unwrap_err(),
+        format!("EEXIST: file already exists, mkdir '{}'", blocked.display())
+    );
+    let error = match ResidentConsoleClient::<Value, Value>::connect(
+        directory.path().to_str().unwrap(),
+        ResidentConsoleService::Supervisor,
+    )
+    .await
+    {
+        Ok(_) => panic!("directory cannot be a resident socket"),
+        Err(error) => error,
+    };
+    // Linux connect to a directory is ECONNREFUSED, which maps to the public unavailable error.
+    assert_eq!(
+        error,
+        format!("Resident console is unavailable: {}", directory.path().display())
+    );
+    assert!(!std::path::Path::new(&path).exists());
+}
+
+#[tokio::test]
+async fn reports_disconnect_before_snapshot() {
+    let (_directory, path) = socket_path();
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let peer = tokio::spawn(async move {
+        let (stream, _) = listener.accept().await.unwrap();
+        let mut lines = BufReader::new(stream).lines();
+        assert!(lines.next_line().await.unwrap().is_some());
+    });
+    let error = match ResidentConsoleClient::<Value, Value>::connect(&path, ResidentConsoleService::Supervisor).await {
+        Ok(_) => panic!("closed peer cannot attach"),
+        Err(error) => error,
+    };
+    assert_eq!(error, "Resident console disconnected before attach");
+    peer.await.unwrap();
+}
+
 #[tokio::test]
 async fn attaches_to_the_existing_resident_and_receives_its_full_snapshot() {
     let (_directory, path) = socket_path();
