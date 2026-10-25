@@ -18,6 +18,14 @@ type FlowAuth = {
 const nodeCrypto = createRequire(import.meta.url)("node:crypto") as {
 	randomBytes(length: number): Buffer;
 };
+let fillState: (length: number) => Buffer = () => {
+	throw new Error("state entropy fixture is not configured");
+};
+// The frozen Codex module caches its imported randomBytes callback; keep one
+// stable callback and change only its per-request test state.
+nodeCrypto.randomBytes = (length) => fillState(length);
+syncBuiltinESMExports();
+
 type PkceApi = {
 	generatePKCE(): Promise<{ verifier: string; challenge: string }>;
 };
@@ -36,12 +44,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 	const rejection = request.raw
 		? "pkce-\ud800"
 		: Object.assign(new TypeError("crypto-\udfff"), { code: "E_CRYPTO" });
-	nodeCrypto.randomBytes = (length) => {
+	fillState = (length) => {
 		calls.push({ operation: "state", length });
 		if (request.reject === "state") throw rejection;
 		return Buffer.alloc(length);
 	};
-	syncBuiltinESMExports();
 	globalThis.fetch = async () => {
 		throw new Error("unexpected entropy fixture fetch");
 	};
