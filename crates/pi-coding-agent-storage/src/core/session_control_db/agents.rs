@@ -4174,6 +4174,21 @@ fn read_detached_owner_for_recovery(
     }))
 }
 
+fn has_terminal_outbox_record(
+    db: &Connection,
+    session_path: &JsString,
+    agent_id: &JsString,
+) -> Result<bool, ControlDbError> {
+    Ok(db
+        .query_row(
+            "SELECT 1 FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? LIMIT 1",
+            params![session_path, agent_id],
+            |_| Ok(()),
+        )
+        .optional()?
+        .is_some())
+}
+
 #[cfg(test)]
 mod lossless_integration_tests {
     use super::*;
@@ -4299,19 +4314,4 @@ mod lossless_integration_tests {
             assert_eq!(command.get("reason"), expected.as_ref());
         }
     }
-}
-
-fn has_terminal_outbox_record(
-    db: &Connection,
-    session_path: &JsString,
-    agent_id: &JsString,
-) -> Result<bool, ControlDbError> {
-    Ok(db
-        .query_row(
-            "SELECT 1 FROM multi_agent_terminal_outbox WHERE session_path = ? AND agent_id = ? LIMIT 1",
-            params![session_path, agent_id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
 }
