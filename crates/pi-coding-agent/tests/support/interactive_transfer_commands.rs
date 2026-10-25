@@ -92,7 +92,7 @@ async fn transfer_command_child() {
             let mut manager = session.session_manager();
             if case != "copy-none" {
                 manager.append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::types::UserMessage {
-                    role: pi_ai::types::UserRole::default(), content: pi_ai::types::UserContent::Text("Transfer fixture".into()), timestamp: 0.0,
+                    role: pi_ai::types::UserRole::default(), content: pi_ai::types::UserContent::Text(JsString::from("Transfer fixture 日本 ") + JsString::from_utf16(vec![0xd800])), timestamp: 0.0,
                     input_source: None, provider_native: None,
                 })).unwrap();
             }
