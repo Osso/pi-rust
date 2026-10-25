@@ -8804,9 +8804,20 @@ impl InteractiveMode {
 
     async fn handle_export_command(&self, text: JsString) {
         let path = Self::path_command_argument(&text, &JsString::from("/export"));
-        match self.session().export_to_html(path.as_ref()).await {
-            Ok(path) => self.show_status(&js_format!("Exported session to {}", path)),
-            Err(error) => self.show_error(error.message()),
+        let result = if path.as_ref().is_some_and(|path| path.ends_with(".jsonl")) {
+            self.session().export_to_jsonl(path.as_ref())
+        } else {
+            self.session().export_to_html(path.as_ref()).await
+        };
+        match result {
+            Ok(path) => self.show_status(&js_format!("Session exported to: {}", path)),
+            Err(error) => {
+                let message = match CallbackError::from(error).thrown_value() {
+                    AbortReason::Error(error) | AbortReason::DomException(error) => error.message.clone(),
+                    AbortReason::Value(_) => "Unknown error".into(),
+                };
+                self.show_error(&js_format!("Failed to export session: {}", message));
+            }
         }
     }
 
@@ -13017,6 +13028,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_path_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_transfer_commands.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
