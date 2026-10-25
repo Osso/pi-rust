@@ -70,6 +70,12 @@ Final proof at `3e36e1421`: `import-command-final-ui.log` has eleven passing foc
 
 `import-command-final-runtime.log`: 45/45, plus the existing explicitly invoked isolated cwd helper. `import-command-check.log`: PASS without warnings. Scoped core/interactive clippy (`import-command-clippy.jsonl`): 232 existing diagnostics, no changed-line primary span; after the test-only isolation change, interactive clippy (`import-header-clippy.jsonl`): 204 existing diagnostics, no changed-line primary span. Strict frozen two-oracle TS/ES2024 and Biome pass (`import-command-typecheck.log`). Format/inventory pass: 686 / 186679; 485 done / 21 gap / 52 partial / 128 todo. Artifacts remain under `/tmp/repin-interactive-2-proof/`. Runtime and interactive mode remain partial.
 
+## Setup and transfer checkpoints
+
+`cd317f852` completes the approved live SharedSessionManager setup correction. Callback differential3/3; requested workspace all-targets0 errors/0 warnings; strict TS/Biome/format/inventory pass; scoped tools/core clippy259 existing diagnostics, zero changed-line primary spans. No code changed after that workspace proof until the independent transfer slice.
+
+Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](traceability/interactive-mode.md#transfer-commands-2026-10-25). Eleven actual process cases cover export/copy/share, including Japanese/lone-unit JSONL bytes, copied clipboard bytes, the real Esc RefCell crash correction and graceful SIGTERM. Shared-loader component differentials also pass. Whole interactive mode remains partial. The resource block owned by276 is untouched.
+
 ## Next work
 
-Continue realistic interactive command/event slices. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Runtime callback setup still needs a final realistic API review before whole-module closure. No whole-mode/runtime acceptance is claimed.
+Continue realistic interactive command/event slices and finish the runtime whole-module audit. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Setup is no longer open. The apparent absent-model issue is resolved by frozen Agent's `initialState?.model ?? DEFAULT_MODEL` sentinel; no API change is required. No whole-mode/runtime acceptance is claimed.

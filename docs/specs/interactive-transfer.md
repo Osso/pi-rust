@@ -10,7 +10,7 @@ Port frozen `interactive-mode.ts` export/share/copy handlers. [Source and proof]
 
 ## Tests asserting this spec
 
-- `ui_tests::{export,copy,share}_commands_match_frozen_frames_and_private_effects` and `oracle/interactive-transfer-oracle.mts`: actual frozen handlers/native processes, full chat/loader frames, JSONL bytes, file cleanup, private fake gh and clipboard effects. Cases still under development are not acceptance evidence.
+- `ui_tests::{export,copy,share}_commands_match_frozen_frames_and_private_effects` and `oracle/interactive-transfer-oracle.mts`: actual frozen handlers/native processes, full chat/loader frames, JSONL bytes, file cleanup, private fake gh and clipboard effects. Eleven cases cover JSONL/HTML success, real in-memory export failure, clipboard absence/success/capped failure, and gh absence/auth/success/error/Escape cancellation.
 
 ## Out of scope
 
