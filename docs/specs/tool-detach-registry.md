@@ -24,7 +24,7 @@ Use the existing `CallbackError` and process-uncaught authority only at a proven
 ## Tests asserting this spec
 
 - `fallible_detach`: actual frozen direct-method TypeError/code/raw-D800, raw string, null and lookalike-object throws versus native CallbackError; interface RED before production changes (`tool-detach-callback-api-red.log`), focused GREEN (`tool-detach-callback-api-green.log`).
-- Actual whole-registry differentials were RED for duplicate handle identity, retained-subscription lifetime and overflowing delay; these now pass alongside the nine retained registry tests (`tool-detach-owned-first-green.log`, 14 passed plus an explicitly invoked ignored process helper). Artifacts: `tool-detach-{sync-red-2,lifetime-red,overflow-red}.log`; no whole-module closure claim.
+- Actual whole-registry differentials were RED for duplicate handle identity, retained-subscription lifetime and overflowing delay; these now pass alongside the nine retained registry tests (`tool-detach-owned-first-green.log`, 14 passed plus an explicitly invoked ignored process helper). Artifacts: `tool-detach-{sync-red-2,lifetime-red,overflow-red}.log`.
 - Actual frozen timer throw process probe exits 1 and records the original TypeError/code/raw message through `uncaughtExceptionMonitor` (`tool-detach-timer-throw-source.log`). Native/source TypeError/code/raw-string child-process comparisons now pass (`tool-detach-process-green.log`, 2 tests plus an ignored child helper explicitly invoked by the outer test).
 
 - `tool_detach_timer_semantics`: seven finite/nonfinite binary64 delay histories, actual overwritten-old-timer behavior after unregister/re-register, and source/native active-default-timer natural process exit pass (3 tests plus an explicitly invoked ignored child helper; `tool-detach-timer-semantics.log`).
@@ -33,7 +33,9 @@ Use the existing `CallbackError` and process-uncaught authority only at a proven
 
 ## Known gaps (current cycle)
 
-Whole module implementation/proof is in progress. Existing shared delay normalization documents omitted Node warning emission and OS scheduling precision; its disposition is recorded at final module closure, not silently presented as parity.
+Node Overflow/Negative/NaN timer warnings are covered by the existing runtime-oddity gap (explicit supervisor disposition 2026-10-24). The requested shared delay authority retains its documented OS scheduling precision limitation. Native subscriptions are owned RAII values; built-in consumers retain them until the frozen unsubscribe boundary. Invalid JavaScript runtime input types are excluded by the existing typed-core policy.
+
+Whole-module branch proof and the final consumer/static gates are complete; see the [trace and exact gate revisions](../porting/traceability/tool-detach-registry.md). The final expired-old-timer history also proves removed membership skips the callback (`tool-detach-old-timer-membership.log`).
 
 ## Out of scope
 
