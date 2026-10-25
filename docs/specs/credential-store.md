@@ -4,9 +4,9 @@ Port frozen `packages/ai/src/auth/credential-store.ts` at `4f9e6f8a4`. [Traceabi
 
 ## What it must do
 
-- [ ] Serialize modify/delete operations per provider during normal awaiting, while reads and other providers remain independent.
-- [ ] Invoke modifiers with the current value after earlier writes complete. Store a returned credential; undefined retains and returns the current credential, including an absent entry.
-- [ ] Preserve stored values when a modifier rejects, propagate the rejection and let later queued operations complete. Delete removes the entry; later writes can recreate it.
+- [x] Serialize modify/delete operations per provider during normal awaiting, while reads and other providers remain independent.
+- [x] Invoke modifiers with the current value after earlier writes complete. Store a returned credential; undefined retains and returns the current credential, including an absent entry.
+- [x] Preserve stored values when a modifier rejects, propagate the rejection and let later queued operations complete. Delete removes the entry; later writes can recreate it.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Port frozen `packages/ai/src/auth/credential-store.ts` at `4f9e6f8a4`. [Traceabi
 
 ## Known gaps (current cycle)
 
-Current queue/failure proof is pending.
+None within the approved scope.
 
 ## Out of scope
 
