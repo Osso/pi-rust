@@ -1,4 +1,4 @@
-use super::repin_storage_history::oracle;
+use super::repin_storage_history as oracle;
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::session_control_db::{
     AgentDetails, CommitMultiAgentTerminalMutationInput, CommitMultiAgentTerminalMutationResult,

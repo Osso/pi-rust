@@ -1,4 +1,4 @@
-use super::repin_storage_history::oracle;
+use super::repin_storage_history as oracle;
 use pi_agent_core::AgentMessage;
 use pi_coding_agent::core::runtime_mailbox_acceptance::{
     RuntimeMailboxAcceptance, RuntimeMailboxAcceptanceRef, release_unaccepted_runtime_mailbox_messages,
