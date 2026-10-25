@@ -18,3 +18,8 @@ Main's Phase1 sequencing retains existing old-only UI settings APIs until couple
 ## Proof
 
 See [traceability](../porting/traceability/settings-manager.md). Only isolated disposable settings are used; no live config or provider state.
+
+## Successor error parity (2026-10-25)
+
+- [x] A directory at settings.json reports the Node read error during load and queued save; later scope writes continue.
+- [ ] Invalid timeout text uses JS String rather than JSON serialization; native regression is recorded in `settings_manager.rs`.

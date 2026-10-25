@@ -540,6 +540,46 @@ fn nested_scope_overlay_replaces_grandchildren() {
 }
 
 #[test]
+fn invalid_timeout_text_uses_javascript_string_conversion() {
+    let manager = SettingsManager::in_memory(
+        settings(json!({"httpIdleTimeoutMs":"typo","websocketConnectTimeoutMs":"later"})),
+        Default::default(),
+    );
+    assert_eq!(
+        manager.get_http_idle_timeout_ms().unwrap_err().message(),
+        "Invalid httpIdleTimeoutMs setting: typo"
+    );
+    assert_eq!(
+        manager.get_websocket_connect_timeout_ms().unwrap_err().message(),
+        "Invalid websocketConnectTimeoutMs setting: later"
+    );
+}
+
+#[test]
+fn settings_directory_read_reports_node_error() {
+    let workspace = Workspace::new();
+    fs::create_dir(workspace.agent_dir.join("settings.json")).unwrap();
+    let errors = workspace.manager().drain_errors();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].scope, SettingsScope::Global);
+    assert_eq!(errors[0].message, "EISDIR: illegal operation on a directory, read");
+}
+
+#[test]
+fn settings_write_failure_reports_node_open_error_and_keeps_later_scope() {
+    let workspace = Workspace::new();
+    let mut manager = workspace.manager();
+    fs::create_dir(workspace.agent_dir.join("settings.json")).unwrap();
+    manager.set_theme(&"light".into());
+    manager.set_project_theme_paths(&["project-theme".into()]).unwrap();
+    manager.flush();
+    let errors = manager.drain_errors();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].message, "EISDIR: illegal operation on a directory, read");
+    assert_eq!(workspace.project()["themes"], json!(["project-theme"]));
+}
+
+#[test]
 fn shell_path_is_literal() {
     let manager = SettingsManager::in_memory(
         settings(json!({"shellPath":"~/bin/../shell"})),
