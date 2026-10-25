@@ -362,8 +362,8 @@ pub type UserMessagePreparedCallback = Arc<dyn Fn(&AgentMessage) + Send + Sync>;
 pub type PromptPreflightCallback = Arc<dyn Fn(bool) + Send + Sync>;
 /// Provider registration action types.
 pub type RegisterProviderAction =
-    Arc<dyn Fn(&str, &crate::core::model_registry::ProviderConfigInput) -> Result<(), JsString> + Send + Sync>;
-pub type UnregisterProviderAction = Arc<dyn Fn(&str) + Send + Sync>;
+    Arc<dyn Fn(&str, &crate::core::model_registry::ProviderConfigInput) -> Result<(), CallbackError> + Send + Sync>;
+pub type UnregisterProviderAction = Arc<dyn Fn(&str) -> Result<(), CallbackError> + Send + Sync>;
 
 /// `PromptOptions`.
 #[derive(Default, Clone)]
@@ -1680,7 +1680,7 @@ impl AgentSession {
                 .and_then(|inner| AgentSession { inner }.get_detached_job_lifecycle_controller())
         }));
         runner.set_internal_commands(self.create_internal_commands());
-        self.bind_extension_core(&mut runner);
+        self.bind_extension_core(&mut runner)?;
         *lock(&self.inner.extension_runner) = runner.clone();
         if let Some(reference) = &self.inner.extension_runner_ref {
             *lock(reference) = Some(runner.clone());
@@ -7893,12 +7893,12 @@ impl AgentSession {
         commands
     }
 
-    fn bind_extension_core(&self, runner: &mut ExtensionRunner) {
+    fn bind_extension_core(&self, runner: &mut ExtensionRunner) -> Result<(), CallbackError> {
         let weak = Arc::downgrade(&self.inner);
         let actions = extension_actions(weak.clone());
         let context_actions = extension_context_actions(weak.clone());
         let provider_actions = extension_provider_actions(weak);
-        runner.bind_core(actions, context_actions, Some(provider_actions));
+        runner.bind_core(actions, context_actions, Some(provider_actions))
     }
 
     async fn emit_extension_event(
@@ -8674,10 +8674,9 @@ fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
             let Some(inner) = register_weak.upgrade() else {
                 return Err("Session is disposed".into());
             };
-            inner
-                .model_registry
-                .register_provider(name, config.clone())
-                .map_err(|error| error.message().clone())?;
+            // Frozen agent-session.ts:5445–5451 propagates registration before
+            // refreshing the selected model, including raw callback rejections.
+            inner.model_registry.register_provider(name, config.clone())?;
             refresh_current_model_from_registry(&inner);
             Ok(())
         },
@@ -8685,9 +8684,10 @@ fn extension_provider_actions(weak: Weak<Inner>) -> ProviderActions {
     let unregister_weak = weak;
     let unregister_provider: Option<UnregisterProviderAction> = Some(Arc::new(move |name: &str| {
         if let Some(inner) = unregister_weak.upgrade() {
-            inner.model_registry.unregister_provider(name);
+            inner.model_registry.unregister_provider(name)?;
             refresh_current_model_from_registry(&inner);
         }
+        Ok(())
     }));
     ProviderActions {
         register_provider,

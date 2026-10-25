@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use indexmap::IndexMap;
 use pi_agent_core::harness::types::ThinkingLevel;
+use pi_ai::request::CallbackError;
 use pi_ai::types::ImageContent;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
@@ -272,12 +273,13 @@ impl ExtensionRunner {
         actions: ExtensionActions,
         context_actions: ExtensionContextActions,
         provider_actions: Option<ProviderActions>,
-    ) {
+    ) -> Result<(), CallbackError> {
         let set_model = Arc::clone(&actions.set_model);
         self.bind_runtime_actions(actions);
         self.bind_context_actions(context_actions, set_model);
-        self.flush_pending_provider_registrations(provider_actions.as_ref());
+        self.flush_pending_provider_registrations(provider_actions.as_ref())?;
         self.bind_immediate_provider_actions(provider_actions);
+        Ok(())
     }
 
     fn bind_runtime_actions(&self, actions: ExtensionActions) {
@@ -330,13 +332,20 @@ impl ExtensionRunner {
         self.live().get_detached_job_lifecycle_fn = provider;
     }
 
-    fn flush_pending_provider_registrations(&self, provider_actions: Option<&ProviderActions>) {
+    fn flush_pending_provider_registrations(
+        &self,
+        provider_actions: Option<&ProviderActions>,
+    ) -> Result<(), CallbackError> {
         for registration in self.runtime.pending_provider_registrations() {
             if let Err(error) = self.register_provider(provider_actions, &registration.name, &registration.config) {
-                self.report_provider_registration_error(&registration.extension_path, &error);
+                // Frozen runner.ts:442–455 catches only pending registrations;
+                // Error.message/String(err) conversion can itself reject.
+                let message = error.error_or_string_message()?;
+                self.report_provider_registration_error(&registration.extension_path, &message);
             }
         }
         self.runtime.clear_pending_provider_registrations();
+        Ok(())
     }
 
     fn bind_immediate_provider_actions(&self, provider_actions: Option<ProviderActions>) {
@@ -360,25 +369,22 @@ impl ExtensionRunner {
         provider_actions: Option<&ProviderActions>,
         name: &str,
         config: &ProviderConfig,
-    ) -> Result<(), JsString> {
+    ) -> Result<(), CallbackError> {
         if let Some(register) = provider_actions.and_then(|actions| actions.register_provider.as_ref()) {
             register(name, config)?;
             return Ok(());
         }
         let registry = Arc::clone(&self.live().model_registry);
-        registry
-            .register_provider(name, config.clone())
-            .map_err(|error| error.message().clone())
+        // Frozen runner.ts:461–473 propagates immediate operations unchanged.
+        registry.register_provider(name, config.clone())
     }
 
-    fn unregister_provider(&self, provider_actions: Option<&ProviderActions>, name: &str) -> Result<(), JsString> {
+    fn unregister_provider(&self, provider_actions: Option<&ProviderActions>, name: &str) -> Result<(), CallbackError> {
         if let Some(unregister) = provider_actions.and_then(|actions| actions.unregister_provider.as_ref()) {
-            unregister(name);
-            return Ok(());
+            return unregister(name);
         }
         let registry = Arc::clone(&self.live().model_registry);
-        registry.unregister_provider(name);
-        Ok(())
+        registry.unregister_provider(name)
     }
 
     fn report_provider_registration_error(&self, extension_path: &JsString, error: &JsString) {

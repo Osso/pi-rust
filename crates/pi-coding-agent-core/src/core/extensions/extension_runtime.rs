@@ -11,6 +11,7 @@ use super::types::{
     ExtensionActions, ExtensionFlag, FlagValue, HandlerError, ProviderConfig, RegisterProviderHandler,
     UnregisterProviderRuntimeCallback,
 };
+use pi_ai::request::CallbackError;
 
 pub(crate) const DEFAULT_STALE_MESSAGE: &str = "This extension ctx is stale after session replacement or reload. Do not use a captured pi or command ctx after ctx.newSession(), ctx.fork(), ctx.switchSession(), or ctx.reload(). For newSession, fork, and switchSession, move post-replacement work into withSession and use the ctx passed to withSession. For reload, do not use the old ctx after await ctx.reload().";
 
@@ -174,7 +175,7 @@ impl ExtensionRuntime {
         name: &str,
         config: ProviderConfig,
         extension_path: Option<&JsString>,
-    ) -> Result<(), JsString> {
+    ) -> Result<(), CallbackError> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.register_provider)(name, &config, extension_path);
@@ -187,7 +188,7 @@ impl ExtensionRuntime {
         Ok(())
     }
 
-    pub fn unregister_provider(&self, name: &str, extension_path: Option<&JsString>) -> Result<(), JsString> {
+    pub fn unregister_provider(&self, name: &str, extension_path: Option<&JsString>) -> Result<(), CallbackError> {
         let handlers = read(&self.inner.provider_handlers).clone();
         if let Some(handlers) = handlers {
             return (handlers.unregister_provider)(name, extension_path);

@@ -85,6 +85,17 @@ Full source example metadata comparisons now use lossless JS values and no longe
 
 Parent5315a68a is integrated at0d091ce1. Current all-target workspace check:0errors/0warnings; warning-mode all-target Clippy:1672historical warnings/0owned changed-line findings. The one new needless-borrow warning was fixed ataf144463 and independently checked before the final integrated gate. Strict common-pin registry/oracle TS, Biome and fmt pass; inventory686rows/186679lines passes. Logs `q15e-registration-{workspace-2,clippy-2}.jsonl`, `q15e-registration-clippy-2-owned.json`, `q15e-registration-ts-{typecheck,biome}.log` and `q15e-registration-inventory.log`. Manual changed-line Rust/TS readability audit found no blockers; metrics CLI is unavailable. Whole-module branch/export, broader auth/status/header and production cache acceptance remain OPEN.
 
+## Modifier failure consumer boundaries (approved migration, in progress)
+
+| Consumer | Frozen boundary | Native mapping |
+|---|---|---|
+| AgentSession provider actions | agent-session.ts:5445–5451 propagates before selected-model refresh | CallbackError register/unregister actions; refresh selected model only after success |
+| ExtensionRunner queued registrations | extensions/runner.ts:442–455 catches Error.message or String(err), then clears queue | convert only at pending catch; String conversion failure propagates from bind_core without clearing queue |
+| ExtensionRunner immediate operations | extensions/runner.ts:461–473 has no catch | provider handler/runtime/API channels return CallbackError unchanged |
+| Session services queued providers | agent-session-services.ts:161–173 catches Error.message/String(error) into diagnostics | same fallible conversion; normal diagnostics continue and pending queue clears only after conversion succeeds |
+
+Other consumers and current compile proof remain pending; this table is not a completed migration claim.
+
 ## Remaining work
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,
