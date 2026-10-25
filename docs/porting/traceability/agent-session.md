@@ -426,3 +426,7 @@ Frozen :5807–5950 maps to the [bash lifecycle spec](../../specs/agent-session-
 ## Naming and summary-materialization finalizers, 2026-10-25
 
 Frozen :5933–5994 maps to the [management lifecycle spec](../../specs/agent-session-management-lifecycle.md). Naming and clearing reuse the existing first-poll dispatch; the old unpolled spawn deferred immediate extension effects. Materialization authentication/settings now stay inside its finalizer scope: an auth failure no longer leaves isCompacting set or rejects retry as already running. Two native behavioral REDs now pass. Existing thinking-cycle/sync/pending/real-effort source tests also pass4 in the same six-test run (`/tmp/repin-agent-session-management-green.log`), closing their earlier GREEN-pending notes. No persistence codec or public API changed.
+
+## Original HTML tool definitions, 2026-10-25
+
+Frozen :5457–5505/:6322–6342 retains original definitions in its registry and supplies them to the exporter. Native reconstructed definitions from execution metadata and discarded all custom renderers. The private registry now retains that existing definition carrier alongside its executable projection; all replacements/filtering still use the same registry. Removed the obsolete reconstruction. Native actual-export RED/GREEN1 checks call plus collapsed/expanded result HTML after executing an SDK custom tool. No JSONL codec or public API changed. [Spec](../../specs/agent-session-html-renderers.md).
