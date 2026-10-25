@@ -1,4 +1,3 @@
-use percent_encoding::percent_decode_str;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::node_error::NativeNodeError;
 
@@ -402,106 +401,16 @@ pub fn home_directory() -> Result<JsString, NativeNodeError> {
 }
 
 fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
-    // WHATWG URL consumes a USVString; the diagnostic's input remains the original string.
-    let url = url::Url::parse(&encode_node_utf8(value)).map_err(|_| {
+    let file = pi_js_compat::node_url::FileUrl::parse(value);
+    // Existing IDNA/host validation only. This parser never owns the pathname.
+    let host_url = format!("file://{}/", file.host());
+    let url = url::Url::parse(&host_url).map_err(|_| {
         PathError::from(
             NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, "Invalid URL")
                 .with_property("code", pi_js_compat::js_json::JsValue::String("ERR_INVALID_URL".into()))
                 .with_property("input", pi_js_compat::js_json::JsValue::String(value.clone())),
         )
     })?;
-    if url.scheme() != "file" {
-        return Err(file_url_type_error("The URL must be of scheme file", "ERR_INVALID_URL_SCHEME").into());
-    }
-    if !cfg!(windows) && !matches!(url.host_str(), None | Some("" | "localhost")) {
-        return Err(file_url_type_error(
-            format!(
-                "File URL host must be \"localhost\" or empty on {}",
-                std::env::consts::OS
-            ),
-            "ERR_INVALID_FILE_URL_HOST",
-        )
-        .into());
-    }
-    let path = preserve_file_url_empty_segments(value, &url)?;
-    decode_file_url_path(&path, value)
-}
-
-/// url 2.5.x applies the retired file-URL rule that removes leading empty segments.
-/// Its non-file special-path parser preserves them. Drive roots must still use
-/// the file parser, which prevents `..` from removing the initial drive segment.
-/// Retire this adapter when the pinned URL parser follows Node's current rule.
-fn preserve_file_url_empty_segments(input: &JsString, url: &url::Url) -> Result<String, PathError> {
-    let text = encode_node_utf8(input).replace(['\t', '\r', '\n'], "");
-    let tail = text[7..].trim_end_matches(|character: char| character <= '\u{20}');
-    let authority_end = tail.find(['/', '\\', '?', '#']).unwrap_or(tail.len());
-    let authority = &tail[..authority_end];
-    let path = &tail[authority_end..];
-    let first_segment = path.strip_prefix(['/', '\\']).unwrap_or(path);
-    let first_segment_end = first_segment.find(['/', '\\', '?', '#']).unwrap_or(first_segment.len());
-    if is_windows_drive_segment(authority) || is_windows_drive_segment(&first_segment[..first_segment_end]) {
-        let mut path = url.path().to_owned();
-        if path.as_bytes().get(2) == Some(&b'|') {
-            path.replace_range(2..3, ":");
-        }
-        return Ok(path);
-    }
-    let path = if path.starts_with(['/', '\\']) {
-        path.to_owned()
-    } else {
-        format!("/{path}")
-    };
-    let parsed = url::Url::parse(&format!("http://file-url.invalid{path}"))
-        .map_err(|error| PathError::new(error.to_string()))?;
-    Ok(parsed.path().to_owned())
-}
-
-fn is_windows_drive_segment(segment: &str) -> bool {
-    let bytes = segment.as_bytes();
-    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && matches!(bytes[1], b':' | b'|')
-}
-
-fn decode_file_url_path(encoded: &str, input: &JsString) -> Result<JsString, PathError> {
-    if encoded.contains("%2F") || encoded.contains("%2f") {
-        return Err(file_url_type_error(
-            "File URL path must not include encoded / characters",
-            "ERR_INVALID_FILE_URL_PATH",
-        )
-        .with_property("input", pi_js_compat::js_json::JsValue::String(input.clone()))
-        .into());
-    }
-    let malformed = || {
-        PathError::from(NativeNodeError::from_constructor(
-            pi_js_compat::node_error::NativeErrorClass::URIError,
-            "URI malformed",
-        ))
-    };
-    if !has_valid_percent_sequences(encoded) {
-        return Err(malformed());
-    }
-    let decoded = percent_decode_str(encoded).decode_utf8().map_err(|_| malformed())?;
-    Ok(decoded.as_ref().into())
-}
-
-fn file_url_type_error(message: impl Into<JsString>, code: &str) -> NativeNodeError {
-    NativeNodeError::from_node_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, code, message)
-}
-
-fn has_valid_percent_sequences(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    let mut index = 0;
-    while index < bytes.len() {
-        if bytes[index] == b'%' {
-            if index + 2 >= bytes.len()
-                || !bytes[index + 1].is_ascii_hexdigit()
-                || !bytes[index + 2].is_ascii_hexdigit()
-            {
-                return false;
-            }
-            index += 3;
-        } else {
-            index += 1;
-        }
-    }
-    true
+    file.into_posix_path(url.host_str().unwrap_or(""), value)
+        .map_err(PathError::from)
 }
