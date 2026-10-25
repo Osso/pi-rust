@@ -244,6 +244,54 @@ console.log('ready');
 }
 
 #[tokio::test]
+async fn inherited_pipes_do_not_delay_pending_rejection_or_disposal() {
+    let directory = tempfile::tempdir().unwrap();
+    let fake = directory.path().join("fake.mjs");
+    std::fs::write(&fake, "import {spawn} from 'node:child_process'; spawn(process.execPath,['-e','setTimeout(()=>{},900)'],{stdio:['ignore',1,2]});process.exit(7);").unwrap();
+    let script = directory.path().join("pending.mjs");
+    let source = r#"
+import { RpcProcessInstance } from 'SOURCE/packages/orchestrator/src/rpc-process.ts';
+RpcProcessInstance.prototype.getSpawnCommand = () => ({ command: process.execPath, args: [FAKE] });
+const processInstance = new RpcProcessInstance({ cwd: CWD });
+const started = Date.now();
+let pendingError;
+try { await processInstance.send({type:'hang',id:'pending'}); }
+catch (error) { pendingError = error.message; }
+const rejectedBeforePipeEof = Date.now() - started < 500;
+const disposeStarted = Date.now();
+await processInstance.dispose();
+const disposedBeforePipeEof = Date.now() - disposeStarted < 200;
+let stoppedError;
+try { await processInstance.send({type:'hang',id:'after'}); }
+catch (error) { stoppedError = error.message; }
+console.log(JSON.stringify({pendingError,stoppedError,rejectedBeforePipeEof,disposedBeforePipeEof}));
+"#
+    .replace("SOURCE", SOURCE)
+    .replace("FAKE", &serde_json::to_string(&fake).unwrap())
+    .replace("CWD", &serde_json::to_string(directory.path()).unwrap());
+    std::fs::write(&script, source).unwrap();
+    let output = ts(&script).output().await.unwrap();
+    assert!(output.status.success());
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected["rejectedBeforePipeEof"], json!(true));
+    assert_eq!(expected["disposedBeforePipeEof"], json!(true));
+    let mut command = tokio::process::Command::new("node");
+    command.arg(&fake);
+    let rpc = RpcProcessInstance::spawn_command(&mut command, &directory.path().to_str().unwrap().into()).unwrap();
+    let started = std::time::Instant::now();
+    let pending_error = rpc.send(json!({"type":"hang","id":"pending"})).await.unwrap_err();
+    let rejected_before_pipe_eof = started.elapsed() < Duration::from_millis(500);
+    let started = std::time::Instant::now();
+    rpc.dispose().await.unwrap();
+    let disposed_before_pipe_eof = started.elapsed() < Duration::from_millis(200);
+    let stopped_error = rpc.send(json!({"type":"hang","id":"after"})).await.unwrap_err();
+    assert_eq!(
+        json!({"pendingError":pending_error,"stoppedError":stopped_error,"rejectedBeforePipeEof":rejected_before_pipe_eof,"disposedBeforePipeEof":disposed_before_pipe_eof}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn child_exit_is_not_delayed_until_inherited_pipes_close() {
     let d = dir("exit");
     let fake = d.join("fake.mjs");
