@@ -1,34 +1,26 @@
 # Goal rendering and countdown — frozen 4f9e6f8a4
 
-Source: `extensions/goal/src/rendering.ts`, `wait-countdown.ts`.
+Sources: `extensions/goal/src/rendering.ts`, `wait-countdown.ts`.
+Native files: `bundled_extensions/goal/{rendering,wait_countdown}.rs`.
 
-| Surface | Native behavior and proof | Status |
-| --- | --- | --- |
-| Status entry renderer / grouped display map | First entry owns region; later displayId entries update the captured component and return no row; session-qualified keys, replay and identity-guarded cleanup. `suite_extensions goal_rendering_grouped_entries_match_frozen_lifecycle` compares all rendered lines with the unmodified frozen module. | proven |
-| CountdownText / component update | Captured labels, same-width maximum height, width reset, rejected scoped redraw rollback. Root renders no longer read the clock. `goal_countdown_rejected_scoped_repaint_preserves_visible_text`; real owner-thread callback test renders inside repaint to expose RefCell reentrancy. | focused proof |
-| bind / start / clearSession / clearAll | Shared timer owns scheduling, owner LocalSet receives scoped requests; token-guarded stale cleanup; expiration retries only rejected repaint. No root UI repaint on ticks. `goal_countdown_owner_repaint_renders_due_without_shrinking_then_cleans_up`. | broader branch proof pending |
-| Controller append / restore / instruction delivery | Existing native exports remain; displayId persistence, grouped requestRender and hidden grouped instructions still pending. | open |
-| Runtime fault/numeric extremes | Pathological dates, timer overflow and JS scheduling races are recorded gaps under the repository parity bar. | gap |
-
-The Send+Sync native renderer retains components in an owner-thread-local map. Entry cleanup removes only the component generation it created. Timers send repaint requests to that owner's LocalSet; they never call TUI components from a Tokio worker.
-
-## Successor audit and proof
-
-The complete rendering/countdown sources were compared. The obsolete native-only
-stateless renderer had no callers and was removed. The grouped factory is the
-only status renderer. The management differential now also compares hidden
-instruction messages and validates their UUID displayId equals the final persisted
-status displayId before normalizing the random label across runtimes.
-`goal_countdown_replaced_binding_retries_rejected_expiry_then_stops_like_frozen`
-compares an actual owner-LocalSet timer to frozen fake timers: replacing a binding,
-old cleanup token isolation, rejected expiration retry, accepted expiration stop,
-invalid/past start and clear-session cancellation. All four rendering/countdown tests
-are GREEN in the 35-test goal integration proof.
-
-| Remaining boundary | Status |
+| Source surface | Native behavior and proof |
 | --- | --- |
-| Controller restore scans past non-status entries; stops at latest missing/invalid/past reviewAt; restarts a future timer | audited/ported; explicit dedicated restore-timer **proof gap** (not an approved semantic deviation) |
-| Pathological dates/overflow and runtime timer ordering | gap under repository policy |
+| grouped status renderer, session-qualified displayId, first-entry ownership, replay and identity-guarded cleanup | `goal_rendering_grouped_entries_match_frozen_lifecycle` compares rendered lines with the actual frozen factory |
+| CountdownText captured labels, stable same-width height and width reset | grouped factory source comparison; owner repaint test renders inside the callback and checks reserved wrapped height |
+| rejected scoped repaint rollback, no clock reads on a root render | `goal_countdown_rejected_scoped_repaint_preserves_visible_text` |
+| bind replacement, stale cleanup token, expired rejection retry, accepted expiration stop, invalid/past start, clear-session/all | `goal_countdown_replaced_binding_retries_rejected_expiry_then_stops_like_frozen` compares actual LocalSet callbacks with the frozen refresher |
+| controller append persistence, displayId grouping, hidden instruction delivery | eleven-case management differential compares persisted status text and full hidden messages; random displayId must equal the final persisted status ID before normalization |
+| controller restore: empty, future, skip unrelated latest entry, latest missing/invalid/past deadline | `goal_status_restore_uses_only_the_latest_status_deadline_like_frozen` compares actual native timer repaints with the frozen controller/refresher across six cases |
+| instruction wrapper/body and supervisor message rendering | existing module tests plus exact management message differential |
 
-Countdown module bind/start/clear/expiry branches are closed by the source
-comparison and owner-thread behavioral differential; no root redraw was added.
+The Send+Sync renderer keeps components in an owner-thread-local map. Timers send
+scoped repaint requests to that owner's LocalSet; they do not access TUI components
+from a Tokio worker or request a root redraw. Cleanup removes only its own binding
+generation. The old native-only stateless renderer had no consumers and was removed.
+
+The dedicated restore-timer proof gap is closed. Evidence:
+`/tmp/bundled3-goal-final-matrices.log` (35 goal tests),
+`/tmp/bundled3-goal-restore-proof.log` (six restore cases in one test).
+
+Pathological dates/timer overflow and Node/Tokio scheduling races are gaps under
+the repository parity policy; no new carrier or API was added for them.

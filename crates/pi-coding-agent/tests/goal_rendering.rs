@@ -215,3 +215,34 @@ async fn goal_countdown_replaced_binding_retries_rejected_expiry_then_stops_like
         })
         .await;
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn goal_status_restore_uses_only_the_latest_status_deadline_like_frozen() {
+    use pi_coding_agent::bundled_extensions::goal::{
+        rendering::create_supervisor_status_controller, wait_countdown::create_wait_countdown_refresher,
+    };
+    use std::sync::{Arc, Mutex};
+    tokio::task::LocalSet::new().run_until(async {
+        let mut oracle=oracle::TsOracle::spawn("goal-rendering-oracle.ts","packages/coding-agent/extensions/goal/src/rendering.ts");
+        assert_eq!(oracle.request(&json!({"id":0,"operation":"restore","cases":[]}))["ok"],json!(true));
+        for variant in ["empty","future","other-entry","missing","invalid","past"] {
+            let directory=tempfile::tempdir().unwrap();let cwd=directory.path().to_str().unwrap();let runtime=support::runtime();
+            let api=Arc::new(Mutex::new(None));let capture=api.clone();let extension=support::extension(&runtime,cwd,"restore",move|api|*capture.lock().unwrap()=Some(api.clone())).await;
+            let options=bundled::HarnessOptions::new(cwd);let session=options.session_manager.clone();let harness=bundled::Harness::new(vec![extension],runtime,options).await;let ctx=harness.context();let id=ctx.session_manager().unwrap().get_session_id().clone();
+            let deadline:JsString=pi_js_compat::date::to_iso_string_value(pi_js_compat::date::js_now_millis()+500.0).unwrap().into();let mut entries=Vec::new();
+            if variant != "empty" {entries.push(json!({"type":"custom","customType":"supervisor-status","data":{"message":"waiting","reviewAt":deadline}}));}
+            match variant {
+                "other-entry"=>entries.push(json!({"type":"custom","customType":"other","data":{}})),
+                "missing"=>entries.push(json!({"type":"custom","customType":"supervisor-status","data":{"message":"new"}})),
+                "invalid"=>entries.push(json!({"type":"custom","customType":"supervisor-status","data":{"reviewAt":"invalid"}})),
+                "past"=>entries.push(json!({"type":"custom","customType":"supervisor-status","data":{"reviewAt":"2026-01-01"}})),
+                _=>{},
+            }
+            for entry in &entries {session.lock().unwrap().append_custom_entry(entry["customType"].as_string().unwrap(),Some(entry["data"].clone())).unwrap();}
+            let expected=oracle.request(&json!({"id":1,"operation":"restore","cases":[{"entries":entries,"reviewAt":deadline}]}));assert_eq!(expected["ok"],json!(true),"{expected:?}");
+            let refresher=create_wait_countdown_refresher();let status=create_supervisor_status_controller(&api.lock().unwrap().take().unwrap(),refresher.clone());status.restore(ctx).unwrap();
+            let paints=Rc::new(std::cell::Cell::new(0));let painted=paints.clone();refresher.bind(id,deadline,Rc::new(move||{painted.set(painted.get()+1);Ok(true)}));
+            tokio::time::sleep(std::time::Duration::from_millis(650)).await;assert_eq!(json!(paints.get()),expected["output"][0],"{variant}");status.clear_all();
+        }
+    }).await;
+}
