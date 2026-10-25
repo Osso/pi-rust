@@ -125,8 +125,58 @@ async function retainedSubscriptionTimer(api: Api, delay = 20) {
 		if (unregister) unregister();
 	}
 }
+async function duplicateTimerReference(api: Api) {
+	const registry = new api.ToolDetachRegistry({ autoDetachAfterMs: 40 });
+	let calls = 0;
+	const handle = {
+		detach: () => {
+			calls++;
+			return true;
+		},
+	};
+	const first = registry.register(handle);
+	const second = registry.register(handle);
+	first();
+	const third = registry.register(handle);
+	try {
+		await new Promise<void>((resolve) => setTimeout(resolve, 160));
+		return { calls, hasRunning: registry.hasRunning() };
+	} finally {
+		first();
+		second();
+		third();
+	}
+}
 void runOracle(async (module, request) => {
 	const api = module as Api;
+	if (request.operation === "duplicateTimerReference")
+		return duplicateTimerReference(api);
+	if (request.operation === "unrefExit") {
+		const registry = new api.ToolDetachRegistry();
+		registry.register({
+			detach: () => {
+				throw new Error("default timer fired before process exit");
+			},
+		});
+		return { hasRunning: registry.hasRunning() };
+	}
+	if (request.operation === "numericDelay") {
+		const delays: Record<string, number> = {
+			negative: -3,
+			zero: 0,
+			fraction: 0.25,
+			validFraction: 1.75,
+			nan: Number.NaN,
+			infinity: Number.POSITIVE_INFINITY,
+			negativeInfinity: Number.NEGATIVE_INFINITY,
+		};
+		if (
+			typeof request.kind !== "string" ||
+			!Object.hasOwn(delays, request.kind)
+		)
+			throw new Error("numeric delay fixture kind required");
+		return retainedSubscriptionTimer(api, delays[request.kind]);
+	}
 	if (request.operation === "timerThrow") {
 		const value = request.reason as { kind: "error" | "value"; value: unknown };
 		const reason =

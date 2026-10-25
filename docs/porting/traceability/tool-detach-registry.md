@@ -11,7 +11,7 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 | `detachAll` | Insertion-order snapshot, boolean result ignored, original throw stops later callbacks; common-pin retained test plus fallible source histories |
 | `hasRunning` | Membership remains after detach; explicit unregister removes membership. Duplicate identity case now passes |
 | timer callback / membership check / unref | Actual source unref timer still fires while another ref'ed activity keeps process alive; retained-subscription/dropped-registry native Weak lifetime was RED and is now GREEN with strong ownership. Actual source callback throw exits process 1; native error route uses existing uncaught authority; actual source/native error/raw-string process comparisons pass with original throw markers and exit1 |
-| `unregister` / clear latest timer | Retained cancellation tests; duplicate-handle/latest-timer Map semantics still require full common-pin proof |
+| `unregister` / clear latest timer | Retained cancellation tests and real source/native overwritten-old-timer proof: after duplicate register, first unsubscribe clears latest timer, then re-register lets old+new callbacks fire (2 calls) |
 
 ## Evidence before production fixes
 
@@ -23,7 +23,7 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 
 Artifacts: `/tmp/pi-rust-repin-core-tools/`. New tests execute the actual pinned module; the historical claim that live handles/timers cannot be differential-tested is retired.
 
-Current owned corrections pass all three new source differential tests, nine retained registry tests and the two error-boundary tests (`tool-detach-owned-first-green.log`, 14 passed plus the explicitly invoked process helper). Full timer/snapshot branches and final consumer/static gates remain open; no whole-module closure claim.
+Current owned corrections pass all three new source differential tests, nine retained registry tests and the two error-boundary tests (`tool-detach-owned-first-green.log`, 14 passed plus the explicitly invoked process helper). Seven binary64 delay cases, duplicate timer-reference behavior and active-default-timer natural process exit additionally pass (3 tests plus invoked process helper, `tool-detach-timer-semantics.log`). Snapshot mutation and final consumer/static gates remain open; no whole-module closure claim.
 
 ## Required consumer catch/escape audit
 
@@ -35,4 +35,4 @@ Common-pin `detachAll` was previously added with AgentSession and restart consum
 
 ## Discrepancies / gaps
 
-Duplicate registration overwrites only the stored latest timer reference in frozen source; the older unref timer is not explicitly cleared. This source branch requires a behavioral classification/proof before native identity changes are closed. Shared normalization explicitly does not model Node warning emission/OS timer precision; no silent parity claim is made for those host effects. General Rust-native subscription/owned-value boundaries remain explicit. [Contract](../../specs/tool-detach-registry.md).
+Duplicate registration overwrites only the stored latest timer reference in frozen source; the older unref timer is not explicitly cleared. This is a preserved frozen source discrepancy: real source/native unregister-and-re-register histories both produce two callbacks, from the old and new timers. The timer-owned sender prevents map replacement from incorrectly cancelling the older timer. Shared normalization explicitly does not model Node warning emission/OS timer precision; no silent parity claim is made for those host effects. General Rust-native subscription/owned-value boundaries remain explicit. [Contract](../../specs/tool-detach-registry.md).

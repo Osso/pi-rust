@@ -9,7 +9,7 @@
 - [x] Keep registry state alive while its returned subscription remains alive, matching frozen's captured unsubscribe closure and timer lifetime.
 - [x] Accept binary64 delay values through the existing `normalize_timeout_delay` authority; preserve the 600000 default.
 - [x] Compare native timer callback failure with the actual frozen uncaught process boundary, retaining original throws and exit 1.
-- [ ] Retain unref/process-exit behavior independently from registry lifetime.
+- [x] Retain unref/process-exit behavior independently from registry lifetime: active default timers do not keep either real child process alive.
 
 ## How it works
 
@@ -26,6 +26,8 @@ Use the existing `CallbackError` and process-uncaught authority only at a proven
 - `fallible_detach`: actual frozen direct-method TypeError/code/raw-D800, raw string, null and lookalike-object throws versus native CallbackError; interface RED before production changes (`tool-detach-callback-api-red.log`), focused GREEN (`tool-detach-callback-api-green.log`).
 - Actual whole-registry differentials were RED for duplicate handle identity, retained-subscription lifetime and overflowing delay; these now pass alongside the nine retained registry tests (`tool-detach-owned-first-green.log`, 14 passed plus an explicitly invoked ignored process helper). Artifacts: `tool-detach-{sync-red-2,lifetime-red,overflow-red}.log`; no whole-module closure claim.
 - Actual frozen timer throw process probe exits 1 and records the original TypeError/code/raw message through `uncaughtExceptionMonitor` (`tool-detach-timer-throw-source.log`). Native/source TypeError/code/raw-string child-process comparisons now pass (`tool-detach-process-green.log`, 2 tests plus an ignored child helper explicitly invoked by the outer test).
+
+- `tool_detach_timer_semantics`: seven finite/nonfinite binary64 delay histories, actual overwritten-old-timer behavior after unregister/re-register, and source/native active-default-timer natural process exit pass (3 tests plus an explicitly invoked ignored child helper; `tool-detach-timer-semantics.log`).
 
 ## Known gaps (current cycle)
 
