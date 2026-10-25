@@ -25,8 +25,6 @@ fn accepts_conversational_boundaries_and_rejects_continuation_messages() {
         tool_name: "read".to_owned(),
         content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new("result"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     });

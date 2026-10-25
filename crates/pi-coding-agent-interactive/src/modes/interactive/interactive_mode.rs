@@ -18801,8 +18801,6 @@ mod ui_tests {
                         "replayed tool output",
                     ))],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: false,
                     timestamp: 0.0,
                 };

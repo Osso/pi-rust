@@ -1723,8 +1723,6 @@ async fn restarts_only_unfinished_tool_calls_when_earlier_result_exists() {
         tool_name: "echo".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new("complete"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1000.0,
     };

@@ -694,12 +694,6 @@ pub struct ToolResultMessage {
         deserialize_with = "pi_js_compat::js_json::deserialize_present"
     )]
     pub details: Option<JsValue>,
-    /// Usage from the tool execution itself; not part of main context accounting.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    /// Names from `Context::tools` that became available after this result.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_tool_names: Option<Vec<String>>,
     pub is_error: bool,
     /// Unix timestamp in milliseconds, retaining JavaScript fractional/nonfinite numbers.
     #[serde(serialize_with = "serialize_message_timestamp")]

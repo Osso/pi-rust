@@ -532,8 +532,6 @@ fn scenarios() -> Vec<Scenario> {
                 ToolResultContent::Text(pi_ai::types::TextContent::new("")),
             ],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         }),

@@ -595,8 +595,6 @@ async fn converts_replayed_messages_and_documents() {
                 pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new("")),
             ],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         }),

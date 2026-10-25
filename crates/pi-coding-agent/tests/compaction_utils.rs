@@ -17,8 +17,6 @@ fn tool_result(text: &str, details: Option<Value>) -> Message {
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: details.map(JsValue::from),
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 0.0,
     })

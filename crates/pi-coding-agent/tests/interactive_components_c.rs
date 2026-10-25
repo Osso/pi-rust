@@ -1135,8 +1135,6 @@ fn tool_result_entry(id: &str, parent_id: Option<&str>, tool_call_id: &str, text
                 text,
             ))],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         })),
@@ -1883,12 +1881,6 @@ async fn footer_renders_override_stats_context_and_model() {
                 tool_name: "read".to_owned(),
                 content: vec![],
                 details: None,
-                usage: Some(pi_ai::types::Usage {
-                    input: 500.0,
-                    output: 100.0,
-                    ..Default::default()
-                }),
-                added_tool_names: None,
                 is_error: false,
                 timestamp: 0.0,
             }))
