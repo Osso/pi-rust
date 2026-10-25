@@ -189,7 +189,7 @@ async fn run_hosted_image_generation(request: ImageGenerationRequest) -> Result<
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text(request.prompt.clone().into()),
+            content: UserContent::Text(request.prompt.clone()),
             input_source: None,
             provider_native: None,
             timestamp: pi_js_compat::date::js_now_millis(),
@@ -290,7 +290,6 @@ pub fn codex_image_generation_extension(
     options: &ImageGenerationToolOptions,
 ) -> Result<(), HandlerError> {
     pi.register_tool(create_image_generation_tool_definition(options))
-        .map_err(HandlerError::from)
 }
 
 /// Registers the extension factory under `<first-party:codex-image-generation>`.

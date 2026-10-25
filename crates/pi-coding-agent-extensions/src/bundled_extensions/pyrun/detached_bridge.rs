@@ -143,16 +143,13 @@ pub fn enqueue_detached_pyrun_bridge_response(input: EnqueueDetachedPyrunBridgeR
     let mut body = pi_js_compat::js_json::JsObject::new();
     body.insert("command".into(), Value::String("respond".to_owned().into()));
     if let Some(error) = input.error {
-        body.insert("error".into(), Value::String(error.into()));
+        body.insert("error".into(), Value::String(error));
     }
     body.insert(
         "identity".into(),
         js_json::to_value(&input.request.identity).map_err(|error| error.to_string())?,
     );
-    body.insert(
-        "requestId".into(),
-        Value::String(input.request.request_id.clone().into()),
-    );
+    body.insert("requestId".into(), Value::String(input.request.request_id.clone()));
     if let Some(result) = input.result {
         body.insert("result".into(), result);
     }
@@ -189,11 +186,11 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), JsStri
         "createdAt".into(),
         Value::String(crate::utils::iso_time::now_iso_string().into()),
     );
-    message.insert("fromAgentId".into(), Value::String(input.from_agent_id.clone().into()));
-    message.insert("id".into(), Value::String(input.message_id.clone().into()));
+    message.insert("fromAgentId".into(), Value::String(input.from_agent_id.clone()));
+    message.insert("id".into(), Value::String(input.message_id.clone()));
     message.insert("kind".into(), Value::String("system".to_owned().into()));
     message.insert("status".into(), Value::String("pending".to_owned().into()));
-    message.insert("toAgentId".into(), Value::String(input.to_agent_id.into()));
+    message.insert("toAgentId".into(), Value::String(input.to_agent_id));
     enqueue_stored_runtime_mailbox_message(
         &input.control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {
@@ -202,8 +199,8 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), JsStri
             sender: input.sender,
             kind: RuntimeMailboxMessageKind::System,
             store_ref: RuntimeMailboxStoreRef {
-                message_id: input.message_id.into(),
-                session_path: input.session_path.into(),
+                message_id: input.message_id,
+                session_path: input.session_path,
             },
             message: Value::Object(message),
             updated_at: None,

@@ -555,7 +555,7 @@ pub async fn attach_session_agent(input: &AttachSessionAgentRuntimeInput) -> Res
             "Could not resume session {}: no attached session runtime is configured.",
             target.session_id
         );
-        return Ok(attach_error(&message, Some(&prompt)));
+        return Ok(attach_error(&message, Some(prompt)));
     }
     let agent = match create_attached_agent(&input.store, &input.params, &target, &input.ctx)? {
         Ok(agent) => agent,
@@ -827,7 +827,7 @@ fn find_matching_session_id<'a>(sessions: &'a [SessionInfo], session_id: &JsStri
 fn session_info_to_target(session: &SessionInfo) -> AttachSessionTarget {
     AttachSessionTarget {
         cwd: session.cwd.clone(),
-        name: session.name.clone().map(JsString::from),
+        name: session.name.clone(),
         path: session.path.clone(),
         session_id: session.id.clone(),
     }

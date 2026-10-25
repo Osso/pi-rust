@@ -84,13 +84,13 @@ fn format_context_usage(session: &FooterSessionOverride, theme: &Theme) -> JsStr
         .unwrap_or(0.0);
     let context_window_text = format_tokens(context_window);
     let Some(percent) = usage.and_then(|usage| usage.percent) else {
-        return theme.fg(ThemeColor::Dim, &format!("ctx ?/{context_window_text}"));
+        return theme.fg(ThemeColor::Dim, format!("ctx ?/{context_window_text}"));
     };
     js_format!(
         "{}{}%{}",
         theme.fg(ThemeColor::Dim, "ctx "),
         to_fixed(percent, 1),
-        theme.fg(ThemeColor::Dim, &format!("/{context_window_text}"))
+        theme.fg(ThemeColor::Dim, format!("/{context_window_text}"))
     )
 }
 
@@ -197,14 +197,14 @@ fn usage_parts(input: &DefaultFooterComponentInput, usage: &SessionUsage) -> Vec
         parts.push(Some(
             input
                 .theme
-                .fg(ThemeColor::Dim, &format!("in {}", format_tokens(usage.input))),
+                .fg(ThemeColor::Dim, format!("in {}", format_tokens(usage.input))),
         ));
     }
     if usage.output > 0.0 {
         parts.push(Some(
             input
                 .theme
-                .fg(ThemeColor::Dim, &format!("out {}", format_tokens(usage.output))),
+                .fg(ThemeColor::Dim, format!("out {}", format_tokens(usage.output))),
         ));
     }
     if let Some(cost) = format_cost(usage.cost) {

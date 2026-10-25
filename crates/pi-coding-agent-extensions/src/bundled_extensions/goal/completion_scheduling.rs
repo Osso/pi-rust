@@ -16,13 +16,15 @@ pub struct CompletionWait {
     pub completion_report: JsString,
 }
 
+pub type ContinueCompletion = Arc<dyn Fn(&JsString, Option<&JsString>) -> Result<(), HandlerError> + Send + Sync>;
+
 pub struct CompletionSchedulingOptions {
     pub pi: ExtensionApi,
     pub review_goal: GoalEvidenceReview,
     pub consume_review_evidence: Arc<dyn Fn(ExtensionContext, Goal, usize) -> Result<(), HandlerError> + Send + Sync>,
     pub is_same_goal: Arc<dyn Fn(ExtensionContext, CompletionWait) -> Result<bool, HandlerError> + Send + Sync>,
     pub on_complete: Arc<dyn Fn(CompletionWait, ExtensionContext) -> Result<(), HandlerError> + Send + Sync>,
-    pub on_continue: Arc<dyn Fn(&JsString, Option<&JsString>) -> Result<(), HandlerError> + Send + Sync>,
+    pub on_continue: ContinueCompletion,
     pub on_status: AppendSupervisorStatus,
     pub on_clear_status: Arc<dyn Fn(&JsString) + Send + Sync>,
     pub on_error: Arc<dyn Fn(HandlerError, ExtensionContext) + Send + Sync>,

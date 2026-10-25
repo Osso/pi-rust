@@ -63,7 +63,7 @@ fn format_agent_list_content(agents: &[AgentSnapshot]) -> JsString {
             lifecycle_name(agent.lifecycle)
         )
     });
-    JsString::join(&std::iter::once(header).chain(entries).collect::<Vec<_>>(), "\n")
+    JsString::join(std::iter::once(header).chain(entries).collect::<Vec<_>>(), "\n")
 }
 
 fn quote(value: impl Into<JsString>) -> String {

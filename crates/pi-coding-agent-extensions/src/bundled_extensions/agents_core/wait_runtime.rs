@@ -569,13 +569,7 @@ fn consume_pending_terminal_notifications(
     let text = pi_js_compat::js_json::JsString::join(
         pending
             .iter()
-            .map(|(agent, message)| {
-                message
-                    .body
-                    .clone()
-                    .map(pi_js_compat::js_json::JsString::from)
-                    .unwrap_or_else(|| format_agent_status(agent))
-            })
+            .map(|(agent, message)| message.body.clone().unwrap_or_else(|| format_agent_status(agent)))
             .collect::<Vec<_>>(),
         "\n",
     );

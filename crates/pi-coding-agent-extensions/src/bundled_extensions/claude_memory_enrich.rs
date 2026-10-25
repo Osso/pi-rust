@@ -63,7 +63,7 @@ pub fn claude_memory_enrich_extension(pi: &ExtensionApi) -> Result<(), HandlerEr
                 match run_enrich(&command, &prompt, ctx.signal()?, shutdown).await {
                     Ok(Some(additional_context)) => Ok(Some(BeforeAgentStartEventResult {
                         message: None,
-                        system_prompt: Some(append_enrichment(&event.system_prompt, &additional_context).into()),
+                        system_prompt: Some(append_enrichment(&event.system_prompt, &additional_context)),
                     })),
                     Ok(None) => Ok(None),
                     Err(error) => {

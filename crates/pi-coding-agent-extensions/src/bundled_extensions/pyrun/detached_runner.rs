@@ -79,12 +79,12 @@ pub struct DetachedPyrunLaunchManifest {
 }
 
 fn fsync_file(path: &JsString) -> Result<(), JsString> {
-    let file = std::fs::File::open(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
+    let file = std::fs::File::open(encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
 fn fsync_directory(path: &JsString) -> Result<(), JsString> {
-    let file = std::fs::File::open(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
+    let file = std::fs::File::open(encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     file.sync_all().map_err(|error| JsString::from(error.to_string()))
 }
 
@@ -123,7 +123,7 @@ fn write_private(path: &JsString, content: &str) -> Result<(), JsString> {
     }
     use std::io::Write;
     let mut file = options
-        .open(&encode_node_utf8(path))
+        .open(encode_node_utf8(path))
         .map_err(|error| JsString::from(error.to_string()))?;
     file.write_all(content.as_bytes())
         .map_err(|error| JsString::from(error.to_string()))
@@ -152,8 +152,7 @@ pub fn read_detached_pyrun_activation(path: &JsString) -> Result<Option<Detached
     if !Path::new(&encode_node_utf8(path)).exists() {
         return Ok(None);
     }
-    let content =
-        std::fs::read_to_string(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
+    let content = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     let value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
     js_json::from_value(&value)
         .map(Some)
@@ -162,13 +161,12 @@ pub fn read_detached_pyrun_activation(path: &JsString) -> Result<Option<Detached
 
 /// `readDetachedPyrunLaunchManifest`.
 pub fn read_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPyrunLaunchManifest, JsString> {
-    let content =
-        std::fs::read_to_string(&encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
+    let content = std::fs::read_to_string(encode_node_utf8(path)).map_err(|error| JsString::from(error.to_string()))?;
     let parsed: Value = js_json::parse_lossless(&content).map_err(|error| error.into_message())?;
     let original = parsed.clone();
     let mut unsigned = parsed;
     let Some(object) = unsigned.as_object_mut() else {
-        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path).into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path));
     };
     let checksum = object
         .shift_remove(&JsString::from("checksum"))
@@ -179,7 +177,7 @@ pub fn read_detached_pyrun_launch_manifest(path: &JsString) -> Result<DetachedPy
         && started_at.is_some_and(f64::is_finite)
         && checksum.as_ref() == Some(&JsString::from(hash_json(&unsigned)));
     if !valid {
-        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path).into());
+        return Err(js_format!("Invalid detached Pyrun launch manifest: {}", path));
     }
     js_json::from_value(&original).map_err(|error| JsString::from(error.to_string()))
 }
@@ -326,7 +324,10 @@ async fn wait_for_detached_pyrun_launch_manifest(path: &JsString) -> Result<Deta
     let deadline = std::time::Instant::now() + Duration::from_millis(LAUNCH_MANIFEST_TIMEOUT_MS);
     while !Path::new(&encode_node_utf8(path)).exists() {
         if std::time::Instant::now() >= deadline {
-            return Err(js_format!("Timed out waiting for detached Pyrun launch manifest: {}", path).into());
+            return Err(js_format!(
+                "Timed out waiting for detached Pyrun launch manifest: {}",
+                path
+            ));
         }
         tokio::time::sleep(Duration::from_millis(LAUNCH_MANIFEST_POLL_MS)).await;
     }
@@ -517,9 +518,9 @@ async fn dispatch_foreground_pyrun_bridge_request(
 ) -> Result<Option<Value>, pi_ai::request::CallbackError> {
     let request_id = JsString::from(pi_ai::utils::random_uuid::random_uuid()?);
     let mut record = Map::new();
-    record.insert("method".into(), Value::String(request.method.clone().into()));
+    record.insert("method".into(), Value::String(request.method.clone()));
     record.insert("params".into(), request.params.clone());
-    record.insert("requestId".into(), Value::String(request_id.clone().into()));
+    record.insert("requestId".into(), Value::String(request_id.clone()));
     append_artifact_record(&manifest.data.bridge_request_path, &Value::Object(record))
         .map_err(|error| JsString::from(error.to_string()))?;
     let mut offset = 0;

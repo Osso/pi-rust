@@ -635,11 +635,11 @@ fn enqueue_runtime_session_message(
         kind: mailbox_kind(message.kind),
         recipient: RuntimeMailboxAddress {
             agent_id: recipient_agent_id,
-            session_id: to_session_id.to_owned().into(),
+            session_id: to_session_id.to_owned(),
         },
         sender: RuntimeMailboxAddress {
             agent_id: (message.from_agent_id != MAIN_THREAD_AGENT_ID).then(|| message.from_agent_id.clone()),
-            session_id: session_id.into(),
+            session_id,
         },
         store_ref,
     };
@@ -675,7 +675,7 @@ fn read_runtime_mailbox_store_ref(
     }
     Ok(Some(RuntimeMailboxStoreRef {
         message_id: message.id.clone(),
-        session_path: persistence.session_path.into(),
+        session_path: persistence.session_path,
     }))
 }
 
@@ -713,7 +713,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     let sender_session_id = agent
         .as_ref()
         .and_then(|agent| agent.transcript.as_ref())
-        .map(|transcript| transcript.session_id.clone().into())
+        .map(|transcript| transcript.session_id.clone())
         .unwrap_or(current_session_id);
     enqueue_runtime_mailbox_message(
         &control_db_path,
@@ -723,7 +723,7 @@ fn enqueue_lifecycle_runtime_mailbox_message(
             recipient,
             sender: RuntimeMailboxAddress {
                 agent_id: Some(notification.from_agent_id.clone()),
-                session_id: sender_session_id.into(),
+                session_id: sender_session_id,
             },
             store_ref,
         },
@@ -767,7 +767,7 @@ fn enqueue_runtime_mailbox_store_message(
         recipient,
         sender: RuntimeMailboxAddress {
             agent_id: Some(message.from_agent_id.clone()),
-            session_id: session_id.into(),
+            session_id,
         },
         store_ref,
     };
@@ -792,8 +792,8 @@ fn resolve_runtime_recipient(
         && let Some(transcript) = target.transcript.as_ref()
     {
         return Ok(Some(RuntimeMailboxAddress {
-            agent_id: Some(target.id.into()),
-            session_id: transcript.session_id.clone().into(),
+            agent_id: Some(target.id),
+            session_id: transcript.session_id.clone(),
         }));
     }
     if !is_main_runtime_target(&message.to_agent_id) {
@@ -836,7 +836,7 @@ fn resolve_agent_runtime_session_id(store: &MultiAgentStore, to_agent_id: &JsStr
         target
             .transcript
             .as_ref()
-            .map(|transcript| transcript.session_id.clone().into())
+            .map(|transcript| transcript.session_id.clone())
     })
 }
 

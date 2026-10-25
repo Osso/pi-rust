@@ -122,13 +122,12 @@ pub async fn set_agent_model(
         details["modelId"] = json!(model.id);
     }
     Ok(super::tool_results::tool_result(
-        pi_js_compat::js_json::JsString::from(name)
-            + js_format!(
-                " ({}) now uses {}, effort {}; applies from its next model request.",
-                params.agent_id,
-                description,
-                level.as_str()
-            ),
+        name + js_format!(
+            " ({}) now uses {}, effort {}; applies from its next model request.",
+            params.agent_id,
+            description,
+            level.as_str()
+        ),
         details,
     ))
 }
@@ -152,5 +151,5 @@ pub fn register_set_agent_model_tool(
                 set_agent_model(&store, &handles, params).await
             })
         }),
-    )).map_err(HandlerError::from)
+    ))
 }
