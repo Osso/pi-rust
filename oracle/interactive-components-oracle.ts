@@ -376,14 +376,20 @@ const handlers: Record<string, (api: Api, request: Request, sourceRoot: string) 
 		const renders: string[][] = [];
 		for (const item of request.cases) {
 			const definition = await definitionFor(item.tool);
+			const context = {
+				args: item.args ?? null, state: {}, lastComponent: undefined, callComponent: undefined,
+				toolCallId: "call-1", cwd: "/tmp/pi-tool-renderers", invalidate() {},
+				executionStarted: false, argsComplete: true, isPartial: false,
+				expanded: false, showImages: true, isError: false,
+			};
 			const component =
 				item.kind === "call"
-					? definition.renderCall(item.args, theme, { lastComponent: undefined })
+					? definition.renderCall(item.args, theme, context)
 					: definition.renderResult(
 							{ content: item.content, details: item.details, isError: item.isError ?? false },
 							{ expanded: false, isPartial: false },
 							theme,
-							{ lastComponent: undefined },
+							context,
 						);
 			renders.push(component.render(request.width));
 		}
