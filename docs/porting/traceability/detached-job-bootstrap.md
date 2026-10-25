@@ -31,4 +31,4 @@ None beyond the approved mechanism deviation.
 
 ## Current re-pin audit
 
-Whole module read against frozen 4f9e6f8a4. Open errors previously leaked Rust OS text; actual-source EEXIST regression `/tmp/runtime-services-red-bootstrap-error.log` now maps the output/identity file open boundary through the shared Node filesystem message authority. GREEN pending at commit. Existing real gate/session/descriptors/env/cwd/output/identity tests retained. Exotic descriptor/fsync/entropy faults and unsupported OS runtime shapes are excluded by the current parity bar.
+Whole module read against frozen 4f9e6f8a4. Open errors previously leaked Rust OS text; actual-source EEXIST regression `/tmp/runtime-services-red-bootstrap-error.log` now maps the output/identity file open boundary through the shared Node filesystem message authority. GREEN at 567abb2c7; `/tmp/runtime-services-green-bootstrap.log`. Existing real gate/session/descriptors/env/cwd/output/identity tests retained. Exotic descriptor/fsync/entropy faults and unsupported OS runtime shapes are excluded by the current parity bar.

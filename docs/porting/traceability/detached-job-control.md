@@ -29,6 +29,6 @@ Gaps / deviations:
 
 ## Re-pin persistence and reciprocal consumers
 
-`status_persistence_and_reciprocal_claims_match_frozen` compares exact SQLite JSON text (only the nondeterministic createdAt value normalized in place), including body JSON and key order, for native/frozen status requests and responses. Frozen claims native writes; native claims frozen writes. Raw response text survives both paths. RED `/tmp/runtime-services-red-control-wire.log`: native defaulted createdAt at the end of the object instead of its frozen position after body. Native constructors now emit createdAt explicitly. GREEN pending at commit.
+`status_persistence_and_reciprocal_claims_match_frozen` compares exact SQLite JSON text (only the nondeterministic createdAt value normalized in place), including body JSON and key order, for native/frozen status requests and responses. Frozen claims native writes; native claims frozen writes. Raw response text survives both paths. RED `/tmp/runtime-services-red-control-wire.log`: native defaulted createdAt at the end of the object instead of its frozen position after body. Native constructors now emit createdAt explicitly. GREEN at 567abb2c7; `/tmp/runtime-services-green-control-wire.log`.
 
 Gap: pathological record shapes, numeric extremes and scheduling-dependent delivery races are outside the requested parity bar. `result: null` remains distinct from absent result; process incarnation is preserved but not used by the frozen command matcher.
