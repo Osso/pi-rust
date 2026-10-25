@@ -12,7 +12,47 @@ function errorOf(error: unknown): { name: string; message: string } {
 	return error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
 }
 
+function captureGenerationRequest(model: unknown, context: Record<string, unknown>, options: Record<string, unknown>) {
+	const messages = (context.messages as Array<Record<string, unknown>>).map((message) => ({ ...message, timestamp: 0 }));
+	return { model, context: { ...context, messages }, options: {
+		apiKey: options.apiKey, headers: options.headers, env: options.env,
+		maxTokens: options.maxTokens, cacheRetention: options.cacheRetention,
+	} };
+}
+
 const handlers: Record<string, Handler> = {
+	generation: async (api, request) => {
+		const requests: unknown[] = [];
+		const responses = [...request.responses as unknown[]];
+		const streamFn = async (model: unknown, context: Record<string, unknown>, options: Record<string, unknown>) => {
+			requests.push(captureGenerationRequest(model, context, options));
+			if (responses.length === 0) throw new Error("generation fixture exhausted");
+			return { result: async () => responses.shift() };
+		};
+		const options = { apiKey: "fixture-key", headers: { "x-fixture": "yes" }, env: { FIXTURE_ENV: "value" }, streamFn };
+		let result: unknown;
+		try {
+			let value: unknown;
+			if (request.kind === "branch") {
+				value = await api.generateBranchSummary(request.entries, { ...options, model: request.model, reserveTokens: 1000,
+					customInstructions: request.customInstructions, replaceInstructions: request.replaceInstructions });
+			} else if (request.kind === "summary") {
+				value = await api.generateSummary(request.messages, request.model, 1000, options.apiKey, options.headers,
+					undefined, request.customInstructions, request.previousSummary, undefined, streamFn, options.env);
+			} else {
+				const preparation = request.preparation as Record<string, unknown> & { fileOps: { read: unknown[]; written: unknown[]; edited: unknown[] } };
+				value = await api.compact({ ...preparation, fileOps: { read: new Set(preparation.fileOps.read), written: new Set(preparation.fileOps.written), edited: new Set(preparation.fileOps.edited) } },
+					request.model, options.apiKey, options.headers, request.customInstructions, undefined, undefined, streamFn, options.env);
+				(value as Record<string, unknown>).durationMs = 0;
+			}
+			result = { ok: true, value };
+		} catch (error) { result = { ok: false, error: errorOf(error) }; }
+		return { result, requests };
+	},
+	shouldCompactResults: (api, request) => (request.cases as Array<{ contextTokens: number; contextWindow: number; settings: unknown; threshold?: number }>).map((entry) => {
+		try { return { value: api.shouldCompact(entry.contextTokens, entry.contextWindow, entry.settings, entry.threshold) }; }
+		catch (error) { return { error: errorOf(error) }; }
+	}),
 	tokens: (api, request) =>
 		(request.usages as unknown[]).map((usage) => api.calculateContextTokens(usage)),
 	estimateTokens: (api, request) =>
@@ -134,7 +174,7 @@ async function main(): Promise<void> {
 			if (!handler) throw new Error(`unknown operation ${request.operation}`);
 			const api = await load(request.module);
 			const extra = typeof request.module2 === "string" ? await load(request.module2) : undefined;
-			const output = handler(api, request, extra);
+			const output = await handler(api, request, extra);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
 			process.stdout.write(`${JSON.stringify({ id, ok: false, error: errorOf(error) })}\n`);

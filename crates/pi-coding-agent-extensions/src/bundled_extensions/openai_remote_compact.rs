@@ -170,7 +170,6 @@ pub async fn handle_compaction(
                 model: model.id.clone(),
                 endpoint: Some(endpoint),
             }),
-            usage: None,
             provider_native: Some(ProviderNativeContext {
                 provider: model.provider.clone(),
                 api: model.api.clone(),

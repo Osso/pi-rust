@@ -899,7 +899,6 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
                     compacted_result_tokens: None,
                     compacted_result_bytes: None,
                     source: None,
-                    usage: None,
                     provider_native: None,
                     details: None,
                 }),

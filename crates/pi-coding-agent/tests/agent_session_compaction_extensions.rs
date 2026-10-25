@@ -91,7 +91,6 @@ fn extension_result(
             model: "faux-1".to_owned(),
             endpoint: None,
         }),
-        usage: None,
         provider_native: None,
         details: Some(JsValue::from(json!({"origin": "extension"}))),
     }

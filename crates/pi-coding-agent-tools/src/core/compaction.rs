@@ -100,8 +100,6 @@ pub struct CompactionResult<T = Value> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source: Option<CompactionSourceInfo>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_native: Option<ProviderNativeContext>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub details: Option<T>,
@@ -629,7 +627,7 @@ pub(crate) async fn complete_summarization(
 }
 
 /// Options for generating or updating a conversation summary.
-pub struct GenerateSummaryWithUsageOptions<'a> {
+pub struct GenerateSummaryOptions<'a> {
     pub current_messages: &'a [AgentMessage],
     pub model: &'a Model,
     pub reserve_tokens: f64,
@@ -762,20 +760,41 @@ pub async fn materialize_compaction_summary(
     read_compaction_materialization_response(&response)
 }
 
-fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<JsString, CompactionError> {
-    let summary_prompt = if options.previous_summary.is_some() {
+const CONTINUATION_SUMMARIZATION_GUIDANCE: &str = "Continuation rules:
+- Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
+- Derive ongoing work from the actual conversation, including research and discussion; do not invent a fixed session purpose.
+- Preserve pending user questions and requests, user decisions and corrections, relevant context, and unfinished work.
+- Distinguish completed historical work from ongoing work; do not revive it as a current task.
+- Do not infer the current task or authority from the working directory or messages addressed to another session.
+- Represent ambiguity or missing intent explicitly rather than inventing a goal, assignment, or authorization.
+- Preserve user-stated goals and constraints, reasons for decisions, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.
+- Do not invent completion, evidence, file changes, commands, test results, or deployment state.
+- Prioritize the current task, then parked tasks, then only earlier history needed to continue.";
+
+fn build_compaction_instructions(base_prompt: &str, custom_instructions: Option<&JsString>) -> JsString {
+    let mut instructions = JsString::from(base_prompt) + "\n\n" + CONTINUATION_SUMMARIZATION_GUIDANCE;
+    if let Some(focus) = custom_instructions
+        .map(JsString::trim)
+        .filter(|focus| !focus.is_empty())
+    {
+        instructions = instructions + "\n\nAdditional compaction focus requested by the user:\n" + focus;
+    }
+    instructions
+}
+
+fn build_summary_prompt(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
+    let previous_summary = options.previous_summary.filter(|summary| !summary.is_empty());
+    let summary_prompt = if previous_summary.is_some() {
         UPDATE_SUMMARIZATION_PROMPT
     } else {
         SUMMARIZATION_PROMPT
     };
-    let focused_prompt = match options.custom_instructions {
-        Some(instructions) => JsString::from(summary_prompt) + "\n\nAdditional focus: " + instructions,
-        None => summary_prompt.into(),
-    };
+    let focused_prompt = build_compaction_instructions(summary_prompt, options.custom_instructions);
     let conversation_text = serialize_conversation(
         &convert_to_llm(options.current_messages).map_err(|error| CompactionError::new(error.message()))?,
     );
-    let previous_summary_text = match options.previous_summary {
+    let previous_summary_text = match previous_summary {
         Some(summary) => JsString::from("<previous-summary>\n") + summary + "\n</previous-summary>\n\n",
         None => JsString::default(),
     };
@@ -787,7 +806,7 @@ fn build_summary_prompt(options: &GenerateSummaryWithUsageOptions<'_>) -> Result
 }
 
 fn build_summary_request(
-    options: &GenerateSummaryWithUsageOptions<'_>,
+    options: &GenerateSummaryOptions<'_>,
 ) -> Result<(Context, SimpleStreamOptions), CompactionError> {
     let max_tokens = get_summarization_max_tokens(options.model, options.reserve_tokens);
     let message = Message::User(UserMessage {
@@ -816,50 +835,44 @@ fn build_summary_request(
     ))
 }
 
-/// Summary text and the provider usage that produced it.
-#[derive(Debug, Clone, PartialEq)]
-pub struct SummaryWithUsage {
-    pub text: JsString,
-    pub usage: Usage,
+fn read_summarization_text(
+    response: &AssistantMessage,
+    failure_prefix: &str,
+    empty_response_message: &str,
+) -> Result<JsString, CompactionError> {
+    if response.stop_reason == StopReason::Error {
+        let detail = response
+            .error_message
+            .as_ref()
+            .filter(|message| !message.is_empty())
+            .cloned()
+            .unwrap_or_else(|| "Unknown error".into());
+        return Err(CompactionError::new(JsString::from(failure_prefix) + ": " + detail));
+    }
+    let summary = JsString::join(
+        response.content.iter().filter_map(|content| match content {
+            AssistantContent::Text(content) if !content.text.trim().is_empty() => Some(&content.text),
+            _ => None,
+        }),
+        "\n",
+    );
+    if summary.is_empty() {
+        return Err(CompactionError::new(empty_response_message));
+    }
+    Ok(summary)
 }
 
-async fn generate_summary_with_options(
-    options: &GenerateSummaryWithUsageOptions<'_>,
-) -> Result<SummaryWithUsage, CompactionError> {
+/// Generate a summary of the conversation using the LLM.
+pub async fn generate_summary(options: &GenerateSummaryOptions<'_>) -> Result<JsString, CompactionError> {
     let (context, completion_options) = build_summary_request(options)?;
     let response = complete_summarization(options.model, context, completion_options, options.stream_fn)
         .await
         .map_err(|error| CompactionError::new(error.message()))?;
-    if response.stop_reason == StopReason::Error {
-        let detail = response
-            .error_message
-            .clone()
-            .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| "Unknown error".into());
-        return Err(CompactionError::new(JsString::from("Summarization failed: ") + detail));
-    }
-    Ok(SummaryWithUsage {
-        text: JsString::join(
-            response.content.iter().filter_map(|content| match content {
-                AssistantContent::Text(content) if !content.text.trim().is_empty() => Some(&content.text),
-                _ => None,
-            }),
-            "\n",
-        ),
-        usage: response.usage,
-    })
-}
-
-/// Generate a summary of the conversation using the LLM.
-pub async fn generate_summary(options: &GenerateSummaryWithUsageOptions<'_>) -> Result<JsString, CompactionError> {
-    generate_summary_with_options(options).await.map(|summary| summary.text)
-}
-
-/// Generate or update a conversation summary and return its provider usage.
-pub async fn generate_summary_with_usage(
-    options: &GenerateSummaryWithUsageOptions<'_>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    generate_summary_with_options(options).await
+    read_summarization_text(
+        &response,
+        "Summarization failed",
+        "Compaction summarization returned no text",
+    )
 }
 
 /// Data prepared for compaction, before any LLM call.
@@ -965,29 +978,6 @@ pub fn prepare_compaction(
     })
 }
 
-fn combine_usage(first: &Usage, second: &Usage) -> Usage {
-    Usage {
-        input: first.input + second.input,
-        output: first.output + second.output,
-        cache_read: first.cache_read + second.cache_read,
-        cache_write: first.cache_write + second.cache_write,
-        cache_write_1h: combine_optional(first.cache_write_1h, second.cache_write_1h),
-        reasoning: combine_optional(first.reasoning, second.reasoning),
-        total_tokens: first.total_tokens + second.total_tokens,
-        cost: pi_ai::types::UsageCost {
-            input: first.cost.input + second.cost.input,
-            output: first.cost.output + second.cost.output,
-            cache_read: first.cost.cache_read + second.cost.cache_read,
-            cache_write: first.cost.cache_write + second.cost.cache_write,
-            total: first.cost.total + second.cost.total,
-        },
-    }
-}
-
-fn combine_optional(first: Option<f64>, second: Option<f64>) -> Option<f64> {
-    (first.is_some() || second.is_some()).then(|| first.unwrap_or(0.0) + second.unwrap_or(0.0))
-}
-
 /// Options shared by the summary calls inside [`compact`].
 pub struct CompactionSummaryOptions<'a> {
     pub model: &'a Model,
@@ -1003,8 +993,8 @@ pub struct CompactionSummaryOptions<'a> {
 fn build_history_summary_options<'a>(
     preparation: &'a CompactionPreparation,
     options: &'a CompactionSummaryOptions<'a>,
-) -> GenerateSummaryWithUsageOptions<'a> {
-    GenerateSummaryWithUsageOptions {
+) -> GenerateSummaryOptions<'a> {
+    GenerateSummaryOptions {
         current_messages: &preparation.messages_to_summarize,
         model: options.model,
         reserve_tokens: preparation.settings.reserve_tokens,
@@ -1027,6 +1017,7 @@ struct TurnPrefixSummaryRequestOptions<'a> {
     headers: Option<ProviderHeaders>,
     env: Option<pi_ai::types::ProviderEnv>,
     signal: Option<AbortSignal>,
+    custom_instructions: Option<&'a JsString>,
 }
 
 fn build_turn_prefix_summary_request(
@@ -1045,7 +1036,7 @@ fn build_turn_prefix_summary_request(
     let prompt_text = JsString::from("<conversation>\n")
         + conversation_text
         + "\n</conversation>\n\n"
-        + TURN_PREFIX_SUMMARIZATION_PROMPT;
+        + build_compaction_instructions(TURN_PREFIX_SUMMARIZATION_PROMPT, options.custom_instructions);
     let message = Message::User(UserMessage {
         role: UserRole::Tag,
         content: UserContent::Blocks(vec![TextOrImageContent::Text(TextContent::new(prompt_text))]),
@@ -1069,53 +1060,30 @@ fn build_turn_prefix_summary_request(
     ))
 }
 
-fn interpret_turn_prefix_summary_response(response: &AssistantMessage) -> Result<SummaryWithUsage, CompactionError> {
-    if response.stop_reason == StopReason::Error {
-        let detail = response
-            .error_message
-            .clone()
-            .filter(|message| !message.is_empty())
-            .unwrap_or_else(|| "Unknown error".into());
-        return Err(CompactionError::new(
-            JsString::from("Turn prefix summarization failed: ") + detail,
-        ));
-    }
-    Ok(SummaryWithUsage {
-        text: JsString::join(
-            response.content.iter().filter_map(|content| match content {
-                AssistantContent::Text(content) if !content.text.trim().is_empty() => Some(&content.text),
-                _ => None,
-            }),
-            "\n",
-        ),
-        usage: response.usage.clone(),
-    })
-}
-
 async fn generate_turn_prefix_summary(
     options: &TurnPrefixSummaryRequestOptions<'_>,
     stream_fn: Option<&StreamFn>,
-) -> Result<SummaryWithUsage, CompactionError> {
+) -> Result<JsString, CompactionError> {
     let (context, request_options) = build_turn_prefix_summary_request(options)?;
     let response = complete_summarization(options.model, context, request_options, stream_fn)
         .await
         .map_err(|error| CompactionError::new(error.message()))?;
-    interpret_turn_prefix_summary_response(&response)
+    read_summarization_text(
+        &response,
+        "Turn prefix summarization failed",
+        "Turn prefix summarization returned no text",
+    )
 }
 
 async fn generate_split_turn_summary(
     preparation: &CompactionPreparation,
     options: &CompactionSummaryOptions<'_>,
-) -> Result<SummaryWithUsage, CompactionError> {
-    let mut history_text = JsString::from("No prior history.");
-    let mut history_usage = None;
-
-    if !preparation.messages_to_summarize.is_empty() {
-        let history_result =
-            generate_summary_with_options(&build_history_summary_options(preparation, options)).await?;
-        history_text = history_result.text;
-        history_usage = Some(history_result.usage);
-    }
+) -> Result<JsString, CompactionError> {
+    let history_text = if preparation.messages_to_summarize.is_empty() {
+        JsString::from("No prior history.")
+    } else {
+        generate_summary(&build_history_summary_options(preparation, options)).await?
+    };
 
     let turn_prefix_result = generate_turn_prefix_summary(
         &TurnPrefixSummaryRequestOptions {
@@ -1126,26 +1094,22 @@ async fn generate_split_turn_summary(
             headers: options.headers.clone(),
             env: options.env.clone(),
             signal: options.signal.clone(),
+            custom_instructions: options.custom_instructions,
         },
         options.stream_fn,
     )
     .await?;
-    let text = history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_result.text;
-    let usage = match history_usage {
-        Some(usage) => combine_usage(&usage, &turn_prefix_result.usage),
-        None => turn_prefix_result.usage,
-    };
-    Ok(SummaryWithUsage { text, usage })
+    Ok(history_text + "\n\n---\n\n**Turn Context (split turn):**\n\n" + turn_prefix_result)
 }
 
 async fn generate_compaction_summary(
     preparation: &CompactionPreparation,
     options: &CompactionSummaryOptions<'_>,
-) -> Result<SummaryWithUsage, CompactionError> {
+) -> Result<JsString, CompactionError> {
     if preparation.is_split_turn && !preparation.turn_prefix_messages.is_empty() {
         return generate_split_turn_summary(preparation, options).await;
     }
-    generate_summary_with_options(&build_history_summary_options(preparation, options)).await
+    generate_summary(&build_history_summary_options(preparation, options)).await
 }
 
 /// Generate summaries for compaction using prepared data.
@@ -1157,7 +1121,7 @@ pub async fn compact(
     let started_at = now_millis();
     let summary_result = generate_compaction_summary(preparation, options).await?;
     let file_lists = compute_file_lists(&preparation.file_ops);
-    let summary = summary_result.text + format_file_operations(&file_lists.read_files, &file_lists.modified_files);
+    let summary = summary_result + format_file_operations(&file_lists.read_files, &file_lists.modified_files);
 
     if preparation.first_kept_entry_id.is_empty() {
         return Err(CompactionError::new(
@@ -1179,14 +1143,13 @@ pub async fn compact(
             model: model.id.clone(),
             endpoint: None,
         }),
-        usage: Some(summary_result.usage),
         provider_native: None,
         details: Some(
             pi_js_compat::js_json::to_value(&CompactionDetails {
                 read_files: file_lists.read_files,
                 modified_files: file_lists.modified_files,
             })
-            .unwrap_or(Value::Null),
+            .map_err(|failure| CompactionError::new(failure.to_string()))?,
         ),
     })
 }

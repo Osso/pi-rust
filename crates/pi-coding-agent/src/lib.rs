@@ -72,7 +72,6 @@ pub use crate::core::compaction::estimate_tokens;
 pub use crate::core::compaction::find_cut_point;
 pub use crate::core::compaction::find_turn_start_index;
 pub use crate::core::compaction::generate_summary;
-pub use crate::core::compaction::generate_summary_with_usage;
 pub use crate::core::compaction::get_last_assistant_usage;
 pub use crate::core::compaction::should_compact;
 pub use crate::core::compaction::utils::serialize_conversation;

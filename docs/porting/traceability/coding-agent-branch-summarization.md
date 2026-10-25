@@ -50,3 +50,7 @@ Compared with `packages/agent/src/harness/compaction/branch-summarization.ts`
 - `BranchSummaryResult` uses `Option` fields with `skip_serializing_if`, so an
   aborted result serializes as `{"aborted":true}` exactly like the source.
 - No source bugs found.
+
+## Re-pin generation result and empty instructions (2026-10-25)
+
+Frozen :32–38/305–381 returns summary/readFiles/modifiedFiles, never usage. Removed native `BranchSummaryResult.usage` and corrected empty custom instruction truthiness for both replace/append modes. `differential_compaction_generation::branch_generation_matches_frozen_result_and_instruction_truthiness` invokes the actual source module with an injected stream and compares the full prompt/options/model and full result across missing/empty/nonempty custom instructions and replace modes. RED `/tmp/repin-compaction-generation-red.log` exposed the extra usage property. Existing source whitespace behavior remains unchanged: branch summaries join whitespace text; history and turn-prefix summaries filter whitespace-only blocks.
