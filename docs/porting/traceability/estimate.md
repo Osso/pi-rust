@@ -15,10 +15,12 @@ Removed old-only timestamp-prefix filter and dynamic-added-tool estimate. Assert
 
 Enumerable AgentTool label/executionMode are now retained by Tool and counted by this whole-object JSON path. Actual frozen comparisons cover four metadata variants, including the shared harness fixture and unpaired label units; [carrier/consumer audit](ai-types.md#enumerable-agenttool-metadata), `tool_metadata` GREEN at eede786f. This does not close the other scalar description/schema gaps below.
 
+## Numeric JSON regression (2026-10-25)
+
+Ordinary numeric tool-schema bounds/defaults exposed a serialization discrepancy: Rust counted `1.0` where frozen JSON.stringify counts `1`. Actual-source request10 failed at44 versus42 tokens before changing the private serializer to use the existing JS JSON authority. Requests10–11 compare integer-valued floats and ordinary decimal/exponent bounds; no public signatures or carriers change. Current-revision focused proof is pending. [Contract](../../specs/ai-estimate.md).
+
 ## Explicit gaps
 
-- `estimate_text_tokens(&str)` cannot accept lone UTF-16 units directly; content/context paths do retain native `JsString` units.
-- Rust `Tool` descriptions/schema currently use scalar/serde JSON fields; arbitrary lossless tool-definition JSON is not established by this matrix.
-- Non-serializable arbitrary JS runtime values excluded by typed Rust input decision; finite typed fixture coverage does not prove nonfinite/tool serialization boundaries.
+Under the 2026-10-25 user-observable parity decision, exotic/non-serializable runtime values, numeric extremes and lone UTF-16 units beyond the existing `&str`/serde schema carriers are recorded gaps; no new carrier is required. Existing `JsString` content, system prompts, descriptions and metadata and lossless argument JSON are retained.
 
-Status partial; no approved deviation claimed. No source bugs identified in current fixtures.
+Status partial pending current-revision proof. No frozen source bug identified.
