@@ -7,8 +7,8 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 | `ToolDetachHandle.detach` | Existing CallbackError Result prerequisite; `fallible_detach` compares TypeError/code/raw message and primitive/null/object throws against actual source |
 | options / `DEFAULT_AUTO_DETACH_AFTER_MS` / constructor | Default 600000 matches; f64 delay now uses existing normalize_timeout_delay. Actual overflow-delay RED→GREEN recorded |
 | `register` / Set identity / returned unsubscribe | IndexMap keys use Arc data-pointer identity, preserving Set insertion order/deduplication; strong returned subscriptions own the registry. Actual five-history duplicate callback/unsubscribe RED→GREEN |
-| `detachRunning` | Reverse snapshot, first true, immediate original throw propagation; retained normal tests and new fallible source histories |
-| `detachAll` | Insertion-order snapshot, boolean result ignored, original throw stops later callbacks; common-pin retained test plus fallible source histories |
+| `detachRunning` | Reverse snapshot, first true, immediate original throw propagation; actual source callback-mutation snapshot proof and four original-throw stop-order histories |
+| `detachAll` | Insertion-order snapshot, boolean result ignored, original throw stops later callbacks; actual source callback-mutation snapshot proof and four original-throw stop-order histories |
 | `hasRunning` | Membership remains after detach; explicit unregister removes membership. Duplicate identity case now passes |
 | timer callback / membership check / unref | Actual source unref timer still fires while another ref'ed activity keeps process alive; retained-subscription/dropped-registry native Weak lifetime was RED and is now GREEN with strong ownership. Actual source callback throw exits process 1; native error route uses existing uncaught authority; actual source/native error/raw-string process comparisons pass with original throw markers and exit1 |
 | `unregister` / clear latest timer | Retained cancellation tests and real source/native overwritten-old-timer proof: after duplicate register, first unsubscribe clears latest timer, then re-register lets old+new callbacks fire (2 calls) |
@@ -23,7 +23,7 @@ Frozen `packages/coding-agent/src/core/tool-detach-registry.ts`, all 63 lines, a
 
 Artifacts: `/tmp/pi-rust-repin-core-tools/`. New tests execute the actual pinned module; the historical claim that live handles/timers cannot be differential-tested is retired.
 
-Current owned corrections pass all three new source differential tests, nine retained registry tests and the two error-boundary tests (`tool-detach-owned-first-green.log`, 14 passed plus the explicitly invoked process helper). Seven binary64 delay cases, duplicate timer-reference behavior and active-default-timer natural process exit additionally pass (3 tests plus invoked process helper, `tool-detach-timer-semantics.log`). Snapshot mutation and final consumer/static gates remain open; no whole-module closure claim.
+Current owned corrections pass all three new source differential tests, nine retained registry tests and the two error-boundary tests (`tool-detach-owned-first-green.log`, 14 passed plus the explicitly invoked process helper). Seven binary64 delay cases, duplicate timer-reference behavior and active-default-timer natural process exit additionally pass (3 tests plus invoked process helper, `tool-detach-timer-semantics.log`). Snapshot mutation additionally passes actual source/native comparison (`tool-detach-snapshot-green.log`, 1 test): removed entries still run, new entries wait for the next snapshot, and reentrant unregister/register does not deadlock. Four original-throw cases now prove later callbacks stop in either order (`tool-detach-error-stop-green.log`, 1 test). Final consumer/static gates remain open; no whole-module closure claim.
 
 ## Required consumer catch/escape audit
 

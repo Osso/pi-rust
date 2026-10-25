@@ -147,8 +147,54 @@ async function duplicateTimerReference(api: Api) {
 		third();
 	}
 }
+function mutatingSnapshots(api: Api) {
+	const registry = new api.ToolDetachRegistry();
+	const calls: string[] = [];
+	const unsubscribe: (() => void)[] = [];
+	let firstUnregister: (() => void) | undefined;
+	let secondUnregister: (() => void) | undefined;
+	const third = {
+		detach: () => {
+			calls.push("third");
+			if (!firstUnregister)
+				throw new Error("first registration fixture required");
+			firstUnregister();
+			return false;
+		},
+	};
+	const first = {
+		detach: () => {
+			calls.push("first");
+			if (!secondUnregister)
+				throw new Error("second registration fixture required");
+			secondUnregister();
+			unsubscribe.push(registry.register(third));
+			return false;
+		},
+	};
+	firstUnregister = registry.register(first);
+	secondUnregister = registry.register({
+		detach: () => {
+			calls.push("second");
+			return false;
+		},
+	});
+	unsubscribe.push(firstUnregister, secondUnregister);
+	try {
+		registry.detachAll();
+		const all = { calls: [...calls], hasRunning: registry.hasRunning() };
+		const result = registry.detachRunning();
+		return {
+			all,
+			running: { result, calls: [...calls], hasRunning: registry.hasRunning() },
+		};
+	} finally {
+		for (const unregister of unsubscribe) unregister();
+	}
+}
 void runOracle(async (module, request) => {
 	const api = module as Api;
+	if (request.operation === "mutatingSnapshots") return mutatingSnapshots(api);
 	if (request.operation === "duplicateTimerReference")
 		return duplicateTimerReference(api);
 	if (request.operation === "unrefExit") {

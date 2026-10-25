@@ -29,6 +29,8 @@ Use the existing `CallbackError` and process-uncaught authority only at a proven
 
 - `tool_detach_timer_semantics`: seven finite/nonfinite binary64 delay histories, actual overwritten-old-timer behavior after unregister/re-register, and source/native active-default-timer natural process exit pass (3 tests plus an explicitly invoked ignored child helper; `tool-detach-timer-semantics.log`).
 
+- Snapshot callback mutation matches actual source: insertion/reverse snapshots still call removed entries and omit new entries; callbacks can unregister/register without a lock being held across the callback (`tool-detach-snapshot-green.log`, 1 passed). The four original-rejection histories now include first/last continuing callbacks and prove iteration stops at the throwing callback (`tool-detach-error-stop-green.log`, 1 passed).
+
 ## Known gaps (current cycle)
 
 Whole module implementation/proof is in progress. Existing shared delay normalization documents omitted Node warning emission and OS scheduling precision; its disposition is recorded at final module closure, not silently presented as parity.

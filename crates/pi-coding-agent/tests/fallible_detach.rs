@@ -19,6 +19,16 @@ impl ToolDetachHandle for ThrowingHandle {
         Err(self.reason.clone())
     }
 }
+struct ContinuingHandle {
+    name: &'static str,
+    calls: Arc<Mutex<Vec<String>>>,
+}
+impl ToolDetachHandle for ContinuingHandle {
+    fn detach(&self) -> Result<bool, CallbackError> {
+        self.calls.lock().unwrap().push(self.name.into());
+        Ok(false)
+    }
+}
 fn snapshot(error: CallbackError) -> JsValue {
     let reason = error.thrown_value();
     let kind = if matches!(reason, AbortReason::Error(_) | AbortReason::DomException(_)) {
@@ -48,22 +58,30 @@ fn registry_synchronous_methods_preserve_original_callback_rejections() {
         "packages/coding-agent/src/core/tool-detach-registry.ts",
     );
     for input in inputs.as_array().unwrap() {
-        let expected=oracle.request(&json!({"id":1,"cases":[{"handles":[{"name":"throwing","result":false,"throw":input}],"steps":[{"op":"register","name":"throwing"},{"op":"running"},{"op":"all"}]}]}));
+        let expected=oracle.request(&json!({"id":1,"cases":[{"handles":[{"name":"first","result":false},{"name":"throwing","result":false,"throw":input},{"name":"last","result":false}],"steps":[{"op":"register","name":"first"},{"op":"register","name":"throwing"},{"op":"register","name":"last"},{"op":"running"},{"op":"all"}]}]}));
         assert_eq!(expected["ok"], json!(true), "{expected:?}");
         let reason = fixture_error(input);
         let calls = Arc::new(Mutex::new(Vec::new()));
         let registry = Arc::new(ToolDetachRegistry::new());
+        let _first = registry.register(Arc::new(ContinuingHandle {
+            name: "first",
+            calls: calls.clone(),
+        }));
         let _subscription = registry.register(Arc::new(ThrowingHandle {
             reason,
             calls: calls.clone(),
         }));
+        let _last = registry.register(Arc::new(ContinuingHandle {
+            name: "last",
+            calls: calls.clone(),
+        }));
         let running = snapshot(registry.detach_running().unwrap_err());
-        assert_eq!(running, expected["output"]["histories"][0][1]["error"]);
+        assert_eq!(running, expected["output"]["histories"][0][3]["error"]);
         let all = snapshot(registry.detach_all().unwrap_err());
-        assert_eq!(all, expected["output"]["histories"][0][2]["error"]);
+        assert_eq!(all, expected["output"]["histories"][0][4]["error"]);
         assert_eq!(
             json!(calls.lock().unwrap().clone()),
-            expected["output"]["histories"][0][2]["calls"]
+            expected["output"]["histories"][0][4]["calls"]
         );
         assert!(registry.has_running());
     }
