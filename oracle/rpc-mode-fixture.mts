@@ -32,6 +32,10 @@ type RpcContext = {
 	};
 };
 type FixtureApi = {
+	on(
+		event: "input",
+		handler: (event: { images?: unknown }) => Promise<{ action: "handled" }>,
+	): void;
 	registerCommand(
 		name: string,
 		command: { handler(args: string, context: RpcContext): Promise<void> },
@@ -55,6 +59,7 @@ export async function configureRpcResources(
 	if (encoded === undefined) return;
 	const config = JSON.parse(encoded) as {
 		status?: "value" | "omit" | "throw";
+		imagesProbe?: boolean;
 		bashHook?: boolean;
 		stdoutProbe?: boolean;
 		earlySignal?: "SIGTERM" | "SIGHUP";
@@ -79,6 +84,14 @@ export async function configureRpcResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.imagesProbe)
+				api.on("input", async (event) => {
+					appendFileSync(
+						join(root, "images-report.jsonl"),
+						`${JSON.stringify(event.images === undefined ? "absent" : event.images)}\n`,
+					);
+					return { action: "handled" };
+				});
 			if (config.shutdownCommand)
 				api.registerCommand("rpc-shutdown-fixture", {
 					handler: async (_args, context) => {
