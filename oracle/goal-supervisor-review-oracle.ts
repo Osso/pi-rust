@@ -5,6 +5,19 @@ type Review = (input: Input) => Promise<Record<string, unknown>>;
 type Append = (ctx: unknown, message: string, reviewAt?: string, displayId?: string) => void;
 
 runOracle(async (api, request) => {
+	if (request.operation === "resident") {
+		return await Promise.all(requireCases(request).map(async value => {
+			const { standalone } = value as { standalone: boolean };
+			const events: string[] = [];
+			try {
+				const result = await (api.reviewGoalWithResidentSupervisor as Review)({ ctx: {
+					cwd: process.cwd(), noSupervisor: standalone, sessionManager: { getSessionId: () => "fixture-session" },
+					registerSupervisorReviewCancellation(handler: () => void) { events.push("register"); handler(); return () => { events.push("unregister"); }; },
+				}, kind: "goal_idle_review", payload: {} });
+				return { result, events };
+			} catch (error) { return { error: (error as Error).message, events }; }
+		}));
+	}
 	const wrap = api.withSupervisorReviewStatus as (append: Append, review: Review) => Review;
 	return await Promise.all(requireCases(request).map(async value => {
 		const item = value as { result?: Record<string, unknown>; error?: string };
