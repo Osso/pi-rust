@@ -55,8 +55,8 @@ pub enum RpcCommandBody {
 
     // Model
     SetModel {
-        provider: String,
-        model_id: String,
+        provider: JsString,
+        model_id: JsString,
     },
     CycleModel,
     GetAvailableModels,
@@ -66,7 +66,6 @@ pub enum RpcCommandBody {
         level: ThinkingLevel,
     },
     CycleThinkingLevel,
-    GetAvailableThinkingLevels,
 
     // Queue modes
     SetSteeringMode {
@@ -185,7 +184,6 @@ fn decode_command_body(value: &JsValue) -> Result<RpcCommandBody, String> {
             level: command_field(value, "level")?,
         },
         "cycle_thinking_level" => Body::CycleThinkingLevel,
-        "get_available_thinking_levels" => Body::GetAvailableThinkingLevels,
         "set_steering_mode" => Body::SetSteeringMode {
             mode: command_field(value, "mode")?,
         },
@@ -249,7 +247,6 @@ impl RpcCommandBody {
             Self::GetAvailableModels => "get_available_models",
             Self::SetThinkingLevel { .. } => "set_thinking_level",
             Self::CycleThinkingLevel => "cycle_thinking_level",
-            Self::GetAvailableThinkingLevels => "get_available_thinking_levels",
             Self::SetSteeringMode { .. } => "set_steering_mode",
             Self::SetFollowUpMode { .. } => "set_follow_up_mode",
             Self::Compact { .. } => "compact",
@@ -319,8 +316,10 @@ pub struct RpcSessionState {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub session_name: Option<JsString>,
     pub auto_compaction_enabled: bool,
-    pub message_count: u64,
-    pub pending_message_count: u64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub message_count: f64,
+    #[serde(serialize_with = "pi_js_compat::number::serialize")]
+    pub pending_message_count: f64,
 }
 
 /// `type` discriminator of an RPC response line.
@@ -403,7 +402,7 @@ pub fn is_known_command_type(name: &str) -> bool {
 }
 
 /// Every `RpcCommand["type"]` discriminator in declaration order.
-pub const COMMAND_TYPES: [&str; 33] = [
+pub const COMMAND_TYPES: [&str; 32] = [
     "prompt",
     "steer",
     "follow_up",
@@ -416,7 +415,6 @@ pub const COMMAND_TYPES: [&str; 33] = [
     "get_available_models",
     "set_thinking_level",
     "cycle_thinking_level",
-    "get_available_thinking_levels",
     "set_steering_mode",
     "set_follow_up_mode",
     "compact",
@@ -448,7 +446,7 @@ pub enum ExtensionUiRequestTag {
 }
 
 /// Extension UI request payload, tagged by `method`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "method", rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum RpcExtensionUiRequestPayload {
     Select {
@@ -514,14 +512,78 @@ pub enum RpcExtensionUiRequestPayload {
 }
 
 /// An extension UI request line (`RpcExtensionUIRequest`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RpcExtensionUiRequest {
     #[serde(rename = "type")]
     pub kind: ExtensionUiRequestTag,
-    pub id: String,
+    pub id: JsString,
     #[serde(flatten)]
     pub payload: RpcExtensionUiRequestPayload,
+}
+
+impl<'de> Deserialize<'de> for RpcExtensionUiRequestPayload {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        decode_ui_request_payload(&value).map_err(serde::de::Error::custom)
+    }
+}
+
+impl<'de> Deserialize<'de> for RpcExtensionUiRequest {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        Ok(Self {
+            kind: command_field(&value, "type").map_err(serde::de::Error::custom)?,
+            id: command_field(&value, "id").map_err(serde::de::Error::custom)?,
+            payload: decode_ui_request_payload(&value).map_err(serde::de::Error::custom)?,
+        })
+    }
+}
+
+fn decode_ui_request_payload(value: &JsValue) -> Result<RpcExtensionUiRequestPayload, String> {
+    use RpcExtensionUiRequestPayload as Payload;
+    let method: String = command_field(value, "method")?;
+    Ok(match method.as_str() {
+        "select" => Payload::Select {
+            title: command_field(value, "title")?,
+            options: command_field(value, "options")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "confirm" => Payload::Confirm {
+            title: command_field(value, "title")?,
+            message: command_field(value, "message")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "input" => Payload::Input {
+            title: command_field(value, "title")?,
+            placeholder: optional_command_field(value, "placeholder")?,
+            timeout: optional_command_field(value, "timeout")?,
+        },
+        "editor" => Payload::Editor {
+            title: command_field(value, "title")?,
+            prefill: optional_command_field(value, "prefill")?,
+        },
+        "notify" => Payload::Notify {
+            message: command_field(value, "message")?,
+            notify_type: optional_command_field(value, "notifyType")?,
+        },
+        "setStatus" => Payload::SetStatus {
+            status_key: command_field(value, "statusKey")?,
+            status_text: optional_command_field(value, "statusText")?,
+        },
+        "setWidget" => Payload::SetWidget {
+            widget_key: command_field(value, "widgetKey")?,
+            widget_lines: optional_command_field(value, "widgetLines")?,
+            widget_placement: optional_command_field(value, "widgetPlacement")?,
+        },
+        "setTitle" => Payload::SetTitle {
+            title: command_field(value, "title")?,
+        },
+        "set_editor_text" => Payload::SetEditorText {
+            text: command_field(value, "text")?,
+        },
+        _ => return Err(format!("unknown UI request method `{method}`")),
+    })
 }
 
 /// `type` discriminator of an extension UI response line.
@@ -536,9 +598,23 @@ pub enum ExtensionUiResponseTag {
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(untagged)]
 pub enum RpcExtensionUiResponsePayload {
-    Value { value: JsString },
-    Confirmed { confirmed: bool },
-    Cancelled { cancelled: bool },
+    Value {
+        value: JsString,
+    },
+    Confirmed {
+        confirmed: bool,
+    },
+    Cancelled {
+        #[serde(serialize_with = "serialize_cancelled")]
+        cancelled: bool,
+    },
+}
+
+fn serialize_cancelled<S: serde::Serializer>(cancelled: &bool, serializer: S) -> Result<S::Ok, S::Error> {
+    if !cancelled {
+        return Err(serde::ser::Error::custom("cancelled must be true"));
+    }
+    serializer.serialize_bool(true)
 }
 
 /// A client answer to an extension UI request (`RpcExtensionUIResponse`).
@@ -547,7 +623,7 @@ pub enum RpcExtensionUiResponsePayload {
 pub struct RpcExtensionUiResponse {
     #[serde(rename = "type")]
     pub kind: ExtensionUiResponseTag,
-    pub id: String,
+    pub id: JsString,
     #[serde(flatten)]
     pub payload: RpcExtensionUiResponsePayload,
 }
@@ -567,8 +643,8 @@ fn decode_ui_response(value: &JsValue) -> Result<RpcExtensionUiResponse, String>
         Payload::Value { value: answer }
     } else if let Ok(confirmed) = command_field::<bool>(value, "confirmed") {
         Payload::Confirmed { confirmed }
-    } else if let Ok(cancelled) = command_field::<bool>(value, "cancelled") {
-        Payload::Cancelled { cancelled }
+    } else if command_field::<bool>(value, "cancelled") == Ok(true) {
+        Payload::Cancelled { cancelled: true }
     } else {
         return Err("data did not match any variant of untagged enum RpcExtensionUiResponsePayload".into());
     };

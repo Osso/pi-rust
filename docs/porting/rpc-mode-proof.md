@@ -22,6 +22,10 @@ Functional code and fixture publication proof: `af555494` (includes latest paren
 - First parallel integration:19/29 passed; ten native children failed before mode startup because the shared padded package directory was visible before its theme files were copied. `af555494` gives each invocation a unique PID/sequence directory of the same required length and completes copying before spawning. Parallel29/29 then passed; no serial-test switch or assertion relaxation.
 - The shutdown-immediate-exit draft failed on frozen itself. Parent classified the discrepancy; the accepted test checks the next command response and normal exit0.
 
+## Q13 client/JSONL follow-up
+
+The client slice adds the blocked-stdout SIGHUP regression: reader detach must not synthesize input EOF while signal disposal is flushing. The process matrix now has30 cases. After parent e40dff0d, its thinking-timeout case exposed a fixture-only100ms recovery budget race under parallel native event I/O; the unchanged case passed in isolation. Parent approved1000ms on both runtimes, preserving every timeout/retry/event/message/persistence assertion. Collected events are now included in mismatch diagnostics. The final parallel confirmation is recorded with the client-pair proof; no production timeout or scheduler behavior changes.
+
 ## Proof ledger
 
 Artifacts: `/tmp/pi-rust-repin-lossless-interactive/`; command/revision/invalidation history: `rpc-mode-proof-ledger.md` there.

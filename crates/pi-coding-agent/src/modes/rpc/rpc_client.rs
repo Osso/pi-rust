@@ -4,17 +4,21 @@
 //! correlates response lines with pending requests. Events that are not
 //! responses are delivered to subscribers in wire order.
 
-use std::collections::{BTreeMap, HashMap};
+use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Write as _;
-use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::types::{ImageContent, Model};
+use pi_ai::types::ImageContent;
+
+#[path = "rpc_client_models.rs"]
+mod model_records;
+pub use model_records::{ModelInfo, ModelReference};
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use rustix::process::Signal;
 use serde::Serialize;
@@ -28,13 +32,10 @@ use crate::core::bash_executor::BashResult;
 use crate::core::compaction::CompactionResult;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
-use crate::modes::rpc::rpc_types::{
-    QueueMode, RpcCommand, RpcCommandBody, RpcResponse, RpcSessionState, RpcSlashCommand,
-};
-use crate::utils::child_process::node_spawn_error_message;
+use crate::modes::rpc::rpc_types::{QueueMode, RpcCommand, RpcCommandBody, RpcSessionState, RpcSlashCommand};
 
 /// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
-pub const DEFAULT_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
+pub const DEFAULT_EVENT_TIMEOUT: f64 = 60_000.0;
 const STARTUP_DELAY: Duration = Duration::from_millis(100);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const TERMINATE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -44,25 +45,27 @@ const STDERR_CHUNK_BYTES: usize = 8192;
 /// `RpcEventListener`: receives each non-correlated event line as JSON.
 ///
 /// `on_event` accepts any compatible closure; this alias names the shared form.
-pub type RpcEventListener = Arc<dyn Fn(&JsValue) + Send + Sync>;
+pub type RpcEventListener = Arc<dyn Fn(&JsValue) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
 
 /// Options for [`RpcClient::start`].
 #[derive(Debug, Clone, Default)]
 pub struct RpcClientOptions {
+    /// Runtime executable, defaulting to node (frozen executablePath).
+    pub executable_path: Option<JsString>,
     /// Path to the CLI entry point (default: `dist/cli.js`).
-    pub cli_path: Option<PathBuf>,
+    pub cli_path: Option<JsString>,
     /// Working directory for the agent.
-    pub cwd: Option<PathBuf>,
+    pub cwd: Option<JsString>,
     /// Environment overrides merged over the inherited environment.
-    pub env: BTreeMap<String, String>,
+    pub env: IndexMap<JsString, JsString>,
     /// Provider passed as `--provider`.
-    pub provider: Option<String>,
+    pub provider: Option<JsString>,
     /// Model passed as `--model`.
-    pub model: Option<String>,
+    pub model: Option<JsString>,
     /// Additional arguments passed to Node before the CLI entry point.
-    pub node_args: Vec<String>,
+    pub node_args: Vec<JsString>,
     /// Additional CLI arguments.
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
 }
 
 /// `{ cancelled }` returned by `new_session`, `switch_session`, and `clone`.
@@ -76,7 +79,7 @@ pub struct CancelledResult {
 #[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CycleModelResult {
-    pub model: Model,
+    pub model: ModelReference,
     pub thinking_level: ThinkingLevel,
     pub is_scoped: bool,
 }
@@ -90,7 +93,7 @@ pub struct CycleThinkingLevelResult {
 /// `export_html` data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ExportHtmlResult {
-    pub path: String,
+    pub path: JsString,
 }
 
 /// `fork` data.
@@ -104,7 +107,7 @@ pub struct ForkResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkMessage {
-    pub entry_id: String,
+    pub entry_id: JsString,
     pub text: JsString,
 }
 
@@ -113,7 +116,7 @@ pub struct ForkMessage {
 #[serde(rename_all = "camelCase")]
 pub struct EntriesResult {
     pub entries: Vec<SessionEntry>,
-    pub leaf_id: Option<String>,
+    pub leaf_id: Option<JsString>,
 }
 
 /// `get_tree` data.
@@ -121,12 +124,13 @@ pub struct EntriesResult {
 #[serde(rename_all = "camelCase")]
 pub struct TreeResult {
     pub tree: Vec<SessionTreeNode>,
-    pub leaf_id: Option<String>,
+    pub leaf_id: Option<JsString>,
 }
 
-/// An RPC client error. `Display` matches the TypeScript `Error.message`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Lossless RPC error message/value; `Display` encodes only at the OS UTF-8 boundary.
+#[derive(Debug, Clone, PartialEq)]
 pub enum RpcClientError {
+    Native(Box<pi_js_compat::node_error::NativeNodeError>),
     AlreadyStartedOrStopping,
     StoppedDuringStartup {
         stderr: String,
@@ -144,12 +148,15 @@ pub enum RpcClientError {
         message: String,
         stderr: String,
     },
+    StdinNotWritable {
+        stderr: String,
+    },
     NotStarted,
     Stopping {
         stderr: String,
     },
     PreviousStopFailed {
-        message: String,
+        message: JsString,
     },
     Stopped {
         stderr: String,
@@ -177,69 +184,86 @@ pub enum RpcClientError {
         command: String,
         message: String,
     },
-    MalformedResponse {
-        message: String,
+    TypeError {
+        message: JsString,
     },
     Serialize {
         message: String,
     },
 }
 
-impl fmt::Display for RpcClientError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl RpcClientError {
+    pub fn name(&self) -> JsString {
         match self {
-            Self::AlreadyStartedOrStopping => formatter.write_str("Client already started or stopping"),
+            Self::Native(error) => error.name.clone(),
+            Self::TypeError { .. } => "TypeError".into(),
+            _ => "Error".into(),
+        }
+    }
+
+    pub fn message(&self) -> JsString {
+        match self {
+            Self::Native(error) => error.message.clone(),
+            Self::CommandFailed { message } | Self::TypeError { message } => message.clone(),
+            Self::AlreadyStartedOrStopping => "Client already started or stopping".into(),
+            Self::NotStarted => "Client not started".into(),
             Self::StoppedDuringStartup { stderr } => {
-                write!(formatter, "RPC client stopped during startup. Stderr: {stderr}")
+                format!("RPC client stopped during startup. Stderr: {stderr}").into()
             }
-            Self::ProcessExited { code, signal, stderr } => write!(
-                formatter,
+            Self::ProcessExited { code, signal, stderr } => format!(
                 "Agent process exited (code={} signal={}). Stderr: {stderr}",
                 optional_code(*code),
                 optional_signal(*signal)
-            ),
-            Self::ProcessError { message, stderr } => write!(
-                formatter,
-                "Agent process error: {}. Stderr: {stderr}",
-                pi_js_compat::js_json::encode_node_utf8(message)
-            ),
+            )
+            .into(),
+            Self::ProcessError { message, stderr } => {
+                pi_js_compat::js_format!("Agent process error: {}. Stderr: {}", message, stderr)
+            }
             Self::StdinError { message, stderr } => {
-                write!(formatter, "Agent process stdin error: {message}. Stderr: {stderr}")
+                format!("Agent process stdin error: {message}. Stderr: {stderr}").into()
             }
-            Self::NotStarted => formatter.write_str("Client not started"),
-            Self::Stopping { stderr } => write!(formatter, "RPC client is stopping. Stderr: {stderr}"),
-            Self::PreviousStopFailed { message } => {
-                write!(formatter, "Previous RPC stop failed: {message}")
+            Self::StdinNotWritable { stderr } => {
+                format!("Agent process stdin is not writable. Stderr: {stderr}").into()
             }
-            Self::Stopped { stderr } => write!(formatter, "RPC client stopped. Stderr: {stderr}"),
+            Self::Stopping { stderr } => format!("RPC client is stopping. Stderr: {stderr}").into(),
+            Self::PreviousStopFailed { message } => pi_js_compat::js_format!("Previous RPC stop failed: {}", message),
+            Self::Stopped { stderr } => format!("RPC client stopped. Stderr: {stderr}").into(),
             Self::RequestTimeout { command, stderr } => {
-                write!(formatter, "Timeout waiting for response to {command}. Stderr: {stderr}")
+                format!("Timeout waiting for response to {command}. Stderr: {stderr}").into()
             }
-            Self::StopFailed { stderr } => {
-                write!(formatter, "RPC child did not exit after SIGKILL. Stderr: {stderr}")
-            }
+            Self::StopFailed { stderr } => format!("RPC child did not exit after SIGKILL. Stderr: {stderr}").into(),
             Self::IdleTimeout { stderr } => {
-                write!(formatter, "Timeout waiting for agent to become idle. Stderr: {stderr}")
+                format!("Timeout waiting for agent to become idle. Stderr: {stderr}").into()
             }
-            Self::CollectTimeout { stderr } => {
-                write!(formatter, "Timeout collecting events. Stderr: {stderr}")
-            }
-            Self::CommandFailed { message } => formatter.write_str(&encode_node_utf8(message)),
-            Self::MissingData { command } => {
-                write!(formatter, "Missing response data for {command}")
-            }
-            Self::InvalidData { command, message } => {
-                write!(formatter, "Invalid response data for {command}: {message}")
-            }
-            Self::MalformedResponse { message } => {
-                write!(formatter, "Malformed response: {message}")
-            }
-            Self::Serialize { message } => write!(formatter, "Failed to serialize command: {message}"),
+            Self::CollectTimeout { stderr } => format!("Timeout collecting events. Stderr: {stderr}").into(),
+            Self::MissingData { command } => format!("Missing response data for {command}").into(),
+            Self::InvalidData { command, message } => format!("Invalid response data for {command}: {message}").into(),
+            Self::Serialize { message } => format!("Failed to serialize command: {message}").into(),
+        }
+    }
+
+    pub fn value(&self) -> JsValue {
+        match self {
+            Self::Native(error) => error.value(),
+            _ => pi_js_compat::js_json!({"name":self.name(),"message":self.message()}),
         }
     }
 }
 
-impl std::error::Error for RpcClientError {}
+impl fmt::Display for RpcClientError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&encode_node_utf8(&self.message()))
+    }
+}
+
+impl std::error::Error for RpcClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Native(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 fn optional_code(code: Option<i32>) -> String {
     code.map_or_else(|| "null".to_owned(), |code| code.to_string())
@@ -282,37 +306,56 @@ fn kill_process(pid: u32, signal: Signal) -> std::io::Result<()> {
 #[derive(Clone)]
 struct Listener {
     id: u64,
-    callback: Arc<dyn Fn(&JsValue) + Send + Sync>,
+    callback: RpcEventListener,
 }
 
 struct SyncState {
     stderr: String,
     exit: Option<ExitInfo>,
     exit_error: Option<RpcClientError>,
+    process_error_listener: bool,
     active_generation: Option<u64>,
-    stopping: bool,
+    stop_run: Option<Arc<StopCompletion>>,
     stop_error: Option<RpcClientError>,
     next_request_id: u64,
-    pending: HashMap<String, oneshot::Sender<Result<RpcResponse, RpcClientError>>>,
+    pending: HashMap<String, oneshot::Sender<Result<JsValue, RpcClientError>>>,
+    stdin: Option<mpsc::UnboundedSender<String>>,
     listeners: Vec<Listener>,
     next_listener_id: u64,
 }
 
+#[derive(Default)]
+struct StopCompletion {
+    result: Mutex<Option<Result<(), RpcClientError>>>,
+    ready: tokio::sync::Notify,
+}
+
+impl StopCompletion {
+    async fn wait(&self) -> Result<(), RpcClientError> {
+        loop {
+            let ready = self.ready.notified();
+            if let Some(result) = self.result.lock().expect("stop result poisoned").clone() {
+                return result;
+            }
+            ready.await;
+        }
+    }
+}
+
 struct ProcessHandle {
     pid: u32,
+    generation: u64,
     exit: watch::Receiver<Option<ExitInfo>>,
 }
 
 struct PendingRequest {
     id: String,
-    line: String,
-    receiver: oneshot::Receiver<Result<RpcResponse, RpcClientError>>,
+    receiver: oneshot::Receiver<Result<JsValue, RpcClientError>>,
 }
 
 #[derive(Default)]
 struct ProcessState {
     child: Option<ProcessHandle>,
-    stdin: Option<ChildStdin>,
     reader: Option<JsonlLineReader>,
 }
 
@@ -333,18 +376,35 @@ impl ClientInner {
         if let Some(id) = response_id(&value) {
             let sender = self.sync.lock().expect("sync state poisoned").pending.remove(&id);
             if let Some(sender) = sender {
-                let response =
-                    js_json::from_value::<RpcResponse>(&value).map_err(|error| RpcClientError::MalformedResponse {
-                        message: error.to_string(),
-                    });
-                let _ = sender.send(response);
+                let _ = sender.send(Ok(value));
                 return;
             }
         }
 
-        let listeners = self.sync.lock().expect("sync state poisoned").listeners.clone();
-        for listener in listeners {
-            (listener.callback)(&value);
+        self.notify_listeners(&value);
+    }
+
+    fn notify_listeners(&self, value: &JsValue) {
+        // Frozen's encompassing catch also ignores null.type and callback rejections.
+        if value.is_null() {
+            return;
+        }
+        let mut index = 0;
+        loop {
+            let listener = self
+                .sync
+                .lock()
+                .expect("sync state poisoned")
+                .listeners
+                .get(index)
+                .cloned();
+            let Some(listener) = listener else {
+                return;
+            };
+            if (listener.callback)(value).is_err() {
+                return;
+            }
+            index += 1;
         }
     }
 
@@ -364,6 +424,31 @@ fn response_id(value: &JsValue) -> Option<String> {
         .filter(|id| !id.is_empty())
 }
 
+fn validate_request_state(sync: &mut SyncState) -> Result<(), RpcClientError> {
+    if sync.stop_run.is_some() {
+        return Err(RpcClientError::Stopping {
+            stderr: sync.stderr.clone(),
+        });
+    }
+    if let Some(error) = &sync.stop_error {
+        return Err(RpcClientError::PreviousStopFailed {
+            message: error.message(),
+        });
+    }
+    if sync.active_generation.is_none() {
+        return Err(RpcClientError::NotStarted);
+    }
+    if let Some(error) = &sync.exit_error {
+        return Err(error.clone());
+    }
+    if let Some(exit) = sync.exit {
+        let error = process_exit_error(exit, &sync.stderr);
+        sync.exit_error = Some(error.clone());
+        return Err(error);
+    }
+    Ok(())
+}
+
 fn reject_pending(state: &mut SyncState, error: RpcClientError) {
     for (_, sender) in state.pending.drain() {
         let _ = sender.send(Err(error.clone()));
@@ -373,7 +458,6 @@ fn reject_pending(state: &mut SyncState, error: RpcClientError) {
 /// RPC client driving one `pi --mode rpc` child process.
 pub struct RpcClient {
     inner: Arc<ClientInner>,
-    stop_gate: tokio::sync::Mutex<()>,
 }
 
 impl Default for RpcClient {
@@ -395,11 +479,13 @@ impl RpcClient {
                     stderr: String::new(),
                     exit: None,
                     exit_error: None,
+                    process_error_listener: false,
                     active_generation: None,
-                    stopping: false,
+                    stop_run: None,
                     stop_error: None,
                     next_request_id: 0,
                     pending: HashMap::new(),
+                    stdin: None,
                     listeners: Vec::new(),
                     next_listener_id: 0,
                 }),
@@ -407,7 +493,6 @@ impl RpcClient {
                 kill,
                 next_generation: AtomicU64::new(0),
             }),
-            stop_gate: tokio::sync::Mutex::new(()),
         }
     }
 
@@ -415,17 +500,33 @@ impl RpcClient {
     pub async fn start(&self) -> Result<(), RpcClientError> {
         let mut process = self.inner.process.lock().await;
         let generation = self.begin_start(&process)?;
-        let spawned = spawn_process(&self.inner.options, self.inner.stderr())?;
-        install_process(&self.inner, generation, spawned, &mut process);
+        let spawn_error = match spawn_process(&self.inner.options, self.inner.stderr()) {
+            Ok(spawned) => {
+                install_process(&self.inner, generation, spawned, &mut process);
+                None
+            }
+            Err(error @ RpcClientError::Native(_)) => return Err(error),
+            Err(error) => {
+                self.publish_spawn_failure(generation, &error);
+                Some(error)
+            }
+        };
         drop(process);
-
         tokio::time::sleep(STARTUP_DELAY).await;
-        self.verify_started(generation)
+        self.verify_started(generation)?;
+        spawn_error.map_or(Ok(()), Err)
+    }
+
+    fn publish_spawn_failure(&self, generation: u64, error: &RpcClientError) {
+        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+        sync.active_generation = Some(generation);
+        sync.process_error_listener = false;
+        sync.exit_error = Some(error.clone());
     }
 
     fn begin_start(&self, process: &ProcessState) -> Result<u64, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if process.child.is_some() || sync.stopping {
+        if sync.active_generation.is_some() || process.child.is_some() || sync.stop_run.is_some() {
             return Err(RpcClientError::AlreadyStartedOrStopping);
         }
         sync.exit = None;
@@ -435,37 +536,56 @@ impl RpcClient {
 
     fn verify_started(&self, generation: u64) -> Result<(), RpcClientError> {
         let sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.stopping || sync.active_generation != Some(generation) {
+        if sync.stop_run.is_some() || sync.active_generation != Some(generation) {
             return Err(RpcClientError::StoppedDuringStartup {
                 stderr: sync.stderr.clone(),
             });
         }
         match sync.exit {
-            Some(exit) => Err(process_exit_error(exit, &sync.stderr)),
-            None => Ok(()),
+            Some(exit) if exit.code.is_some() => Err(sync
+                .exit_error
+                .clone()
+                .unwrap_or_else(|| process_exit_error(exit, &sync.stderr))),
+            _ => Ok(()),
         }
     }
 
     /// Stops the RPC agent process.
     pub async fn stop(&self) -> Result<(), RpcClientError> {
-        let _gate = self.stop_gate.lock().await;
+        let (completion, owner) = {
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            if let Some(completion) = &sync.stop_run {
+                (Arc::clone(completion), false)
+            } else {
+                if sync.active_generation.is_none() {
+                    return Ok(());
+                }
+                let completion = Arc::new(StopCompletion::default());
+                sync.stop_run = Some(Arc::clone(&completion));
+                (completion, true)
+            }
+        };
+        if owner {
+            let client = Self {
+                inner: Arc::clone(&self.inner),
+            };
+            let run = Arc::clone(&completion);
+            tokio::spawn(async move {
+                let result = client.stop_process().await;
+                client.publish_stop_result(&run, result);
+            });
+        }
+        completion.wait().await
+    }
+
+    fn publish_stop_result(&self, completion: &Arc<StopCompletion>, result: Result<(), RpcClientError>) {
         {
             let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-            if sync.active_generation.is_none() {
-                return Ok(());
-            }
-            sync.stopping = true;
+            sync.stop_error = result.as_ref().err().cloned();
+            *completion.result.lock().expect("stop result poisoned") = Some(result.clone());
+            sync.stop_run = None;
         }
-
-        let result = self.stop_process().await;
-
-        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        sync.stopping = false;
-        match &result {
-            Ok(()) => sync.stop_error = None,
-            Err(error) => sync.stop_error = Some(error.clone()),
-        }
-        result
+        completion.ready.notify_waiters();
     }
 
     async fn stop_process(&self) -> Result<(), RpcClientError> {
@@ -483,9 +603,10 @@ impl RpcClient {
 
         let result = self.terminate(&mut process).await;
         if result.is_ok() {
-            process.stdin = None;
             process.child = None;
-            self.inner.sync.lock().expect("sync state poisoned").active_generation = None;
+            let mut sync = self.inner.sync.lock().expect("sync state poisoned");
+            sync.stdin = None;
+            sync.active_generation = None;
         }
         result
     }
@@ -498,12 +619,13 @@ impl RpcClient {
             return Ok(());
         }
 
-        let pid = handle.pid;
-        let _ = (self.inner.kill)(pid, Signal::TERM);
+        self.signal_child(handle, Signal::TERM)
+            .map_err(RpcClientError::Native)?;
         if wait_for_exit(&mut handle.exit, TERMINATE_TIMEOUT).await {
             return Ok(());
         }
-        let _ = (self.inner.kill)(pid, Signal::KILL);
+        self.signal_child(handle, Signal::KILL)
+            .map_err(RpcClientError::Native)?;
         if wait_for_exit(&mut handle.exit, KILL_TIMEOUT).await {
             return Ok(());
         }
@@ -512,17 +634,47 @@ impl RpcClient {
         })
     }
 
+    fn signal_child(
+        &self,
+        handle: &ProcessHandle,
+        signal: Signal,
+    ) -> Result<(), Box<pi_js_compat::node_error::NativeNodeError>> {
+        let Err(error) = (self.inner.kill)(handle.pid, signal) else {
+            return Ok(());
+        };
+        if error.raw_os_error() == Some(rustix::io::Errno::SRCH.raw_os_error()) {
+            return Ok(());
+        }
+        let synchronous = error.raw_os_error().is_some_and(|code| {
+            [
+                rustix::io::Errno::INVAL.raw_os_error(),
+                rustix::io::Errno::NOSYS.raw_os_error(),
+            ]
+            .contains(&code)
+        });
+        let native = pi_js_compat::node_fs::node_stream_error_record(&error, "kill").into();
+        if synchronous {
+            return Err(Box::new(native));
+        }
+        publish_process_error(&self.inner, handle.generation, native);
+        Ok(())
+    }
+
     /// Subscribes to agent events. Dropping the subscription unsubscribes.
     pub fn on_event<F>(&self, listener: F) -> RpcEventSubscription
     where
-        F: Fn(&JsValue) + Send + Sync + 'static,
+        F: Fn(&JsValue) -> Result<(), pi_ai::request::CallbackError> + Send + Sync + 'static,
     {
+        self.register_listener(|_| Arc::new(listener))
+    }
+
+    fn register_listener(&self, callback: impl FnOnce(u64) -> RpcEventListener) -> RpcEventSubscription {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
         sync.next_listener_id += 1;
         let id = sync.next_listener_id;
         sync.listeners.push(Listener {
             id,
-            callback: Arc::new(listener),
+            callback: callback(id),
         });
         RpcEventSubscription {
             inner: Arc::clone(&self.inner),
@@ -536,37 +688,25 @@ impl RpcClient {
     }
 
     /// Sends a command and waits for its response.
-    pub async fn send(&self, body: RpcCommandBody) -> Result<RpcResponse, RpcClientError> {
+    pub async fn send(&self, body: RpcCommandBody) -> Result<JsValue, RpcClientError> {
         let command_type = body.command_type();
         let request = self.begin_request(body)?;
-        self.write_request_line(&request).await?;
         self.await_request_response(request, command_type).await
     }
 
     fn begin_request(&self, body: RpcCommandBody) -> Result<PendingRequest, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.stopping {
-            return Err(RpcClientError::Stopping {
-                stderr: sync.stderr.clone(),
-            });
-        }
-        if let Some(error) = &sync.stop_error {
-            return Err(RpcClientError::PreviousStopFailed {
-                message: error.to_string(),
-            });
-        }
-        if sync.active_generation.is_none() {
-            return Err(RpcClientError::NotStarted);
-        }
-        if let Some(error) = &sync.exit_error {
-            return Err(error.clone());
-        }
-        if let Some(exit) = sync.exit {
-            let error = process_exit_error(exit, &sync.stderr);
-            sync.exit_error = Some(error.clone());
-            return Err(error);
-        }
-
+        validate_request_state(&mut sync)?;
+        let stdin = match sync.stdin.as_ref().filter(|stdin| !stdin.is_closed()).cloned() {
+            Some(stdin) => stdin,
+            None => {
+                let error = RpcClientError::StdinNotWritable {
+                    stderr: sync.stderr.clone(),
+                };
+                sync.exit_error = Some(error.clone());
+                return Err(error);
+            }
+        };
         sync.next_request_id += 1;
         let id = format!("req_{}", sync.next_request_id);
         let command = RpcCommand::new(body, Some(id.as_str().into()));
@@ -575,39 +715,22 @@ impl RpcClient {
         })?;
         let (sender, receiver) = oneshot::channel();
         sync.pending.insert(id.clone(), sender);
-        Ok(PendingRequest { id, line, receiver })
-    }
-
-    async fn write_request_line(&self, request: &PendingRequest) -> Result<(), RpcClientError> {
-        let write_result = {
-            let mut process = self.inner.process.lock().await;
-            match process.stdin.as_mut() {
-                Some(stdin) => stdin.write_all(request.line.as_bytes()).await,
-                None => Err(std::io::Error::new(
-                    std::io::ErrorKind::NotConnected,
-                    "stdin is not available",
-                )),
-            }
-        };
-        let Err(error) = write_result else {
-            return Ok(());
-        };
-
-        let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        sync.pending.remove(&request.id);
-        let error = RpcClientError::StdinError {
-            message: error.to_string(),
-            stderr: sync.stderr.clone(),
-        };
-        sync.exit_error = Some(error.clone());
-        Err(error)
+        if stdin.send(line).is_err() {
+            let error = RpcClientError::StdinNotWritable {
+                stderr: sync.stderr.clone(),
+            };
+            sync.exit_error = Some(error.clone());
+            reject_pending(&mut sync, error.clone());
+            return Err(error);
+        }
+        Ok(PendingRequest { id, receiver })
     }
 
     async fn await_request_response(
         &self,
         request: PendingRequest,
         command_type: &str,
-    ) -> Result<RpcResponse, RpcClientError> {
+    ) -> Result<JsValue, RpcClientError> {
         match tokio::time::timeout(REQUEST_TIMEOUT, request.receiver).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => Err(RpcClientError::Stopped {
@@ -694,9 +817,9 @@ impl RpcClient {
 
     pub async fn set_model(
         &self,
-        provider: impl Into<String>,
-        model_id: impl Into<String>,
-    ) -> Result<Model, RpcClientError> {
+        provider: impl Into<JsString>,
+        model_id: impl Into<JsString>,
+    ) -> Result<ModelReference, RpcClientError> {
         let response = self
             .send(RpcCommandBody::SetModel {
                 provider: provider.into(),
@@ -711,10 +834,9 @@ impl RpcClient {
         response_data(response, "cycle_model")
     }
 
-    pub async fn get_available_models(&self) -> Result<Vec<Model>, RpcClientError> {
+    pub async fn get_available_models(&self) -> Result<Vec<ModelInfo>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetAvailableModels).await?;
-        let data: AvailableModels = response_data(response, "get_available_models")?;
-        Ok(data.models)
+        response_field_data(response, "get_available_models", "models")
     }
 
     pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), RpcClientError> {
@@ -725,12 +847,6 @@ impl RpcClient {
     pub async fn cycle_thinking_level(&self) -> Result<Option<CycleThinkingLevelResult>, RpcClientError> {
         let response = self.send(RpcCommandBody::CycleThinkingLevel).await?;
         response_data(response, "cycle_thinking_level")
-    }
-
-    pub async fn get_available_thinking_levels(&self) -> Result<Vec<ThinkingLevel>, RpcClientError> {
-        let response = self.send(RpcCommandBody::GetAvailableThinkingLevels).await?;
-        let data: AvailableThinkingLevels = response_data(response, "get_available_thinking_levels")?;
-        Ok(data.levels)
     }
 
     pub async fn set_steering_mode(&self, mode: QueueMode) -> Result<(), RpcClientError> {
@@ -813,8 +929,7 @@ impl RpcClient {
 
     pub async fn get_fork_messages(&self) -> Result<Vec<ForkMessage>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetForkMessages).await?;
-        let data: ForkMessages = response_data(response, "get_fork_messages")?;
-        Ok(data.messages)
+        response_field_data(response, "get_fork_messages", "messages")
     }
 
     pub async fn get_entries(&self, since: Option<JsString>) -> Result<EntriesResult, RpcClientError> {
@@ -829,8 +944,7 @@ impl RpcClient {
 
     pub async fn get_last_assistant_text(&self) -> Result<Option<JsString>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetLastAssistantText).await?;
-        let data: LastAssistantText = response_data(response, "get_last_assistant_text")?;
-        Ok(data.text)
+        response_field_data(response, "get_last_assistant_text", "text")
     }
 
     pub async fn set_session_name(&self, name: impl Into<JsString>) -> Result<(), RpcClientError> {
@@ -840,25 +954,23 @@ impl RpcClient {
 
     pub async fn get_messages(&self) -> Result<Vec<pi_agent_core::agent::AgentMessage>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetMessages).await?;
-        let data: Messages = response_data(response, "get_messages")?;
-        Ok(data.messages)
+        response_field_data(response, "get_messages", "messages")
     }
 
     pub async fn get_commands(&self) -> Result<Vec<RpcSlashCommand>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetCommands).await?;
-        let data: Commands = response_data(response, "get_commands")?;
-        Ok(data.commands)
+        response_field_data(response, "get_commands", "commands")
     }
 
     // =========================================================================
     // Helpers
     // =========================================================================
 
-    /// Waits for the final agent end after any automatic retry.
-    pub async fn wait_for_idle(&self, timeout: Duration) -> Result<(), RpcClientError> {
+    /// Waits for the first agent_end event, including a retrying end.
+    pub async fn wait_for_idle(&self, timeout_ms: f64) -> Result<(), RpcClientError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let _subscription = self.subscribe_sender(sender);
-        let outcome = tokio::time::timeout(timeout, async {
+        let outcome = tokio::time::timeout(event_timeout(timeout_ms), async {
             while let Some(event) = receiver.recv().await {
                 if is_final_agent_end(&event) {
                     return;
@@ -872,8 +984,8 @@ impl RpcClient {
     }
 
     /// Collects events until the agent becomes idle.
-    pub async fn collect_events(&self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
-        self.start_collector().finish(timeout).await
+    pub async fn collect_events(&self, timeout_ms: f64) -> Result<Vec<JsValue>, RpcClientError> {
+        self.start_collector(timeout_ms, true).finish().await
     }
 
     /// Sends a prompt and waits for completion, returning all events.
@@ -881,86 +993,116 @@ impl RpcClient {
         &self,
         message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
-        timeout: Duration,
+        timeout_ms: f64,
     ) -> Result<Vec<JsValue>, RpcClientError> {
-        let collector = self.start_collector();
-        self.prompt(message, images).await?;
-        collector.finish(timeout).await
+        let collector = self.start_collector(timeout_ms, false);
+        if let Err(error) = self.prompt(message, images).await {
+            collector.retain_unobserved();
+            return Err(error);
+        }
+        collector.finish().await
     }
 
-    fn start_collector(&self) -> EventCollector {
+    fn start_collector(&self, timeout_ms: f64, observed: bool) -> EventCollector {
         let (sender, receiver) = mpsc::unbounded_channel();
         let subscription = self.subscribe_sender(sender);
+        let deadline = tokio::time::Instant::now() + event_timeout(timeout_ms);
+        let inner = Arc::clone(&self.inner);
+        let (result_sender, result) = oneshot::channel();
+        let observed = Arc::new(AtomicBool::new(observed));
+        let task_observed = Arc::clone(&observed);
+        let task = tokio::spawn(async move {
+            let result = collect_event_stream(receiver, deadline, &inner).await;
+            drop(subscription);
+            let unobserved = result
+                .as_ref()
+                .err()
+                .filter(|_| !task_observed.load(Ordering::SeqCst))
+                .map(RpcClientError::message);
+            let _ = result_sender.send(result);
+            if let Some(message) = unobserved {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, message);
+            }
+        });
         EventCollector {
-            receiver,
-            subscription,
-            inner: Arc::clone(&self.inner),
+            receiver: result,
+            observed,
+            task: Some(task),
         }
     }
 
     fn subscribe_sender(&self, sender: mpsc::UnboundedSender<JsValue>) -> RpcEventSubscription {
-        self.on_event(move |event| {
-            let _ = sender.send(event.clone());
+        let inner = Arc::downgrade(&self.inner);
+        self.register_listener(move |id| {
+            Arc::new(move |event| {
+                let _ = sender.send(event.clone());
+                if is_final_agent_end(event)
+                    && let Some(inner) = inner.upgrade()
+                {
+                    inner
+                        .sync
+                        .lock()
+                        .expect("sync state poisoned")
+                        .listeners
+                        .retain(|listener| listener.id != id);
+                }
+                Ok(())
+            })
         })
     }
 }
 
-#[derive(serde::Deserialize)]
-struct AvailableModels {
-    models: Vec<Model>,
-}
-
-#[derive(serde::Deserialize)]
-struct AvailableThinkingLevels {
-    levels: Vec<ThinkingLevel>,
-}
-
-#[derive(serde::Deserialize)]
-struct ForkMessages {
-    messages: Vec<ForkMessage>,
-}
-
-#[derive(serde::Deserialize)]
-struct LastAssistantText {
-    #[serde(default)]
-    text: Option<JsString>,
-}
-
-#[derive(serde::Deserialize)]
-struct Messages {
-    messages: Vec<pi_agent_core::agent::AgentMessage>,
-}
-
-#[derive(serde::Deserialize)]
-struct Commands {
-    commands: Vec<RpcSlashCommand>,
+fn event_timeout(timeout_ms: f64) -> Duration {
+    Duration::from_secs_f64(pi_js_compat::node_timers::normalize_timeout_delay(timeout_ms) / 1000.0)
 }
 
 struct EventCollector {
-    receiver: mpsc::UnboundedReceiver<JsValue>,
-    subscription: RpcEventSubscription,
-    inner: Arc<ClientInner>,
+    receiver: oneshot::Receiver<Result<Vec<JsValue>, RpcClientError>>,
+    observed: Arc<AtomicBool>,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl EventCollector {
-    async fn finish(mut self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
-        let mut events = Vec::new();
-        let outcome = tokio::time::timeout(timeout, async {
-            while let Some(event) = self.receiver.recv().await {
-                let done = is_final_agent_end(&event);
-                events.push(event);
-                if done {
-                    return;
-                }
-            }
-        })
-        .await;
-        drop(self.subscription);
-        outcome.map_err(|_| RpcClientError::CollectTimeout {
-            stderr: self.inner.stderr(),
-        })?;
-        Ok(events)
+    async fn finish(mut self) -> Result<Vec<JsValue>, RpcClientError> {
+        self.observed.store(true, Ordering::SeqCst);
+        (&mut self.receiver)
+            .await
+            .expect("collector publishes before an uncaught rejection")
     }
+
+    // Frozen promptAndWait leaves its local promise running when prompt rejects.
+    fn retain_unobserved(mut self) {
+        drop(self.task.take());
+    }
+}
+
+impl Drop for EventCollector {
+    fn drop(&mut self) {
+        // Explicit caller cancellation keeps the approved native SDK boundary.
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+async fn collect_event_stream(
+    mut receiver: mpsc::UnboundedReceiver<JsValue>,
+    deadline: tokio::time::Instant,
+    inner: &ClientInner,
+) -> Result<Vec<JsValue>, RpcClientError> {
+    let mut events = Vec::new();
+    tokio::time::timeout_at(deadline, async {
+        while let Some(event) = receiver.recv().await {
+            let done = is_final_agent_end(&event);
+            events.push(event);
+            if done {
+                return;
+            }
+        }
+    })
+    .await
+    .map_err(|_| RpcClientError::CollectTimeout { stderr: inner.stderr() })?;
+    Ok(events)
 }
 
 /// Handle for one [`RpcClient::on_event`] subscription.
@@ -984,22 +1126,63 @@ impl Drop for RpcEventSubscription {
 
 fn is_final_agent_end(event: &JsValue) -> bool {
     event.get("type").and_then(JsValue::as_string) == Some(&"agent_end".into())
-        && !event.get("willRetry").and_then(JsValue::as_bool).unwrap_or(false)
 }
 
-fn response_data<T: DeserializeOwned>(response: RpcResponse, command: &str) -> Result<T, RpcClientError> {
-    if !response.success {
-        return Err(RpcClientError::CommandFailed {
-            message: response.error.unwrap_or_default(),
+fn get_data(response: &JsValue) -> Result<Option<&JsValue>, RpcClientError> {
+    if response.get("success").is_some_and(js_json::is_truthy) {
+        return Ok(response.get("data"));
+    }
+    let message = match response.get("error") {
+        None => JsString::default(),
+        Some(value) => js_json::to_js_string(value).map_err(|message| RpcClientError::TypeError {
+            message: message.into(),
+        })?,
+    };
+    Err(RpcClientError::CommandFailed { message })
+}
+
+fn response_data<T: DeserializeOwned + Serialize>(response: JsValue, command: &str) -> Result<T, RpcClientError> {
+    decode_data(get_data(&response)?, command)
+}
+
+fn response_field_data<T: DeserializeOwned + Serialize>(
+    response: JsValue,
+    command: &str,
+    field: &str,
+) -> Result<T, RpcClientError> {
+    let data = get_data(&response)?;
+    let absent = match data {
+        None => Some("undefined"),
+        Some(JsValue::Null) => Some("null"),
+        _ => None,
+    };
+    if let Some(absent) = absent {
+        return Err(RpcClientError::TypeError {
+            message: format!("Cannot read properties of {absent} (reading '{field}')").into(),
         });
     }
-    let data = response.data.ok_or_else(|| RpcClientError::MissingData {
+    decode_data(data.and_then(|data| data.get(field)), command)
+}
+
+fn decode_data<T: DeserializeOwned + Serialize>(data: Option<&JsValue>, command: &str) -> Result<T, RpcClientError> {
+    let data = data.ok_or_else(|| RpcClientError::MissingData {
         command: command.to_owned(),
     })?;
-    js_json::from_value(&data).map_err(|error| RpcClientError::InvalidData {
+    let value: T = js_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
         command: command.to_owned(),
         message: error.to_string(),
-    })
+    })?;
+    let encoded = js_json::to_value(&value).map_err(|error| RpcClientError::InvalidData {
+        command: command.to_owned(),
+        message: error.to_string(),
+    })?;
+    if &encoded != data {
+        return Err(RpcClientError::InvalidData {
+            command: command.to_owned(),
+            message: "declared return type cannot preserve this response value".to_owned(),
+        });
+    }
+    Ok(value)
 }
 
 fn process_exit_error(exit: ExitInfo, stderr: &str) -> RpcClientError {
@@ -1018,31 +1201,102 @@ struct SpawnedProcess {
     pid: u32,
 }
 
-fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
-    let cli_path = options.cli_path.clone().unwrap_or_else(|| PathBuf::from("dist/cli.js"));
-    let mut command = Command::new("node");
-    command.args(&options.node_args);
-    command.arg(&cli_path);
-    command.args(["--mode", "rpc"]);
-    if let Some(provider) = &options.provider {
-        command.args(["--provider", provider]);
+fn spawn_arguments(options: &RpcClientOptions) -> Vec<JsString> {
+    let mut args = options.node_args.clone();
+    args.push(options.cli_path.clone().unwrap_or_else(|| "dist/cli.js".into()));
+    args.extend(["--mode".into(), "rpc".into()]);
+    if let Some(provider) = options.provider.as_ref().filter(|value| !value.is_empty()) {
+        args.extend(["--provider".into(), provider.clone()]);
     }
-    if let Some(model) = &options.model {
-        command.args(["--model", model]);
+    if let Some(model) = options.model.as_ref().filter(|value| !value.is_empty()) {
+        args.extend(["--model".into(), model.clone()]);
     }
-    command.args(&options.args);
+    args.extend(options.args.iter().cloned());
+    args
+}
+
+fn validate_spawn_options(
+    file: &JsString,
+    args: &[JsString],
+    options: &RpcClientOptions,
+    env: &pi_js_compat::js_json::JsObject,
+) -> Result<(), RpcClientError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+    validate_spawn_arguments(file, args).map_err(RpcClientError::Native)?;
     if let Some(cwd) = &options.cwd {
-        command.current_dir(cwd);
+        validate_string_argument(
+            "options.cwd",
+            "must be a string, Uint8Array, or URL without null bytes",
+            cwd,
+        )
+        .map_err(RpcClientError::Native)?;
     }
-    command.envs(&options.env);
+    for (key, value) in js_json::object_entries_lossless(env) {
+        let label = pi_js_compat::js_format!("options.env['{}']", key);
+        validate_string_argument(&label, "must be a string without null bytes", key).map_err(RpcClientError::Native)?;
+        let value = value.as_string().expect("spawn environment values are strings");
+        validate_string_argument(&label, "must be a string without null bytes", value)
+            .map_err(RpcClientError::Native)?;
+    }
+    Ok(())
+}
+
+fn load_spawn_environment(options: &RpcClientOptions) -> pi_js_compat::js_json::JsObject {
+    let mut env: pi_js_compat::js_json::JsObject = pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(key, value)| (key.into(), JsValue::String(value.into())))
+        .collect();
+    env.extend(
+        options
+            .env
+            .iter()
+            .map(|(key, value)| (key.clone(), JsValue::String(value.clone()))),
+    );
+    env
+}
+
+fn build_spawn_command(
+    options: &RpcClientOptions,
+    executable: &JsString,
+    args: &[JsString],
+    env: &pi_js_compat::js_json::JsObject,
+) -> Command {
+    let mut command = Command::new(encode_node_utf8(executable));
+    command.args(args.iter().map(encode_node_utf8));
+    if let Some(cwd) = &options.cwd {
+        command.current_dir(encode_node_utf8(cwd));
+    }
+    command
+        .env_clear()
+        .envs(js_json::object_entries_lossless(env).into_iter().map(|(key, value)| {
+            (
+                encode_node_utf8(key),
+                encode_node_utf8(value.as_string().expect("spawn environment value")),
+            )
+        }));
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    command
+}
 
-    let mut child = command.spawn().map_err(|error| RpcClientError::ProcessError {
-        message: spawn_error_message(&error),
-        stderr,
+fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
+    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
+    let args = spawn_arguments(options);
+    let env = load_spawn_environment(options);
+    validate_spawn_options(&executable, &args, options, &env)?;
+    let mut command = build_spawn_command(options, &executable, &args, &env);
+    let mut child = command.spawn().map_err(|error| {
+        let record = pi_js_compat::node_fs::node_spawn_error_record(&error, &executable);
+        if pi_js_compat::node_child_process::spawn_error_is_async(&error) {
+            RpcClientError::ProcessError {
+                message: record.message,
+                stderr,
+            }
+        } else {
+            RpcClientError::Native(Box::new(record.into()))
+        }
     })?;
     let stdin = child.stdin.take().expect("piped child stdin must exist");
     let stdout = child.stdout.take().expect("piped child stdout must exist");
@@ -1058,6 +1312,10 @@ fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedPr
 }
 
 fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedProcess, process: &mut ProcessState) {
+    // Node installs these listeners in one stack before any child callback can run.
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    sync.active_generation = Some(generation);
+    sync.process_error_listener = true;
     let (exit_sender, exit_receiver) = watch::channel(None);
 
     let stderr_inner = Arc::clone(inner);
@@ -1066,7 +1324,10 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
     });
 
     let reader_inner = Arc::clone(inner);
-    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| reader_inner.handle_line(&line));
+    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| {
+        reader_inner.handle_line(&line);
+        Ok(())
+    });
 
     let wait_inner = Arc::clone(inner);
     tokio::spawn(async move {
@@ -1077,22 +1338,51 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
 
     process.child = Some(ProcessHandle {
         pid: spawned.pid,
+        generation,
         exit: exit_receiver,
     });
-    process.stdin = Some(spawned.stdin);
+    let (stdin_sender, stdin_receiver) = mpsc::unbounded_channel();
+    tokio::spawn(write_stdin(
+        Arc::clone(inner),
+        generation,
+        spawned.stdin,
+        stdin_receiver,
+    ));
     process.reader = Some(reader);
-    inner.sync.lock().expect("sync state poisoned").active_generation = Some(generation);
+    sync.stdin = Some(stdin_sender);
 }
 
-fn spawn_error_message(error: &std::io::Error) -> JsString {
-    node_spawn_error_message("spawn", &JsString::from("node"), error)
+async fn write_stdin(
+    inner: Arc<ClientInner>,
+    generation: u64,
+    mut writer: ChildStdin,
+    mut lines: mpsc::UnboundedReceiver<String>,
+) {
+    while let Some(line) = lines.recv().await {
+        if let Err(error) = writer.write_all(line.as_bytes()).await {
+            let mut sync = inner.sync.lock().expect("sync state poisoned");
+            if sync.active_generation != Some(generation) {
+                return;
+            }
+            let failure = sync.exit_error.clone().unwrap_or_else(|| RpcClientError::StdinError {
+                message: encode_node_utf8(&pi_js_compat::node_fs::node_stream_error_record(&error, "write").message),
+                stderr: sync.stderr.clone(),
+            });
+            sync.exit_error = Some(failure.clone());
+            reject_pending(&mut sync, failure);
+            return;
+        }
+    }
 }
 
 async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin) {
     let mut buffer = vec![0_u8; STDERR_CHUNK_BYTES];
     loop {
         match reader.read(&mut buffer).await {
-            Ok(0) | Err(_) => return,
+            Ok(0) => return,
+            Err(error) => crate::utils::uncaught::throw_native_uncaught(
+                pi_js_compat::node_fs::node_stream_error_record(&error, "read").into(),
+            ),
             Ok(bytes_read) => {
                 let chunk = &buffer[..bytes_read];
                 inner
@@ -1101,10 +1391,49 @@ async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin
                     .expect("sync state poisoned")
                     .stderr
                     .push_str(&String::from_utf8_lossy(chunk));
-                let _ = std::io::stderr().write_all(chunk);
+                if let Err(error) = write_stderr_chunk(chunk) {
+                    crate::utils::uncaught::throw_native_uncaught(error);
+                }
             }
         }
     }
+}
+
+fn read_stderr_stream_socket(stderr: &std::io::Stderr) -> bool {
+    let Ok(socket_type) = rustix::net::sockopt::socket_type(stderr) else {
+        return false;
+    };
+    let Ok(address) = rustix::net::getsockname(stderr) else {
+        return false;
+    };
+    socket_type == rustix::net::SocketType::STREAM
+        && matches!(
+            address.address_family(),
+            rustix::net::AddressFamily::INET | rustix::net::AddressFamily::INET6 | rustix::net::AddressFamily::UNIX
+        )
+}
+
+fn write_stderr_chunk(chunk: &[u8]) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
+    use std::io::IsTerminal as _;
+    let mut stderr = std::io::stderr();
+    // Node creates a dummy writable when guessHandleType cannot classify fd2.
+    let Ok(stat) = rustix::fs::fstat(&stderr) else {
+        return Ok(());
+    };
+    let is_stream = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
+        rustix::fs::FileType::Socket if read_stderr_stream_socket(&stderr) => true,
+        rustix::fs::FileType::Fifo => true,
+        rustix::fs::FileType::RegularFile | rustix::fs::FileType::CharacterDevice => stderr.is_terminal(),
+        _ => return Ok(()),
+    };
+    stderr.write_all(chunk).map_err(|error| {
+        if is_stream {
+            pi_js_compat::node_fs::node_pipe_write_error_record(&error)
+        } else {
+            pi_js_compat::node_fs::node_file_write_error_record(&error)
+        }
+        .into()
+    })
 }
 
 fn publish_exit(
@@ -1113,19 +1442,47 @@ fn publish_exit(
     sender: watch::Sender<Option<ExitInfo>>,
     status: std::io::Result<std::process::ExitStatus>,
 ) {
-    let Ok(status) = status else {
-        return;
+    let status = match status {
+        Ok(status) => status,
+        Err(error) => {
+            publish_process_error(
+                &inner,
+                generation,
+                pi_js_compat::node_fs::node_stream_error_record(&error, "wait").into(),
+            );
+            return;
+        }
     };
     let info = exit_info(&status);
-    let _ = sender.send(Some(info));
-
-    let mut sync = inner.sync.lock().expect("sync state poisoned");
-    if sync.active_generation == Some(generation) {
-        sync.exit = Some(info);
-        let error = process_exit_error(info, &sync.stderr);
-        sync.exit_error = Some(error.clone());
-        reject_pending(&mut sync, error);
+    {
+        let mut sync = inner.sync.lock().expect("sync state poisoned");
+        if sync.active_generation == Some(generation) {
+            sync.exit = Some(info);
+            sync.stdin = None;
+            let error = process_exit_error(info, &sync.stderr);
+            sync.exit_error = Some(error.clone());
+            reject_pending(&mut sync, error);
+        }
     }
+    let _ = sender.send(Some(info));
+}
+
+fn publish_process_error(inner: &Arc<ClientInner>, generation: u64, native: pi_js_compat::node_error::NativeNodeError) {
+    let mut sync = inner.sync.lock().expect("sync state poisoned");
+    if sync.active_generation != Some(generation) {
+        return;
+    }
+    if !sync.process_error_listener {
+        drop(sync);
+        crate::utils::uncaught::throw_native_uncaught(native);
+    }
+    sync.process_error_listener = false;
+    let error = RpcClientError::ProcessError {
+        message: native.message,
+        stderr: sync.stderr.clone(),
+    };
+    sync.exit_error = Some(error.clone());
+    reject_pending(&mut sync, error);
 }
 
 async fn wait_for_exit(receiver: &mut watch::Receiver<Option<ExitInfo>>, timeout: Duration) -> bool {
@@ -1137,6 +1494,7 @@ async fn wait_for_exit(receiver: &mut watch::Receiver<Option<ExitInfo>>, timeout
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     use super::*;
@@ -1146,6 +1504,589 @@ mod tests {
         let path = dir.path().join(name);
         std::fs::write(&path, contents).expect("child script must be written");
         (dir, path)
+    }
+
+    mod source_oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    struct BrokenRead;
+    impl AsyncRead for BrokenRead {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::Error::from_raw_os_error(
+                rustix::io::Errno::IO.raw_os_error(),
+            )))
+        }
+    }
+
+    const MIRROR_CHILD: &str = r#"import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',line=>{const c=JSON.parse(line);process.stderr.write('mirror');process.stdout.write(JSON.stringify({id:c.id,type:'response',command:'get_state',success:true,data:{}})+'\n');});"#;
+
+    fn failing_stderr(file_sink: bool) -> Stdio {
+        if file_sink {
+            return Stdio::from(std::fs::OpenOptions::new().write(true).open("/dev/full").unwrap());
+        }
+        let (reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
+        drop(reader);
+        Stdio::from(std::os::fd::OwnedFd::from(writer))
+    }
+
+    fn wait_and_clean_private_child(child: std::process::Child) -> std::process::Output {
+        let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        match rustix::process::kill_process_group(group, Signal::KILL) {
+            Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+            Err(error) => panic!("clean private probe group: {error}"),
+        }
+        output
+    }
+
+    fn run_mirror_probe(output: String, discard: bool) {
+        rustix::process::setrlimit(
+            rustix::process::Resource::Core,
+            rustix::process::Rlimit {
+                current: Some(0),
+                maximum: Some(0),
+            },
+        )
+        .unwrap();
+        let crash_output = output.clone();
+        crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            let error = payload
+                .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                .unwrap();
+            std::fs::write(&crash_output, js_json::stringify_lossless(&error.value())).unwrap();
+        })));
+        crate::utils::uncaught::install_uncaught_handler();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let client = RpcClient::new(RpcClientOptions {
+                    cli_path: Some(std::env::var("PI_RPC_MIRROR_SCRIPT").unwrap().into()),
+                    ..Default::default()
+                });
+                client.start().await.unwrap();
+                if discard {
+                    let response = client.send(RpcCommandBody::GetState).await.unwrap();
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        while client.stderr().is_empty() {
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    let stderr = client.stderr();
+                    client.stop().await.unwrap();
+                    std::fs::write(
+                        &output,
+                        js_json::stringify_lossless(&pi_js_compat::js_json!({"response":response,"stderr":stderr})),
+                    )
+                    .unwrap();
+                    std::process::exit(0);
+                }
+                let _ = tokio::time::timeout(Duration::from_millis(200), client.get_state()).await;
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                std::process::exit(7);
+            });
+    }
+
+    #[test]
+    fn stderr_mirror_write_failure_reaches_native_uncaught_authority() {
+        use std::os::unix::process::CommandExt;
+        if let Ok(output) = std::env::var("PI_RPC_MIRROR_PROBE") {
+            run_mirror_probe(output, false);
+            return;
+        }
+        let (root, script) = temp_script("mirror.mjs", MIRROR_CHILD);
+        let lock = source_oracle::read_source_lock();
+        source_oracle::verify_source_head(&lock);
+        for file_sink in [false, true] {
+            let source = source_oracle::spawn_oracle_process(
+                &lock,
+                "rpc-stderr-mirror-oracle.mts",
+                "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+                &[("PI_RPC_MIRROR_SCRIPT", script.clone().into_os_string())],
+                failing_stderr(file_sink),
+            );
+            let source = wait_and_clean_private_child(source);
+            let node_default = std::process::Command::new("node")
+                .args(["-e", "process.stderr.write('uncaught broken fd2');"])
+                .process_group(0)
+                .stdout(Stdio::piped())
+                .stderr(failing_stderr(file_sink))
+                .spawn()
+                .unwrap();
+            let node_default = wait_and_clean_private_child(node_default);
+            assert_eq!(node_default.status.code(), Some(1));
+            assert_eq!(source.status.code(), node_default.status.code());
+            let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
+            assert_eq!(
+                expected["code"],
+                JsValue::String(if file_sink { "ENOSPC".into() } else { "EPIPE".into() })
+            );
+            let output_path = root.path().join("uncaught.json");
+            let native = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "modes::rpc::rpc_client::tests::stderr_mirror_write_failure_reaches_native_uncaught_authority",
+                    "--nocapture",
+                ])
+                .env("PI_RPC_MIRROR_PROBE", &output_path)
+                .env("PI_RPC_MIRROR_SCRIPT", &script)
+                .process_group(0)
+                .stdout(Stdio::piped())
+                .stderr(failing_stderr(file_sink))
+                .spawn()
+                .unwrap();
+            let native = wait_and_clean_private_child(native);
+            assert_eq!(
+                js_json::parse_lossless(std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                expected
+            );
+            assert_eq!(
+                native.status.code(),
+                node_default.status.code(),
+                "native fatal status {:?} must match actual Node",
+                native.status
+            );
+        }
+    }
+
+    fn discarding_stderr(sink: &str, directory: &std::path::Path) -> Stdio {
+        match sink {
+            "directory" => Stdio::from(std::fs::File::open(directory).unwrap()),
+            "datagram" => Stdio::from(std::os::fd::OwnedFd::from(
+                std::os::unix::net::UnixDatagram::unbound().unwrap(),
+            )),
+            _ => panic!("closed stderr uses the exec launcher"),
+        }
+    }
+
+    fn command_with_closed_stderr(program: &std::path::Path) -> std::process::Command {
+        let mut command = std::process::Command::new("python3");
+        command
+            .args(["-c", "import os,sys;os.close(2);os.execv(sys.argv[1],sys.argv[1:])"])
+            .arg(program);
+        command
+    }
+
+    #[test]
+    fn closed_and_unrecognized_stderr_discard_mirrors_but_retain_captured_data() {
+        use std::os::unix::process::CommandExt;
+        if let Ok(output) = std::env::var("PI_RPC_MIRROR_PROBE") {
+            run_mirror_probe(output, true);
+            return;
+        }
+        let (root, script) = temp_script("mirror.mjs", MIRROR_CHILD);
+        source_oracle::verify_source_head(&source_oracle::read_source_lock());
+        let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/porting/source-lock.json"
+        )))
+        .unwrap();
+        let source = PathBuf::from(lock["worktree"].as_str().unwrap());
+        let tsx = source.join("node_modules/.bin/tsx");
+        let executable = std::env::current_exe().unwrap();
+        for sink in ["directory", "closed", "datagram"] {
+            let closed = sink == "closed";
+            let mut command = if closed {
+                command_with_closed_stderr(&tsx)
+            } else {
+                std::process::Command::new(&tsx)
+            };
+            command
+                .arg("--tsconfig")
+                .arg(source.join("tsconfig.json"))
+                .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/rpc-stderr-mirror-oracle.mts"))
+                .arg(source.join("packages/coding-agent/src/modes/rpc/rpc-client.ts"))
+                .env("PI_RPC_MIRROR_SCRIPT", &script)
+                .env("PI_RPC_MIRROR_DISCARD", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .process_group(0);
+            if !closed {
+                command.stderr(discarding_stderr(sink, root.path()));
+            }
+            let source_output = wait_and_clean_private_child(command.spawn().unwrap());
+            assert_eq!(source_output.status.code(), Some(0));
+            let expected = js_json::parse_lossless(std::str::from_utf8(&source_output.stdout).unwrap()).unwrap();
+            assert_eq!(expected["stderr"], JsValue::String("mirror".into()));
+            let output_path = root.path().join("discard.json");
+            let mut command = if closed {
+                command_with_closed_stderr(&executable)
+            } else {
+                std::process::Command::new(&executable)
+            };
+            command.args(["--exact", "modes::rpc::rpc_client::tests::closed_and_unrecognized_stderr_discard_mirrors_but_retain_captured_data", "--nocapture"])
+                .env("PI_RPC_MIRROR_PROBE", &output_path).env("PI_RPC_MIRROR_SCRIPT", &script)
+                .stdout(Stdio::piped()).process_group(0);
+            if !closed {
+                command.stderr(discarding_stderr(sink, root.path()));
+            }
+            let native = wait_and_clean_private_child(command.spawn().unwrap());
+            assert_eq!(native.status.code(), Some(0), "sink={sink}: {:?}", native.status);
+            assert_eq!(
+                js_json::parse_lossless(std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn linux_signal_names_match_every_node_constant_number() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"signal_names","reply":{}}));
+        let names = expected["value"].as_object().unwrap();
+        assert_eq!(names.len(), 31);
+        for (number, name) in names {
+            let number = number.to_utf8().unwrap().parse::<i32>().unwrap();
+            assert_eq!(
+                crate::utils::child_process::signal_name(number),
+                name.as_string().unwrap().to_utf8().unwrap(),
+                "signal {number}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn signal_only_startup_keeps_start_successful_and_caches_send_error() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        for signal in ["SIGTERM", "SIGUSR2"] {
+            let expected =
+                source.request(&pi_js_compat::js_json!({"operation":"startup_signal","signal":signal,"reply":{}}));
+            let (_root, script) = temp_script("child.mjs", include_str!("../../../../../oracle/rpc-client-child.mjs"));
+            let client = RpcClient::new(RpcClientOptions {
+                cli_path: Some(script.to_str().unwrap().into()),
+                env: IndexMap::from([
+                    ("PI_RPC_CLIENT_REPLY".into(), "{}".into()),
+                    ("PI_RPC_STARTUP_SIGNAL".into(), signal.into()),
+                ]),
+                ..Default::default()
+            });
+            let mut start = Box::pin(client.start());
+            assert!(futures_util::poll!(start.as_mut()).is_pending());
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while client.inner.sync.lock().unwrap().exit.is_none() {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .unwrap();
+            let outcome = match start.await {
+                Ok(()) => pi_js_compat::js_json!({"ok":true}),
+                Err(error) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
+            };
+            let send_error = client.get_state().await.unwrap_err().value();
+            client.stop().await.unwrap();
+            assert_eq!(outcome, expected["value"]["start"]);
+            assert_eq!(send_error, expected["value"]["send"]["error"]);
+        }
+    }
+
+    #[test]
+    fn internal_collection_timeout_is_unobserved_before_prompt_ack() {
+        if let Ok(output) = std::env::var("PI_RPC_COLLECTION_PROBE") {
+            run_collection_probe(PathBuf::from(output));
+            return;
+        }
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let (root, script) = temp_script("child.mjs", include_str!("../../../../../oracle/rpc-client-child.mjs"));
+        for fail_prompt in [false, true] {
+            let operation = if fail_prompt {
+                "prompt_fail_lifetime"
+            } else {
+                "promise_lifetime"
+            };
+            let expected = source.request(&pi_js_compat::js_json!({"operation":operation,"reply":{"type":"response","command":"prompt","success":true}}));
+            if fail_prompt {
+                assert_ne!(expected["value"]["unhandled"], expected["value"]["result"]["error"]);
+            } else {
+                assert_eq!(expected["value"]["unhandled"], expected["value"]["result"]["error"]);
+            }
+            let output_path = root.path().join("uncaught.txt");
+            let output = run_private_collection_probe(&script, &output_path, fail_prompt);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let unhandled = &expected["value"]["unhandled"];
+            let expected_text = pi_js_compat::js_format!(
+                "{}: {}",
+                unhandled["name"].as_string().unwrap(),
+                unhandled["message"].as_string().unwrap()
+            );
+            assert_eq!(
+                std::fs::read_to_string(output_path).unwrap(),
+                encode_node_utf8(&expected_text)
+            );
+        }
+    }
+
+    fn run_collection_probe(output: PathBuf) {
+        crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            std::fs::write(
+                &output,
+                encode_node_utf8(&crate::utils::uncaught::format_uncaught(payload)),
+            )
+            .unwrap();
+        })));
+        crate::utils::uncaught::install_uncaught_handler();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let fail_prompt = std::env::var("PI_RPC_COLLECTION_FAIL").as_deref() == Ok("1");
+                let client = RpcClient::new(RpcClientOptions {
+                    cli_path: Some(std::env::var("PI_RPC_COLLECTION_SCRIPT").unwrap().into()),
+                    env: IndexMap::from([
+                        (
+                            "PI_RPC_CLIENT_REPLY".into(),
+                            r#"{"type":"response","command":"prompt","success":true}"#.into(),
+                        ),
+                        (
+                            "PI_RPC_DELAY_ACK".into(),
+                            if fail_prompt { "0".into() } else { "1".into() },
+                        ),
+                        (
+                            "PI_RPC_EXIT_ON_LINE".into(),
+                            if fail_prompt { "1".into() } else { "0".into() },
+                        ),
+                    ]),
+                    ..Default::default()
+                });
+                client.start().await.unwrap();
+                let _ = client
+                    .prompt_and_wait("input", None, if fail_prompt { 200.0 } else { 10.0 })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                std::process::exit(7);
+            });
+    }
+
+    fn run_private_collection_probe(
+        script: &std::path::Path,
+        output_path: &std::path::Path,
+        fail_prompt: bool,
+    ) -> std::process::Output {
+        use std::os::unix::process::CommandExt;
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modes::rpc::rpc_client::tests::internal_collection_timeout_is_unobserved_before_prompt_ack",
+                "--nocapture",
+            ])
+            .env("PI_RPC_COLLECTION_PROBE", output_path)
+            .env("PI_RPC_COLLECTION_SCRIPT", script)
+            .env("PI_RPC_COLLECTION_FAIL", if fail_prompt { "1" } else { "0" })
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        wait_and_clean_private_child(child)
+    }
+
+    #[tokio::test]
+    async fn native_wait_failure_rejects_pending_requests_instead_of_disappearing() {
+        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+        let client = RpcClient::new(RpcClientOptions {
+            cli_path: Some(script.to_str().unwrap().into()),
+            ..Default::default()
+        });
+        client.start().await.unwrap();
+        let mut request = Box::pin(client.send(RpcCommandBody::GetState));
+        assert!(futures_util::poll!(request.as_mut()).is_pending());
+        let generation = client.inner.sync.lock().unwrap().active_generation.unwrap();
+        let (exit_sender, _exit_receiver) = watch::channel(None);
+        publish_exit(
+            Arc::clone(&client.inner),
+            generation,
+            exit_sender,
+            Err(std::io::Error::from_raw_os_error(rustix::io::Errno::IO.raw_os_error())),
+        );
+        let outcome = tokio::time::timeout(Duration::from_millis(100), request).await;
+        client.stop().await.unwrap();
+        let error = outcome
+            .expect("native wait failure must settle the pending request")
+            .unwrap_err();
+        assert_eq!(error.message(), "Agent process error: wait EIO. Stderr: ");
+    }
+
+    #[tokio::test]
+    async fn child_error_listener_observes_once_then_routes_the_original_error_uncaught() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-stream-errors-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"child_errors"}));
+        let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+        let deny = Arc::new(AtomicBool::new(true));
+        let denied = deny.clone();
+        let client = Arc::new(RpcClient::with_kill(
+            RpcClientOptions {
+                cli_path: Some(script.to_str().unwrap().into()),
+                ..Default::default()
+            },
+            Arc::new(move |pid, signal| {
+                if denied.load(Ordering::SeqCst) {
+                    Err(std::io::Error::from_raw_os_error(
+                        rustix::io::Errno::PERM.raw_os_error(),
+                    ))
+                } else {
+                    kill_process(pid, signal)
+                }
+            }),
+        ));
+        client.start().await.unwrap();
+        let mut request = Box::pin(client.get_state());
+        assert!(futures_util::poll!(request.as_mut()).is_pending());
+        {
+            let process = client.inner.process.lock().await;
+            client
+                .signal_child(process.child.as_ref().unwrap(), Signal::TERM)
+                .unwrap();
+        }
+        let first = request.await.unwrap_err().value();
+        let task_client = client.clone();
+        let task = tokio::spawn(async move {
+            let process = task_client.inner.process.lock().await;
+            task_client
+                .signal_child(process.child.as_ref().unwrap(), Signal::KILL)
+                .unwrap();
+        });
+        let panic = task
+            .await
+            .expect_err("second child error must be uncaught")
+            .into_panic();
+        let second = panic
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .unwrap()
+            .value();
+        deny.store(false, Ordering::SeqCst);
+        client.stop().await.unwrap();
+        assert_eq!(pi_js_compat::js_json!({"first":first,"second":second}), expected);
+    }
+
+    #[tokio::test]
+    async fn injected_unreachable_signal_errors_return_native_errors_without_orphan_timers() {
+        for (errno, in_kill_phase) in [(rustix::io::Errno::INVAL, false), (rustix::io::Errno::NOSYS, true)] {
+            let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+            let injected = Arc::new(AtomicBool::new(true));
+            let inject = injected.clone();
+            let client = RpcClient::with_kill(
+                RpcClientOptions {
+                    cli_path: Some(script.to_str().unwrap().into()),
+                    ..Default::default()
+                },
+                Arc::new(move |pid, signal| {
+                    if !inject.load(Ordering::SeqCst) {
+                        return kill_process(pid, signal);
+                    }
+                    if in_kill_phase && signal == Signal::TERM {
+                        return Ok(());
+                    }
+                    Err(std::io::Error::from_raw_os_error(errno.raw_os_error()))
+                }),
+            );
+            client.start().await.unwrap();
+            let error = tokio::time::timeout(Duration::from_secs(2), client.stop())
+                .await
+                .unwrap()
+                .unwrap_err();
+            injected.store(false, Ordering::SeqCst);
+            client.stop().await.unwrap();
+            let value = error.value();
+            assert_eq!(value["name"], JsValue::String("Error".into()));
+            assert_eq!(value["syscall"], JsValue::String("kill".into()));
+            assert_eq!(value["errno"], JsValue::Number(-f64::from(errno.raw_os_error())));
+            assert_eq!(
+                value["code"],
+                JsValue::String(if in_kill_phase {
+                    "ENOSYS".into()
+                } else {
+                    "EINVAL".into()
+                })
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn stderr_read_errors_reach_the_shared_native_uncaught_authority() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-stream-errors-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"stderr"}));
+        let client = RpcClient::default();
+        let task = tokio::spawn(read_stderr(Arc::clone(&client.inner), BrokenRead));
+        let panic = task
+            .await
+            .expect_err("unhandled stderr read error must not disappear")
+            .into_panic();
+        let error = panic
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .expect("shared native error payload");
+        assert_eq!(error.value(), expected);
+    }
+
+    #[tokio::test]
+    async fn concurrent_stops_share_the_same_failure_and_termination_attempt() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        for missing_pid in [false, true] {
+            let expected =
+                source.request(&pi_js_compat::js_json!({"operation":"stop_fail","reply":{},"missingPid":missing_pid}));
+            let (_root, script) = temp_script("child.mjs", "process.stdin.resume();setInterval(()=>{},1000);");
+            let blocked = Arc::new(AtomicBool::new(true));
+            let calls = Arc::new(AtomicUsize::new(0));
+            let kill_blocked = blocked.clone();
+            let kill_calls = calls.clone();
+            let client = RpcClient::with_kill(
+                RpcClientOptions {
+                    cli_path: Some(script.to_str().unwrap().into()),
+                    ..Default::default()
+                },
+                Arc::new(move |pid, signal| {
+                    if kill_blocked.load(Ordering::SeqCst) {
+                        kill_calls.fetch_add(1, Ordering::SeqCst);
+                        if missing_pid {
+                            Err(std::io::Error::from_raw_os_error(
+                                rustix::io::Errno::SRCH.raw_os_error(),
+                            ))
+                        } else {
+                            Ok(())
+                        }
+                    } else {
+                        kill_process(pid, signal)
+                    }
+                }),
+            );
+            client.start().await.unwrap();
+            let (first, second) = tokio::join!(client.stop(), client.stop());
+            let actual = pi_js_compat::js_json!({"ok":true,"value":{"calls":calls.load(Ordering::SeqCst),"errors":[first.err().map(|error|error.to_string()),second.err().map(|error|error.to_string())]}});
+            blocked.store(false, Ordering::SeqCst);
+            client.stop().await.unwrap();
+            assert_eq!(actual, expected);
+        }
     }
 
     #[tokio::test]
@@ -1163,7 +2104,7 @@ setInterval(() => {}, 1000);
         let kill_calls = Arc::clone(&calls);
         let client = RpcClient::with_kill(
             RpcClientOptions {
-                cli_path: Some(script),
+                cli_path: Some(script.to_str().unwrap().into()),
                 ..RpcClientOptions::default()
             },
             Arc::new(move |pid, signal| {

@@ -148,6 +148,7 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = attach_jsonl_line_reader(tokio::io::stdin(), move |line| {
         let _ = sender.send(line);
+        Ok(())
     });
     *lock(&state.input) = Some(reader);
 
@@ -161,8 +162,13 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
                     handle_input_line(&state, line).await;
                 });
             }
-            let state = Arc::clone(&state);
-            shutdown(&state, 0, None).await;
+            // Frozen detachInput removes onInputEnd. Detaching our reader also closes
+            // this channel; only an attached input subscription can report real EOF.
+            let input_listener_attached = lock(&state.input).is_some();
+            if input_listener_attached {
+                shutdown(&state, 0, None).await;
+            }
+            std::future::pending::<()>().await;
         })
         .await;
 
@@ -250,8 +256,8 @@ fn session_state(session: &AgentSession) -> RpcSessionState {
         session_id: session.session_id(),
         session_name: session.session_name().map(Into::into),
         auto_compaction_enabled: session.auto_compaction_enabled(),
-        message_count: session.messages().len() as u64,
-        pending_message_count: session.pending_message_count() as u64,
+        message_count: session.messages().len() as f64,
+        pending_message_count: session.pending_message_count() as f64,
     }
 }
 
@@ -749,7 +755,7 @@ fn reject_rpc_theme_switch() -> ThemeSetResult {
 fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
-        id: random_uuid(),
+        id: random_uuid().into(),
         payload,
     };
     state.output(&js_json::to_value(&request).expect("extension UI request must serialize"));
@@ -809,7 +815,7 @@ where
     let timer = schedule_dialog_timeout(dialogs, &id, timeout);
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
-        id: id.clone(),
+        id: id.clone().into(),
         payload: request,
     };
     emit(&js_json::to_value(&request).expect("extension UI request must serialize"));
