@@ -423,7 +423,38 @@ fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
         )
         .into());
     }
-    decode_file_url_path(url.path(), value)
+    let path = preserve_file_url_empty_segments(value, &url)?;
+    decode_file_url_path(&path, value)
+}
+
+/// url 2.5.x applies the retired file-URL rule that removes leading empty segments.
+/// Its non-file special-path parser preserves them. Drive roots must still use
+/// the file parser, which prevents `..` from removing the initial drive segment.
+/// Retire this adapter when the pinned URL parser follows Node's current rule.
+fn preserve_file_url_empty_segments(input: &JsString, url: &url::Url) -> Result<String, PathError> {
+    let text = encode_node_utf8(input).replace(['\t', '\r', '\n'], "");
+    let tail = text[7..].trim_end_matches(|character: char| character <= '\u{20}');
+    let authority_end = tail.find(['/', '\\', '?', '#']).unwrap_or(tail.len());
+    let authority = &tail[..authority_end];
+    let path = &tail[authority_end..];
+    let first_segment = path.strip_prefix(['/', '\\']).unwrap_or(path);
+    let first_segment_end = first_segment.find(['/', '\\', '?', '#']).unwrap_or(first_segment.len());
+    if is_windows_drive_segment(authority) || is_windows_drive_segment(&first_segment[..first_segment_end]) {
+        return Ok(url.path().to_owned());
+    }
+    let path = if path.starts_with(['/', '\\']) {
+        path.to_owned()
+    } else {
+        format!("/{path}")
+    };
+    let parsed = url::Url::parse(&format!("http://file-url.invalid{path}"))
+        .map_err(|error| PathError::new(error.to_string()))?;
+    Ok(parsed.path().to_owned())
+}
+
+fn is_windows_drive_segment(segment: &str) -> bool {
+    let bytes = segment.as_bytes();
+    bytes.len() == 2 && bytes[0].is_ascii_alphabetic() && matches!(bytes[1], b':' | b'|')
 }
 
 fn decode_file_url_path(encoded: &str, input: &JsString) -> Result<JsString, PathError> {

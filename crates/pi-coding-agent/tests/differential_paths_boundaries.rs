@@ -22,6 +22,21 @@ fn file_url_errors_preserve_frozen_names_messages_and_properties() {
         "file://user:password@host/x",
         "file://host:80/x",
         "file:////host/x",
+        "file://///a/../b",
+        "file:////a/../../b",
+        "file:////a/..//b",
+        "file://///",
+        "file:///C:/..//",
+        "file:///C|/../../x",
+        "file://C:/x",
+        "file:////C:/../../x",
+        "file:////%2e%2e/a",
+        "file://localhost//a",
+        "file://localhost///a/../b",
+        "file:///\\\\a\\\\b",
+        "file:////a\t/b\n",
+        "file:////a?//query",
+        "file:////a#//fragment",
     ];
     let mut source = oracle::TsOracle::spawn("paths-boundaries-oracle.ts", "packages/coding-agent/src/utils/paths.ts");
     let cases = inputs
