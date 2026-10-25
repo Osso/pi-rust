@@ -49,3 +49,5 @@ RED: the old implementation kept tools, accepted explicit and injected policy.
 ## Whole-module re-pin audit
 
 The current frozen source and all native functions/hooks were compared after the triage disabled-mode fix. Five additional cases cover session-tree restore (last valid matching entry), requires-agent-id child behavior including child ultra, disabled-to-proactive thinking event, selector cancellation, and multiple policy blocks with surrounding raw UTF-16. These join the 18 existing frozen cases and focused native command tests. No additional production change was needed. Gap: pathological inputs and runtime fault/scheduling shapes follow the shared parity exclusions.
+
+GREEN at `56bf2bcc6`: 13 focused tests pass (23 frozen handler cases plus 12 native tests), `/tmp/bundled-effort-green.log`; no production change beyond the merged triage fix.

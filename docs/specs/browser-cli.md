@@ -4,10 +4,10 @@ The bundled tool follows the [common source pin](../porting/source-lock.json); s
 
 ## What it must do
 
-- [ ] Register only when browser-cli is executable; preserve frozen metadata/schema and sequential execution mode.
-- [ ] Select the dedicated session/agent tab, pass it to the command runner and child environment, and remove inherited BROWSER_CLI_TAB.
-- [ ] Run batches in order, preserve argv/results/output and exact UTF-16, and stop with the frozen stderr-first failure text on nonzero/null exit.
-- [ ] Reject aborted commands with the frozen text while allowing the runner to send SIGTERM and reap the real child.
+- [x] Register only when browser-cli is executable; preserve frozen metadata/schema and sequential execution mode.
+- [x] Select the dedicated session/agent tab, pass it to the command runner and child environment, and remove inherited BROWSER_CLI_TAB.
+- [x] Run batches in order, preserve argv/results/output and exact UTF-16, and stop with the frozen stderr-first failure text on nonzero/null exit.
+- [x] Reject aborted commands with the frozen text while allowing the runner to send SIGTERM and reap the real child.
 
 ## How it works
 
@@ -23,7 +23,7 @@ The bundled tool follows the [common source pin](../porting/source-lock.json); s
 
 ## Known gaps (current cycle)
 
-- [ ] Execute targeted GREEN after the implementation commit.
+No current behavioral gap in the mapped module.
 
 ## Out of scope
 
