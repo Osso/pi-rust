@@ -1071,7 +1071,7 @@ fn dead_runtime_reconciliation_cleans_expired_artifacts() {
                     "db": db, "now": now, "artifactRoot": if explicit_root { Some(root.clone()) } else { None },
                 }));
                 assert_eq!(response["ok"], js_json::JsValue::Bool(true));
-                response["output"].as_i64().unwrap()
+                response["output"].as_f64().unwrap() as i64
             } else {
                 LifecycleCoordinator::reconcile_dead_detached_runtimes(
                     &db.clone().into(),
