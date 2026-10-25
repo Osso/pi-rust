@@ -8689,12 +8689,13 @@ impl InteractiveMode {
     async fn handle_bash_command(&self, command: JsString, exclude_from_context: bool) {
         use crate::core::extensions::types::UserBashEvent;
         let session = self.session();
+        let cwd = session.session_manager().get_cwd().clone();
         let interception = session
             .extension_runner()
             .emit_user_bash(&UserBashEvent {
                 command: command.clone(),
                 exclude_from_context,
-                cwd: session.session_manager().get_cwd().clone(),
+                cwd,
             })
             .await;
         let complete = interception
@@ -8827,10 +8828,10 @@ impl InteractiveMode {
         }));
         let result = session.compact(custom_instructions.as_ref()).await;
         session.unsubscribe(subscription);
-        if let Err(error) = result {
-            if saved.load(std::sync::atomic::Ordering::SeqCst) {
-                self.show_error(error.message());
-            }
+        if let Err(error) = result
+            && saved.load(std::sync::atomic::Ordering::SeqCst)
+        {
+            self.show_error(error.message());
         }
     }
 
@@ -8948,10 +8949,10 @@ impl InteractiveMode {
                     }),
                     ..PromptOptions::default()
                 };
-                if let Err(error) = session.prompt(&prompt.text, options).await {
-                    if let Some(mode) = with_mode(mode_id, |mode| mode) {
-                        mode.restore_compaction_queue(restore, error.message());
-                    }
+                if let Err(error) = session.prompt(&prompt.text, options).await
+                    && let Some(mode) = with_mode(mode_id, |mode| mode)
+                {
+                    mode.restore_compaction_queue(restore, error.message());
                 }
             });
             tokio::task::yield_now().await;

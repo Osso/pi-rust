@@ -86,3 +86,7 @@ units instead of reusing its encoded filesystem argument.
 and raw UI failure propagation. Written but unexecuted while coding compilation
 is blocked. replacement-cli-2 has zero trust/resource/package module primaries;
 no runtime PASS or renewed frozen differential parity claimed.
+
+## Process-terminal trust wiring (2026-10-25)
+
+Both production callers previously passed no startup UI, so interactive trust silently became untrusted. Real package-list and main-startup PTY regressions reproduce the missing prompt (`/tmp/settings-models-trust-pty-red.log`) and now pass after the host is wired to the existing startup selector (`/tmp/settings-models-trust-pty-green.log`). Both assert the persisted Trusted decision, not only rendered text. The adapter runs the Rc-based startup TUI on one blocking worker/current-thread runtime and uses a merged-settings snapshot for its read-only theme/terminal settings. The native startup UI trait now returns Result, preserving UI failures; test implementations changed mechanically. The main factory receives startup UI as captured host state. No source algorithm or provider was changed.

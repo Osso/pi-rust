@@ -202,7 +202,7 @@ Actual first RED `compact-callback-success-red.log` proves the prior TODO droppe
 
 ## Gaps (explicit)
 
-- None.
+Adversarial/pathological inputs, exceptional OS/runtime fault shapes, numeric extremes and Node/V8/libuv scheduling oddities retain the repository exclusions; existing lossless carriers and realistic user-visible behavior remain required.
 
 ## Deviations
 
@@ -393,9 +393,9 @@ Core image-presence GREEN at11b31b220: both actual-frozen input/ before-agent-st
 
 RPC input-presence process differential passes1 at488941fa0 (`/tmp/repin-agent-session-images-rpc-green.log`). The before-agent-start differential is extended with a populated image that continues into user-message content, alongside omitted/empty and transformed-empty cases; it now compares exact user content as well as extension-visible values. This guards against accidentally preserving metadata while dropping image content. Workspace all-targets compilation passes for that extension before commit.
 
-## Remaining audit scope
+## Audit scope status
 
-The whole-file coverage row remains partial. Constructor/hooks, prompt/queues, runtime coordination, events/continuations, model/thinking, compaction/retry and binding/build/reload require closure, as do frozen :5807–6444 (bash, naming, summary materialization, navigateTree, fork extraction, stats and export).
+Whole-file audit is closed by the final closure below. Earlier partial/GREEN-pending notes are historical checkpoints, not remaining work. Constructor/hooks, prompt/queues/coordination, events/continuations, model/thinking, compaction/retry, binding/build/reload and :5807–6444 have been audited against the common pin.
 
 ## Re-pin saved-compaction event and finalizer state
 
@@ -442,3 +442,19 @@ Frozen :280–298/:980–986/:5192–5197/:5584–5588/:5617–5629 maps to the 
 ## Reload idle-compaction call site, 2026-10-25
 
 Frozen :5617–5646 emits reload startup/resources but does not call _scheduleIdleCompaction. Native added that call and compacted restored history on reload even when startup had no history/timer. Removed only the extra call; existing armed timers are not cancelled. The existing lifetime test now asserts the exact source result for reload (zero compactions), retains its startup/observer/error/aborted cases, and advances time after yielding so an added timer actually fires in RED. Native RED1/GREEN1; the earlier native-only reload-positive assertion was not source parity evidence.
+
+## Extension send dispatch and failures, 2026-10-25
+
+Frozen :5334–5353/:3907–3952 starts custom/user sends inline and reports rejected sends through the captured runner's runtime error event. Native deferred custom commits in an unpolled spawn and discarded both send results. The adapters now reuse the existing inline poll and report errors with exact runtime path/event/message fields. Native registered-extension RED/GREEN2 covers immediate agent+storage effects and a real before-run callback rejection. The first unknown-slash fixture was invalid because source sendUserMessage disables command handling; it is not rejection evidence. [Spec](../../specs/agent-session-extension-sends.md).
+
+## Whole-module audit closure, 2026-10-25
+
+Status: **DONE for user-observable parity at 4f9e6f8a4**, under the parent lighter-proof directive. The exported-symbol and behavior maps above cover the module; the final call-site pass closes the earlier partial reservation.
+
+- Construction, role/tool/permission hooks, model/provider callbacks and runtime binding/reload: existing permission/discovery/runtime/context tests plus the new headless, ordered-flag, reload-timer and extension-send cases. Callback errors retain the existing carriers; terminal-finalize store catch/log is closed, not a pending listener migration.
+- Prompt/commands/input/images/steering/follow-up, coordination and continuations: existing prompt/queue/runtime-mailbox/restriction proofs, optional-image reciprocal events/RPC proof, and actual tool-result persistence→awaited prepare→end→activation. No legacy terminal drain at command entry.
+- Model/thinking/retry and manual/auto/background/idle compaction: prior complete source audits and bounded frozen/native tests; thinking missing-index and sync/pending/real-effort observations are GREEN. Saved compaction event payload/persistence proofs remain reciprocal. Reload's old native-only timer assertion is corrected, not retained as parity evidence.
+- Bash, names, summary editing/materialization and tree navigation: exact normal prefix/abort/finalizer/commit behavior; immediate naming listener effects; auth-failure cleanup; retained no-op/summary/auth/empty-label/tree persistence proof. The overlapping-bash clearing and duplicate-summary lookup source bugs are classified and preserved.
+- Fork selector, current-state statistics/context usage, HTML/JSONL export and last-assistant text: audited against :6198–6444 and retained baseline tests. The selector uses all stored user entries, joins text blocks without separators and omits empty/image-only text; runtime fork itself belongs to AgentSessionRuntime. Statistics use current messages, post-compaction context fallback and source token/cost sums. JSONL re-chains the current branch with the existing lossless codecs; HTML now retains original custom renderers. No remaining realistic discrepancy is recorded in this module scope.
+
+Final code revision `f4f7eac80` includes parent `de0bc84c7`. `cargo test -j3 -p pi-coding-agent --test agent_session --test differential_agent_session -- --nocapture` passes99 native +1 actual-frozen multi-turn tests;2 top-level ignored probes are invoked by passing headless tests. The differential retains exact session/export bytes and semantic event/model/usage assertions, alongside earlier reciprocal compaction/RPC/metadata proofs. Workspace all-targets compilation and warning-mode focused Clippy pass;484 inherited diagnostics, zero primary warnings on added session lines since e380ab815. Manual changed-Rust/TS readability audit found no added suppression, deep production nesting, new public API/carrier/dependency or silent send-error path. [Command/revision ledger](../agent-session-repin-proof.md).

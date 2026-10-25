@@ -95,5 +95,7 @@ pub fn configure_http_dispatcher(timeout_ms: f64) -> Result<Arc<dyn Fetch>, Stri
         http1_only: true,
         idle_timeout: (normalized_timeout_ms > 0).then(|| Duration::from_millis(normalized_timeout_ms)),
     };
-    fetch_with_options(options)
+    let fetch = fetch_with_options(options)?;
+    pi_ai::http::install_default_fetch(Arc::clone(&fetch));
+    Ok(fetch)
 }

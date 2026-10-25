@@ -1,7 +1,7 @@
 //! Default [`Fetch`] implementation (the `globalThis.fetch` stand-in) backed by `reqwest`.
 
 use std::error::Error;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Duration;
 
 use pi_js_compat::abort::{AbortReason, AbortSignal};
@@ -13,6 +13,8 @@ use crate::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, Htt
 /// Message of the `AbortError` thrown by `fetch` when its signal aborts.
 pub const ABORT_ERROR_MESSAGE: &str = "This operation was aborted";
 
+mod environment_proxy;
+
 struct ReqwestFetch {
     client: reqwest::Client,
 }
@@ -22,19 +24,29 @@ struct ReqwestBody {
     signal: Option<AbortSignal>,
 }
 
-/// Process-wide default HTTP client.
-pub fn default_fetch() -> Arc<dyn Fetch> {
-    static DEFAULT: OnceLock<Arc<dyn Fetch>> = OnceLock::new();
-    Arc::clone(DEFAULT.get_or_init(|| {
-        Arc::new(ReqwestFetch {
-            client: default_client(),
-        })
-    }))
+fn default_fetch_slot() -> &'static RwLock<Arc<dyn Fetch>> {
+    static DEFAULT: OnceLock<RwLock<Arc<dyn Fetch>>> = OnceLock::new();
+    DEFAULT.get_or_init(|| {
+        RwLock::new(Arc::new(ReqwestFetch {
+            client: reqwest::Client::new(),
+        }))
+    })
 }
 
-fn default_client() -> reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(reqwest::Client::new).clone()
+/// Process-wide default HTTP authority; explicit per-request Fetch overrides are separate.
+pub fn default_fetch() -> Arc<dyn Fetch> {
+    Arc::clone(
+        &default_fetch_slot()
+            .read()
+            .unwrap_or_else(std::sync::PoisonError::into_inner),
+    )
+}
+
+/// Installs the dispatcher used by subsequent default provider requests.
+pub fn install_default_fetch(fetch: Arc<dyn Fetch>) {
+    *default_fetch_slot()
+        .write()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) = fetch;
 }
 
 /// Send a request through reqwest, optionally through `proxy`.
@@ -43,16 +55,15 @@ pub(crate) async fn send_reqwest(
     signal: Option<AbortSignal>,
     proxy: Option<&Url>,
 ) -> Result<HttpResponse, CallbackError> {
-    let client = match proxy {
-        Some(proxy) => {
-            let proxy = reqwest::Proxy::all(proxy.as_str()).map_err(to_callback_error)?;
-            reqwest::Client::builder()
-                .proxy(proxy)
-                .build()
-                .map_err(to_callback_error)?
-        }
-        None => default_client(),
+    let Some(proxy) = proxy else {
+        return default_fetch().fetch(request, signal).await;
     };
+    let proxy = reqwest::Proxy::all(proxy.as_str()).map_err(to_callback_error)?;
+    let client = reqwest::Client::builder()
+        .no_proxy()
+        .proxy(proxy)
+        .build()
+        .map_err(to_callback_error)?;
     send_with_client(&client, request, signal).await
 }
 
@@ -80,7 +91,9 @@ pub struct FetchClientOptions {
 
 /// Build a [`Fetch`] from [`FetchClientOptions`] instead of the process-wide default.
 pub fn fetch_with_options(options: FetchClientOptions) -> Result<Arc<dyn Fetch>, String> {
-    let mut builder = reqwest::Client::builder();
+    let mut builder = reqwest::Client::builder()
+        .no_proxy()
+        .proxy(environment_proxy::capture_environment_proxy()?);
     if options.http1_only {
         builder = builder.http1_only();
     }

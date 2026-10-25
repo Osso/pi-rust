@@ -106,9 +106,8 @@ async fn native_audit_main_input_uses_trimmed_submission() {
                 .state()
                 .messages
                 .iter()
-                .filter_map(|message| {
-                    matches!(message, AgentMessage::User(_)).then(|| InteractiveMode::get_user_message_text(message))
-                })
+                .filter(|message| matches!(message, AgentMessage::User(_)))
+                .map(InteractiveMode::get_user_message_text)
                 .collect::<Vec<_>>();
             assert_eq!(users, vec![JsString::from("Main prompt")]);
         })
@@ -216,8 +215,13 @@ async fn native_audit_bash_renders_output_and_honors_interception() {
         use crate::core::extensions::types::{UserBashEvent,UserBashEventResult};
         let runtime=crate::core::extensions::create_extension_runtime();
         let factory:crate::core::extensions::ExtensionFactory=Arc::new(|api| {
-            api.on_user_bash(|event:UserBashEvent,_:crate::core::extensions::ExtensionContext| -> crate::core::extensions::BoxFuture<'static,Result<Option<UserBashEventResult>,HandlerError>> {
-                Box::pin(async move { Ok((event.command == "intercept-audit").then(||UserBashEventResult {result:Some(pi_js_compat::js_json!({"output":"Intercepted output","exitCode":0,"cancelled":false,"truncated":false})),operations:None})) })
+            api.on_user_bash(|event:UserBashEvent,context:crate::core::extensions::ExtensionContext| -> crate::core::extensions::BoxFuture<'static,Result<Option<UserBashEventResult>,HandlerError>> {
+                Box::pin(async move {
+                    let manager = context.session_manager()?;
+                    let cwd = tokio::task::spawn_blocking(move || manager.get_cwd()).await.map_err(|error|HandlerError::from(error.to_string()))?;
+                    assert_eq!(cwd,event.cwd);
+                    Ok((event.command == "intercept-audit").then(||UserBashEventResult {result:Some(pi_js_compat::js_json!({"output":"Intercepted output","exitCode":0,"cancelled":false,"truncated":false})),operations:None}))
+                })
             }).unwrap();
             Box::pin(async {Ok(())})
         });
@@ -225,7 +229,7 @@ async fn native_audit_bash_renders_output_and_honors_interception() {
         let loader=Arc::new(StaticResourceLoader {extensions:Some(crate::core::extensions::LoadExtensionsResult {extensions:vec![extension],errors:Vec::new(),runtime}),..Default::default()});
         let (mode,_,_,_temp)=build_mode_with_loader(loader,None).await;
         mode.init().await.unwrap();
-        mode.handle_bash_command("printf native-audit-output".into(),false).await;
+        tokio::time::timeout(Duration::from_secs(2),mode.handle_bash_command("printf native-audit-output".into(),false)).await.expect("bash interception can read the current session");
         let chat=JsString::join(mode.chat_container.borrow_mut().render(120),"\n");
         assert!(chat.split('\n').any(|line|pi_tui::utils::strip_terminal_sequences(&line).trim() == "native-audit-output"),"{chat:?}");
         mode.handle_bash_command("intercept-audit".into(),false).await;
@@ -346,9 +350,8 @@ async fn native_audit_interrupt_submits_combined_queued_input() {
                 .state()
                 .messages
                 .iter()
-                .filter_map(|message| {
-                    matches!(message, AgentMessage::User(_)).then(|| InteractiveMode::get_user_message_text(message))
-                })
+                .filter(|message| matches!(message, AgentMessage::User(_)))
+                .map(InteractiveMode::get_user_message_text)
                 .collect::<Vec<_>>();
             assert_eq!(
                 users,

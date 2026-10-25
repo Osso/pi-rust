@@ -187,6 +187,49 @@ fn double_ctrl_c(marker: &'static str) -> Vec<PtyInput> {
 }
 
 #[test]
+fn package_list_prompts_for_project_trust_on_the_real_terminal() {
+    let fixture = fixture();
+    std::fs::create_dir_all(fixture.work.join(".pi")).unwrap();
+    std::fs::write(fixture.work.join(".pi/settings.json"), r#"{"packages":[]}"#).unwrap();
+    let outcome = run_under_pty(
+        &fixture,
+        &["list"],
+        &agent_environment(&fixture),
+        &[input("Trust project folder?", "\r")],
+    );
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 0, "{text:?}");
+    assert!(text.contains("Trust project folder?"), "{text:?}");
+    let trust =
+        pi_coding_agent::core::trust_manager::ProjectTrustStore::new(&fixture.agent_dir.to_str().unwrap().into())
+            .unwrap();
+    assert_eq!(
+        trust.get(&fixture.work.to_str().unwrap().into()).unwrap(),
+        pi_coding_agent::core::trust_manager::ProjectTrustDecision::Trusted
+    );
+}
+
+#[test]
+fn main_runtime_prompts_for_project_trust_on_the_real_terminal() {
+    let fixture = fixture();
+    std::fs::create_dir_all(fixture.work.join(".pi")).unwrap();
+    std::fs::write(fixture.work.join(".pi/settings.json"), "{}").unwrap();
+    let mut inputs = vec![input("Trust project folder?", "\r")];
+    inputs.extend(double_ctrl_c("to show full startup help and loaded resources."));
+    let outcome = run_under_pty(&fixture, &[], &agent_environment(&fixture), &inputs);
+    let text = visible(&outcome.stdout);
+    assert_eq!(outcome.code, 0, "{text:?}");
+    assert!(text.contains("Trust project folder?"), "{text:?}");
+    let trust =
+        pi_coding_agent::core::trust_manager::ProjectTrustStore::new(&fixture.agent_dir.to_str().unwrap().into())
+            .unwrap();
+    assert_eq!(
+        trust.get(&fixture.work.to_str().unwrap().into()).unwrap(),
+        pi_coding_agent::core::trust_manager::ProjectTrustDecision::Trusted
+    );
+}
+
+#[test]
 fn interactive_mode_starts_the_tui_and_exits_on_double_ctrl_c() {
     let fixture = fixture();
     let outcome = run_under_pty(

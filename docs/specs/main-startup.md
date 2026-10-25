@@ -8,6 +8,8 @@ The CLI startup follows frozen `packages/coding-agent/src/main.ts` at `4f9e6f8a4
 - [x] Keep one AuthStorage across runtime recreation so runtime API keys survive switches.
 - [x] Open cross-project sessions and restore archived selections as specified in [session cwd](session-cwd.md).
 
+- [x] Interactive main startup and package commands present the real trust selector and persist the selected decision; UI failures propagate.
+
 ## How it works
 
 - [Main trace](../porting/traceability/main.md).
