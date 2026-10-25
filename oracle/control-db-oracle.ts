@@ -36,6 +36,37 @@ async function main(): Promise<void> {
 	};
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "registerThrow") {
+			const [path, recipient] = step.args as [string, unknown];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("runtime probe failed"), { code: "FIXTURE" });
+			try {
+				api.registerRuntimeMailboxListener(path, recipient, process.pid, undefined, {
+					runtimeInstanceId: "replacement",
+					isRuntimeProcessAlive: () => { calls++; throw failure; },
+				});
+				return { calls, ok: true };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
+		if (step.op === "takeThrow") {
+			const [path, recipient, throwAt] = step.args as [string, unknown, number];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("eligibility failed"), { code: "FIXTURE" });
+			try {
+				const delivered = api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => {
+					calls++;
+					if (calls === throwAt) throw failure;
+					return true;
+				});
+				return { calls, ok: true, delivered };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
 		if (step.op === "takeAll") {
 			const [path, recipient, limit] = step.args as [string, unknown, number];
 			return api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => true, limit);
@@ -60,6 +91,10 @@ async function main(): Promise<void> {
 		}
 		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "clearAgentActivity") {
+			const [path, sessionPath, agentId, updatedAt] = step.args as [string, string, string, string];
+			return api.updateMultiAgentAgentActivity(path, sessionPath, agentId, undefined, updatedAt);
+		}
 		if (step.op === "archiveCandidates") {
 			const [path, cutoff] = step.args as [string, string];
 			return api.archiveSessionsOlderThan(path, new Date(cutoff));

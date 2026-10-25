@@ -73,7 +73,8 @@ fn invalid_acceptance_role_releases_claim_and_empty_batch_skips_validation() {
         Default::default(),
     )
     .unwrap();
-    let claims = take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| true, 10).unwrap();
+    let claims =
+        take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| Ok(true), 10).unwrap();
     assert_eq!(claims.len(), 1);
     let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
     let mut session = SessionManager::open(&path.into(), None, None).unwrap();
@@ -176,7 +177,8 @@ fn reciprocal_marker_user_and_tool_result_acceptance_preserves_same_jsonl_and_cl
                 )
                 .unwrap();
                 let claims =
-                    take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| true, 10).unwrap();
+                    take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| Ok(true), 10)
+                        .unwrap();
                 assert_eq!(claims.len(), 1);
                 let refs = claims.iter().map(RuntimeMailboxAcceptanceRef::from).collect::<Vec<_>>();
                 let native: Option<AgentMessage> = message

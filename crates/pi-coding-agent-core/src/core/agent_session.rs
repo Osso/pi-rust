@@ -2731,7 +2731,7 @@ impl AgentSession {
         let mut messages = crate::core::session_control_db::take_runtime_mailbox_messages_for_delivery(
             control_db_path,
             &recipient,
-            |message| is_runtime_mailbox_message_due(message, options),
+            |message| Ok(is_runtime_mailbox_message_due(message, options)),
             i64::MAX as usize,
         )
         .map_err(|cause| AgentSessionError::new(cause.message()))?;

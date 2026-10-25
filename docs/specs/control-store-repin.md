@@ -54,7 +54,15 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Preserve original connection/transaction callback throws and rollback state through the existing shared SQLite error source.
 - [x] Match legacy prompt-history `slice(0, limit)` return semantics independently of SQLite LIMIT, including negative/zero limits and whitespace-only legacy entries.
 - [x] Sort archive candidates by frozen date/UTF-16 path comparison, exclude cutoff-equal/archived/subagent rows and keep selection read-only.
-- [ ] Preserve raw control-DB agent object/reference-array key order separately from normalized store-copy constructor order, without duplicate JSON values.
+- [x] Preserve raw control-DB agent object/reference-array key order separately from normalized store-copy constructor order, without duplicate JSON values.
+- [x] Reject expired detached cancellation commands inside the lifecycle transaction, rolling back agent state and command insertion together.
+- [x] Treat empty attachment parents as main-thread roots; reject empty failed/runtime child parents before database access.
+- [x] Reject terminal attached-runtime acquisition without mutation and require both incarnation nonces before replacing an alive owner.
+- [x] Clear lastActivity on an absent value; preserve currentActivity-before-model insertion order in combined metadata returns and canonical writes.
+- [x] Recover superseded live-PID incarnations and replay cleared-owner lost_runtime terminal state without duplicate outbox publication.
+- [x] Preserve distinct new-output/existing-reference JSON order in detached finalization and accept reciprocal TS/native replay for completed/failed/aborted outcomes.
+- [x] Preserve eligibility predicate rejection/call order and leave every mailbox message unclaimed if candidate collection fails.
+- [ ] Preserve runtime-registration process-probe rejection before listener/health replacement.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.
