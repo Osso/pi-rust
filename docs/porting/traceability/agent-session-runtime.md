@@ -8,6 +8,10 @@ Actual frozen `importFromJsonl` returns `SessionImportFileNotFoundError` with `n
 
 The interactive catch now checks that retained source instead of `File not found:` text. `import_error_class_controls_recovery_and_exit_like_frozen` uses real native/frozen runtime/mode processes, a persisted private session and an actual imported JSONL file. A genuine missing import remains recoverable with the exact full error frame and process exit0. A later factory Error with the same prefix must produce the same full frame and actual exit1; native previously exited0. The frozen confirmation dialog is driven by real terminal Enter input, never replaced with a canned result. Both process scenarios pass after the fix. RED/GREEN artifacts: `/tmp/repin-interactive-2-proof/import-error-red.log`, `import-ui-persisted-red.log`, `import-{agent_session_runtime,lib}-green.log`. Separate whole import-command parsing/confirmation/recovery branches remain interactive work, not accepted by this bounded error proof.
 
+## In-memory import discrepancy (2026-10-25)
+
+DISCREPANCY, preserved literally: frozen :637–640 recursively creates the current manager's session directory before before-switch callbacks. An in-memory manager supplies `""`, and Node throws ENOENT. Rust `create_dir_all("")` instead succeeds as a no-op. Native now performs the actual empty-path mkdir syscall for that input and preserves the resulting fields through the existing Node filesystem error carrier. Nonempty paths still use recursive creation. The actual frozen/native UI process comparison proves the exact visible failure and exit1; no new recovery, fallback, carrier or SessionManager algorithm is introduced. [Command proof](interactive-mode.md#path-arguments-and-import-command-2026-10-25).
+
 ## Common-pin re-port in progress (2026-10-23)
 
 [Contract](../../specs/agent-session-runtime.md). Historical inventory below is
