@@ -77,7 +77,17 @@ function normalizeSessionFile(text: string): unknown[] {
 			const normalize = (node: unknown): unknown => {
 				if (Array.isArray(node)) return node.map(normalize);
 				if (typeof node !== "object" || node === null) return node;
-				const object = node as Record<string, unknown>;
+				let object = node as Record<string, unknown>;
+				if (object.customType === "codex_restriction_context") {
+					const data = object.data as Record<string, unknown>;
+					const requestId = data?.requestId;
+					const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+					const validUuid = typeof requestId === "string" && requestId.length === 36 && uuid.test(requestId);
+					if (!validUuid) {
+						throw new Error("restriction context requestId must be a v4 UUID");
+					}
+					object = { ...object, data: { ...data, requestId: "<requestId>" } };
+				}
 				const result: Record<string, unknown> = {};
 				for (const [key, child] of Object.entries(object)) {
 					if (key === "id" || key === "parentId" || key === "toolCallId")

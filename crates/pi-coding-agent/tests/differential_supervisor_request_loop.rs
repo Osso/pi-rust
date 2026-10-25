@@ -51,6 +51,20 @@ fn normalize_entry(value: &mut Value) {
             }
         }
         Value::Object(object) => {
+            if object
+                .get("customType")
+                .and_then(Value::as_string)
+                .is_some_and(|value| value == "codex_restriction_context")
+            {
+                let data = object.get_mut("data").unwrap().as_object_mut().unwrap();
+                let request_id = data.get_mut("requestId").expect("restriction context requestId");
+                let text = request_id.as_string().unwrap().to_utf8().expect("UUID is scalar");
+                let uuid =
+                    regex::Regex::new(r"(?i)\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z")
+                        .unwrap();
+                assert!(uuid.is_match(&text), "restriction requestId must be a v4 UUID: {text}");
+                *request_id = json!("<requestId>");
+            }
             for (key, child) in object.iter_mut() {
                 if key == "id" || key == "parentId" || key == "toolCallId" {
                     *child = Value::String("<id>".to_owned().into());
@@ -79,7 +93,7 @@ async fn run_rust(dir: &str) -> Value {
         provider: Some("openai-codex".to_owned()),
         api: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
-            id: "gpt-5.6-sol".to_owned(),
+            id: "gpt-6.1-sol".to_owned(),
             name: Some("Sol".to_owned()),
             reasoning: Some(true),
             input: None,

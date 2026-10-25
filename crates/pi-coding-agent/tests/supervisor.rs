@@ -539,7 +539,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
-            id: "gpt-5.6-sol".to_owned(),
+            id: "gpt-6.1-sol".to_owned(),
             name: Some("Sol".to_owned()),
             reasoning: Some(true),
             input: None,
@@ -650,7 +650,7 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     .await
     .expect("session");
     assert_eq!(result.session.model().provider, "openai-codex");
-    assert_eq!(result.session.model().id, "gpt-5.6-sol");
+    assert_eq!(result.session.model().id, "gpt-6.1-sol");
     assert_eq!(
         result.session.thinking_level(),
         pi_agent_core::harness::types::ThinkingLevel::Low
