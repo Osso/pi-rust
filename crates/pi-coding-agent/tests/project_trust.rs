@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 use pi_coding_agent::cli::project_trust::{
     CreateProjectTrustContextOptions, ProjectTrustStartupUi, create_project_trust_context,
 };
@@ -468,22 +468,30 @@ impl RecordingStartupUi {
 }
 
 impl ProjectTrustStartupUi for RecordingStartupUi {
-    fn select<'a>(&'a self, title: &'a JsString, options: &'a [JsString]) -> BoxFuture<'a, Option<JsString>> {
+    fn select<'a>(
+        &'a self,
+        title: &'a JsString,
+        options: &'a [JsString],
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         self.selections
             .lock()
             .unwrap()
             .push((title.to_owned(), options.to_vec()));
         let selection = self.selection.clone();
-        Box::pin(async move { selection })
+        Box::pin(async move { Ok(selection) })
     }
 
-    fn input<'a>(&'a self, title: &'a JsString, placeholder: Option<&'a JsString>) -> BoxFuture<'a, Option<JsString>> {
+    fn input<'a>(
+        &'a self,
+        title: &'a JsString,
+        placeholder: Option<&'a JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         self.inputs
             .lock()
             .unwrap()
             .push((title.to_owned(), placeholder.cloned()));
         let value = self.input.clone();
-        Box::pin(async move { value })
+        Box::pin(async move { Ok(value) })
     }
 }
 

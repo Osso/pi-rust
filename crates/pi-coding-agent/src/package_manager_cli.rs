@@ -739,7 +739,11 @@ pub async fn create_command_settings_manager(
             cwd: options.cwd.clone(),
             mode: app_mode,
             has_ui: app_mode == AppMode::Interactive,
-            startup_ui: options.startup_ui,
+            startup_ui: options.startup_ui.or_else(|| {
+                Some(Arc::new(crate::cli::project_trust::TerminalProjectTrustStartupUi {
+                    settings: settings_manager.lock().unwrap().get_merged_settings(),
+                }))
+            }),
         },
     );
     let default_project_trust = settings_manager.lock().unwrap().get_default_project_trust();
