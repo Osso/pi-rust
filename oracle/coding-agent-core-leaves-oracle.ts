@@ -47,10 +47,26 @@ const handlers: Record<string, Handler> = {
 		})),
 	}),
 	providerDisplayNames: (api) => Object.entries(api.BUILT_IN_PROVIDER_DISPLAY_NAMES as Record<string, string>),
-	toolCapabilities: (api) => ({
-		child: api.CHILD_DISABLED_AGENT_TOOL_NAMES,
-		supervisor: api.SUPERVISOR_ONLY_TOOL_NAMES,
-	}),
+	toolCapabilities: (api, request) => {
+		const capabilities = api as unknown as {
+			CHILD_DISABLED_AGENT_TOOL_NAMES: readonly string[];
+			SUPERVISOR_ONLY_TOOL_NAMES: readonly string[];
+			STANDALONE_DISABLED_TOOL_NAMES: ReadonlySet<string>;
+		};
+		return {
+			child: capabilities.CHILD_DISABLED_AGENT_TOOL_NAMES,
+			supervisor: capabilities.SUPERVISOR_ONLY_TOOL_NAMES,
+			standalone: [...capabilities.STANDALONE_DISABLED_TOOL_NAMES],
+			queries: cases(request).map((value) => {
+				if (typeof value !== "string")
+					throw new Error("tool capability query must be a string");
+				return {
+					name: value,
+					disabled: capabilities.STANDALONE_DISABLED_TOOL_NAMES.has(value),
+				};
+			}),
+		};
+	},
 	sessionErrors: (api, request) =>
 		cases(request).map((filePath) => {
 			const ErrorClass = api.SessionImportFileNotFoundError as unknown as new (path: string) => Error & {
