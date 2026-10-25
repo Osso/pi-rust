@@ -1,17 +1,5 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
-#[path = "agent_session.rs"]
-pub mod agent_session;
-#[path = "agent_session_mutation_target.rs"]
-pub mod agent_session_mutation_target;
-#[path = "agent_session_runtime_mailbox.rs"]
-pub mod agent_session_runtime_mailbox;
-#[path = "agent_session_services.rs"]
-pub mod agent_session_services;
-#[path = "agent_session_signal_wake.rs"]
-pub mod agent_session_signal_wake;
-#[path = "agents_core_session_factories.rs"]
-pub mod agents_core_session_factories;
 #[path = "approved_mailbox_deltas.rs"]
 pub mod approved_mailbox_deltas;
 #[path = "approved_transcript_delta.rs"]
@@ -36,8 +24,6 @@ pub mod control_db_public_api;
 pub mod cross_implementation_control_db;
 #[path = "current_session_version.rs"]
 pub mod current_session_version;
-#[path = "differential_agent_session.rs"]
-pub mod differential_agent_session;
 #[path = "differential_compaction.rs"]
 pub mod differential_compaction;
 #[path = "differential_control_db.rs"]
@@ -58,8 +44,6 @@ pub mod differential_session_search_surface;
 pub mod empty_session_cleanup;
 #[path = "external_session_importer.rs"]
 pub mod external_session_importer;
-#[path = "lossless_agent_session_paths.rs"]
-pub mod lossless_agent_session_paths;
 #[path = "lossless_runtime_mailbox.rs"]
 pub mod lossless_runtime_mailbox;
 #[path = "lossless_session.rs"]
@@ -96,8 +80,6 @@ pub mod resume_session_tool;
 pub mod rpc_mode_session_name;
 #[path = "search_current_session_history_tool.rs"]
 pub mod search_current_session_history_tool;
-#[path = "session_autoname.rs"]
-pub mod session_autoname;
 #[path = "session_continuation.rs"]
 pub mod session_continuation;
 #[path = "session_control_db.rs"]

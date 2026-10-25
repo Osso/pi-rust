@@ -16,8 +16,6 @@ pub mod auth;
 pub mod auth_resolve_contract;
 #[path = "bedrock_converse_stream.rs"]
 pub mod bedrock_converse_stream;
-#[path = "bedrock_provider.rs"]
-pub mod bedrock_provider;
 #[path = "cloudflare.rs"]
 pub mod cloudflare;
 #[path = "cloudflare_gateway_binding.rs"]
@@ -82,8 +80,6 @@ pub mod differential_node_http_proxy;
 pub mod differential_oauth;
 #[path = "differential_oauth_flows.rs"]
 pub mod differential_oauth_flows;
-#[path = "differential_openai_codex_responses.rs"]
-pub mod differential_openai_codex_responses;
 #[path = "differential_openai_completions.rs"]
 pub mod differential_openai_completions;
 #[path = "differential_openai_responses.rs"]

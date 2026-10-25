@@ -947,3 +947,223 @@ path = "tests/trust_manager.rs"
 [[test]]
 name = "uncaught"
 path = "tests/uncaught.rs"
+
+[[test]]
+name = "agents_core_end_to_end"
+path = "tests/agents_core_end_to_end.rs"
+
+[[test]]
+name = "architect"
+path = "tests/architect.rs"
+
+[[test]]
+name = "auth_phase1_lossless"
+path = "tests/auth_phase1_lossless.rs"
+
+[[test]]
+name = "auth_phase1_rotation"
+path = "tests/auth_phase1_rotation.rs"
+
+[[test]]
+name = "components"
+path = "tests/components.rs"
+
+[[test]]
+name = "deprecation"
+path = "tests/deprecation.rs"
+
+[[test]]
+name = "differential_supervisor_request_loop"
+path = "tests/differential_supervisor_request_loop.rs"
+
+[[test]]
+name = "login_command"
+path = "tests/login_command.rs"
+
+[[test]]
+name = "main"
+path = "tests/main.rs"
+
+[[test]]
+name = "sdk"
+path = "tests/sdk.rs"
+
+[[test]]
+name = "standalone_worker_sdk"
+path = "tests/standalone_worker_sdk.rs"
+
+[[test]]
+name = "supervisor"
+path = "tests/supervisor.rs"
+
+[[test]]
+name = "example_custom_anthropic"
+path = "tests/example_custom_anthropic.rs"
+
+[[test]]
+name = "example_doom_overlay_helpers"
+path = "tests/example_doom_overlay_helpers.rs"
+
+[[test]]
+name = "example_handoff"
+path = "tests/example_handoff.rs"
+
+[[test]]
+name = "example_plan_mode"
+path = "tests/example_plan_mode.rs"
+
+[[test]]
+name = "example_preset"
+path = "tests/example_preset.rs"
+
+[[test]]
+name = "example_sdk_api_keys_and_oauth"
+path = "tests/example_sdk_api_keys_and_oauth.rs"
+
+[[test]]
+name = "example_sdk_context_files"
+path = "tests/example_sdk_context_files.rs"
+
+[[test]]
+name = "example_sdk_custom_model"
+path = "tests/example_sdk_custom_model.rs"
+
+[[test]]
+name = "example_sdk_extensions"
+path = "tests/example_sdk_extensions.rs"
+
+[[test]]
+name = "example_sdk_prompt_templates"
+path = "tests/example_sdk_prompt_templates.rs"
+
+[[test]]
+name = "example_sdk_sessions"
+path = "tests/example_sdk_sessions.rs"
+
+[[test]]
+name = "example_sdk_settings"
+path = "tests/example_sdk_settings.rs"
+
+[[test]]
+name = "example_sdk_skills"
+path = "tests/example_sdk_skills.rs"
+
+[[test]]
+name = "example_sdk_tools"
+path = "tests/example_sdk_tools.rs"
+
+[[test]]
+name = "example_summarize"
+path = "tests/example_summarize.rs"
+
+[[test]]
+name = "example_todo"
+path = "tests/example_todo.rs"
+
+[[test]]
+name = "extensions"
+path = "tests/extensions.rs"
+
+[[test]]
+name = "differential_settings_selector"
+path = "tests/differential_settings_selector.rs"
+
+[[test]]
+name = "interactive_components"
+path = "tests/interactive_components.rs"
+
+[[test]]
+name = "interactive_components_c"
+path = "tests/interactive_components_c.rs"
+
+[[test]]
+name = "render_utils"
+path = "tests/render_utils.rs"
+
+[[test]]
+name = "settings_selector"
+path = "tests/settings_selector.rs"
+
+[[test]]
+name = "model_registry"
+path = "tests/model_registry.rs"
+
+[[test]]
+name = "model_registry_agent_stream_throw"
+path = "tests/model_registry_agent_stream_throw.rs"
+
+[[test]]
+name = "model_registry_auth_drift"
+path = "tests/model_registry_auth_drift.rs"
+
+[[test]]
+name = "model_registry_custom_auth"
+path = "tests/model_registry_custom_auth.rs"
+
+[[test]]
+name = "model_registry_dispatch_lifecycle"
+path = "tests/model_registry_dispatch_lifecycle.rs"
+
+[[test]]
+name = "model_registry_lossless_config"
+path = "tests/model_registry_lossless_config.rs"
+
+[[test]]
+name = "model_registry_modifier_throw_probe"
+path = "tests/model_registry_modifier_throw_probe.rs"
+
+[[test]]
+name = "model_registry_registration_repin"
+path = "tests/model_registry_registration_repin.rs"
+
+[[test]]
+name = "model_registry_stream_throw_probe"
+path = "tests/model_registry_stream_throw_probe.rs"
+
+[[test]]
+name = "set_agent_model"
+path = "tests/set_agent_model.rs"
+
+[[test]]
+name = "agent_session"
+path = "tests/agent_session.rs"
+
+[[test]]
+name = "agent_session_mutation_target"
+path = "tests/agent_session_mutation_target.rs"
+
+[[test]]
+name = "agent_session_runtime_mailbox"
+path = "tests/agent_session_runtime_mailbox.rs"
+
+[[test]]
+name = "agent_session_services"
+path = "tests/agent_session_services.rs"
+
+[[test]]
+name = "agent_session_signal_wake"
+path = "tests/agent_session_signal_wake.rs"
+
+[[test]]
+name = "agents_core_session_factories"
+path = "tests/agents_core_session_factories.rs"
+
+[[test]]
+name = "differential_agent_session"
+path = "tests/differential_agent_session.rs"
+
+[[test]]
+name = "lossless_agent_session_paths"
+path = "tests/lossless_agent_session_paths.rs"
+
+[[test]]
+name = "session_autoname"
+path = "tests/session_autoname.rs"
+
+[[test]]
+name = "differential_tool_execution"
+path = "tests/differential_tool_execution.rs"
+
+[[test]]
+name = "lossless_tool_paths"
+path = "tests/lossless_tool_paths.rs"

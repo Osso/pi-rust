@@ -2,18 +2,10 @@
 
 #[path = "autocomplete_close_abort.rs"]
 pub mod autocomplete_close_abort;
-#[path = "differential_components.rs"]
-pub mod differential_components;
 #[path = "differential_fuzzy.rs"]
 pub mod differential_fuzzy;
-#[path = "differential_image_component_numbers.rs"]
-pub mod differential_image_component_numbers;
 #[path = "differential_input.rs"]
 pub mod differential_input;
-#[path = "differential_keybindings.rs"]
-pub mod differential_keybindings;
-#[path = "differential_keys.rs"]
-pub mod differential_keys;
 #[path = "differential_kill_ring.rs"]
 pub mod differential_kill_ring;
 #[path = "differential_native_modifiers.rs"]
@@ -26,8 +18,6 @@ pub mod differential_stdin_buffer;
 pub mod differential_terminal;
 #[path = "differential_terminal_colors.rs"]
 pub mod differential_terminal_colors;
-#[path = "differential_terminal_image.rs"]
-pub mod differential_terminal_image;
 #[path = "differential_utils.rs"]
 pub mod differential_utils;
 #[path = "differential_word_navigation.rs"]
@@ -44,8 +34,6 @@ pub mod index_exports;
 pub mod input;
 #[path = "keybindings.rs"]
 pub mod keybindings;
-#[path = "keys.rs"]
-pub mod keys;
 #[path = "kill_ring.rs"]
 pub mod kill_ring;
 #[path = "loader.rs"]
@@ -64,8 +52,6 @@ pub mod raw_autocomplete;
 pub mod raw_components;
 #[path = "raw_fuzzy.rs"]
 pub mod raw_fuzzy;
-#[path = "raw_images.rs"]
-pub mod raw_images;
 #[path = "raw_input.rs"]
 pub mod raw_input;
 #[path = "raw_keybindings.rs"]
@@ -90,8 +76,6 @@ pub mod raw_utils;
 pub mod raw_word_navigation;
 #[path = "regression_overlay_cjk_boundary.rs"]
 pub mod regression_overlay_cjk_boundary;
-#[path = "repin_components.rs"]
-pub mod repin_components;
 #[path = "select_list.rs"]
 pub mod select_list;
 #[path = "settings_list.rs"]

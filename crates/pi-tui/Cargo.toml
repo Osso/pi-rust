@@ -88,3 +88,51 @@ path = "tests/terminal_image.rs"
 [[test]]
 name = "verifier_regressions"
 path = "tests/verifier_regressions.rs"
+
+[[test]]
+name = "differential_components"
+path = "tests/differential_components.rs"
+
+[[test]]
+name = "differential_image_component_numbers"
+path = "tests/differential_image_component_numbers.rs"
+
+[[test]]
+name = "differential_keybindings"
+path = "tests/differential_keybindings.rs"
+
+[[test]]
+name = "differential_keys"
+path = "tests/differential_keys.rs"
+
+[[test]]
+name = "differential_terminal_image"
+path = "tests/differential_terminal_image.rs"
+
+[[test]]
+name = "keys"
+path = "tests/keys.rs"
+
+[[test]]
+name = "raw_images"
+path = "tests/raw_images.rs"
+
+[[test]]
+name = "repin_components"
+path = "tests/repin_components.rs"
+
+[[test]]
+name = "differential_markdown"
+path = "tests/differential_markdown.rs"
+
+[[test]]
+name = "markdown"
+path = "tests/markdown.rs"
+
+[[test]]
+name = "tui_cell_size_input"
+path = "tests/tui_cell_size_input.rs"
+
+[[test]]
+name = "tui_render"
+path = "tests/tui_render.rs"

@@ -46,8 +46,6 @@ pub mod json_utils;
 pub mod keybindings;
 #[path = "lifecycle_coordinator.rs"]
 pub mod lifecycle_coordinator;
-#[path = "login_command.rs"]
-pub mod login_command;
 #[path = "lossless_agent_node.rs"]
 pub mod lossless_agent_node;
 #[path = "lossless_architect.rs"]
@@ -114,8 +112,6 @@ pub mod lossless_supervisor_project;
 pub mod lossless_supervisor_wake;
 #[path = "lossless_version_check.rs"]
 pub mod lossless_version_check;
-#[path = "main.rs"]
-pub mod main;
 #[path = "main_process.rs"]
 pub mod main_process;
 #[path = "management_http.rs"]

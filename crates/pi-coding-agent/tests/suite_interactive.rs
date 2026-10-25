@@ -42,8 +42,6 @@ pub mod differential_question_render_history;
 pub mod differential_render_utils;
 #[path = "differential_sandbox_selector.rs"]
 pub mod differential_sandbox_selector;
-#[path = "differential_settings_selector.rs"]
-pub mod differential_settings_selector;
 #[path = "differential_syntax_highlight.rs"]
 pub mod differential_syntax_highlight;
 #[path = "differential_syntax_highlight_grammars.rs"]
@@ -70,10 +68,6 @@ pub mod footer_status_source_throw;
 pub mod frozen_theme_assets;
 #[path = "interactive_child_view.rs"]
 pub mod interactive_child_view;
-#[path = "interactive_components.rs"]
-pub mod interactive_components;
-#[path = "interactive_components_c.rs"]
-pub mod interactive_components_c;
 #[path = "interactive_tmux_keyboard.rs"]
 pub mod interactive_tmux_keyboard;
 #[path = "interactive_workflows.rs"]
@@ -92,10 +86,6 @@ pub mod raw_theme_error;
 pub mod raw_theme_native;
 #[path = "render_region_container.rs"]
 pub mod render_region_container;
-#[path = "render_utils.rs"]
-pub mod render_utils;
-#[path = "settings_selector.rs"]
-pub mod settings_selector;
 #[path = "syntax_highlight.rs"]
 pub mod syntax_highlight;
 #[path = "tool_execution_renderer_errors.rs"]

@@ -2,8 +2,6 @@
 
 #[path = "differential_editor.rs"]
 pub mod differential_editor;
-#[path = "differential_markdown.rs"]
-pub mod differential_markdown;
 #[path = "differential_tui.rs"]
 pub mod differential_tui;
 #[path = "editor_abort.rs"]
@@ -24,8 +22,6 @@ pub mod editor_sticky;
 pub mod editor_word_wrap;
 #[path = "editor_working.rs"]
 pub mod editor_working;
-#[path = "markdown.rs"]
-pub mod markdown;
 #[path = "markdown_isimageline_regression.rs"]
 pub mod markdown_isimageline_regression;
 #[path = "raw_editor.rs"]
@@ -36,13 +32,9 @@ pub mod raw_markdown;
 pub mod render_region;
 #[path = "render_region_safety.rs"]
 pub mod render_region_safety;
-#[path = "tui_cell_size_input.rs"]
-pub mod tui_cell_size_input;
 #[path = "tui_focus.rs"]
 pub mod tui_focus;
 #[path = "tui_overlay_style_leak.rs"]
 pub mod tui_overlay_style_leak;
-#[path = "tui_render.rs"]
-pub mod tui_render;
 #[path = "tui_shrink.rs"]
 pub mod tui_shrink;

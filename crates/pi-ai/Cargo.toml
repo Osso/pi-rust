@@ -83,3 +83,31 @@ path = "tests/process_env_reads.rs"
 [[test]]
 name = "public_index"
 path = "tests/public_index.rs"
+
+[[test]]
+name = "bedrock_provider"
+path = "tests/bedrock_provider.rs"
+
+[[test]]
+name = "differential_openai_codex_responses"
+path = "tests/differential_openai_codex_responses.rs"
+
+[[test]]
+name = "images_api_registry"
+path = "tests/images_api_registry.rs"
+
+[[test]]
+name = "oauth_abort_wrapper"
+path = "tests/oauth_abort_wrapper.rs"
+
+[[test]]
+name = "oauth_registry"
+path = "tests/oauth_registry.rs"
+
+[[test]]
+name = "openai_codex_responses"
+path = "tests/openai_codex_responses.rs"
+
+[[test]]
+name = "session_resources"
+path = "tests/session_resources.rs"

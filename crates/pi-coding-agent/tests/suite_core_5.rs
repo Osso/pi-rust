@@ -20,14 +20,10 @@ pub mod standalone_worker_factories;
 pub mod standalone_worker_main_process;
 #[path = "standalone_worker_runtime.rs"]
 pub mod standalone_worker_runtime;
-#[path = "standalone_worker_sdk.rs"]
-pub mod standalone_worker_sdk;
 #[path = "status_indicator_api.rs"]
 pub mod status_indicator_api;
 #[path = "summary_stream_acquisition.rs"]
 pub mod summary_stream_acquisition;
-#[path = "supervisor.rs"]
-pub mod supervisor;
 #[path = "supervisor_ensure_running_scenarios.rs"]
 pub mod supervisor_ensure_running_scenarios;
 #[path = "supervisor_startup_errors.rs"]

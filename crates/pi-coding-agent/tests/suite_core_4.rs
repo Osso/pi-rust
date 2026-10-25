@@ -114,8 +114,6 @@ pub mod retry_delay;
 pub mod runtime_credentials;
 #[path = "runtime_process.rs"]
 pub mod runtime_process;
-#[path = "sdk.rs"]
-pub mod sdk;
 #[path = "self_restart_state.rs"]
 pub mod self_restart_state;
 #[path = "settings_manager.rs"]

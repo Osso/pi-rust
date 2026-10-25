@@ -70,8 +70,6 @@ pub mod differential_read_numbers;
 pub mod differential_read_tool;
 #[path = "differential_tool_detach_registry.rs"]
 pub mod differential_tool_detach_registry;
-#[path = "differential_tool_execution.rs"]
-pub mod differential_tool_execution;
 #[path = "differential_tool_output_persistence_constants.rs"]
 pub mod differential_tool_output_persistence_constants;
 #[path = "differential_write_filesystem.rs"]
@@ -102,8 +100,6 @@ pub mod lossless_bash_request_id;
 pub mod lossless_file_processor;
 #[path = "lossless_tool_output_spill.rs"]
 pub mod lossless_tool_output_spill;
-#[path = "lossless_tool_paths.rs"]
-pub mod lossless_tool_paths;
 #[path = "lossless_tools.rs"]
 pub mod lossless_tools;
 #[path = "ls_tool.rs"]
