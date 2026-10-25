@@ -21,6 +21,7 @@ use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
 use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
+use pi_js_compat::abort::AbortReason;
 use pi_js_compat::date::js_now_millis;
 use pi_js_compat::js_format;
 use pi_js_compat::js_regex::JsRegex as Regex;
@@ -1675,8 +1676,9 @@ impl Component for SharedBorderedLoader {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        if let Ok(mut loader) = self.0.try_borrow_mut() {
-            loader.handle_input(data);
+        let on_abort = self.0.borrow().abort_for_input(data);
+        if let Some(on_abort) = on_abort {
+            on_abort();
         }
     }
 
@@ -8852,9 +8854,20 @@ impl InteractiveMode {
 
     async fn handle_export_command(&self, text: JsString) {
         let path = Self::path_command_argument(&text, &JsString::from("/export"));
-        match self.session().export_to_html(path.as_ref()).await {
-            Ok(path) => self.show_status(&js_format!("Exported session to {}", path)),
-            Err(error) => self.show_error(error.message()),
+        let result = if path.as_ref().is_some_and(|path| path.ends_with(".jsonl")) {
+            self.session().export_to_jsonl(path.as_ref())
+        } else {
+            self.session().export_to_html(path.as_ref()).await
+        };
+        match result {
+            Ok(path) => self.show_status(&js_format!("Session exported to: {}", path)),
+            Err(error) => {
+                let message = match CallbackError::from(error).thrown_value() {
+                    AbortReason::Error(error) | AbortReason::DomException(error) => error.message.clone(),
+                    AbortReason::Value(_) => "Unknown error".into(),
+                };
+                self.show_error(&js_format!("Failed to export session: {}", message));
+            }
         }
     }
 
@@ -8968,16 +8981,9 @@ impl InteractiveMode {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
-        match auth {
-            Err(_) => {
-                self.show_error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-                return;
-            }
-            Ok(status) if !status.success() => {
-                self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
-                return;
-            }
-            Ok(_) => {}
+        if !auth.is_ok_and(|status| status.success()) {
+            self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+            return;
         }
 
         let tmp_path = node_join(pi_js_compat::node_os::tmpdir(), "session.html");
@@ -9015,7 +9021,7 @@ impl InteractiveMode {
             if child_pid != 0
                 && let Some(child_pid) = rustix::process::Pid::from_raw(child_pid as i32)
             {
-                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::KILL);
+                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::TERM);
             }
             if let Some(loader) = abort_loader.upgrade() {
                 loader.borrow_mut().dispose();
@@ -9072,7 +9078,7 @@ impl InteractiveMode {
 
     async fn handle_copy_command(&self) {
         let Some(text) = self.session().get_last_assistant_text() else {
-            self.show_error("No assistant message to copy");
+            self.show_error("No agent messages to copy yet.");
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
@@ -9085,7 +9091,7 @@ impl InteractiveMode {
             Ok(()) => {
                 self.show_status("Copied last agent message to clipboard");
             }
-            Err(error) => self.show_error(&js_format!("Failed to copy: {}", error.message())),
+            Err(error) => self.show_error(error.message()),
         }
     }
 
@@ -13067,6 +13073,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_path_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_transfer_commands.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),

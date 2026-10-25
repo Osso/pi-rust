@@ -65,6 +65,15 @@ impl CancellableLoader {
         self.loader.poll(now)
     }
 
+    /// Cancel matching input and return the callback without invoking it, so shared callers can release borrows first.
+    pub fn abort_for_input(&mut self, data: &JsString) -> Option<Rc<dyn Fn()>> {
+        if !get_keybindings().matches(data, "tui.select.cancel") {
+            return None;
+        }
+        self.abort_controller.abort(None);
+        self.on_abort.clone()
+    }
+
     /// Stop the animation and release resources.
     pub fn dispose(&mut self) {
         self.loader.stop();
@@ -81,12 +90,8 @@ impl Component for CancellableLoader {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        let keybindings = get_keybindings();
-        if keybindings.matches(data, "tui.select.cancel") {
-            self.abort_controller.abort(None);
-            if let Some(on_abort) = &self.on_abort {
-                on_abort();
-            }
+        if let Some(on_abort) = self.abort_for_input(data) {
+            on_abort();
         }
     }
 
