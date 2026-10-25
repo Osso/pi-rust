@@ -169,7 +169,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
                     }
                     Some(Value::String(text)) => {
-                        ui.set_editor_text(&JsString::from(&text));
+                        ui.set_editor_text(&JsString::from(&text))?;
                         ui.notify(
                             &JsString::from("Questions loaded. Edit and submit when ready."),
                             Some(NotifyType::Info),

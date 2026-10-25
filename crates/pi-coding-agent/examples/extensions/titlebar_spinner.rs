@@ -23,7 +23,7 @@ fn stop_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> R
     if let Some(task) = timer.lock().unwrap().take() {
         task.abort();
     }
-    ctx.ui()?.set_title(&JsString::from(read_base_title(pi)?));
+    ctx.ui()?.set_title(&JsString::from(read_base_title(pi)?))?;
     Ok(())
 }
 fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> Result<(), HandlerError> {
@@ -38,7 +38,13 @@ fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> 
         loop {
             ticks.tick().await;
             match read_base_title(&api) {
-                Ok(base) => ui.set_title(&js_format!("{} {}", FRAMES[frame % FRAMES.len()], base)),
+                Ok(base) => {
+                    if let Err(error) = ui.set_title(&js_format!("{} {}", FRAMES[frame % FRAMES.len()], base)) {
+                        // Frozen titlebar-spinner.ts:37-43 has no catch around the interval callback.
+                        // Actual-source process probe: uuid_source_boundaries.
+                        pi_js_compat::callback_error::throw_callback_uncaught(error);
+                    }
+                }
                 Err(error) => {
                     eprintln!("titlebar-spinner: {error}");
                     return;

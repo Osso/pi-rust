@@ -225,7 +225,7 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
                 Box::pin(async move {
                     let ui = ctx.ui()?;
                     if matches!(demo, Demo::Passive | Demo::Focus | Demo::Streaming) {
-                        ui.set_editor_text(&JsString::from(""));
+                        ui.set_editor_text(&JsString::from(""))?;
                     }
                     if demo == Demo::Stack {
                         return stack(ui).await;

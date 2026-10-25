@@ -92,7 +92,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                             &"text".into(),
                             Some(ExtensionStatus::Text(JsString::from("status-") + &low)),
                         )?;
-                        ui.set_widget(&"clear".into(), None, None);
+                        ui.set_widget(&"clear".into(), None, None)?;
                         let options = pi_coding_agent::core::extensions::types::ExtensionWidgetOptions {
                             placement: Some(pi_coding_agent::core::extensions::types::WidgetPlacement::BelowEditor),
                         };
@@ -100,10 +100,10 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                             &"lines".into(),
                             Some(&["one".into(), JsString::from("two-") + &high]),
                             Some(&options),
-                        );
-                        ui.set_title(&(JsString::from("title-") + &low));
-                        ui.set_editor_text(&(JsString::from("editor-") + &high));
-                        ui.paste_to_editor(&(JsString::from("paste-") + &low));
+                        )?;
+                        ui.set_title(&(JsString::from("title-") + &low))?;
+                        ui.set_editor_text(&(JsString::from("editor-") + &high))?;
+                        ui.paste_to_editor(&(JsString::from("paste-") + &low))?;
                         std::fs::write(
                             root.join("fire-report.json"),
                             stringify_lossless(&pi_js_compat::js_json!({"editor":ui.get_editor_text()?})),

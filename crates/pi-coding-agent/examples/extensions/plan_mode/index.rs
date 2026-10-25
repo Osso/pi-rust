@@ -297,7 +297,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
             })
             .collect::<Vec<_>>()
     });
-    ui.set_widget(&JsString::from("plan-todos"), lines.as_deref(), None);
+    ui.set_widget(&JsString::from("plan-todos"), lines.as_deref(), None)?;
     Ok(())
 }
 fn persist(pi: &ExtensionApi, s: &State) -> Result<(), HandlerError> {
