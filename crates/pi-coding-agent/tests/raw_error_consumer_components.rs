@@ -417,28 +417,14 @@ fn config_values_preserve_raw_literals_and_native_environment_values() {
 
 #[tokio::test]
 async fn auth_storage_reads_and_writes_raw_credentials_without_scalar_projection() {
-    use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore};
     use pi_coding_agent::core::auth_storage::AuthStorage;
     let store = AuthStorage::in_memory(Vec::<(JsString, pi_js_compat::js_json::JsValue)>::new());
     let raw = JsString::from_utf16(vec![0xd800]);
-    let value = raw.clone();
     store
-        .modify(
-            "fixture",
-            std::sync::Arc::new(move |_| {
-                let raw = value.clone();
-                Box::pin(async move {
-                    Ok(Some(Credential::ApiKey(ApiKeyCredential {
-                        key: Some(raw),
-                        env: None,
-                    })))
-                })
-            }),
-        )
-        .await
+        .set("fixture", pi_js_compat::js_json!({"type":"api_key", "key":raw.clone()}))
         .unwrap();
-    let read = store.read("fixture").await.unwrap().unwrap();
-    assert_eq!(read.as_api_key().unwrap().key.as_ref(), Some(&raw));
+    let read = store.get("fixture").unwrap();
+    assert_eq!(read.get("key").unwrap().as_string(), Some(&raw));
     assert_eq!(
         store.get_api_key("fixture", Default::default()).await.unwrap(),
         Some(raw)
