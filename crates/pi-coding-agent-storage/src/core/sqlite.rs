@@ -25,6 +25,7 @@ pub struct ControlDbError {
     contention: bool,
     config: Option<Box<crate::config::ConfigError>>,
     original: Option<NativeNodeError>,
+    callback: Option<Box<pi_ai::request::CallbackError>>,
 }
 
 impl ControlDbError {
@@ -34,6 +35,7 @@ impl ControlDbError {
             contention: false,
             config: None,
             original: None,
+            callback: None,
         }
     }
 
@@ -78,6 +80,7 @@ impl ControlDbError {
             contention: matches!(failure.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked),
             config: None,
             original: Some(original),
+            callback: None,
         }
     }
 
@@ -91,6 +94,7 @@ impl ControlDbError {
             contention,
             config: None,
             original: None,
+            callback: None,
         }
     }
 }
@@ -107,8 +111,21 @@ impl std::error::Error for ControlDbError {
             .as_ref()
             .map(|error| error as &dyn std::error::Error)
             .or_else(|| self.config.as_deref().map(|error| error as &dyn std::error::Error))
+            .or_else(|| self.callback.as_deref().map(|error| error as &dyn std::error::Error))
     }
 }
+impl From<pi_ai::request::CallbackError> for ControlDbError {
+    fn from(error: pi_ai::request::CallbackError) -> Self {
+        Self {
+            message: error.message.clone(),
+            contention: false,
+            config: None,
+            original: None,
+            callback: Some(Box::new(error)),
+        }
+    }
+}
+
 impl From<ControlDbError> for pi_ai::request::CallbackError {
     fn from(error: ControlDbError) -> Self {
         Self::from_error(error.message().clone(), error)
@@ -121,6 +138,7 @@ impl From<crate::config::ConfigError> for ControlDbError {
             contention: false,
             config: Some(Box::new(error)),
             original: None,
+            callback: None,
         }
     }
 }
@@ -132,6 +150,7 @@ impl From<NativeNodeError> for ControlDbError {
             contention: false,
             config: None,
             original: Some(error),
+            callback: None,
         }
     }
 }

@@ -50,7 +50,8 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Catch and log original lifecycle, transition and update listener failures locally, continue later listeners and finish publication.
 - [x] Preserve original clock/abort callback rejection values and callback sampling order; remove abort handles before invocation; skip empty persistence bindings; preserve locale slot order and first-insertion conflict selection.
 - [x] Reject relative nested snapshot/reference paths in frozen copy order before publication; canonicalize copied file references and preserve frozen empty-parent rejection.
-- [ ] Preserve snapshot root and spread-copied child JSON key order with order-only metadata; emit fixed-copy nested objects in frozen constructor order.
+- [x] Preserve snapshot root and spread-copied child JSON key order with order-only metadata; emit fixed-copy nested objects in frozen constructor order.
+- [ ] Preserve original connection/transaction callback throws and rollback state through the existing shared SQLite error source.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [ ] Complete group-wide schema migration/reverse-init, export and whole-store acceptance; bounded migration, reciprocal and reset/error proofs do not establish whole-module parity.
 

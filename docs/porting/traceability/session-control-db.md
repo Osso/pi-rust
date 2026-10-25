@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Original callback throws (2026-10-25)
+
+Actual frozen `withControlDb`/`withImmediateTransaction` baseline `/tmp/storage3-control-callback-source.log` preserves original throws and leaves the inserted row committed outside a transaction, rolled back inside one. API RED `/tmp/storage3-control-callback-api-red.log` could not represent CallbackError in ControlDbError. Main approved extending the existing shared SQLite error with one boxed callback source and From conversion, without new signatures or carriers. The existing CallbackError source walker restores original Error identity/properties and non-Error values; no new coercion or panic wrapper. The current eight-case fixture includes coded TypeError and retains existing null/string/object proof only. Export correspondence audit finds all127 frozen exported functions represented by135 native public functions; this is correspondence, not behavioral acceptance.
+
 ## Reciprocal mailbox acceptance (2026-10-25)
 
 `repin_storage_mailbox_compat` in `suite_core_4` proves TS enqueue → Rust claim/accept → TS read, then Rust enqueue → TS claim/accept → Rust reopen of the same recipient JSONL. Both receipts and messages survive, and canonical claims are deleted. RED `/tmp/storage2-mailbox-red.log` exposed a fixture ownership error, not a native delivery defect: frozen `deliverRuntimeMailboxMessage` rejects another process's claimant identity. SQLite reuses the deleted numeric ID, so the invalid second delivery made both final lookups see the latest row. Each runtime now registers/claims its own delivery; the frozen ownership check is unchanged. GREEN `/tmp/storage2-mailbox-green.log`: 1 differential passed. This is bounded compatibility evidence, not whole-module acceptance.
