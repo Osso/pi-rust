@@ -1157,10 +1157,6 @@ name = "lossless_agent_session_paths"
 path = "tests/lossless_agent_session_paths.rs"
 
 [[test]]
-name = "session_autoname"
-path = "tests/session_autoname.rs"
-
-[[test]]
 name = "differential_tool_execution"
 path = "tests/differential_tool_execution.rs"
 
