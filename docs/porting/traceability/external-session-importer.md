@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/external-session-importer.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust module: `crates/pi-coding-agent-core/src/core/external_session_importer.rs`.
+Rust module: `crates/pi-coding-agent-tools/src/core/external_session_importer.rs`.
 Focused tests: `crates/pi-coding-agent/tests/external_session_importer.rs` (6), using concrete Codex and Claude fixture files for each supported format.
 
 | TypeScript source | Observable contract | Rust mapping and proof |

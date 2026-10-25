@@ -43,7 +43,7 @@ async fn list_commands(api: &ExtensionApi, args: &JsString, ctx: ExtensionComman
         } else {
             js_format!("No {} commands found", source_filter)
         };
-        ui.notify(&JsString::from(&message), Some(NotifyType::Info));
+        ui.notify(&JsString::from(&message), Some(NotifyType::Info))?;
         return Ok(());
     }
 
@@ -87,7 +87,7 @@ async fn list_commands(api: &ExtensionApi, args: &JsString, ctx: ExtensionComman
             )
             .await?
     {
-        ui.notify(&command.source_info.path, Some(NotifyType::Info));
+        ui.notify(&command.source_info.path, Some(NotifyType::Info))?;
     }
     Ok(())
 }

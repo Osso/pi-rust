@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/usage-totals.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust module: `crates/pi-coding-agent-core/src/core/usage_totals.rs`.
+Rust module: `crates/pi-coding-agent-storage/src/core/usage_totals.rs`.
 Focused tests: `crates/pi-coding-agent/tests/usage_totals.rs` (3).
 
 | TypeScript source | Observable contract | Rust mapping and proof |

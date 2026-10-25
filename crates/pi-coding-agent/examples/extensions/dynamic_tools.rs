@@ -83,7 +83,7 @@ pub fn dynamic_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             ctx.ui()?.notify(
                 &JsString::from("Registered dynamic tool: echo_session"),
                 Some(NotifyType::Info),
-            );
+            )?;
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
     })?;
@@ -100,7 +100,7 @@ pub fn dynamic_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from("Usage: /add-echo-tool <tool_name> (lowercase, numbers, underscores)"),
                         Some(NotifyType::Warning),
-                    );
+                    )?;
                     return Ok(());
                 };
                 let created = register_echo_tool(&pi, &names, &name, &format!("Echo {name}"), &format!("[{name}] "))?;
@@ -108,11 +108,11 @@ pub fn dynamic_tools_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &js_format!("Tool already registered: {}", name),
                         Some(NotifyType::Warning),
-                    );
+                    )?;
                     return Ok(());
                 }
                 ctx.ui()?
-                    .notify(&js_format!("Registered dynamic tool: {}", name), Some(NotifyType::Info));
+                    .notify(&js_format!("Registered dynamic tool: {}", name), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),

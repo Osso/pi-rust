@@ -1,7 +1,7 @@
 # `core/assistant-narration.ts`
 
 Authority: complete 52-line module at the [common pin](../source-lock.json).
-Rust: `crates/pi-coding-agent-core/src/core/assistant_narration.rs`. [Contract](../../specs/assistant-narration.md).
+Rust: `crates/pi-coding-agent-data/src/core/assistant_narration.rs`. [Contract](../../specs/assistant-narration.md).
 
 | Export / branch | Native representation | Proof |
 |---|---|---|

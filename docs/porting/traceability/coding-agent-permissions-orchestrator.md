@@ -1,6 +1,6 @@
 # Traceability: `packages/coding-agent/src/core/permissions/orchestrator.ts`
 
-Rust: `crates/pi-coding-agent-core/src/core/permissions/orchestrator.rs`. Tests:
+Rust: `crates/pi-coding-agent-tools/src/core/permissions/orchestrator.rs`. Tests:
 `tests/permissions_prompt.rs`.
 
 Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.

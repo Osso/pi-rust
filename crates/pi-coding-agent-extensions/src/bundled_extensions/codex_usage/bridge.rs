@@ -165,7 +165,7 @@ pub(super) async fn dispatch_claude_usage_request(
         ctx.ui()?.notify(
             &"Claude bridge usage handler unavailable.".into(),
             Some(NotifyType::Error),
-        );
+        )?;
         return Ok(());
     };
     handled.await.map_err(HandlerError::new)?;
@@ -364,7 +364,7 @@ fn send_usage_all_report(
         None
     } else {
         ctx.ui()?
-            .notify(&js_format!("{}\n{}", ALL_TITLE, table), Some(NotifyType::Info));
+            .notify(&js_format!("{}\n{}", ALL_TITLE, table), Some(NotifyType::Info))?;
         Some(SendMessageOptions {
             deliver_as: Some(MessageDelivery::NextTurn),
             ..Default::default()

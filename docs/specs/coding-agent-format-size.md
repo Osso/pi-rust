@@ -21,8 +21,8 @@ This specification covers `formatSize` from the pinned coding-agent source `pack
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/tools/truncate.rs` — direct-module wrapper over agent-core `format_size`.
-- `crates/pi-coding-agent-core/src/core/tools/mod.rs` — tools-index-equivalent export.
+- `crates/pi-coding-agent-tool-support/src/core/tools/truncate.rs` — direct-module wrapper over agent-core `format_size`.
+- `crates/pi-coding-agent-tools/src/core/tools/mod.rs` — tools-index-equivalent export.
 - `crates/pi-coding-agent-core/src/core/mod.rs` — coding-agent tools module boundary.
 - `crates/pi-coding-agent/src/lib.rs` — crate-root export.
 - `crates/pi-coding-agent/tests/format_size.rs` — 16 focused cases and three export-path tests.

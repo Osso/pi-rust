@@ -248,7 +248,7 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
                             ui.notify(
                                 &JsString::from(format!("Selected: {}", ANCHORS[index].1)),
                                 Some(NotifyType::Info),
-                            );
+                            )?;
                         }
                         break;
                     }
@@ -260,7 +260,7 @@ pub fn overlay_qa_tests_extension(api: &ExtensionApi) -> Result<(), HandlerError
     Ok(())
 }
 async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
-    ui.notify(&JsString::from("Showing overlay 1 (back)..."), Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 1 (back)..."), Some(NotifyType::Info))?;
     let p1 = show(&ui, Demo::Stack, 0);
     tokio::pin!(p1);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
@@ -268,7 +268,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     if first.is_some() {
         tokio::time::sleep_until(deadline).await;
     }
-    ui.notify(&JsString::from("Showing overlay 2 (middle)..."), Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 2 (middle)..."), Some(NotifyType::Info))?;
     let p2 = show(&ui, Demo::Stack, 1);
     tokio::pin!(p2);
     let deadline = tokio::time::Instant::now() + Duration::from_millis(400);
@@ -276,7 +276,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
     if second.is_some() {
         tokio::time::sleep_until(deadline).await;
     }
-    ui.notify(&JsString::from("Showing overlay 3 (front)..."), Some(NotifyType::Info));
+    ui.notify(&JsString::from("Showing overlay 3 (front)..."), Some(NotifyType::Info))?;
     let p3 = show(&ui, Demo::Stack, 2);
     let (a, b, c) = tokio::join!(
         async {
@@ -300,7 +300,7 @@ async fn stack(ui: Arc<dyn ExtensionUiContext>) -> Result<(), HandlerError> {
             .map(|v| v.as_ref().and_then(JsValue::as_string).cloned().unwrap_or_default()),
         ", ",
     );
-    ui.notify(&js_format!("Closed in order: {}", results), Some(NotifyType::Info));
+    ui.notify(&js_format!("Closed in order: {}", results), Some(NotifyType::Info))?;
     Ok(())
 }
 

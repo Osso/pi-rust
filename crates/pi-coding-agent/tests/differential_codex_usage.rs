@@ -115,7 +115,8 @@ async fn load(runtime: &ExtensionRuntime, fetch: Arc<StubFetch>, bridge: Option<
                             }
                             ctx.ui()
                                 .unwrap()
-                                .notify(&(JsString::from("forwarded:") + args), Some(NotifyType::Info));
+                                .notify(&(JsString::from("forwarded:") + args), Some(NotifyType::Info))
+                                .expect("fixture forwarded notification");
                             Ok(JsValue::Null)
                         }));
                         Ok(())

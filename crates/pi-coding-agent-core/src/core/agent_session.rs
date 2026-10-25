@@ -106,6 +106,12 @@ impl From<AgentSessionError> for pi_ai::request::CallbackError {
     }
 }
 
+impl From<AgentSessionError> for crate::core::extensions::types::HandlerError {
+    fn from(error: AgentSessionError) -> Self {
+        Self::from(pi_ai::request::CallbackError::from(error))
+    }
+}
+
 impl std::fmt::Display for AgentSessionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))
@@ -395,15 +401,8 @@ pub struct QueuedMessagePreviews {
     pub follow_up: Vec<QueuedMessagePreview>,
 }
 
-/// `ModelCycleResult`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelCycleResult {
-    pub model: Model,
-    #[serde(serialize_with = "serialize_thinking_level")]
-    pub thinking_level: ThinkingLevel,
-    pub is_scoped: bool,
-}
+pub use pi_coding_agent_tools::core::agent_session::ModelCycleResult;
+use pi_coding_agent_tools::core::agent_session::serialize_thinking_level;
 
 /// Session statistics for `/session`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5485,12 +5484,7 @@ impl AgentSession {
     }
 }
 
-/// Direction for [`AgentSession::cycle_model`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CycleDirection {
-    Forward,
-    Backward,
-}
+pub use pi_coding_agent_tools::core::agent_session::CycleDirection;
 
 /// Options for [`AgentSession::execute_bash`].
 #[derive(Clone, Default)]
@@ -5533,10 +5527,6 @@ impl Drop for ExternalUserInputReservation {
     fn drop(&mut self) {
         self.release();
     }
-}
-
-fn serialize_thinking_level<S: serde::Serializer>(level: &ThinkingLevel, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(level.as_str())
 }
 
 fn compaction_settings(
@@ -8451,6 +8441,33 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
     }
 }
 
+// Frozen agent-session.ts:5432-5438: completion is inside the catch, error callback is not.
+fn complete_extension_compaction(
+    options: Option<&crate::core::extensions::types::CompactOptions>,
+    result: Result<crate::core::compaction::CompactionResult, pi_js_compat::callback_error::CallbackError>,
+) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+    let completed = result.and_then(|result| {
+        if let Some(callback) = options.and_then(|options| options.on_complete.as_ref()) {
+            callback(&result)
+        } else {
+            Ok(())
+        }
+    });
+    let Err(error) = completed else {
+        return Ok(());
+    };
+    let error = match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(_) => {
+            pi_js_compat::callback_error::CallbackError::new(error.error_or_string_message()?)
+        }
+        _ => error,
+    };
+    if let Some(callback) = options.and_then(|options| options.on_error.as_ref()) {
+        callback(&error)?;
+    }
+    Ok(())
+}
+
 fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
     let model_weak = weak.clone();
     let get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync> =
@@ -8591,16 +8608,12 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
                     let custom = options.as_ref().and_then(|options| options.custom_instructions.clone());
-                    match session.compact(custom.as_ref()).await {
-                        Ok(_result) => {
-                            // `on_complete` expects the coding-agent compaction result
-                            // type; the result is not forwarded yet.
-                        }
-                        Err(error) => {
-                            if let Some(on_error) = options.as_ref().and_then(|options| options.on_error.clone()) {
-                                on_error(error.message());
-                            }
-                        }
+                    let result = session
+                        .compact(custom.as_ref())
+                        .await
+                        .map_err(pi_js_compat::callback_error::CallbackError::from);
+                    if let Err(error) = complete_extension_compaction(options.as_ref(), result) {
+                        crate::utils::uncaught::throw_callback_uncaught(error);
                     }
                 });
             }

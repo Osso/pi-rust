@@ -26,7 +26,7 @@ pub fn protected_paths_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                     ctx.ui()?.notify(
                         &js_format!("Blocked write to protected path: {}", path),
                         Some(NotifyType::Warning),
-                    );
+                    )?;
                 }
                 Ok(Some(ToolCallEventResult {
                     block: Some(true),

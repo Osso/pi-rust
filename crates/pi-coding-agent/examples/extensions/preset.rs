@@ -92,14 +92,14 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                     ctx.ui()?.notify(
                         &JsString::from(js_format!("Preset \"{}\" activated", name)),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     status(&shared, &ctx)?;
                 } else {
                     let available = available(&shared);
                     ctx.ui()?.notify(
                         &JsString::from(js_format!("Unknown preset \"{}\". Available: {}", name, available)),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                 }
                 Ok(())
             })
@@ -144,7 +144,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                         ctx.ui()?.notify(
                             &JsString::from(format!("Preset \"{name}\" activated")),
                             Some(NotifyType::Info),
-                        );
+                        )?;
                     } else {
                         ctx.ui()?.notify(
                             &JsString::from(js_format!(
@@ -153,7 +153,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                                 available(&shared)
                             )),
                             Some(NotifyType::Warning),
-                        );
+                        )?;
                     }
                 }
                 let entries = ctx
@@ -324,13 +324,13 @@ async fn apply(
                 ctx.ui()?.notify(
                     &JsString::from(js_format!("Preset \"{}\": No API key for {}/{}", name, provider, id)),
                     Some(NotifyType::Warning),
-                );
+                )?;
             }
         } else {
             ctx.ui()?.notify(
                 &JsString::from(js_format!("Preset \"{}\": Model {}/{} not found", name, provider, id)),
                 Some(NotifyType::Warning),
-            );
+            )?;
         }
     }
     if let Some(thinking) = preset.thinking_level {
@@ -345,7 +345,7 @@ async fn apply(
             ctx.ui()?.notify(
                 &JsString::from(js_format!("Preset \"{}\": Unknown tools: {}", name, invalid.join(", "))),
                 Some(NotifyType::Warning),
-            );
+            )?;
         }
         if !valid.is_empty() {
             pi.set_active_tools(valid)?;
@@ -375,7 +375,7 @@ async fn clear(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     ctx.ui()?.notify(
         &JsString::from("Preset cleared, defaults restored"),
         Some(NotifyType::Info),
-    );
+    )?;
     status(shared, ctx)
 }
 fn no_presets(ctx: &ExtensionContext) -> Result<(), HandlerError> {
@@ -389,7 +389,7 @@ fn no_presets(ctx: &ExtensionContext) -> Result<(), HandlerError> {
             )
         ),
         Some(NotifyType::Warning),
-    );
+    )?;
     Ok(())
 }
 async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
@@ -417,7 +417,7 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
         ctx.ui()?.notify(
             &JsString::from(js_format!("Preset \"{}\" activated", name)),
             Some(NotifyType::Info),
-        );
+        )?;
         status(shared, ctx)?;
     }
     Ok(())
@@ -500,7 +500,7 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
     if let Some(preset) = preset {
         apply(pi, shared, name, preset, ctx).await?;
         ctx.ui()?
-            .notify(&js_format!("Preset \"{}\" activated", name), Some(NotifyType::Info));
+            .notify(&js_format!("Preset \"{}\" activated", name), Some(NotifyType::Info))?;
         status(shared, ctx)?;
     }
     Ok(())

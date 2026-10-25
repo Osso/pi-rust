@@ -85,7 +85,7 @@ pub fn git_checkpoint_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     api.exec("git".into(), vec!["stash".into(), "apply".into(), reference], None)
                         .await?;
                     ctx.ui()?
-                        .notify(&JsString::from("Code restored to checkpoint"), Some(NotifyType::Info));
+                        .notify(&JsString::from("Code restored to checkpoint"), Some(NotifyType::Info))?;
                 }
                 Ok(None)
             })

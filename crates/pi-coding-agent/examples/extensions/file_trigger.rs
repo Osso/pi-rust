@@ -57,7 +57,7 @@ pub fn file_trigger_with_path(pi: &ExtensionApi, path: PathBuf) -> Result<(), Ha
                 ctx.ui()?.notify(
                     &JsString::from(format!("Watching {TRIGGER_FILE}")),
                     Some(NotifyType::Info),
-                );
+                )?;
             }
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>

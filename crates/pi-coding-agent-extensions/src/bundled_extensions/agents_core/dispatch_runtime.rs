@@ -836,7 +836,7 @@ fn notify_waiting_agent(
     match desktop_notifier.notify(&notification) {
         Ok(handle) => handle,
         Err(error) => {
-            crate::core::desktop_notification::report_desktop_notification_error(
+            crate::core::desktop_notification::report_callback_error(
                 "Failed to send agent input-needed desktop notification:",
                 &error,
             );
@@ -899,7 +899,7 @@ pub fn close_waiting_desktop_notification(
     drop(registration.unsubscribe_transition);
     // Frozen agents-core/src/runtime.ts:2894-2908 catches close errors after removing the registration.
     if let Err(error) = registration.handle.close() {
-        crate::core::desktop_notification::report_desktop_notification_error(
+        crate::core::desktop_notification::report_callback_error(
             "Failed to close agent input-needed desktop notification:",
             &error,
         );

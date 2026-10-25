@@ -1,7 +1,7 @@
 # `coding-agent/src/core/sqlite.ts`
 
 Source: `packages/coding-agent/src/core/sqlite.ts` (145 lines) at the pinned revision.
-Rust: `crates/pi-coding-agent-core/src/core/sqlite.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/sqlite.rs`.
 
 ## Exported symbols
 
@@ -25,6 +25,12 @@ Rust: `crates/pi-coding-agent-core/src/core/sqlite.rs`.
 - Contention detection: SQLite primary code `SQLITE_BUSY` (5) and `SQLITE_LOCKED` (6), including
   extended codes; `ControlDbError::contention` is set from `rusqlite::Error::sqlite_error_code`.
 - Non-contention errors are returned unchanged; no retry loop lives in this module (matching TS).
+
+## Common-pin open-error prerequisite (2026-10-24)
+
+Main approved the root open-boundary correction after the question-delivery differential exposed rusqlite's path suffix. `differential_sqlite_open_errors` calls the unmodified frozen module's actual `node:sqlite` driver and both native open functions: regular-file parent, directory, missing parent; writable/read-only6cases. Actual RED: `sqlite-open-errors-red.log`. Node exposes Error/message plus `code="ERR_SQLITE_ERROR"`, numeric extended `errcode` (14; read-only directory266), and `errstr`. Native carries them in its existing NativeNodeError/ControlDbError channel; only CannotOpen's library-added path text is normalized. Other open-driver messages retain their actual SQLite text; non-open mappings are unchanged. No tool-layer string rewrite. [Contract](../../specs/sqlite-open-errors.md).
+
+Six cases GREEN (`sqlite-open-errors-green.log`); retained session-control46 + cross-implementation4 GREEN without changing old assertions. Original question-delivery failure is GREEN (`question-delivery-failure-green.log`). Current workspace compile and scoped lint checkpoint: [UI prerequisite proof](../ui-notify-proof.md). Artifacts/commands are recorded in `/tmp/pi-rust-repin-core-tools/ledger.md`; this does not revalidate unrelated old-pin module claims.
 
 ## Discrepancies / gaps
 

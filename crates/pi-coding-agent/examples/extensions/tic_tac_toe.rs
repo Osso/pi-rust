@@ -521,7 +521,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from("Tic-tac-toe requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 restore(&game, &ctx)?;

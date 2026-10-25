@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/detached-job-control.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Earlier scalar test evidence requires current-pin revalidation.
 
-Rust: `crates/pi-coding-agent-core/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (native real-mailbox behavioral fixtures; currently compiler-blocked).
+Rust: `crates/pi-coding-agent-tools/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (native real-mailbox behavioral fixtures; currently compiler-blocked).
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

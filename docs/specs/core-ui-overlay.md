@@ -24,7 +24,7 @@ Native factories cross the extension/UI request boundary; their returned compone
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/extensions/types.rs`: UI-local component/Done/handle contracts; nested overlay method and local handle callback.
+- `crates/pi-coding-agent-tools/src/core/extensions/types.rs`: UI-local component/Done/handle contracts; nested overlay method and local handle callback.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: native TUI adapter and custom lifecycle.
 - `crates/pi-coding-agent/examples/extensions/forms.rs`: existing Editor integration and shared form wrapping.
 - `crates/pi-coding-agent/examples/extensions/question.rs`: opt-in question registration, form, and renderers.

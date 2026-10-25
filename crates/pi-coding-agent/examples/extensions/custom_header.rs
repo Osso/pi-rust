@@ -77,7 +77,7 @@ pub fn custom_header_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             Box::pin(async move {
                 let ui = ctx.ui()?;
                 ui.set_header(None)?;
-                ui.notify(&JsString::from("Built-in header restored"), Some(NotifyType::Info));
+                ui.notify(&JsString::from("Built-in header restored"), Some(NotifyType::Info))?;
                 Ok(())
             })
         }),

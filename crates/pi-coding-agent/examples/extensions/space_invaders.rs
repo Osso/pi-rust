@@ -121,7 +121,7 @@ pub(crate) fn space_invaders_extension_with_random(api: &ExtensionApi, random: R
                     ctx.ui()?.notify(
                         &JsString::from("Space Invaders requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let entries = ctx.session_manager()?.lock().unwrap().get_entries();

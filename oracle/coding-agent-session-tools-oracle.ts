@@ -139,6 +139,7 @@ async function toolContext(src: string, request: Request): Promise<any> {
 			input: async () => inputs.shift(),
 		};
 	}
+	if (request.contextMode !== undefined) context.mode = request.contextMode;
 	if (request.toolMode === "resume") {
 		const switched: Record<string, unknown> = { path: undefined, starter: undefined };
 		context.switchSession = async (sessionPath: string, options?: any) => {
@@ -223,7 +224,9 @@ const handlers: Record<string, (src: string, request: Request) => Promise<unknow
 		const module = await load(src, request.module as string);
 		const factory = module[request.factory as string];
 		const tool = factory();
-		const context = await toolContext(src, request);
+		const context = request.withoutContext
+			? undefined
+			: await toolContext(src, request);
 		try {
 			const result = await tool.execute("tool-call", request.params, undefined, undefined, context);
 			const response: Record<string, unknown> = {

@@ -49,7 +49,7 @@ async fn handle_sandbox_command(
         return Ok(());
     }
     let Some(selection) = parse_sandbox_selection(args) else {
-        ctx.ui()?.notify(&SANDBOX_USAGE.into(), Some(NotifyType::Warning));
+        ctx.ui()?.notify(&SANDBOX_USAGE.into(), Some(NotifyType::Warning))?;
         clear_editor(ctx)?;
         return Ok(());
     };
@@ -62,7 +62,7 @@ async fn handle_sandbox_command(
         )
         .into(),
         Some(NotifyType::Info),
-    );
+    )?;
     clear_editor(ctx)?;
     Ok(())
 }

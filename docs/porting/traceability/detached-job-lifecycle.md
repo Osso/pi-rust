@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/detached-job-lifecycle.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: controller lives in `crates/pi-coding-agent-core/src/core/detached_job_runner.rs` (the TS controller factory and runner types are one coupled module). Tests: `crates/pi-coding-agent/tests/detached_job_runner.rs`, `crates/pi-coding-agent/tests/detached_bash_runner.rs`.
+Rust: controller lives in `crates/pi-coding-agent-tools/src/core/detached_job_runner.rs` (the TS controller factory and runner types are one coupled module). Tests: `crates/pi-coding-agent/tests/detached_job_runner.rs`, `crates/pi-coding-agent/tests/detached_bash_runner.rs`.
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |

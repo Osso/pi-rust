@@ -641,7 +641,7 @@ async fn handle_usage_command(
     }
     if !command_args.is_empty() {
         ctx.ui()?
-            .notify(&"Usage: /usage [all|reset]".into(), Some(NotifyType::Warning));
+            .notify(&"Usage: /usage [all|reset]".into(), Some(NotifyType::Warning))?;
         return Ok(());
     }
     read_and_send_codex_usage(ctx, pi, fetch).await

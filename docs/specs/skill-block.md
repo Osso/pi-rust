@@ -20,7 +20,7 @@ This specification covers the typed Rust boundary for parsing a complete skill b
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/skill_block.rs` — parsed value and pure parser.
+- `crates/pi-coding-agent-data/src/core/skill_block.rs` — parsed value and pure parser.
 - `crates/pi-coding-agent-core/src/core/mod.rs` — public `core` exports.
 - `crates/pi-coding-agent/src/lib.rs` — crate-root public exports.
 - `crates/pi-coding-agent/tests/skill_block.rs` — focused behavioral coverage.

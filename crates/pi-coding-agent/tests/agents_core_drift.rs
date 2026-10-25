@@ -393,12 +393,17 @@ struct BackgroundUi {
 }
 
 impl pi_coding_agent::core::extensions::ExtensionUiContext for BackgroundUi {
-    fn notify(&self, message: &JsString, _level: Option<pi_coding_agent::core::extensions::NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        _level: Option<pi_coding_agent::core::extensions::NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         let mut notifications = self.notifications.lock().unwrap();
         notifications.push(message.clone());
         if notifications.len() > 1 {
             self.terminal_notification.notify_one();
         }
+        Ok(())
     }
 }
 

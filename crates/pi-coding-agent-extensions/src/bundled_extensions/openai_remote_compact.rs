@@ -114,7 +114,7 @@ pub async fn handle_compaction(
             ctx.ui()?.notify(
                 &js_format!("OpenAI remote compaction auth failed: {}", error),
                 Some(NotifyType::Warning),
-            );
+            )?;
             return Ok(None);
         }
     };

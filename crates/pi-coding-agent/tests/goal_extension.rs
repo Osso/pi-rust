@@ -51,12 +51,17 @@ struct TestUi {
 }
 
 impl ExtensionUiContext for TestUi {
-    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        notify_type: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.records
             .lock()
             .unwrap()
             .notifications
             .push((message.to_owned(), notify_type));
+        Ok(())
     }
 
     fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), pi_ai::request::CallbackError> {

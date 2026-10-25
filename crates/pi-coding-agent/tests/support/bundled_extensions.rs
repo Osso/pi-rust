@@ -89,12 +89,17 @@ impl ExtensionUiContext for RecordingUi {
         })
     }
 
-    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        notify_type: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.calls
             .lock()
             .unwrap()
             .notify
             .push((message.to_owned(), notify_type));
+        Ok(())
     }
 
     fn set_status(

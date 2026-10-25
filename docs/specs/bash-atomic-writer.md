@@ -16,7 +16,7 @@ Frozen `packages/coding-agent/src/core/detached-bash-runner.ts:270–295` writes
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/detached_bash_runner.rs`: write/close, read-open/fsync/close, rename and directory-sync sequence.
+- `crates/pi-coding-agent-tools/src/core/detached_bash_runner.rs`: write/close, read-open/fsync/close, rename and directory-sync sequence.
 - `crates/pi-js-compat/src/node_fs.rs`: existing Node diagnostics; fd-only fsync omits a pathname like fd-only write/close.
 
 ## Tests asserting this spec

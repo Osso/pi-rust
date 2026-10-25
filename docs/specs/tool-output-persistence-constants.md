@@ -19,7 +19,7 @@ This specification covers `packages/coding-agent/src/core/session-tool-output.ts
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/session_tool_output.rs` — module constants.
+- `crates/pi-coding-agent-storage/src/core/session_tool_output.rs` — module constants.
 - `crates/pi-coding-agent-core/src/core/mod.rs` — public module exposure without aggregate re-exports.
 - `crates/pi-coding-agent/src/lib.rs` — crate-root re-exports.
 - `crates/pi-coding-agent/tests/session_tool_output_constants.rs` — focused value and export proof.

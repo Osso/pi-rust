@@ -89,7 +89,7 @@ At98953083 (parent8b15a5c7), `self_restart`21/21, `self_restart_state`4/4, focus
 
 ## Historical core self-restart inventory (`packages/coding-agent/src/core/self-restart.ts`)
 
-Rust: `crates/pi-coding-agent-core/src/core/self_restart.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/self_restart.rs`.
 Tests: `crates/pi-coding-agent/tests/self_restart.rs`, `self_restart_exec_env.rs`.
 
 | Source symbol / branch | Rust item | Proof |

@@ -53,7 +53,7 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from("No todos. Create a plan first with /plan"),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 } else {
                     let list = s
                         .todos
@@ -72,7 +72,7 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from(format!("Plan Progress:\n{list}")),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 }
                 Ok(())
             })
@@ -258,11 +258,11 @@ fn toggle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<
         ctx.ui()?.notify(
             &JsString::from("Plan mode enabled. Built-in write tools disabled."),
             None,
-        )
+        )?;
     } else {
         normal(pi, &mut s)?;
         ctx.ui()?
-            .notify(&JsString::from("Plan mode disabled. Full access restored."), None)
+            .notify(&JsString::from("Plan mode disabled. Full access restored."), None)?;
     }
     update(&s, ctx)?;
     persist(pi, &s)

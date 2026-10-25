@@ -86,7 +86,7 @@ pub fn todo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ctx.ui()?.notify(
                         &JsString::from("/todos requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let todos = state.lock().unwrap().todos.clone();

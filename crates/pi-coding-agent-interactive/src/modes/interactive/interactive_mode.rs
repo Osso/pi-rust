@@ -2116,11 +2116,16 @@ impl ExtensionUiContext for InteractiveUiContext {
         Box::pin(async move { receiver.await.map_err(|error| JsString::from(error.to_string())) })
     }
 
-    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        notify_type: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.send(UiRequest::Notify {
             message: message.to_owned(),
             notify_type,
         });
+        Ok(())
     }
 
     fn request_render(&self) {
@@ -6209,7 +6214,7 @@ impl InteractiveMode {
         if let Some(notification) = notification
             && let Err(error) = notification.close()
         {
-            crate::core::desktop_notification::report_desktop_notification_error(
+            crate::core::desktop_notification::report_callback_error(
                 "Failed to close response-complete desktop notification:",
                 &error,
             );

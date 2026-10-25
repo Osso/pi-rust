@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/tools/broadcast.ts` at `532f7d12`.
 
-Rust: `crates/pi-coding-agent-core/src/core/tools/broadcast.rs` (`BroadcastTool`).
+Rust: `crates/pi-coding-agent-tools/src/core/tools/broadcast.rs` (`BroadcastTool`).
 
 | Source | Rust | Tests |
 |---|---|---|

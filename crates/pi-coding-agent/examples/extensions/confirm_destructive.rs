@@ -26,7 +26,7 @@ pub fn confirm_destructive_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
             if choice.as_ref() == Some(&JsString::from("Yes, create fork")) {
                 return Ok(None);
             }
-            ui.notify(&JsString::from("Fork cancelled"), Some(NotifyType::Info));
+            ui.notify(&JsString::from("Fork cancelled"), Some(NotifyType::Info))?;
             Ok(Some(SessionBeforeForkResult {
                 cancel: Some(true),
                 ..Default::default()
@@ -67,6 +67,6 @@ async fn confirm_switch(
     {
         return Ok(None);
     }
-    ui.notify(&JsString::from(cancelled), Some(NotifyType::Info));
+    ui.notify(&JsString::from(cancelled), Some(NotifyType::Info))?;
     Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) }))
 }

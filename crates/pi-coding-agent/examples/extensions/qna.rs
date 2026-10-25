@@ -91,11 +91,11 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ui.notify(
                         &JsString::from("qna requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let Some(model) = ctx.model()? else {
-                    ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error));
+                    ui.notify(&JsString::from("No model selected"), Some(NotifyType::Error))?;
                     return Ok(());
                 };
                 let branch = ctx.session_manager()?.lock().unwrap().get_branch(None);
@@ -108,11 +108,11 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                 reason
                             )),
                             Some(NotifyType::Error),
-                        );
+                        )?;
                         return Ok(());
                     }
                     AssistantText::Missing => {
-                        ui.notify(&JsString::from("No assistant messages found"), Some(NotifyType::Error));
+                        ui.notify(&JsString::from("No assistant messages found"), Some(NotifyType::Error))?;
                         return Ok(());
                     }
                 };
@@ -165,13 +165,15 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     )
                     .await?;
                 match result {
-                    Some(Value::Null) => ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info)),
+                    Some(Value::Null) => {
+                        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
+                    }
                     Some(Value::String(text)) => {
                         ui.set_editor_text(&JsString::from(&text));
                         ui.notify(
                             &JsString::from("Questions loaded. Edit and submit when ready."),
                             Some(NotifyType::Info),
-                        );
+                        )?;
                     }
                     _ => return Err(HandlerError::new("qna custom UI returned neither text nor null")),
                 }
