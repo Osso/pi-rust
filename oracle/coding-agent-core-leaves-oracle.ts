@@ -36,17 +36,22 @@ const handlers: Record<string, Handler> = {
 		sandboxProfiles: api.SANDBOX_PROFILES,
 		supportedPlatforms: ["linux", "darwin", "win32", "freebsd", "aix", "openbsd", "sunos", "android"].map((platform) => api.isSandboxPlatformSupported(platform)),
 		defaultPlatformSupported: api.isSandboxPlatformSupported(),
-		found: (api.APPROVAL_PRESETS as Array<{ name: string }>).map((preset) => api.findApprovalPreset(preset.name)),
+		found: (api.APPROVAL_PRESETS as unknown as Array<{ name: string }>).map(
+			(preset) => api.findApprovalPreset(preset.name),
+		),
 		forPolicy: ["on-request", "never", "auto-approve"].map((policy) => api.approvalPresetForPolicy(policy)),
-		bypass: (api.APPROVAL_PRESETS as Array<{ name: string }>).map((preset) =>
-			api.approvalPresetToBypassPermissions(preset.name),
+		bypass: (api.APPROVAL_PRESETS as unknown as Array<{ name: string }>).map(
+			(preset) => api.approvalPresetToBypassPermissions(preset.name),
 		),
 		names: cases(request).map((value) => ({
 			preset: api.isApprovalPresetName(value),
 			sandbox: api.isSandboxProfileName(value),
 		})),
 	}),
-	providerDisplayNames: (api) => Object.entries(api.BUILT_IN_PROVIDER_DISPLAY_NAMES as Record<string, string>),
+	providerDisplayNames: (api) =>
+		Object.entries(
+			api.BUILT_IN_PROVIDER_DISPLAY_NAMES as unknown as Record<string, string>,
+		),
 	toolCapabilities: (api, request) => {
 		const capabilities = api as unknown as {
 			CHILD_DISABLED_AGENT_TOOL_NAMES: readonly string[];
