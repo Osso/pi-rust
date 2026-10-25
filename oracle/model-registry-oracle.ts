@@ -129,6 +129,68 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "modifier_throw") {
+			const provider = "registry-modifier-throw";
+			const credential = {
+				type: "oauth",
+				access: "access",
+				refresh: "refresh",
+				expires: 9999999999999,
+			};
+			const thrown =
+				request.throwKind === "error"
+					? Object.assign(new TypeError(request.value as string), {
+							code: "E_MODIFIER",
+							detail: { stage: request.stage },
+						})
+					: request.value;
+			if (request.stage === "register") storage.set(provider, credential);
+			let rejection: unknown = null;
+			try {
+				registry.registerProvider(provider, {
+					...(request.config as Record<string, unknown>),
+					name: "Registered Modifier",
+					oauth: {
+						name: "Modifier Fixture",
+						login: async () => {
+							throw new Error("unused login");
+						},
+						refreshToken: async (value: unknown) => value,
+						getApiKey: (value: { access: string }) => value.access,
+						modifyModels: () => {
+							throw thrown;
+						},
+					},
+				});
+				if (request.stage !== "register") {
+					storage.set(provider, credential);
+					if (request.stage === "refresh") registry.refresh();
+					else ModelRegistry.inMemory(storage);
+				}
+			} catch (error) {
+				rejection =
+					error instanceof Error
+						? {
+								kind: "error",
+								value: {
+									name: error.name,
+									message: error.message,
+									...Object.fromEntries(
+										Object.entries(error).filter(([key]) => key !== "stack"),
+									),
+								},
+							}
+						: { kind: "value", value: error };
+			}
+			return {
+				rejection,
+				ids: registry
+					.getAll()
+					.filter((model: { provider: string }) => model.provider === provider)
+					.map((model: { id: string }) => model.id),
+				display: registry.getProviderDisplayName(provider),
+			};
+		}
 		if (request.operation === "registration_reentry") {
 			const provider = "registry-reentrant";
 			const nested = "registry-reentrant-nested";
