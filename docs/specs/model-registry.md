@@ -21,6 +21,8 @@ Request auth captures provider configuration and environment before awaiting the
 
 Provider key lookup preserves any defined storage key, including empty strings. Only a truthy configured provider fallback invokes uncached resolution and reads provider environment; an explicitly empty configured key yields no fallback key even if a headers object caused its request record to be stored. Auth/status flags retain frozen behavior rather than inferring key validity.
 
+Model-config paths are normalized once during construction. Empty paths disable file loading. Invalid file URLs fail construction with native error identity/properties; they are not converted into getError state. Refresh retains the normalized selected path even if HOME changes, and load-error messages use that path.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).

@@ -186,7 +186,12 @@ impl ModelRegistry {
             Some(path) => path,
             None => crate::utils::paths::node_join(crate::config::get_agent_dir()?, "models.json"),
         };
-        Ok(Self::with_path(auth_storage, Some(path)))
+        let path = if path.is_empty() {
+            None
+        } else {
+            Some(crate::utils::paths::normalize_path(path, &Default::default())?)
+        };
+        Ok(Self::with_path(auth_storage, path))
     }
     pub fn in_memory(auth_storage: AuthStorage) -> Self {
         Self::with_path(auth_storage, None)
@@ -556,17 +561,15 @@ impl ModelRegistry {
         lock(&self.state).models = models;
     }
     fn load_custom_config(&self) -> Result<JsObject, JsString> {
-        let Some(path) = self.models_path.as_ref().filter(|path| !path.is_empty()) else {
+        let Some(path) = self.models_path.as_ref() else {
             return Ok(JsObject::new());
         };
-        let path = crate::utils::paths::normalize_path(path, &Default::default())
-            .map_err(|error| self.load_error(error.message().clone()))?;
-        let os_path = js_json::encode_node_utf8(&path);
+        let os_path = js_json::encode_node_utf8(path);
         if !std::path::Path::new(&os_path).exists() {
             return Ok(JsObject::new());
         }
         let bytes = std::fs::read(os_path)
-            .map_err(|error| self.load_error(pi_js_compat::node_fs::node_read_error(&error, &path)))?;
+            .map_err(|error| self.load_error(pi_js_compat::node_fs::node_read_error(&error, path)))?;
         // Node's UTF-8 file ingress repairs malformed bytes before JSON.parse.
         let content = String::from_utf8_lossy(&bytes);
         let value = js_json::parse_lossless(&crate::utils::json::strip_json_comments(&content))
