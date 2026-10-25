@@ -609,7 +609,7 @@ fn serve_body(mut stream: TcpStream, body: &str) {
     let _ = stream.write_all(response.as_bytes());
 }
 
-/// `cli.ts` exports `PI_CODING_AGENT`/`AI_AGENT`, and `main.ts --offline` writes
+/// `cli.ts` exports `PI_CODING_AGENT`, and `main.ts --offline` writes
 /// `PI_OFFLINE`/`PI_SKIP_VERSION_CHECK`; child processes must observe both.
 #[test]
 fn offline_environment_reaches_child_processes_differential() {
@@ -636,7 +636,10 @@ fn offline_environment_reaches_child_processes_differential() {
     ts_env.retain(|(name, _)| name != "PI_OFFLINE");
 
     let mut rust_command = Command::new(env!("CARGO_BIN_EXE_pi"));
-    rust_command.args(args).current_dir(&rust_fixture.work);
+    rust_command
+        .args(args)
+        .current_dir(&rust_fixture.work)
+        .env_remove("AI_AGENT");
     let rust = run(&mut rust_command, &rust_env);
 
     let package_dir = lock.worktree.join("packages/coding-agent");
@@ -646,7 +649,8 @@ fn offline_environment_reaches_child_processes_differential() {
         .arg(lock.worktree.join("tsconfig.json"))
         .arg(package_dir.join("src/cli.ts"))
         .args(args)
-        .current_dir(&ts_fixture.work);
+        .current_dir(&ts_fixture.work)
+        .env_remove("AI_AGENT");
     let typescript = run(&mut ts_command, &ts_env);
 
     assert_eq!(typescript.code, rust.code, "exit code");
@@ -668,7 +672,7 @@ fn offline_environment_reaches_child_processes_differential() {
         )
     });
     assert_eq!(ts_env_file, rust_env_file);
-    assert_eq!(rust_env_file, "true|pi|1");
+    assert_eq!(rust_env_file, "true||1");
 }
 
 /// `pi extensions` loads the first-party factories registered by `main.ts`.

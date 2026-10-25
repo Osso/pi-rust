@@ -1,6 +1,6 @@
 # main.ts traceability
 
-Baseline process-fixture repair (2026-10-25): private package directories copy the pinned package.json, including version and piConfig, instead of inventing version 0.84.1 and omitting the application name. The source/native version output and child-process AI_AGENT name are compared without normalization.
+Baseline process-fixture repair (2026-10-25): private package directories copy the pinned package.json instead of inventing version 0.84.1. The child-process fixture explicitly removes inherited AI_AGENT and asserts frozen/native `true||1`: the common pin no longer sets AI_AGENT. Source/native output remains exact, without normalization.
 
 ## Empty-session startup sweep (4f9e6f8a4)
 
