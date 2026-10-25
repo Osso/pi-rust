@@ -540,6 +540,32 @@ fn nested_scope_overlay_replaces_grandchildren() {
 }
 
 #[test]
+fn package_filter_round_trip_keeps_unknown_properties_and_original_order() {
+    let workspace = Workspace::new();
+    let expected = "{\n  \"packages\": [\n    {\n      \"skills\": [\n        \"skill\"\n      ],\n      \"unknown\": {\n        \"keep\": true\n      },\n      \"source\": \"npm:original\"\n    }\n  ]\n}";
+    workspace.write_global(expected);
+    let mut manager = workspace.manager();
+    let packages = manager.get_packages().unwrap();
+    manager.set_packages(packages);
+    manager.flush();
+    assert_eq!(
+        fs::read_to_string(workspace.agent_dir.join("settings.json")).unwrap(),
+        expected
+    );
+    let mut packages = manager.get_packages().unwrap();
+    let pi_coding_agent::core::settings_manager::PackageSource::Filter(filter) = &mut packages[0] else {
+        panic!("filter fixture");
+    };
+    filter.source = "npm:edited".into();
+    manager.set_packages(packages);
+    manager.flush();
+    assert_eq!(
+        fs::read_to_string(workspace.agent_dir.join("settings.json")).unwrap(),
+        expected.replace("npm:original", "npm:edited")
+    );
+}
+
+#[test]
 fn invalid_timeout_text_uses_javascript_string_conversion() {
     let manager = SettingsManager::in_memory(
         settings(json!({"httpIdleTimeoutMs":"typo","websocketConnectTimeoutMs":"later"})),

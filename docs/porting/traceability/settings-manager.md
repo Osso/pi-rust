@@ -19,7 +19,7 @@ Rust: `crates/pi-coding-agent-settings/src/core/settings_manager.rs`. Governing 
 DISCREPANCY (preserved): frozen `deepMergeSettings` promises recursive merging in its comment but merges only one object level; nested grandchildren are replaced, as the existing differential and native test assert.
 
 Gap: adversarial/wrong-typed JSON, numeric extremes, unsupported OS/runtime fault shapes and scheduling races follow the repository parity bar; existing lossless carriers remain intact.
-Renderer-mode APIs were removed as recorded above. Coupled cache/selector deletion now also removes get/set_show_cache_miss_notices, get/set_mermaid_rendering_mode, MermaidRenderingMode and MarkdownSettings.mermaid; raw legacy JSON keys remain ordinary unknown data rather than being scrubbed. [Removal classification](cache-stats.md). PackageFilter.autoload remains separately staged old-only work, not counted as parity.
+Renderer-mode APIs were removed as recorded above. Coupled cache/selector deletion now also removes get/set_show_cache_miss_notices, get/set_mermaid_rendering_mode, MermaidRenderingMode and MarkdownSettings.mermaid; raw legacy JSON keys remain ordinary unknown data rather than being scrubbed. [Removal classification](cache-stats.md). PackageFilter.autoload was removed in the successor persistence correction; any legacy JSON key remains ordinary unknown data.
 
 ## Exported types / lifecycle
 
@@ -32,7 +32,7 @@ Renderer-mode APIs were removed as recorded above. Coupled cache/selector deleti
 | `AgentProfileThinkingLevel`, `AgentProfileSettings` | corresponding Rust enum/struct; native context enum | default profiles, project agent object replacement, null fallback |
 | `PermissionRulesSettings` | raw `Settings["permissionRules"]` object, not a separate Rust named type | concrete allow-map overlay assertions |
 | `DefaultProjectTrust`, `TransportSetting` | native trust enum and `pi_ai::types::Transport` | trust/scoped read/write and transport migrations |
-| `PackageSource` | native enum/name/filter struct | known resource arrays; autoload removal still pending package consumers |
+| `PackageSource` | native enum/name/filter struct | known resource arrays; original property order and unknown keys retained by ModelProperties |
 | `SettingsScope`, `SettingsManagerCreateOptions`, `SettingsError` | native enum/options/error record | scope observations, trusted/untrusted reads and drained error scopes |
 | `SettingsStorage`, `FileSettingsStorage`, `InMemorySettingsStorage` | native trait, file and memory backends | isolated file tests plus native in-memory/from-storage tests; lock retry policy source-inspected, not new timing proof |
 | `SettingsManager.create/fromStorage/inMemory` | corresponding native constructors | file and memory tests |
@@ -216,3 +216,9 @@ proof. Snapshot arrays refuse malformed mixed-type fields wholesale; invalid JS
 runtime types remain excluded, not partial-filter parity.
 
 Successor GREEN at `4e68c35cc`: 30 settings native, six shared-drain and one lossless persistence tests; logs `/tmp/settings-models-settings-{native,drain,lossless}-green.log`. Workspace/all-targets check passes (`/tmp/settings-models-successor-check-2.log`). Coverage summary corrected from 641/8 to 642/7 after the initial inventory correctly rejected the stale displayed counts.
+
+## Package-filter persistence correction (2026-10-25)
+
+Native RED `/tmp/settings-models-package-filter-red.log` proves get_packages→set_packages previously dropped an unknown property and moved source before skills. The existing PackageFilter now reuses `pi_ai::types::ModelProperties` directly: its lossless JsObject extras and original key-order metadata are retained, while typed fields own known values. No new key-order authority or parallel known-value cache was introduced. Typed source edits update the original position; newly created known fields append. The old-only autoload field is now unknown retained JSON, not a native setting. Removing Eq from the package settings snapshot is mechanical fallout of retained arbitrary JSON.
+
+One native round-trip test asserts exact file bytes before and after a typed source edit. The existing reciprocal stale-writer fixture now has skills-before-source plus an unknown property; TS writes and round-trips it, Rust reads and rewrites byte-identically, then TS reads/rewrites those native bytes. All five settings differentials pass (`/tmp/settings-models-settings-reciprocal-final.log`) and the native regression passes (`/tmp/settings-models-package-filter-green.log`).
