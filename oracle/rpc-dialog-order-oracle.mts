@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const [source, root, order] = process.argv.slice(2);
 if (!source || !root || !order) throw new Error("source/root/order required");
+writeFileSync(join(root, "dialog-stage.txt"), "before import");
 const controller = new AbortController();
 let ui: {
 	theme: unknown;
@@ -67,6 +68,7 @@ process.stdout.write = ((
 const session = {
 	bindExtensions: async (options: { uiContext: typeof ui }) => {
 		ui = options.uiContext;
+		writeFileSync(join(root, "dialog-stage.txt"), "UI bound");
 	},
 	subscribe: () => () => {},
 	agent: { subscribe: () => () => {} },
@@ -82,6 +84,7 @@ const mode = await import(
 	pathToFileURL(join(source, "modes/rpc/rpc-mode.ts")).href
 );
 setImmediate(async () => {
+	writeFileSync(join(root, "dialog-stage.txt"), "observation started");
 	if (order === "surface") {
 		const forbidden = () => {
 			throw new Error("RPC no-op factory must not execute");

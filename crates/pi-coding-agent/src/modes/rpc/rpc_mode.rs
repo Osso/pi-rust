@@ -1026,7 +1026,9 @@ mod tests {
         drop(stdin);
         assert!(
             output.status.success(),
-            "source stderr {}",
+            "source order={order}, status={}, stage={:?}, stderr={}",
+            output.status,
+            std::fs::read_to_string(root.path().join("dialog-stage.txt")),
             String::from_utf8_lossy(&output.stderr)
         );
         let report =
