@@ -13,6 +13,10 @@ Observed dependency: pinned Mistral `lib/http.ts::isConnectionError` uses actual
 
 `native-error-classes-green.log`: targeted shared-crate differential GREEN. This carrier commit does not establish Mistral wrapping or factory migration; those follow separately. V8 stacks omitted by existing approval.
 
+## Request boundary producer migration (2026-10-25)
+
+`pi-ai/src/request.rs` header ByteString and URL failures now construct genuine native TypeErrors instead of renaming a plain Error. Actual frozen version-release HTTP input exposed the header constructor mismatch; `lossless_auth_interaction::request_boundary_errors_retain_typeerror_constructor` reproduces both producers. The same-pattern search found and migrated the catalog failure fixture to the source's genuine TypeError with its cause. Focused GREEN pending.
+
 ## Q15 nested causes
 
 NativeErrorDetails now owns one IndexMap<JsString, AbortReason>; with_property wraps JSON values, with_cause/cause retain branded nested values, and value() projects only when requested. Existing boxed NativeNodeError size, property order and string conversion remain unchanged. `native_error_causes_keep_branding_values_order_and_string_conversion` compares actual Node raw-surrogate/null/lookalike/Error-with-cause/DOMException values, branding, string conversion and exact key order; also checks clone equality and replacement of the cause slot. API RED and catalog constructor-eligibility behavioral RED were recorded first. At `3e532c89`, both shared differential tests pass (24 constructor/name and5 cause fixtures), and cargo check --workspace --all-targets passes with zero warnings. This shared carrier is not catalog retry/cause acceptance.

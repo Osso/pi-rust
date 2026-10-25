@@ -65,6 +65,22 @@ fn http_header_value_has_exact_node_bytestring_errors() {
 }
 
 #[test]
+fn request_boundary_errors_retain_typeerror_constructor() {
+    use pi_js_compat::{abort::AbortReason, node_error::NativeErrorClass};
+    let errors = [
+        pi_ai::request::header_value(&JsString::from("€")).unwrap_err(),
+        pi_ai::request::request_url(&JsString::from("not a URL")).unwrap_err(),
+    ];
+    for error in errors {
+        let AbortReason::Error(error) = error.thrown_value() else {
+            panic!("expected native Error");
+        };
+        assert_eq!(error.name, "TypeError");
+        assert_eq!(error.constructor_class(), NativeErrorClass::TypeError);
+    }
+}
+
+#[test]
 fn http_url_replaces_lone_units_only_when_parsing_url() {
     let raw = JsString::from("https://example.test/") + JsString::from_utf16(vec![0xd800, 0x2f, 0xdc00]);
     assert_eq!(
