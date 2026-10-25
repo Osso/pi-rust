@@ -1040,6 +1040,55 @@ async fn navigate_tree_empty_extension_summary_and_label_match_frozen() {
 }
 
 #[tokio::test]
+async fn navigate_tree_current_leaf_is_noop_during_streaming_like_frozen() {
+    let fixture = fixture().await;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (start_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    fixture
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let (started, release) = (Arc::clone(&start_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("answer", Default::default()))
+                })
+            },
+        ))]);
+    let session = fixture.session.clone();
+    let prompt = tokio::spawn(async move { session.prompt("first request", PromptOptions::default()).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("provider started");
+    let target = fixture
+        .session
+        .session_manager()
+        .get_leaf_id()
+        .expect("current leaf")
+        .clone();
+    let result = fixture
+        .session
+        .navigate_tree(&target, NavigateTreeOptions::default())
+        .await;
+    let actual = match result {
+        Ok(result) => json!({"cancelled": result.cancelled}),
+        Err(error) => json!({"error": error.message()}),
+    };
+    release.notify_one();
+    fixture.session.abort().await.expect("abort");
+    prompt.await.expect("prompt task").expect("prompt result");
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "navigation-streaming", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"cancelled": false}}));
+    assert_eq!(actual, expected["value"]);
+    assert_eq!(fixture.session.session_manager().get_leaf_id(), Some(&target));
+}
+
+#[tokio::test]
 async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     let fixture = fixture().await;
     // Frozen agent-loop.ts:308 continues until end_turn; keep this fixture to one complete turn.

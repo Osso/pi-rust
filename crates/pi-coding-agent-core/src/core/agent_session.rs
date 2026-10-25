@@ -7074,11 +7074,6 @@ impl AgentSession {
         target_id: &JsString,
         options: NavigateTreeOptions,
     ) -> Result<NavigateTreeResult, AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
-                "Wait for the current response to finish before navigating the session tree.",
-            ));
-        }
         let (old_leaf_id, target_entry, entries_to_summarize, common_ancestor_id) = {
             let manager = lock(&self.inner.session_manager);
             let old_leaf_id = manager.get_leaf_id().cloned();

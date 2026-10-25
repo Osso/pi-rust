@@ -243,8 +243,9 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (request.operation === "idle-steer") {
-		agent.state.messages.push({ role: "user", content: "earlier request", timestamp: 0 });
+	if (["idle-steer", "navigation-streaming"].includes(request.operation)) {
+		sessionManager.appendMessage({ role: "user", content: "earlier request", timestamp: 0 });
+		agent.state.messages = sessionManager.buildSessionContext().messages;
 		let release;
 		let markStarted;
 		const gate = new Promise((resolve) => { release = resolve; });
@@ -256,6 +257,14 @@ async function run(request) {
 		}]);
 		const steering = session.steer("idle steer");
 		await started;
+		let navigation;
+		if (request.operation === "navigation-streaming") {
+			try {
+				navigation = await session.navigateTree(sessionManager.getLeafId());
+			} catch (error) {
+				navigation = { error: error.message };
+			}
+		}
 		const returnedBeforeResponse = await Promise.race([
 			steering.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100)),
 		]);
@@ -263,7 +272,7 @@ async function run(request) {
 		await steering;
 		await session.abort();
 		session.dispose();
-		return returnedBeforeResponse;
+		return request.operation === "navigation-streaming" ? navigation : returnedBeforeResponse;
 	}
 	if (request.operation === "quota-fallback") {
 		await session.prompt("quota test");
