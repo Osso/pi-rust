@@ -8,7 +8,7 @@ The orchestration runtime follows `extensions/agents-core/src/runtime.ts` at fro
 
 - [x] Child and attached factories forward the parent model registry and configured model, effort, context and extension factories. Goal extensions are excluded.
 - [x] Child tools include ask_questions/contact_parent/send_agent_message/end_turn when a profile restricts tools. Browser profiles also include read. Children cannot use change_working_directory or supervisor-only tools.
-- [ ] Browser read definitions use the supplied configuration root, or the module-import HOME snapshot. Reads outside that root fail.
+- [x] Browser read definitions use the supplied configuration root, or the module-import HOME snapshot. Reads outside that root fail.
 - [x] Attached factories restore archived transcripts, validate their session identity and cwd, bind extensions, and leave settings creation to SDK. They do not apply a separate permission override.
 
 ### Admission and recovery
@@ -16,7 +16,7 @@ The orchestration runtime follows `extensions/agents-core/src/runtime.ts` at fro
 - [x] Explicit unknown profiles fail with frozen guidance before persistence admission. Child model metadata uses the configured or parent model and model-clamped configured effort, defaulting to medium independently of parent effort.
 - [x] Attach-by-path restores archives and reads display names from control DB metadata. Parentless attachments use on-request permission.
 - [x] Runtime recovery does not depend on parent agent journal entries. Production spawn and completion write no legacy parent agent journal entries.
-- [x] Child construction and transcript errors fail explicitly. Shutdown and disposal run in source order; a child shutdown does not invalidate shared parent dispatches.
+- [x] Child construction and transcript errors fail explicitly. Resume reservation errors propagate after attachment admission; they do not become successful undispatched results. Shutdown and disposal run in source order; a child shutdown does not invalidate shared parent dispatches.
 
 ### Coordination and lifecycle
 
@@ -25,6 +25,7 @@ The orchestration runtime follows `extensions/agents-core/src/runtime.ts` at fro
 - [x] Parent routing uses runtime parent identity, not a legacy transcript-header lookup. Mailbox result text preserves the target and exact frozen failure messages. Bridge messages.send does not run the tool-only session callback.
 - [x] Detached terminal notifications use the frozen suppression predicate rather than an extra transport scan. Cancellation respects its settlement timeout and does not cancel the dispatch on timeout.
 - [x] Each store uses its factory agentDir for terminal artifact delivery and dead-detached reconciliation. Descendant settlement and detached cleanup remain ordered before terminalization.
+- [x] Lifecycle mirror observer errors use the store's frozen diagnostic boundary. Background construction-failure notifications preserve exact UTF-16; terminal notification UI is resolved at completion and rejects through the existing uncaught boundary when stale.
 
 ## How it works
 

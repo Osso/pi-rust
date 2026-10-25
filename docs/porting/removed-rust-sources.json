@@ -20,6 +20,7 @@
   "client/",
   "coding-agent/examples/extensions/custom-compaction.ts",
   "coding-agent/examples/extensions/kimi-deferred-tools.ts",
+  "coding-agent/extensions/agents-core/src/parent-agent-journal.ts",
   "coding-agent/src/cli/auth-check.ts",
   "coding-agent/src/cli/auth-command.ts",
   "coding-agent/src/cli/credential-print.ts",
