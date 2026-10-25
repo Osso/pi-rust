@@ -216,6 +216,17 @@ fn reciprocal_terminal_publication_ack_and_real_artifact_cleanup() {
                 JsValue::from(json!({"ok":true,"delivered":1,"calls":3,"agents":[expected.clone()]}))
             );
             assert!(rows(&f).is_empty(), "delivery acknowledges only the claimed row");
+            if artifact.exists() {
+                let references = pi_coding_agent::core::detached_job_cleanup::read_linux_process_references().unwrap();
+                let retained: Vec<_> = references
+                    .into_iter()
+                    .flatten()
+                    .filter(|path| path.starts_with(artifact.to_str().unwrap()))
+                    .collect();
+                eprintln!(
+                    "retained artifact {artifact:?}, source_first={source_first}, lifecycle={lifecycle}, references={retained:?}"
+                );
+            }
             assert!(!artifact.exists(), "finally must run actual detached artifact cleanup");
             assert_eq!(
                 source_call(&mut control, "readMultiAgentAgent", json!([f.db, f.path, id])),
