@@ -48,7 +48,7 @@ context-file fixture trees compared against the real pinned TypeScript module).
 | private `dedupeThemes` | `dedupe_themes` | same |
 | private `discoverSystemPromptFile/discoverAppendSystemPromptFile` | same snake-case methods | `system_and_append_prompt_discovery_and_sources` |
 | private `isUnderPath` | `is_under_path` | source-info root tests |
-| `ResourceLoader` interface | `ResourceLoader` trait (+`LoadedThemes`, `LoadedRulesFiles`, `LoadedPathSource`) | `StaticResourceLoader`/`DefaultResourceLoader` impls |
+| `ResourceLoader` interface | `ResourceLoader` trait (+`LoadedThemes`, `LoadedRulesFiles`) | `StaticResourceLoader`/`DefaultResourceLoader` impls |
 | `ResourceExtensionPaths`, `ResourceLoaderReloadOptions` | `ResourceExtensionPaths`, `ResolveProjectTrust` | extend/trust tests |
 | `DefaultResourceLoaderOptions` | `DefaultResourceLoaderOptions` | all behavioral tests |
 | `InlineExtension` | `InlineExtension` enum (`Factory` with optional `extensionPath`, `Named`) | disabled/trust/conflict tests |
@@ -116,6 +116,12 @@ Actual frozen reload publishes extension/skill/prompt/theme/context stages in or
 ## Resource path/factory catch audit (2026-10-25)
 
 Source metadata baseDir normalization can fail before resource loading; native previously swallowed this and accepted `file://remote/resources`. Path resolution, path merging, disabled filtering, normalized discovered entries and pre-trust path reconciliation now propagate Result without unresolved-input fallbacks. Inline factory catch policy is deliberately different from runner catches: frozen :1063 uses Error.message or literal `failed to load extension`, not String(non-Error). Native now preserves that exact policy. Actual frozen/native RED `/tmp/ext-api2-resource-path-red.log` reproduces both defects; focused GREEN pending.
+
+## Old-only prompt-source display removal (2026-10-25)
+
+Frozen interactive-mode.ts:1897–1911 lists only getAgentsFiles under Context, not system-prompt or append-system-prompt file paths. Removed native get_system_prompt_source/get_append_system_prompt_sources, LoadedPathSource, their derived state and the extra UI listing. Kept actual system/append prompt loading and its content assertions. Test wrappers only lose old-only trait methods; source-only getter assertions are retired. Parent authorized this deletion.
+
+The existing startup frame differential now creates SYSTEM.md and APPEND_SYSTEM.md for every quiet/verbose/scoped/restored case. RED `/tmp/ext-api2-system-prompt-startup-red.log` contains native-only Context rows; GREEN pending. No source fixture or assertion normalization was loosened.
 
 ## Constructor error carrier
 

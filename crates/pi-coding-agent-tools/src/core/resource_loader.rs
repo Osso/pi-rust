@@ -361,12 +361,6 @@ pub struct LoadedRulesFiles {
     pub rules_files: Vec<RuleFile>,
 }
 
-/// A file-backed prompt source (`{ path }`).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadedPathSource {
-    pub path: JsString,
-}
-
 /// `ResourceLoader` interface consumed by AgentSession.
 pub trait ResourceLoader: Send + Sync {
     /// Extension load result (`{ extensions, errors, runtime }`).
@@ -378,9 +372,7 @@ pub trait ResourceLoader: Send + Sync {
     fn get_rules_files(&self) -> LoadedRulesFiles;
     fn get_rules_content(&self) -> Option<JsString>;
     fn get_system_prompt(&self) -> Option<JsString>;
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource>;
     fn get_append_system_prompt(&self) -> Vec<JsString>;
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource>;
     fn extend_resources(&self, paths: ResourceExtensionPaths) -> Result<(), JsString>;
     fn reload(&self) -> BoxFuture<'_, Result<(), JsString>>;
     /// `reload(options)` from the source interface.
@@ -401,9 +393,7 @@ pub struct StaticResourceLoader {
     pub rules_files: LoadedRulesFiles,
     pub rules_content: Option<JsString>,
     pub system_prompt: Option<JsString>,
-    pub system_prompt_source: Option<LoadedPathSource>,
     pub append_system_prompt: Vec<JsString>,
-    pub append_system_prompt_sources: Vec<LoadedPathSource>,
 }
 
 impl StaticResourceLoader {
@@ -449,16 +439,8 @@ impl ResourceLoader for StaticResourceLoader {
         self.system_prompt.clone()
     }
 
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource> {
-        self.system_prompt_source.clone()
-    }
-
     fn get_append_system_prompt(&self) -> Vec<JsString> {
         self.append_system_prompt.clone()
-    }
-
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource> {
-        self.append_system_prompt_sources.clone()
     }
 
     fn extend_resources(&self, _paths: ResourceExtensionPaths) -> Result<(), JsString> {
@@ -584,9 +566,7 @@ struct ResourceLoaderState {
     rules_files: Vec<RuleFile>,
     rules_content: Option<JsString>,
     system_prompt: Option<JsString>,
-    system_prompt_source_path: Option<JsString>,
     append_system_prompt: Vec<JsString>,
-    append_system_prompt_source_paths: Vec<JsString>,
     last_skill_paths: Vec<JsString>,
     last_prompt_paths: Vec<JsString>,
     last_theme_paths: Vec<JsString>,
@@ -615,9 +595,7 @@ impl Default for ResourceLoaderState {
             rules_files: Vec::new(),
             rules_content: None,
             system_prompt: None,
-            system_prompt_source_path: None,
             append_system_prompt: Vec::new(),
-            append_system_prompt_source_paths: Vec::new(),
             last_skill_paths: Vec::new(),
             last_prompt_paths: Vec::new(),
             last_theme_paths: Vec::new(),
@@ -1083,10 +1061,6 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(base_system_prompt.as_ref()),
             None => base_system_prompt,
         };
-        state.system_prompt_source_path = system_prompt_source
-            .as_ref()
-            .filter(|source| path_exists(source))
-            .map(resolve_from_process_cwd);
 
         let append_sources = match &self.append_system_prompt_source {
             Some(sources) => sources.clone(),
@@ -1100,11 +1074,6 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(&base_append),
             None => base_append,
         };
-        state.append_system_prompt_source_paths = append_sources
-            .iter()
-            .filter(|source| path_exists(source))
-            .map(|source| resolve_from_process_cwd(source))
-            .collect();
     }
 
     async fn load_current_extension_set(
@@ -1737,23 +1706,8 @@ impl ResourceLoader for DefaultResourceLoader {
         self.state().system_prompt.clone()
     }
 
-    fn get_system_prompt_source(&self) -> Option<LoadedPathSource> {
-        self.state()
-            .system_prompt_source_path
-            .clone()
-            .map(|path| LoadedPathSource { path })
-    }
-
     fn get_append_system_prompt(&self) -> Vec<JsString> {
         self.state().append_system_prompt.clone()
-    }
-
-    fn get_append_system_prompt_sources(&self) -> Vec<LoadedPathSource> {
-        self.state()
-            .append_system_prompt_source_paths
-            .iter()
-            .map(|path| LoadedPathSource { path: path.clone() })
-            .collect()
     }
 
     fn extend_resources(&self, paths: ResourceExtensionPaths) -> Result<(), JsString> {

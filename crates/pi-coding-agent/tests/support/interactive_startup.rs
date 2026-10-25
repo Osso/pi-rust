@@ -27,6 +27,9 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
             "---\nname: post-start\ndescription: A startup-discovered skill\n---\nSkill body\n",
         )
         .unwrap();
+        // Frozen startup loads these prompts but does not list them as context files.
+        std::fs::write(cwd.join("SYSTEM.md"), "Global system instructions").unwrap();
+        std::fs::write(cwd.join("APPEND_SYSTEM.md"), "Global appended instructions").unwrap();
         let watch_changes = !quiet && !verbose && !scoped && !restored;
         if watch_changes {
             let status = std::process::Command::new("git")

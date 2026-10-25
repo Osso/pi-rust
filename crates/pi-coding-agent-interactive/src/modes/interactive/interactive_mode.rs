@@ -5199,8 +5199,6 @@ impl InteractiveMode {
         let themes = loader.get_themes();
         let agents_files = loader.get_agents_files();
         let rules_files = loader.get_rules_files();
-        let system_prompt_source = loader.get_system_prompt_source();
-        let append_sources = loader.get_append_system_prompt_sources();
         let extensions = loader.get_extensions();
         let active_tools: Vec<JsString> = session
             .get_active_tool_names()
@@ -5232,12 +5230,7 @@ impl InteractiveMode {
         let cwd = self.cwd();
 
         if show_listing {
-            let mut context_files: Vec<JsString> = Vec::new();
-            if let Some(source) = &system_prompt_source {
-                context_files.push(source.path.clone());
-            }
-            context_files.extend(append_sources.iter().map(|source| source.path.clone()));
-            context_files.extend(agents_files.agents_files.iter().map(|file| file.path.clone()));
+            let context_files: Vec<JsString> = agents_files.agents_files.iter().map(|file| file.path.clone()).collect();
 
             if !context_files.is_empty() || !rules_files.rules_files.is_empty() {
                 self.loaded_resources_container

@@ -430,20 +430,8 @@ async fn system_and_append_prompt_discovery_and_sources() {
         Some(&JsString::from("Project system prompt."))
     );
     assert_eq!(
-        resource_loader.get_system_prompt_source().map(|source| source.path),
-        (Some(cwd.join(".pi/SYSTEM.md").to_string_lossy().into_owned())).map(JsString::from)
-    );
-    assert_eq!(
         resource_loader.get_append_system_prompt(),
         vec!["Project append prompt."]
-    );
-    assert_eq!(
-        resource_loader
-            .get_append_system_prompt_sources()
-            .into_iter()
-            .map(|source| source.path)
-            .collect::<Vec<_>>(),
-        vec![cwd.join(".pi/APPEND_SYSTEM.md").to_string_lossy().into_owned()]
     );
 
     let untrusted = loader(&cwd, &agent_dir, false);
@@ -488,7 +476,6 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         resource_loader.get_append_system_prompt(),
         vec!["Custom append prompt.", "Literal append prompt."]
     );
-    assert_eq!(resource_loader.get_append_system_prompt_sources().len(), 1);
 
     let literal = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: cwd.to_string_lossy().into_owned().into(),
@@ -503,7 +490,6 @@ async fn literal_prompts_are_not_exposed_as_sources() {
         literal.get_system_prompt().as_ref(),
         Some(&JsString::from("Literal system prompt."))
     );
-    assert!(literal.get_system_prompt_source().is_none());
 }
 
 #[tokio::test]
