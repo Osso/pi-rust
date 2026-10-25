@@ -373,9 +373,14 @@ pub(crate) fn create_package_dir(length: usize) -> PathBuf {
 }
 
 fn copy_directory(source: &Path, target: &Path) {
-    std::fs::create_dir_all(target).expect("theme directory");
-    for entry in std::fs::read_dir(source).expect("theme entries") {
-        let entry = entry.expect("theme entry");
-        std::fs::copy(entry.path(), target.join(entry.file_name())).expect("theme file copy");
+    std::fs::create_dir_all(target).expect("fixture directory");
+    for entry in std::fs::read_dir(source).expect("fixture entries") {
+        let entry = entry.expect("fixture entry");
+        let destination = target.join(entry.file_name());
+        if entry.file_type().expect("fixture file type").is_dir() {
+            copy_directory(&entry.path(), &destination);
+        } else {
+            std::fs::copy(entry.path(), destination).expect("fixture file copy");
+        }
     }
 }
