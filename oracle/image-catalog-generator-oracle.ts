@@ -13,35 +13,9 @@ import { createInterface } from "node:readline";
 
 async function main() {
 	const source = process.argv[2];
-	const api = await import(pathToFileURL(source).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		try {
-			if (request.operation === "parse") {
-				const models = api.parseOpenRouterImageModels(
-					JSON.parse(request.payload),
-					request.strict,
-				);
-				process.stdout.write(
-					JSON.stringify({
-						ok: true,
-						models: JSON.stringify(models),
-						costNumbers: models.map((model) =>
-							Object.fromEntries(
-								Object.entries(model.cost).map(([key, value]) => [
-									key,
-									Number.isNaN(value)
-										? "NaN"
-										: Object.is(value, -0)
-											? "-0"
-											: String(value),
-								]),
-							),
-						),
-					}) + "\n",
-				);
-				continue;
-			}
 			const root = mkdtempSync(join(tmpdir(), "pi-image-generator-"));
 			try {
 				mkdirSync(join(root, "scripts"));

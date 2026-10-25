@@ -6,7 +6,7 @@
 use std::{fmt, io::Write, path::Path};
 
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue, is_truthy, to_js_string};
-use pi_js_compat::number::parse_float;
+use pi_js_compat::number::parse_float_utf16;
 
 use crate::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 
@@ -84,21 +84,14 @@ fn text(value: &str) -> JsValue {
     JsValue::String(JsString::from(value))
 }
 
-/// `parseOpenRouterImageModels(payload, strict)`, retaining raw JSON code units and field values.
-pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<Vec<JsValue>, GeneratorError> {
-    let Some(JsValue::Array(data)) =
-        property(payload, "data").filter(|data| !matches!(data, JsValue::Array(items) if items.is_empty()))
-    else {
-        return if strict {
-            Err(GeneratorError::error(
-                "OpenRouter API returned a missing or empty image model list",
-            ))
-        } else {
-            Ok(vec![])
-        };
+/// Frozen `fetchOpenRouterImageModels` record projection, before sorting and key deduplication.
+fn parse_openrouter_image_models(payload: &JsValue) -> Result<Vec<JsValue>, GeneratorError> {
+    let data = match property(payload, "data") {
+        None | Some(JsValue::Null) => return Ok(vec![]),
+        Some(JsValue::Array(data)) => data,
+        _ => return Err(GeneratorError::type_error("data.data is not iterable")),
     };
     let mut models = Vec::new();
-    let mut seen = Vec::new();
     for model in data {
         if !matches!(model, JsValue::Object(_)) {
             return Err(invalid_field("record", "object"));
@@ -109,19 +102,8 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
         if !output.contains(&text("image")) {
             continue;
         }
-        let id = property(model, "id");
-        if !matches!(id, Some(JsValue::String(_))) {
-            return Err(invalid_field("id", "string"));
-        }
-        if seen.iter().any(|previous| same_id(*previous, id)) {
-            continue;
-        }
-        seen.push(id);
         if input.is_empty() {
             input.push(text("text"));
-        }
-        if !matches!(property(model, "name"), Some(JsValue::String(_))) {
-            return Err(invalid_field("name", "string"));
         }
         let pricing = nullable_object_field(model, "pricing")?;
         let cost = object([
@@ -131,7 +113,6 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
             ("cacheWrite", price(pricing, "input_cache_write")?),
         ]);
         let mut fields = JsObject::new();
-        // Both required fields were validated only after the source skip/dedup boundaries.
         for key in ["id", "name"] {
             if let Some(value) = property(model, key) {
                 fields.insert(JsString::from(key), value.clone());
@@ -149,9 +130,6 @@ pub fn parse_openrouter_image_models(payload: &JsValue, strict: bool) -> Result<
         }
         models.push(JsValue::Object(fields));
     }
-    if strict && models.is_empty() {
-        return Err(GeneratorError::error("OpenRouter API returned no usable image models"));
-    }
     Ok(models)
 }
 
@@ -167,10 +145,6 @@ fn nullable_object_field<'a>(model: &'a JsValue, field: &str) -> Result<Option<&
     }
 }
 
-fn same_id(left: Option<&JsValue>, right: Option<&JsValue>) -> bool {
-    // JSON arrays/objects have distinct identity even when structurally equal.
-    !matches!(left, Some(JsValue::Array(_) | JsValue::Object(_))) && left == right
-}
 fn modalities(architecture: Option<&JsValue>, key: &str) -> Result<Vec<JsValue>, GeneratorError> {
     let Some(value) = architecture.and_then(|value| property(value, key)) else {
         return Ok(vec![]);
@@ -182,9 +156,6 @@ fn modalities(architecture: Option<&JsValue>, key: &str) -> Result<Vec<JsValue>,
     let JsValue::Array(values) = value else {
         return Err(invalid_field(&field, "string array or null"));
     };
-    if values.iter().any(|value| !matches!(value, JsValue::String(_))) {
-        return Err(invalid_field(&field, "string array or null"));
-    }
     let mut result = Vec::new();
     for value in values {
         if (value == &text("text") || value == &text("image")) && !result.contains(value) {
@@ -195,26 +166,12 @@ fn modalities(architecture: Option<&JsValue>, key: &str) -> Result<Vec<JsValue>,
 }
 fn price(pricing: Option<&JsValue>, key: &str) -> Result<JsValue, GeneratorError> {
     let value = pricing.and_then(|value| property(value, key));
-    if value.is_some_and(|value| !matches!(value, JsValue::String(_))) {
-        return Err(invalid_field(&format!("pricing.{key}"), "string"));
-    }
     let value = value.filter(|value| is_truthy(value));
     let string = match value {
         Some(value) => to_js_string(value).map_err(GeneratorError::type_error)?,
         None => JsString::from("0"),
     };
-    // Only the numeric prefix matters; replacing a surrogate terminator cannot change parseFloat.
-    Ok(JsValue::Number(parse_float(&string.to_utf8_lossy()) * 1_000_000.0))
-}
-
-/// Accept zero or repeated `--strict` arguments, rejecting the first other argument.
-pub fn read_strict_option(args: &[String]) -> Result<bool, GeneratorError> {
-    for arg in args {
-        if arg != "--strict" {
-            return Err(GeneratorError::error(format!("Unknown argument: {arg}")));
-        }
-    }
-    Ok(!args.is_empty())
+    Ok(JsValue::Number(parse_float_utf16(string.units()) * 1_000_000.0))
 }
 
 /// Native artifact: JSON.stringify({openrouter: Object.fromEntries(sorted models)}, null, 2).
@@ -291,13 +248,12 @@ fn compare_model_ids(left: &JsValue, right: &JsValue) -> Result<std::cmp::Orderi
 
 /// Fetch with the runtime's replaceable transport, logging before/after parsing exactly as source.
 pub async fn fetch_openrouter_image_models(
-    strict: bool,
     fetch: &dyn Fetch,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<Vec<JsValue>, GeneratorError> {
     writeln!(stdout, "Fetching image models from OpenRouter API...").map_err(io_error)?;
-    let result = fetch_and_parse(strict, fetch).await;
+    let result = fetch_and_parse(fetch).await;
     match result {
         Ok(models) => {
             writeln!(stdout, "Fetched {} image models from OpenRouter", models.len()).map_err(io_error)?;
@@ -305,11 +261,11 @@ pub async fn fetch_openrouter_image_models(
         }
         Err(error) => {
             writeln!(stderr, "Failed to fetch OpenRouter image models: {error}").map_err(io_error)?;
-            if strict { Err(error) } else { Ok(vec![]) }
+            Ok(vec![])
         }
     }
 }
-async fn fetch_and_parse(strict: bool, fetch: &dyn Fetch) -> Result<Vec<JsValue>, GeneratorError> {
+async fn fetch_and_parse(fetch: &dyn Fetch) -> Result<Vec<JsValue>, GeneratorError> {
     let response = fetch
         .fetch(
             HttpRequest {
@@ -322,16 +278,10 @@ async fn fetch_and_parse(strict: bool, fetch: &dyn Fetch) -> Result<Vec<JsValue>
         )
         .await
         .map_err(GeneratorError::from)?;
-    if !(200..300).contains(&response.status) {
-        return Err(GeneratorError::error(format!(
-            "OpenRouter API returned {}",
-            response.status
-        )));
-    }
     let body = read_body_text(response.body).await.map_err(GeneratorError::from)?;
     let payload = js_json::parse_lossless(body.strip_prefix('\u{feff}').unwrap_or(&body))
         .map_err(|error| GeneratorError::new("SyntaxError", error.to_string()))?;
-    parse_openrouter_image_models(&payload, strict)
+    parse_openrouter_image_models(&payload)
 }
 fn write_artifact(path: &Path, artifact: &[u8]) -> Result<(), GeneratorError> {
     let mut file = std::fs::File::create(path).map_err(|error| filesystem_error(error, "open", path))?;
@@ -367,17 +317,16 @@ fn io_error(error: std::io::Error) -> GeneratorError {
     GeneratorError::error(error.to_string())
 }
 
-/// Run strict options → fetch/log → sort → write. Output path is an explicit filesystem boundary,
+/// Run fetch/log → sort → write. Output path is an explicit filesystem boundary,
 /// not a CLI flag; the maintenance binary always selects the existing native catalog path.
 pub async fn run(
-    args: &[String],
+    _args: &[String],
     fetch: &dyn Fetch,
     output: &Path,
     stdout: &mut dyn Write,
     stderr: &mut dyn Write,
 ) -> Result<(), GeneratorError> {
-    let strict = read_strict_option(args)?;
-    let models = fetch_openrouter_image_models(strict, fetch, stdout, stderr).await?;
+    let models = fetch_openrouter_image_models(fetch, stdout, stderr).await?;
     let artifact = generate_image_models_file(&models)?;
     write_artifact(output, artifact.as_bytes())?;
     writeln!(stdout, "Generated {}", output.display()).map_err(io_error)?;
