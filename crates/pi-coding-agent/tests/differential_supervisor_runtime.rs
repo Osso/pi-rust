@@ -123,27 +123,27 @@ async fn compare(scenario: &'static str) {
     assert_eq!(actual, expected["output"], "{scenario}");
 }
 
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn evaluation_rejection_propagates_without_service_completion() {
     compare("evaluation_reject").await;
 }
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn cancellation_aborts_and_awaits_pending_cleanup() {
     compare("cancel_pending").await;
 }
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn cancellation_wins_over_an_already_settled_evaluation() {
     compare("cancel_settled").await;
 }
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn deadline_wins_over_an_already_settled_evaluation() {
     compare("deadline_settled").await;
 }
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn approval_preempts_an_already_settled_evaluation() {
     compare("preempt_settled").await;
 }
-#[tokio::test]
+#[tokio::test(start_paused = true)]
 async fn preemption_awaits_cleanup_before_requeue() {
     compare("preempt_pending").await;
 }
