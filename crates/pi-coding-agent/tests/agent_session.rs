@@ -432,7 +432,7 @@ async fn scripted_sessions_keep_their_responses_across_other_registry_refreshes(
     second
         .faux
         .set_responses(vec![completed_text_response("second answer")]);
-    first.session.model_registry().refresh();
+    first.session.model_registry().refresh().unwrap();
     let (first_result, second_result) = tokio::join!(
         first.session.prompt("first request", PromptOptions::default()),
         second.session.prompt("second request", PromptOptions::default()),
@@ -1257,7 +1257,7 @@ async fn runtime_mailbox_delivery_prompts_the_session_and_removes_the_accepted_r
     fixture.faux.set_responses(vec![
         faux_assistant_message("ack", FauxAssistantMessageOptions::default()).into(),
     ]);
-    fixture.session.model_registry().refresh();
+    fixture.session.model_registry().refresh().unwrap();
 
     fixture
         .session
@@ -1309,7 +1309,7 @@ async fn shared_channel_delivery_formats_and_queues_messages_after_the_initial_c
     )
     .await;
     let control_db_path = fixture.session.control_db_path().expect("control db");
-    fixture.session.model_registry().refresh();
+    fixture.session.model_registry().refresh().unwrap();
     fixture
         .session
         .drain_runtime_coordination()

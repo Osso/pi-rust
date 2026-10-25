@@ -28,7 +28,7 @@ async fn anthropic_subscription_warning_branches_match_frozen() {
                     },
                 )
                 .await;
-                registry.unregister_provider("faux");
+                registry.unregister_provider("faux").unwrap();
                 let mut model = mode.session().model();
                 model.provider = if case == 2 { "other".into() } else { "anthropic".into() };
                 mode.session().agent().set_model(model.clone());

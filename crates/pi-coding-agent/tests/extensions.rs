@@ -770,6 +770,7 @@ async fn providers_scenario(temp_dir: &str) -> Value {
                 .lock()
                 .unwrap()
                 .push(provider_record("unregister", name, None));
+            Ok(())
         })),
     };
     let mut runner = support::runner_for(vec![a], temp_dir, runtime.clone(), support::model_registry().await);

@@ -11,7 +11,7 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             std::fs::write(&path,r#"{"providers":{}}"#).unwrap();
             let registry=ModelRegistry::create(AuthStorage::in_memory(Vec::<(String,serde_json::Value)>::new()),Some(JsString::from(path.to_str().unwrap()))).unwrap();
             let (mode,_terminal,_faux,_temp)=build_mode_with_extra_providers(StaticResourceLoader::new(),None,SettingsManager::in_memory(Default::default(),SettingsManagerCreateOptions::default()),Vec::new(),serde_json::Map::new(),case==4,TestModeSetup {model_registry:Some(registry.clone()),..Default::default()}).await;
-            registry.unregister_provider("faux");
+            registry.unregister_provider("faux").unwrap();
             let provider=if case==0 {"q15-ordinary"}else{"openai-codex"};
             let mut model=mode.session().model();model.provider=provider.into();model.api="openai-completions".into();model.base_url="https://fixture.invalid".into();model.name="Ordinary fixture".into();model.reasoning=false;
             model.id=if case>=3 {crate::core::model_resolver::default_model_for_provider(provider).unwrap().into()}else{"not-default".into()};
@@ -48,7 +48,7 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
                 actual["setterError"] = error;
             }
             assert_eq!(actual, expected["output"], "case={case}");
-            if case!=1 {registry.unregister_provider(provider);}
+            if case!=1 {registry.unregister_provider(provider).unwrap();}
             if failed_metadata_path.is_some() {
                 mode.session().session_manager().set_metadata_control_db_path(None, Default::default()).unwrap();
             }

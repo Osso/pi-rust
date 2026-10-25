@@ -112,7 +112,7 @@ async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
-    runtime.refresh();
+    runtime.refresh().unwrap();
     runtime
 }
 
