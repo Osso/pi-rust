@@ -58,14 +58,14 @@ fn entry_message(entry: &SessionEntry) -> Result<Option<AgentMessage>, HandlerEr
         .map(|message| pi_js_compat::js_json::from_value(&message).map_err(|e| HandlerError::new(e.to_string())))
         .transpose()
 }
-fn handoff_messages(branch: &[SessionEntry]) -> Result<Vec<AgentMessage>, HandlerError> {
+pub(crate) fn handoff_messages(branch: &[SessionEntry]) -> Result<Vec<AgentMessage>, HandlerError> {
     let values = branch
         .iter()
-        .map(serde_json::to_value)
+        .map(pi_js_compat::js_json::to_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| HandlerError::new(e.to_string()))?;
     let mut ordered = Vec::new();
-    if let Some(index) = values.iter().rposition(|entry| entry["type"] == "compaction") {
+    if let Some(index) = values.iter().rposition(|entry| entry["type"] == json!("compaction")) {
         ordered.push(&branch[index]);
         if let Some(first) = values
             .iter()
