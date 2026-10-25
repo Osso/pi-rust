@@ -207,7 +207,6 @@ fn tool_result_message_round_trips_with_arbitrary_details() {
         "toolName": "bash",
         "content": [{"type": "text", "text": "ok"}],
         "details": {"exitCode": 0, "truncated": null},
-        "addedToolNames": ["grep"],
         "isError": false,
         "timestamp": 3
     }));
@@ -323,10 +322,9 @@ fn context_round_trips_tools_with_json_schema_parameters() {
         "messages": [{"role": "user", "content": "hi", "timestamp": 1}],
         "tools": [{
             "name": "read", "description": "Read a file",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
-            "constrainedSampling": {"type": "json_schema", "strict": "prefer"}
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
         }, {
-            "name": "noop", "description": "", "parameters": {"type": "object"}, "constrainedSampling": false
+            "name": "noop", "description": "", "parameters": {"type": "object"}
         }]
     }));
     assert_eq!(context.tools.as_ref().map(Vec::len), Some(2));
