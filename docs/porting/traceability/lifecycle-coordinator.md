@@ -78,3 +78,7 @@ the TS coordinator and lifecycle-authority cases.
   `AcquireAttachedRuntimeOwnershipResult`). Field names and `ok`/`error` tags are unchanged.
 - `setTimeout`-based retry is implemented with a detached `std::thread` sleeping 250 ms; there is
   no cancellation token because the TS code also lets the timer run to completion.
+
+## Re-pin audit checkpoint (2026-10-25)
+
+Frozen common pin 4f9e6f8a4 adds DetachedCancellationCommandInput.suppressTerminalNotification. Rust now exposes Option<bool> and forwards it to the existing transactional repository field. Actual coordinator/SQLite behavioral test and frozen coordinator oracle assert the persisted suppression flag; missing-field RED `/tmp/runtime-services-red-lifecycle-suppression.log`, GREEN pending at implementation commit. Existing callers are mechanically set to None; their suppression-policy integration remains owned by their lanes. Still open: reconciliation artifactRoot/cleanup side effect and retry-root propagation; whole-module row is not done.

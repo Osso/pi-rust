@@ -106,6 +106,7 @@ pub struct DetachedCancellationCommandInput {
     pub ownership: MultiAgentRuntimeOwnership,
     pub output_label: JsString,
     pub reason: Option<JsString>,
+    pub suppress_terminal_notification: Option<bool>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -322,7 +323,7 @@ impl LifecycleCoordinator {
             Some(crate::core::session_control_db::agents::DetachedCancellation {
                 output_label: input.output_label.clone(),
                 reason: input.reason.clone(),
-                suppress_terminal_notification: None,
+                suppress_terminal_notification: input.suppress_terminal_notification,
             }),
             false,
         )

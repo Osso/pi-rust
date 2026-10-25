@@ -16,6 +16,8 @@ use pi_coding_agent::core::session_control_db::{
     register_runtime_mailbox_listener,
 };
 use tempfile::TempDir;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 const NOW: &str = "2026-07-11T20:00:00.000Z";
 const SESSION_PATH: &str = "/tmp/supervisor.jsonl";
@@ -394,6 +396,56 @@ fn requires_cancelling_before_abort_acknowledgement() {
 }
 
 #[test]
+fn detached_cancellation_preserves_terminal_notification_suppression() {
+    let (_source_directory, source_db) = temp_db();
+    let source_coordinator = create_coordinator(&source_db, SESSION_PATH);
+    let (source_agent, source_ownership) = expect_created(create_running_child(&source_coordinator, child_input(None)));
+    let mut source = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    let expected = source.request(&pi_js_compat::js_json!({
+        "id": 28301, "module": "core/lifecycle-coordinator.ts", "operation": "lifecycleDetachedCancellation",
+        "now": pi_coding_agent::utils::iso_time::now_iso_string(),
+        "options": {"controlDbPath": source_db, "sessionPath": SESSION_PATH, "processIdentity": current_identity()},
+        "input": {"agent":source_agent,"ownership":source_ownership,"outputLabel":"Bash output","suppressTerminalNotification":true},
+    }));
+    assert_eq!(expected["ok"], js_json::JsValue::Bool(true));
+    assert_eq!(expected["output"]["ok"], js_json::JsValue::Bool(true));
+    assert_eq!(
+        expected["output"]["agent"]["suppressTerminalNotification"],
+        js_json::JsValue::Bool(true)
+    );
+    let (_directory, db) = temp_db();
+    let coordinator = create_coordinator(&db, SESSION_PATH);
+    let (agent, ownership) = expect_created(create_running_child(&coordinator, child_input(None)));
+    let result = coordinator
+        .request_detached_cancellation(&DetachedCancellationCommandInput {
+            agent: agent.clone(),
+            ownership,
+            output_label: "Bash output".into(),
+            reason: None,
+            suppress_terminal_notification: Some(true),
+        })
+        .unwrap();
+    let LifecycleCommandResult::Ok { agent } = result else {
+        panic!("cancellation failed")
+    };
+    assert_eq!(
+        agent
+            .extra
+            .get("suppressTerminalNotification")
+            .and_then(js_json::JsValue::as_bool),
+        Some(true)
+    );
+    let persisted = read_multi_agent_agent(&db, SESSION_PATH, &agent.id).unwrap().unwrap();
+    assert_eq!(
+        persisted
+            .extra
+            .get("suppressTerminalNotification")
+            .and_then(js_json::JsValue::as_bool),
+        Some(true)
+    );
+}
+
+#[test]
 fn requests_detached_cancellation_and_enqueues_the_runner_command() {
     let (_directory, db) = temp_db();
     let coordinator = create_coordinator(&db, SESSION_PATH);
@@ -404,6 +456,7 @@ fn requests_detached_cancellation_and_enqueues_the_runner_command() {
             ownership: ownership.clone(),
             output_label: "Bash output".into(),
             reason: Some("user requested".into()),
+            suppress_terminal_notification: None,
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = result else {
@@ -455,6 +508,7 @@ fn rolls_back_detached_cancellation_when_mailbox_insertion_fails() {
             ownership: ownership.clone(),
             output_label: "Bash output".into(),
             reason: None,
+            suppress_terminal_notification: None,
         })
         .expect_err("blocked");
     assert!(error.message().contains("blocked detached control"));
@@ -596,6 +650,7 @@ fn settles_a_cancelling_child_to_aborted_on_dead_owner_recovery() {
             ownership: (*ownership).clone(),
             output_label: "Pyrun output".into(),
             reason: Some("test cancel".into()),
+            suppress_terminal_notification: None,
         })
         .expect("cancel");
     let LifecycleCommandResult::Ok { agent: cancelling } = cancelling else {

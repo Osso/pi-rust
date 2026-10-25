@@ -130,6 +130,17 @@ const handlers: Record<string, Handler> = {
 		return api.isSupersededRuntimeIdentity(current, replacement);
 	}),
 	activityDetail: (api, request) => cases(request).map((args) => api.summarizeToolArguments(args) ?? null),
+	lifecycleDetachedCancellation: (api, request) => {
+		const Coordinator = api.LifecycleCoordinator as unknown as new (options: unknown) => {
+			requestDetachedCancellation(input: unknown): unknown;
+		};
+		const coordinator = new Coordinator({
+			...(request.options as object),
+			createAgentId: () => "unused",
+			now: () => request.now,
+		});
+		return coordinator.requestDetachedCancellation(request.input);
+	},
 	detachedBootstrapError: (api, request) => {
 		try {
 			api.spawnGatedDetachedPayload(request.input);
