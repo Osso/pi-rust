@@ -354,8 +354,8 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
         );
         return;
     }
-    use pi_coding_agent::core::session_manager::SessionManagerError;
     use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
+    use pi_js_compat::callback_error::CallbackError;
     use std::os::unix::fs::PermissionsExt;
     configure_worker();
     let tmp = tempfile::tempdir().unwrap();
@@ -376,7 +376,7 @@ fn spool_callback_and_corruption_failures_cleanup_private_files() {
         transient = Some(std::path::PathBuf::from(&plain));
         assert_eq!(std::fs::metadata(&plain).unwrap().permissions().mode() & 0o777, 0o600);
         assert_eq!(std::fs::read(&plain).unwrap(), bytes);
-        Err(SessionManagerError::new("callback failed"))
+        Err(CallbackError::new("callback failed"))
     });
     assert_eq!(result.unwrap_err().to_string(), "callback failed");
     assert!(!transient.unwrap().exists());

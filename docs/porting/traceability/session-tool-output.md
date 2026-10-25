@@ -54,6 +54,10 @@ No old-only implementation remains. The explicit Buffer-like fallback gap above 
 ## Remaining platform boundary
 - Atomic rewrite compares `mtimeMs` as `f64` using the same POSIX seconds/nanoseconds arithmetic as Node. Windows-only behavior remains under the approved platform gap.
 
+## Shared rm error authority2026-10-25
+
+Frozen `session-tool-output.ts:326-327` calls `rmSync(tempPath,{force:true})` in finally. The migration's existing `node_rm_error` string adapter now delegates to the shared native rm error record, not libuv unlink formatting. Positive errno/syscall`rm` is retained at typed callers; this migration catches only error.message as frozen does. Missing temp files remain ignored, and nonrecursive EISDIR/permission messages remain unchanged. [Actual cleanup RED/GREEN and Node source provenance](session-transcript-spool.md#cleanup-failure-precedence-2026-10-25).
+
 ## Discrepancies
 
 The formerly recorded claim that traversal order is unobservable was incorrect: `errors` and `backupPaths` retain traversal order. The four-file differential above reproduces and corrects the error-report ordering; no source discrepancy is introduced.
