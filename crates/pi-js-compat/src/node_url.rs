@@ -108,25 +108,27 @@ fn normalize_file_path(input: &str) -> String {
     let mut segments: Vec<String> = Vec::new();
     let mut remaining = input.split('/').peekable();
     while let Some(segment) = remaining.next() {
-        let lower = segment.to_ascii_lowercase();
-        if matches!(lower.as_str(), ".." | ".%2e" | "%2e." | "%2e%2e") {
-            if segments.len() != 1 || !is_drive_letter(&segments[0]) {
-                segments.pop();
-            }
-            if remaining.peek().is_none() {
-                segments.push(String::new());
-            }
-        } else if matches!(lower.as_str(), "." | "%2e") {
-            if remaining.peek().is_none() {
-                segments.push(String::new());
-            }
-        } else if segments.is_empty() && is_drive_letter(segment) {
-            segments.push(format!("{}:", &segment[..1]));
-        } else {
-            segments.push(segment.to_owned());
-        }
+        append_file_path_segment(&mut segments, segment, remaining.peek().is_none());
     }
     format!("/{}", segments.join("/"))
+}
+
+fn append_file_path_segment(segments: &mut Vec<String>, segment: &str, is_last: bool) {
+    let lower = segment.to_ascii_lowercase();
+    let parent = matches!(lower.as_str(), ".." | ".%2e" | "%2e." | "%2e%2e");
+    let drive_root = segments.len() == 1 && is_drive_letter(&segments[0]);
+    if parent && !drive_root {
+        segments.pop();
+    }
+    if parent || matches!(lower.as_str(), "." | "%2e") {
+        if is_last {
+            segments.push(String::new());
+        }
+    } else if segments.is_empty() && is_drive_letter(segment) {
+        segments.push(format!("{}:", &segment[..1]));
+    } else {
+        segments.push(segment.to_owned());
+    }
 }
 
 fn is_drive_letter(segment: &str) -> bool {
