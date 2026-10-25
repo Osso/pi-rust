@@ -4,8 +4,6 @@
 pub mod ask_questions_tool;
 #[path = "bash_executor.rs"]
 pub mod bash_executor;
-#[path = "bash_stdin.rs"]
-pub mod bash_stdin;
 #[path = "bash_tool.rs"]
 pub mod bash_tool;
 #[path = "bash_tool_detach.rs"]
@@ -26,8 +24,6 @@ pub mod differential_bash_hook_chunk_errors;
 pub mod differential_bash_local;
 #[path = "differential_bash_manifest_numbers.rs"]
 pub mod differential_bash_manifest_numbers;
-#[path = "differential_bash_restored.rs"]
-pub mod differential_bash_restored;
 #[path = "differential_bash_tool.rs"]
 pub mod differential_bash_tool;
 #[path = "differential_claude_bash_hook.rs"]

@@ -16,8 +16,6 @@ pub mod differential_bundled_extensions;
 pub mod differential_goal_extension;
 #[path = "differential_list_extensions.rs"]
 pub mod differential_list_extensions;
-#[path = "example_built_in_tool_renderer.rs"]
-pub mod example_built_in_tool_renderer;
 #[path = "example_claude_rules.rs"]
 pub mod example_claude_rules;
 #[path = "example_commands.rs"]

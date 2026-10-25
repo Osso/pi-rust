@@ -1171,3 +1171,15 @@ path = "tests/lossless_tool_paths.rs"
 [[test]]
 name = "example_rpc_extension_ui"
 path = "tests/example_rpc_extension_ui.rs"
+
+[[test]]
+name = "example_built_in_tool_renderer"
+path = "tests/example_built_in_tool_renderer.rs"
+
+[[test]]
+name = "bash_stdin"
+path = "tests/bash_stdin.rs"
+
+[[test]]
+name = "differential_bash_restored"
+path = "tests/differential_bash_restored.rs"
