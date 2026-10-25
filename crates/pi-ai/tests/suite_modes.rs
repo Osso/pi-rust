@@ -6,14 +6,10 @@ pub mod api_model_headers;
 pub mod differential_image_models;
 #[path = "differential_images_models.rs"]
 pub mod differential_images_models;
-#[path = "differential_model_catalog.rs"]
-pub mod differential_model_catalog;
 #[path = "image_models.rs"]
 pub mod image_models;
 #[path = "images_models.rs"]
 pub mod images_models;
-#[path = "model_catalog.rs"]
-pub mod model_catalog;
 #[path = "model_catalog_generator_artifacts.rs"]
 pub mod model_catalog_generator_artifacts;
 #[path = "model_catalog_generator_fetch.rs"]

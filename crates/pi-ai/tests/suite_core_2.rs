@@ -102,8 +102,6 @@ pub mod random_uuid;
 pub mod retry;
 #[path = "sanitize_unicode.rs"]
 pub mod sanitize_unicode;
-#[path = "text.rs"]
-pub mod text;
 #[path = "transform_messages.rs"]
 pub mod transform_messages;
 #[path = "types.rs"]

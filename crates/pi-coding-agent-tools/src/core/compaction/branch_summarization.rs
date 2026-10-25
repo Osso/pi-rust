@@ -10,9 +10,9 @@ use pi_agent_core::harness::messages::{
 };
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
+    AssistantContent, Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent,
+    UserMessage, UserRole,
 };
-use pi_ai::utils::text::{ContentText, content_text};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
 use serde::{Deserialize, Serialize};
@@ -333,7 +333,13 @@ pub async fn generate_branch_summary(
         });
     }
 
-    let mut summary = content_text(ContentText::Assistant(&response.content), "\n");
+    let mut summary = JsString::join(
+        response.content.iter().filter_map(|content| match content {
+            AssistantContent::Text(content) => Some(&content.text),
+            _ => None,
+        }),
+        "\n",
+    );
     summary = JsString::from(BRANCH_SUMMARY_PREAMBLE) + summary;
 
     let file_lists = compute_file_lists(&file_ops);

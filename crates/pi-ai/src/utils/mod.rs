@@ -1,7 +1,6 @@
 pub mod abort;
 pub mod abort_signals;
 pub(crate) mod crypto_random;
-pub mod deferred_tools;
 pub mod diagnostics;
 pub mod error_body;
 pub mod estimate;
@@ -16,7 +15,6 @@ pub mod provider_retry;
 pub mod random_uuid;
 pub mod retry;
 pub mod sanitize_unicode;
-pub mod text;
 pub mod typebox_helpers;
 pub mod validation;
 mod validation_formats;

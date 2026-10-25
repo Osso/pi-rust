@@ -2,7 +2,7 @@
 mod oracle;
 
 use pi_ai::types::ToolResultMessage;
-use pi_js_compat::js_json::parse_lossless;
+use pi_js_compat::js_json::{JsString, parse_lossless};
 
 #[test]
 fn system_prompt_round_trip_keeps_extension_injected_utf16() {
@@ -34,8 +34,11 @@ fn tool_message_round_trip_keeps_text_details_and_null_presence() {
         assert_eq!(reverse["units"], reference["units"]);
         assert_eq!(reverse["wire"], output);
         assert_eq!(
-            pi_ai::utils::sanitize_unicode::sanitize_surrogates(pi_ai::utils::text::content_text(
-                pi_ai::utils::text::ContentText::TextOrImage(&message.content),
+            pi_ai::utils::sanitize_unicode::sanitize_surrogates(JsString::join(
+                message.content.iter().filter_map(|part| match part {
+                    pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+                    _ => None,
+                }),
                 "\n"
             )),
             reference["sanitized"].as_str().unwrap()

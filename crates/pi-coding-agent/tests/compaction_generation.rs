@@ -290,7 +290,14 @@ async fn materialization_fails_without_summary_text() {
 #[tokio::test]
 async fn generates_a_summary_with_the_exact_request_shape() {
     let log = Arc::new(Mutex::new(Vec::new()));
-    let stream_fn = scripted_stream(Arc::clone(&log), vec![response(StopReason::Stop, "Summary", None)]);
+    let mut answer = response(StopReason::Stop, "Summary", None);
+    answer
+        .content
+        .insert(0, AssistantContent::Text(TextContent::new(" \t\n")));
+    answer
+        .content
+        .push(AssistantContent::Text(TextContent::new("\u{feff}")));
+    let stream_fn = scripted_stream(Arc::clone(&log), vec![answer]);
     let model = model();
     let messages = vec![user("Summarize this.")];
 

@@ -98,3 +98,5 @@ assert the other two; branch tests assert the shared system prompt.
   covered behaviourally through scripted `StreamFn`s (request shape, cache
   retention `none`, fresh session id, retry, abort, error mapping).
 - No source bugs found in this module.
+
+2026-10-25: removed the frozen-absent AI text helper; the two summary paths now exclude whitespace-only text exactly as pinned compaction.ts:720–723/768–771. Pinned branch-summarization.ts:363–366 does not exclude whitespace, and that behavior is retained. Behavioral whitespace/U+FEFF RED→GREEN is in `compaction_generation::generates_a_summary_with_the_exact_request_shape`.
