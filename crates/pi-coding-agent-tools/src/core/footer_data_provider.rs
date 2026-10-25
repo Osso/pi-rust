@@ -23,7 +23,10 @@ use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, close_watc
 
 /// Debounce for file-system triggered branch refreshes.
 const WATCH_DEBOUNCE_MS: u64 = 500;
-/// Poll interval for `HEAD` and `reftable/tables.list`.
+
+#[cfg(test)]
+mod tests;
+/// Poll interval for WSL Windows-mounted `HEAD` files only.
 const GIT_FILE_POLL_INTERVAL_MS: u64 = 1_000;
 
 type BranchChangeCallback = (usize, Arc<dyn Fn() -> Result<(), CallbackError> + Send + Sync>);
@@ -576,6 +579,9 @@ impl FooterDataProvider {
             },
         );
         *lock(&self.state.head_watcher) = head_watcher;
+        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
+            return;
+        }
 
         let reftable_dir = node_join(&paths.common_git_dir, "reftable");
         if Path::new(&encode_node_utf8(&reftable_dir)).exists() {
@@ -591,6 +597,9 @@ impl FooterDataProvider {
                 },
             );
             *lock(&self.state.reftable_watcher) = reftable_watcher;
+            if lock(&self.state.reftable_watcher).is_none() {
+                return;
+            }
 
             let tables_list = node_join(&reftable_dir, "tables.list");
             if Path::new(&encode_node_utf8(&tables_list)).exists() {
@@ -609,46 +618,23 @@ impl FooterDataProvider {
             }
         }
 
-        if lock(&self.state.head_watcher).is_none() && !poll_git_head {
+        if !poll_git_head {
             return;
         }
-
         let provider = self.clone();
-        let poll_tables_list = Path::new(&encode_node_utf8(&node_join(&reftable_dir, "tables.list"))).exists();
-        let poll_head = poll_git_head;
         let head_path = paths.head_path.clone();
         let handle = self.runtime.spawn(async move {
             let mut head_stamp = file_stamp(&head_path);
-            let mut tables_stamp = file_stamp(&node_join(&reftable_dir, "tables.list"));
             let mut ticker = tokio::time::interval(Duration::from_millis(GIT_FILE_POLL_INTERVAL_MS));
             loop {
                 ticker.tick().await;
                 if provider.state.disposed.load(Ordering::SeqCst) {
                     return;
                 }
-                if poll_head {
-                    let current = file_stamp(&head_path);
-                    if current != head_stamp {
-                        head_stamp = current;
-                        provider.schedule_refresh();
-                    }
-                }
-                if poll_tables_list {
-                    let path = provider
-                        .state
-                        .git_paths
-                        .lock()
-                        .unwrap_or_else(|poisoned| poisoned.into_inner())
-                        .as_ref()
-                        .map(|paths| node_join(&paths.common_git_dir, "reftable/tables.list"));
-                    let Some(path) = path else {
-                        continue;
-                    };
-                    let current = file_stamp(&path);
-                    if current != tables_stamp {
-                        tables_stamp = current;
-                        provider.schedule_refresh();
-                    }
+                let current = file_stamp(&head_path);
+                if current != head_stamp {
+                    head_stamp = current;
+                    provider.schedule_refresh();
                 }
             }
         });

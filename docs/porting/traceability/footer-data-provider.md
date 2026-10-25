@@ -1,5 +1,15 @@
 # footer-data-provider
 
+## Current common-pin revalidation (in progress)
+
+Whole456-line source and readonly-session-manager45-line prerequisite approved2026-10-24. [Current contract](../../specs/footer-data-provider.md). Native readonly view and footer/default/interactive consumers: compile RED→GREEN,2 source/native snapshot/live/goal cases. Full number domain and live branch-set removal/addition/disposal: genuine RED→GREEN; original branch callback errors retain TypeError/code/raw UTF16 through Result.
+
+Real private fault experiment: deleting a watched directory emits rename twice, changing an active watch's permissions emits rename, not error. New watches on execute-only directories fail with EACCES; private /proc/self/fd/2 and /proc/self/mountinfo remain watchable. Log: footer-real-watch-fault-experiments.log. Therefore setup-failure proofs use real chmod111 permissions, not injection. A runtime watcher-error seam remains bounded to failure modes the real probes could not produce.
+
+Actual frozen/native real-watcher RED compares cached branch/notifications/git execution IO after: HEAD directory watch EACCES, reftable directory watch EACCES while tables.list is accessible, and one tables.list mutation held across the polling boundary. Native wrongly installed dependent watchers after failure and performed an extra tables.list poll absent source. The fix adds the literal early returns and removes tables.list polling; only WSL Windows-mounted HEAD polling remains. GREEN pending. Artifacts: `/tmp/pi-rust-repin-lossless-interactive/footer-real-watch-{head-failure,all-failures}-red.log`.
+
+The older audit below is historical and contains superseded type/gap descriptions; it will be replaced by the full current branch map before acceptance.
+
 ## Native representation checkpoint
 
 GitPaths/cwd/branch cache, GitBranchRunner arguments/results, executable resolution, and FooterSessionOverride cwd/thinking text are `JsString`. File reads, metadata/watch paths and child-process cwd encode only at actual IO. HEAD/stdout decode with Node replacement and use JS trim, retaining U+0085. Path traversal/resolution uses native Node lexical helpers, not PathBuf authority. Public constructors/set_cwd accept native text.
