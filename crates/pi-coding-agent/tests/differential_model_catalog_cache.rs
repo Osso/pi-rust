@@ -500,14 +500,8 @@ async fn typed_cached_model_keeps_native_human_name_and_rejects_opaque_unpaired_
 }
 
 #[test]
-fn typed_cached_optional_null_is_an_explicit_failure_not_silent_drop() {
-    for field in [
-        "headers",
-        "compat",
-        "samplingParams",
-        "thinkingLevelMap",
-        "autoCompactionThreshold",
-    ] {
+fn typed_cached_optional_null_rejects_known_fields_and_preserves_unknown_fields() {
+    for field in ["headers", "compat", "thinkingLevelMap", "autoCompactionThreshold"] {
         let mut model = cached_model();
         model[field] = Value::Null;
         assert!(
@@ -515,4 +509,10 @@ fn typed_cached_optional_null_is_an_explicit_failure_not_silent_drop() {
             "null {field} must fail explicitly"
         );
     }
+    // The frozen Model no longer has samplingParams; unknown root properties remain lossless.
+    let mut model = cached_model();
+    model["samplingParams"] = Value::Null;
+    let native: pi_ai::types::Model = serde_json::from_value(model).expect("unknown null remains representable");
+    let serialized = serde_json::to_value(native).unwrap();
+    assert_eq!(serialized.get("samplingParams"), Some(&Value::Null));
 }
