@@ -1,5 +1,11 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Attached acquisition lifecycle and legacy owner guards (2026-10-25)
+
+Actual-source terminal acquisition RED `/tmp/storage3-control-acquisition-red.log` returned invalid_agent for completed agents while native acquired ownership and advanced revision. The reader now propagates parsing failures and rejects non-recoverable lifecycles before ownership mutation, matching frozen ordering. Seven lifecycle states are tested with real registered supervisor processes and complete persisted agent/ownership comparisons.
+
+Actual-source shared-DB RED `/tmp/storage3-control-legacy-owner-valid-red.log` preserves an alive nonce owner when its proposed replacement lacks a nonce; native incorrectly superseded it. Acquisition now reuses the existing runtime-process supersession authority (both nonces required); the duplicate weaker helper is deleted. The test uses TS registration/creation, native acquisition and unchanged persisted state. The first legacy probe had a fixture DTO comparison type error, not a production RED.
+
 ## Empty-parent creation guards (2026-10-25)
 
 Actual-source attachment RED `/tmp/storage3-control-attachment-parent-red.log` treats an empty parent ID as main-thread attachment; native rejected it. Actual-source child RED `/tmp/storage3-control-child-parent-valid-red.log` rejects empty parent IDs before DB access, while native opened a blocked path and raised EEXIST. Attachments now use the frozen falsey-parent main alias; failed/runtime child creation returns parent_not_found before opening the DB. The first child probe failed only because its fixture supplied a nonexistent native input field; it is not production evidence.

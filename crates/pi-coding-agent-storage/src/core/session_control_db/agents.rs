@@ -2305,9 +2305,9 @@ fn decide_ownership_acquisition(
             super::multi_agent_runtime_ownership_from_row(current_ownership)?,
         ));
     }
-    let replaces_current_incarnation = current_identity
-        .as_ref()
-        .is_some_and(|current| same_process_with_superseded_incarnation(current, &input.process_identity));
+    let replaces_current_incarnation = current_identity.as_ref().is_some_and(|current| {
+        crate::core::runtime_process::is_superseded_runtime_identity(current, &input.process_identity)
+    });
     if current_owner_alive && !replaces_current_incarnation {
         return Ok(OwnershipAcquisition::Held);
     }
@@ -2389,13 +2389,14 @@ fn read_attached_runtime_agent(
     };
     let context = js_format!("multi_agent_agents:{}#{}", session_path, agent_id);
 
-    match parse_agent_snapshot(&data, &context) {
-        Ok(agent) => Ok(AttachedRuntimeAgentRead::Ok {
-            agent: Box::new(agent),
-            data,
-        }),
-        Err(_) => Ok(AttachedRuntimeAgentRead::Err(AcquireAttachedError::InvalidAgent)),
+    let agent = parse_agent_snapshot(&data, &context)?;
+    if !is_recoverable_runtime_lifecycle(&agent.lifecycle) {
+        return Ok(AttachedRuntimeAgentRead::Err(AcquireAttachedError::InvalidAgent));
     }
+    Ok(AttachedRuntimeAgentRead::Ok {
+        agent: Box::new(agent),
+        data,
+    })
 }
 
 fn read_registered_supervisor_session_authority(
@@ -2514,16 +2515,6 @@ fn supervisor_session_authority_is_current(
     }
     let supervisor_agent = read_agent_data_row(db, session_path, &supervisor.agent_id.clone().unwrap_or_default())?;
     Ok(supervisor_agent == expected.supervisor_agent_data)
-}
-
-fn same_process_with_superseded_incarnation(
-    current: &crate::core::runtime_process::ProcessIdentity,
-    incoming: &crate::core::runtime_process::ProcessIdentity,
-) -> bool {
-    current.pid == incoming.pid
-        && current.start_time_ticks == incoming.start_time_ticks
-        && current.incarnation.is_some()
-        && current.incarnation != incoming.incarnation
 }
 
 fn persist_acquired_runtime_ownership(

@@ -70,6 +70,8 @@ pub mod repin_runtime_mailbox_transcript;
 pub mod repin_session_manager;
 #[path = "repin_storage_archive.rs"]
 pub mod repin_storage_archive;
+#[path = "repin_storage_control_acquisition.rs"]
+pub mod repin_storage_control_acquisition;
 #[path = "repin_storage_control_agent_wire.rs"]
 pub mod repin_storage_control_agent_wire;
 #[path = "repin_storage_control_callbacks.rs"]
@@ -78,6 +80,8 @@ pub mod repin_storage_control_callbacks;
 pub mod repin_storage_control_cancellation;
 #[path = "repin_storage_control_history.rs"]
 pub mod repin_storage_control_history;
+#[path = "repin_storage_control_legacy_owner.rs"]
+pub mod repin_storage_control_legacy_owner;
 #[path = "repin_storage_copy_validation.rs"]
 pub mod repin_storage_copy_validation;
 #[path = "repin_storage_history.rs"]
