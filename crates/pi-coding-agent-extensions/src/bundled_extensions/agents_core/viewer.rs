@@ -40,7 +40,7 @@ pub fn list_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> Result
 }
 
 fn list_matching_agents(store: &MultiAgentStore, params: &ListAgentsParams) -> Vec<AgentSnapshot> {
-    let agents = match params.parent_id.as_ref() {
+    let agents = match params.parent_id.as_ref().filter(|id| !id.is_empty()) {
         Some(parent_id) => store.list_descendants(parent_id),
         None => store.list_agents(),
     };

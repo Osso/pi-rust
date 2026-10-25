@@ -609,6 +609,92 @@ async fn factory_options_match_frozen_parent_registry_tools_and_settings() {
 }
 
 #[tokio::test]
+async fn browser_factory_reads_only_the_configured_root_like_frozen() {
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for attached in [false, true] {
+        let env = test_env().await;
+        append_user(&env.session_manager, "parent");
+        lock_session_manager(&env.session_manager)
+            .persist_for_recovery()
+            .unwrap();
+        let session_path = lock_session_manager(&env.session_manager)
+            .get_session_file()
+            .cloned()
+            .unwrap();
+        let root = env._dir.path().join("restricted-config");
+        std::fs::create_dir(&root).unwrap();
+        let inside = root.join("allowed.md");
+        let outside = env._dir.path().join("outside.md");
+        std::fs::write(&inside, "restricted marker").unwrap();
+        std::fs::write(&outside, "must not be readable").unwrap();
+        for path in [&inside, &outside] {
+            let source = ts.request(&json!({"id":44,"op":"factoryOptions","attached":attached,
+                "agentType":"browser","cwd":env.cwd,"agentDir":env.agent_dir,"controlDbPath":env.control_db,
+                "sessionPath":session_path,"browserRoot":root.to_str().unwrap(),"readPath":path.to_str().unwrap(),
+            }));
+            assert_eq!(source["ok"], json!(true), "{source:?}");
+            let captured = Arc::new(Captured::default());
+            let mut agent = child_agent(&env, "browser", "reader");
+            agent.agent_type = "browser".into();
+            if attached {
+                create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                    agent_dir: Some(env.agent_dir.clone().into()),
+                    browser_agent_config_root: Some(root.to_str().unwrap().into()),
+                    create_session: create_child_session(Arc::clone(&captured), "done"),
+                    extension_factories: None,
+                    multi_agent_store: None,
+                    session_dir: None,
+                })
+                .call(AttachedSessionDispatchInput {
+                    active_tool_call_id: None,
+                    agent,
+                    ctx: env.session.extension_runner().create_context(),
+                    prompt: "task".into(),
+                    signal: None,
+                    session_path: session_path.clone(),
+                })
+                .await
+                .unwrap();
+            } else {
+                let mut options = child_options(&env, Arc::clone(&captured), None, None);
+                options.browser_agent_config_root = Some(root.to_str().unwrap().into());
+                create_production_child_agent_session_factory(options)
+                    .call(child_input(&env, agent, SpawnContext::Fresh, "task"))
+                    .await
+                    .unwrap();
+            }
+            let options = captured.options.lock().unwrap().take().unwrap();
+            let result = (options.custom_tool_definitions[0].execute)(
+                "read".into(),
+                json!({"path":path.to_str().unwrap()}),
+                None,
+                None,
+                None,
+            )
+            .await;
+            let native = match result {
+                Ok(result) => json!({"value":pi_js_compat::js_json::to_value(&result).unwrap()}),
+                Err(error) => json!({"error":error.message}),
+            };
+            assert_eq!(native, source["output"]["readResult"]);
+            if path == &inside {
+                assert!(
+                    native["value"]["content"][0]["text"]
+                        .as_string()
+                        .unwrap()
+                        .contains("restricted marker")
+                );
+            } else {
+                assert!(native.get("error").is_some());
+            }
+        }
+    }
+}
+
+#[tokio::test]
 async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
     let env = test_env().await;
     append_user(&env.session_manager, "Parent-only context marker");
