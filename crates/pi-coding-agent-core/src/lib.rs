@@ -13,6 +13,3 @@ pub mod modes {
         }
     }
 }
-#[cfg(test)]
-#[path = "../../pi-coding-agent/tests/support/oracle.rs"]
-pub(crate) mod test_oracle;
