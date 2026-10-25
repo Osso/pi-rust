@@ -1208,3 +1208,7 @@ path = "tests/config_dispatch_process.rs"
 [[test]]
 name = "ask_secret_process"
 path = "tests/ask_secret_process.rs"
+
+[[test]]
+name = "claude_memory_enrich_lifecycle"
+path = "tests/claude_memory_enrich_lifecycle.rs"
