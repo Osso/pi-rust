@@ -226,7 +226,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
 "#,
     );
     let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun).unwrap();
-    let data = manifest(
+    let mut data = manifest(
         &fixture,
         &job_id,
         &fixture
@@ -237,23 +237,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
             .expect("utf-8 test path"),
         &runner_command,
     );
-    let ownership = register(
-        &fixture,
-        &job_id,
-        read_process_identity(std::process::id()).expect("identity"),
-    );
-    write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
-        .join("launch.json")
-        .to_str()
-        .expect("utf-8 test path")
-        .to_owned();
-    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
-
-    let runner = tokio::spawn({
-        let manifest_path = manifest_path.clone();
-        async move { run_runner_child(&manifest_path).await }
-    });
+    let (_, runner) = launch_registered_runner(&fixture, &job_id, &mut data);
 
     let supervisor_address = RuntimeMailboxAddress {
         agent_id: None,
@@ -352,7 +336,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
 "#,
     );
     let job_id = fixture.controller.allocate_job_id(DetachedJobAgentType::Pyrun).unwrap();
-    let data = manifest(
+    let mut data = manifest(
         &fixture,
         &job_id,
         &fixture
@@ -363,23 +347,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
             .expect("utf-8 test path"),
         &runner_command,
     );
-    let ownership = register(
-        &fixture,
-        &job_id,
-        read_process_identity(std::process::id()).expect("identity"),
-    );
-    write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
-        .join("launch.json")
-        .to_str()
-        .expect("utf-8 test path")
-        .to_owned();
-    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
-
-    let runner = tokio::spawn({
-        let manifest_path = manifest_path.clone();
-        async move { run_runner_child(&manifest_path).await }
-    });
+    let (ownership, runner) = launch_registered_runner(&fixture, &JsString::from(job_id), &mut data);
     wait_for(
         || Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists(),
         "output",
@@ -461,7 +429,7 @@ while True:
 "#,
     );
     let job_id = "agent_1";
-    let data = manifest(
+    let mut data = manifest(
         &fixture,
         &JsString::from(job_id),
         &fixture
@@ -472,23 +440,7 @@ while True:
             .expect("utf-8 test path"),
         &runner_command,
     );
-    let ownership = register(
-        &fixture,
-        &JsString::from(job_id),
-        read_process_identity(std::process::id()).expect("identity"),
-    );
-    write_detached_pyrun_activation(&data.activation_path, &ownership.identity).expect("activation");
-    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory))
-        .join("launch.json")
-        .to_str()
-        .expect("utf-8 test path")
-        .to_owned();
-    write_detached_pyrun_launch_manifest(&JsString::from(&manifest_path), &data).expect("manifest");
-
-    let runner = tokio::spawn({
-        let manifest_path = manifest_path.clone();
-        async move { run_runner_child(&manifest_path).await }
-    });
+    let (ownership, runner) = launch_registered_runner(&fixture, &JsString::from(job_id), &mut data);
     wait_for(
         || {
             Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists()
@@ -548,15 +500,37 @@ while True:
     assert_eq!(agent.revision, cancelling_agent.revision + 1);
 }
 
-async fn run_runner_child(manifest_path: &str) -> Result<Option<i64>, JsString> {
-    let output =
-        tokio::process::Command::new(std::env::current_exe().map_err(|error| JsString::from(error.to_string()))?)
-            .args(["--exact", "detached_runner_process_entry", "--nocapture"])
-            .env(TEST_RUNNER_ENV, manifest_path)
-            .process_group(0)
-            .output()
-            .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+fn launch_registered_runner(
+    fixture: &Fixture,
+    job_id: &JsString,
+    data: &mut DetachedPyrunLaunchManifestData,
+) -> (
+    DetachedJobOwnership,
+    tokio::task::JoinHandle<Result<Option<i64>, JsString>>,
+) {
+    let manifest_path = Path::new(&encode_node_utf8(&data.artifacts.directory)).join("launch.json");
+    let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "detached_runner_process_entry", "--nocapture"])
+        .env(TEST_RUNNER_ENV, &manifest_path)
+        .process_group(0)
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let identity = read_process_identity(child.id().unwrap()).unwrap();
+    let ownership = register(fixture, job_id, identity.clone());
+    data.runner_process_identity = identity;
+    write_detached_pyrun_activation(&data.activation_path, &ownership.identity).unwrap();
+    write_detached_pyrun_launch_manifest(&manifest_path.to_str().unwrap().into(), data).unwrap();
+    (ownership, tokio::spawn(wait_runner_child(child)))
+}
+
+async fn wait_runner_child(child: tokio::process::Child) -> Result<Option<i64>, JsString> {
+    let output = tokio::time::timeout(Duration::from_secs(15), child.wait_with_output())
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?
+        .map_err(|error| JsString::from(error.to_string()))?;
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
     }
