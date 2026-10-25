@@ -6,7 +6,6 @@ use pi_js_compat::abort::{AbortController, AbortSignal};
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 // Frozen bash.ts:128-241 + child-process.ts:40-152. Real descendants must keep
 // rearming the shared idle grace; durable output polls only once per second.
@@ -16,11 +15,16 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
     let cwd = JsString::from(temp.path().to_str().unwrap());
     let file = temp.path().join("file");
     std::fs::write(&file, "file").unwrap();
+    let descendant_ready = temp.path().join("descendant-ready");
+    let descendant_command = format!(
+        "ready='{}'; rm -f \"$ready\"; printf early; (for i in 1 2 3 4 5 6; do printf x; done; : > \"$ready\") & while [ ! -f \"$ready\" ]; do sleep .01; done",
+        descendant_ready.display()
+    );
     let cases = vec![
         json!({"command":"printf plain"}),
         json!({"command":"printf '%s' \"$CUSTOM\"","env":{"CUSTOM":"set"}}),
         json!({"command":"exit 7"}),
-        json!({"command":"printf early; (for i in 1 2 3 4 5 6; do sleep .06; printf x; done) &"}),
+        json!({"command":descendant_command}),
         json!({"command":"printf durable; sleep .15","artifacts":true}),
         json!({"command":"printf durable; sleep 1.2","artifacts":true}),
         json!({"command":"true","artifacts":true,"missingArtifacts":true}),
@@ -32,7 +36,7 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         json!({"command":"true","number":"NaN"}),
         json!({"command":"true","timeout":2147483.648}),
         json!({"command":"printf before; sleep 2","timeout":0.05}),
-        json!({"command":"printf before; sleep 2","abortMs":50}),
+        json!({"command":"printf before; sleep 2","abortOnData":true}),
         json!({"command":"true","artifacts":true,"replaceDirectory":true}),
         json!({"command":"true","artifacts":true,"cleanupDirectory":"nul\0directory"}),
         json!({"command":"true","artifacts":true,"cleanupDirectory":JsString::from(file.to_str().unwrap())+"/child"}),
@@ -72,13 +76,8 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         if input["preAbort"] == JsValue::Bool(true) {
             controller.abort(None)
         }
-        let abort = input["abortMs"].as_u64().map(|ms| {
-            let controller = controller.clone();
-            tokio::spawn(async move {
-                tokio::time::sleep(Duration::from_millis(ms)).await;
-                controller.abort(None);
-            })
-        });
+        let abort_on_data = input["abortOnData"] == JsValue::Bool(true);
+        let data_abort = controller.clone();
         let data = Arc::new(Mutex::new(Vec::new()));
         let capture = data.clone();
         let timeout = match input["number"].as_string() {
@@ -93,6 +92,9 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         let options = BashExecOptions {
             on_data: Arc::new(move |chunk| {
                 capture.lock().unwrap().extend_from_slice(chunk);
+                if abort_on_data {
+                    data_abort.abort(None);
+                }
                 Ok(())
             }),
             signal: Some(controller.signal()),
@@ -118,9 +120,6 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
         let result = create_local_bash_operations(input["shellPath"].as_string())
             .exec(&command, input["cwd"].as_string().unwrap_or(&cwd), options)
             .await;
-        if let Some(abort) = abort {
-            abort.abort();
-        }
         let result = match result {
             Ok(value) => json!({"ok":true,"value":{"exitCode":value.exit_code}}),
             Err(error) => json!({"ok":false,"error":error.message}),
