@@ -48,7 +48,7 @@ async fn export_file_probe() {
     .expect("export succeeds");
     assert_eq!(written, output.display().to_string());
 
-    let html = std::fs::read_to_string(&&encode_node_utf8(&written)).expect("read html");
+    let html = std::fs::read_to_string(encode_node_utf8(&written)).expect("read html");
     assert!(html.starts_with("<!DOCTYPE html>\n<html lang=\"en\">"));
     assert!(html.contains("--exportPageBg: #18181e;"));
     assert!(html.contains("<script id=\"session-data\" type=\"application/json\">"));
@@ -306,7 +306,7 @@ async fn export_agent_session_probe() {
         .await
         .expect("export succeeds");
     assert_eq!(written, output.display().to_string());
-    let html = std::fs::read_to_string(&&encode_node_utf8(&written)).expect("read html");
+    let html = std::fs::read_to_string(encode_node_utf8(&written)).expect("read html");
     assert!(html.contains("--exportPageBg: #18181e;"));
     let session_data = decode_session_data(&html);
     assert_eq!(session_data["header"]["id"], "export-fixture");

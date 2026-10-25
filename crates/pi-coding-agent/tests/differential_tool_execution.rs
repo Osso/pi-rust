@@ -144,7 +144,7 @@ fn definition(request: &Value, events: Arc<Mutex<Vec<Value>>>) -> Option<ToolDef
                             result
                                 .content
                                 .iter()
-                                .map(|content| parse_lossless(&serde_json::to_string(content).unwrap()).unwrap())
+                                .map(|content| parse_lossless(serde_json::to_string(content).unwrap()).unwrap())
                                 .collect(),
                         ),
                     );

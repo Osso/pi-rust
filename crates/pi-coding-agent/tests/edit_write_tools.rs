@@ -235,7 +235,7 @@ fn edit_definition_forwards_prepare_arguments() {
     let temp = tempfile::tempdir().expect("temp dir");
     std::fs::write(temp.path().join("legacy.txt"), "before\n").expect("fixture");
     let definition = create_edit_tool_definition(
-        &JsString::from(temp.path().to_str().expect("utf-8 test path")),
+        JsString::from(temp.path().to_str().expect("utf-8 test path")),
         EditToolOptions::default(),
     );
     let prepare = definition

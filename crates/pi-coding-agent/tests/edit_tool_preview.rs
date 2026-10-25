@@ -317,7 +317,7 @@ fn edit_settled_result_rebuilds_the_rendered_call_component() {
     let cwd = temp.path().to_str().expect("utf-8 test path").to_owned();
     std::fs::write(temp.path().join("note.txt"), "hello world\n").expect("fixture");
     let args = json!({"path": "note.txt", "edits": [{"oldText": "hello", "newText": "goodbye"}]});
-    let definition = create_edit_tool_definition(&JsString::from(&cwd), Default::default());
+    let definition = create_edit_tool_definition(JsString::from(&cwd), Default::default());
     let component = ToolExecutionComponent::new(
         "edit",
         "edit-call",

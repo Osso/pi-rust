@@ -276,7 +276,7 @@ fn rust_load_theme(directory: &Path, case: &Value) -> Value {
     let path = directory.join(format!("{name}.json"));
     fs::write(&path, content).expect("write differential theme");
     match load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
         Some(mode),
     ) {
         Ok(theme) => json!({

@@ -439,7 +439,7 @@ async fn check_renderers(running: bool, ties: bool) {
             .borrow_mut()
             .render(100)
             .iter()
-            .map(|s| pi_coding_agent::utils::ansi::strip_ansi(s))
+            .map(pi_coding_agent::utils::ansi::strip_ansi)
             .collect::<Vec<_>>();
         assert_eq!(pi_js_compat::js_json!(actual), expected["renders"][i], "render {i}");
     }

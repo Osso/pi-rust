@@ -168,7 +168,7 @@ fn all_helpers_match_broad_pinned_corpus() {
         let text = item["text"].as_str().unwrap();
         let mut todos: Vec<example::TodoItem> = item["todos"].as_array().unwrap().iter().map(|item|example::TodoItem{step:item["step"].as_u64().unwrap() as usize,text:JsString::from(item["text"].as_str().unwrap()),completed:item["completed"].as_bool().unwrap()}).collect();
         let marked = example::mark_completed_steps(text, &mut todos);
-        let JsValue::Object(mut value)=parse_lossless(&serde_json::to_string(&json!({"safe":example::is_safe_command(text),"clean":"","todos":[],"done":example::extract_done_steps(text),"marked":marked,"updated":[]})).unwrap()).unwrap()else{unreachable!()};
+        let JsValue::Object(mut value)=parse_lossless(serde_json::to_string(&json!({"safe":example::is_safe_command(text),"clean":"","todos":[],"done":example::extract_done_steps(text),"marked":marked,"updated":[]})).unwrap()).unwrap()else{unreachable!()};
         value.insert(JsString::from("clean"),JsValue::String(example::clean_step_text(text)));
         value.insert(JsString::from("todos"),todos_json(&example::extract_todo_items(text)));
         value.insert(JsString::from("updated"),todos_json(&todos));

@@ -27,7 +27,7 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
         session.persist_for_recovery().unwrap();
         let file = std::fs::File::options()
             .write(true)
-            .open(encode_node_utf8(&session.get_session_file().unwrap()))
+            .open(encode_node_utf8(session.get_session_file().unwrap()))
             .unwrap();
         file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(10 - index))
             .unwrap();

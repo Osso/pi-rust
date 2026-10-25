@@ -183,7 +183,8 @@ impl ExtensionUiContext for Ui {
         Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
-                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("theme/dark.json")
                         .to_str()
                         .expect("fixture path must be UTF-8"),
                 ),

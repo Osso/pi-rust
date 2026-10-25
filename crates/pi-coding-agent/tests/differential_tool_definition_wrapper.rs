@@ -91,7 +91,7 @@ fn spill_failure_probe() {
             assert_eq!(expected["ok"], pi_js_compat::js_json!(true), "{expected:?}");
             let trace = Arc::new(Mutex::new(Vec::<String>::new()));
             let captured = Arc::clone(&trace);
-            let mut definition = create_tool_definition_from_agent_tool(pi_coding_agent::core::tools::read::create_read_tool(&JsString::from("/tmp"), Default::default()));
+            let mut definition = create_tool_definition_from_agent_tool(pi_coding_agent::core::tools::read::create_read_tool(JsString::from("/tmp"), Default::default()));
             definition.execute = Arc::new(move |_, _, _, update, _| {
                 let captured = Arc::clone(&captured);
                 Box::pin(async move {
@@ -191,7 +191,7 @@ async fn timer_update_failure_probe() {
     }
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
     let tool = create_bash_tool(
-        &JsString::from("/tmp"),
+        JsString::from("/tmp"),
         BashToolOptions {
             operations: Some(Arc::new(ScriptedBash)),
             ..Default::default()

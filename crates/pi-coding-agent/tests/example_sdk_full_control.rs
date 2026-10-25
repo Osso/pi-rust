@@ -94,7 +94,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     if let Some(expected_key) = expected_key {
         assert_eq!(
             runtime.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
-            Some(expected_key.as_str()).map(JsString::from).as_ref()
+            Some(JsString::from(expected_key.as_str())).as_ref()
         );
     }
     assert_eq!(

@@ -51,7 +51,8 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     support::bind(&mut runner);
     let theme = load_theme_from_path(
         &JsString::from(
-            (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("theme/dark.json")
                 .to_str()
                 .expect("fixture path must be UTF-8"),
         ),
