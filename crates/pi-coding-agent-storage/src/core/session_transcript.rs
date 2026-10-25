@@ -6,6 +6,8 @@ use std::path::Path;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use pi_js_compat::node_error::NativeNodeError;
 use pi_js_compat::node_fs::{node_fs_error_record, node_path_argument_error};
+mod errors;
+use errors::ZstdReadFailure;
 
 pub fn is_session_transcript_file(path: impl Into<JsString>) -> bool {
     let path = path.into();
@@ -48,11 +50,13 @@ pub fn create_session_transcript_read_stream(
 
 /// Convert the required std::io::Read boundary once, retaining Node error data.
 pub fn session_transcript_read_error(path: &JsString, error: io::Error) -> Box<NativeNodeError> {
-    if error.raw_os_error().is_some() {
-        Box::new(node_fs_error_record(&error, "read", path).into())
-    } else {
-        Box::new(NativeNodeError::new("Error", error.to_string()))
+    if let Some(failure) = error
+        .get_ref()
+        .and_then(|error| error.downcast_ref::<ZstdReadFailure>())
+    {
+        return Box::new(failure.native_error());
     }
+    Box::new(node_fs_error_record(&error, "read", path).into())
 }
 
 pub fn read_session_transcript_bytes(path: impl Into<JsString>) -> Result<Vec<u8>, Box<NativeNodeError>> {
@@ -72,13 +76,39 @@ pub fn read_session_transcript_text(path: impl Into<JsString>) -> Result<String,
 /// Node continues recognized concatenated frames, but ignores non-frame bytes
 /// following a complete frame. Never suppress an error inside a frame.
 struct SessionZstdDecoder<R: Read> {
-    decoder: Option<zstd::stream::read::Decoder<'static, BufReader<R>>>,
+    context: zstd::zstd_safe::DCtx<'static>,
+    reader: BufReader<R>,
+    frame_complete: bool,
+    finished: bool,
 }
 impl<R: Read> SessionZstdDecoder<R> {
     fn new(reader: R) -> io::Result<Self> {
+        let context = zstd::zstd_safe::DCtx::try_create()
+            .ok_or_else(|| ZstdReadFailure::Library(0usize.wrapping_sub(64)).into_io())?;
         Ok(Self {
-            decoder: Some(zstd::stream::read::Decoder::new(reader)?.single_frame()),
+            context,
+            reader: BufReader::new(reader),
+            frame_complete: false,
+            finished: false,
         })
+    }
+
+    fn decode_chunk(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        let bytes = self.reader.fill_buf()?;
+        let mut input = zstd::zstd_safe::InBuffer::around(bytes);
+        let mut decoded = zstd::zstd_safe::OutBuffer::around(output);
+        let remaining = self
+            .context
+            .decompress_stream(&mut decoded, &mut input)
+            .map_err(|code| ZstdReadFailure::Library(code).into_io())?;
+        self.frame_complete = remaining == 0;
+        let consumed = input.pos();
+        let count = decoded.pos();
+        if bytes.is_empty() && count == 0 && !self.frame_complete {
+            return Err(ZstdReadFailure::Incomplete.into_io());
+        }
+        self.reader.consume(consumed);
+        Ok(count)
     }
 }
 fn starts_zstd_frame(bytes: &[u8]) -> bool {
@@ -94,22 +124,18 @@ fn starts_zstd_frame(bytes: &[u8]) -> bool {
 }
 impl<R: Read> Read for SessionZstdDecoder<R> {
     fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
-        if output.is_empty() {
+        if output.is_empty() || self.finished {
             return Ok(0);
         }
         loop {
-            let Some(decoder) = self.decoder.as_mut() else {
+            if self.frame_complete && !starts_zstd_frame(self.reader.fill_buf()?) {
+                self.finished = true;
                 return Ok(0);
-            };
-            let count = decoder.read(output)?;
+            }
+            let count = self.decode_chunk(output)?;
             if count > 0 {
                 return Ok(count);
             }
-            let mut reader = self.decoder.take().expect("decoder was present").finish();
-            if !starts_zstd_frame(reader.fill_buf()?) {
-                return Ok(0);
-            }
-            self.decoder = Some(zstd::stream::read::Decoder::with_buffer(reader)?.single_frame());
         }
     }
 }
