@@ -22,6 +22,7 @@ pub mod node_ignore;
 pub mod node_os;
 pub mod node_readline;
 pub mod node_timers;
+pub mod node_url;
 pub mod number;
 pub mod process_cwd;
 pub mod process_env;
