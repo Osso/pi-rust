@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 615, `gap` 25, `partial` 25, `todo` 21.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 616, `gap` 25, `partial` 24, `todo` 21.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -658,7 +658,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/syntax-highlight.ts` | 146 | 1 | done | `crates/pi-coding-agent-base/src/utils/syntax_highlight/` | render + engine; all 189 generated grammars raw-differentialed; themed cases per grammar; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/terminal-current-directory.ts` | 13 | 0 | done | `crates/pi-coding-agent-base/src/utils/terminal_current_directory.rs` | Differential 26006; focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/tools-manager.ts` | 67 | 3 | done | `crates/pi-coding-agent-base/src/utils/tools_manager.rs` | Whole common-pin PATH-only lookup/ensure; old managed-bin/config/HOME/HTTP/download/install code and tests removed. Eight frozen lookup/console/probe cases +explicit default-maxBuffer runtime-gap case, Android native unit, caller7/0 and workspace all-target0/0. Typed invalid tool values excluded. [Map](traceability/tools-manager.md). |
-| `coding-agent/src/utils/version-check.ts` | 80 | 1 | partial | `crates/pi-coding-agent-base/src/utils/version_check.rs` | Whole module audited/implemented: direct Result propagation, one request, both flags, native timeout signal and Fetch JSON decoding. Actual source transport RED recorded; focused GREEN pending. [Map](traceability/version-check.md). |
+| `coding-agent/src/utils/version-check.ts` | 80 | 1 | done | `crates/pi-coding-agent-base/src/utils/version_check.rs` | Whole common-pin audit; source release30 +676 compare/676 newer, native lossless2 and shared boundary11 GREEN. Direct Result errors, one fetch, flags, timeout signal, Fetch BOM/JSON and branded failures. Runtime-only truthful User-Agent gap. [Map](traceability/version-check.md). |
 | `coding-agent/src/utils/windows-self-update.ts` | 84 | 2 | done | `crates/pi-coding-agent-base/src/utils/windows_self_update.rs` | Injected shared-object list; 6 behavioral cases (layout, dedupe, move/copy-back, cleanup); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/vitest.config.ts` | 35 | — | gap | — | Revalidated JS test-configuration waiver: setup/aliases/Node environment/timeout are not runtime behavior. [Trace](traceability/coding-agent-vitest-config.md). |
 
