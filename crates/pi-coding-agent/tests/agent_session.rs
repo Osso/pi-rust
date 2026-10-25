@@ -3093,7 +3093,7 @@ impl ExtensionUiContext for FailingApprovalUi {
     ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         Box::pin(async {
             Err(pi_ai::request::CallbackError::from_rejection(
-                JsString::from("dialog failed").into(),
+                JsValue::String(JsString::from("dialog failed")).into(),
             ))
         })
     }
