@@ -48,7 +48,7 @@ fn ok_result(model: &ImagesModel) -> AssistantImages {
         usage: None,
         stop_reason: ImagesStopReason::Stop,
         error_message: None,
-        timestamp: 1,
+        timestamp: 1.0,
     }
 }
 

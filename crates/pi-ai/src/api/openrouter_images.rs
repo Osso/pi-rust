@@ -57,7 +57,7 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
         usage: None,
         stop_reason: ImagesStopReason::Stop,
         error_message: None,
-        timestamp: now_millis(),
+        timestamp: now_millis() as f64,
     };
 
     match request_images(&model, &context, &options).await {
