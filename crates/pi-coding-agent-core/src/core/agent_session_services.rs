@@ -189,6 +189,7 @@ pub async fn create_agent_session_services(
     let agent_dir = options
         .agent_dir
         .as_ref()
+        .filter(|dir| !dir.is_empty())
         .map(|dir| {
             resolve_path(
                 dir,
@@ -207,14 +208,14 @@ pub async fn create_agent_session_services(
         .map(Ok)
         .unwrap_or_else(|| AuthStorage::create(Some(&node_join(&agent_dir, "auth.json"))))
         .map_err(CallbackError::from)?;
-    let model_registry =
-        options.model_registry.clone().map(Ok).unwrap_or_else(|| {
-            ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json")))
-        })?;
     let settings_manager = match options.settings_manager.take() {
         Some(settings) => settings,
         None => SettingsManager::create(&cwd, Some(&agent_dir), Default::default())?,
     };
+    let model_registry =
+        options.model_registry.clone().map(Ok).unwrap_or_else(|| {
+            ModelRegistry::create(auth_storage.clone(), Some(node_join(&agent_dir, "models.json")))
+        })?;
     let settings_manager = Arc::new(Mutex::new(settings_manager));
     let extension_flag_values = options.extension_flag_values.take();
     let reload_options = options.resource_loader_reload_options.take();
