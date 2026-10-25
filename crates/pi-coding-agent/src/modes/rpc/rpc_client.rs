@@ -127,7 +127,7 @@ pub struct TreeResult {
     pub leaf_id: Option<JsString>,
 }
 
-/// An RPC client error. `Display` matches the TypeScript `Error.message`.
+/// Lossless RPC error message/value; `Display` encodes only at the OS UTF-8 boundary.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RpcClientError {
     Native(Box<pi_js_compat::node_error::NativeNodeError>),
@@ -381,6 +381,10 @@ impl ClientInner {
             }
         }
 
+        self.notify_listeners(&value);
+    }
+
+    fn notify_listeners(&self, value: &JsValue) {
         // Frozen's encompassing catch also ignores null.type and callback rejections.
         if value.is_null() {
             return;
@@ -397,7 +401,7 @@ impl ClientInner {
             let Some(listener) = listener else {
                 return;
             };
-            if (listener.callback)(&value).is_err() {
+            if (listener.callback)(value).is_err() {
                 return;
             }
             index += 1;
@@ -418,6 +422,31 @@ fn response_id(value: &JsValue) -> Option<String> {
         .and_then(JsValue::as_string)
         .and_then(|id| id.to_utf8().ok())
         .filter(|id| !id.is_empty())
+}
+
+fn validate_request_state(sync: &mut SyncState) -> Result<(), RpcClientError> {
+    if sync.stop_run.is_some() {
+        return Err(RpcClientError::Stopping {
+            stderr: sync.stderr.clone(),
+        });
+    }
+    if let Some(error) = &sync.stop_error {
+        return Err(RpcClientError::PreviousStopFailed {
+            message: error.message(),
+        });
+    }
+    if sync.active_generation.is_none() {
+        return Err(RpcClientError::NotStarted);
+    }
+    if let Some(error) = &sync.exit_error {
+        return Err(error.clone());
+    }
+    if let Some(exit) = sync.exit {
+        let error = process_exit_error(exit, &sync.stderr);
+        sync.exit_error = Some(error.clone());
+        return Err(error);
+    }
+    Ok(())
 }
 
 fn reject_pending(state: &mut SyncState, error: RpcClientError) {
@@ -667,28 +696,7 @@ impl RpcClient {
 
     fn begin_request(&self, body: RpcCommandBody) -> Result<PendingRequest, RpcClientError> {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
-        if sync.stop_run.is_some() {
-            return Err(RpcClientError::Stopping {
-                stderr: sync.stderr.clone(),
-            });
-        }
-        if let Some(error) = &sync.stop_error {
-            return Err(RpcClientError::PreviousStopFailed {
-                message: error.message(),
-            });
-        }
-        if sync.active_generation.is_none() {
-            return Err(RpcClientError::NotStarted);
-        }
-        if let Some(error) = &sync.exit_error {
-            return Err(error.clone());
-        }
-        if let Some(exit) = sync.exit {
-            let error = process_exit_error(exit, &sync.stderr);
-            sync.exit_error = Some(error.clone());
-            return Err(error);
-        }
-
+        validate_request_state(&mut sync)?;
         let stdin = match sync.stdin.as_ref().filter(|stdin| !stdin.is_closed()).cloned() {
             Some(stdin) => stdin,
             None => {
@@ -1247,19 +1255,20 @@ fn load_spawn_environment(options: &RpcClientOptions) -> pi_js_compat::js_json::
     env
 }
 
-fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
-    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
-    let args = spawn_arguments(options);
-    let env = load_spawn_environment(options);
-    validate_spawn_options(&executable, &args, options, &env)?;
-    let mut command = Command::new(encode_node_utf8(&executable));
+fn build_spawn_command(
+    options: &RpcClientOptions,
+    executable: &JsString,
+    args: &[JsString],
+    env: &pi_js_compat::js_json::JsObject,
+) -> Command {
+    let mut command = Command::new(encode_node_utf8(executable));
     command.args(args.iter().map(encode_node_utf8));
     if let Some(cwd) = &options.cwd {
         command.current_dir(encode_node_utf8(cwd));
     }
     command
         .env_clear()
-        .envs(js_json::object_entries_lossless(&env).into_iter().map(|(key, value)| {
+        .envs(js_json::object_entries_lossless(env).into_iter().map(|(key, value)| {
             (
                 encode_node_utf8(key),
                 encode_node_utf8(value.as_string().expect("spawn environment value")),
@@ -1269,6 +1278,15 @@ fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedPr
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    command
+}
+
+fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
+    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
+    let args = spawn_arguments(options);
+    let env = load_spawn_environment(options);
+    validate_spawn_options(&executable, &args, options, &env)?;
+    let mut command = build_spawn_command(options, &executable, &args, &env);
     let mut child = command.spawn().map_err(|error| {
         let record = pi_js_compat::node_fs::node_spawn_error_record(&error, &executable);
         if pi_js_compat::node_child_process::spawn_error_is_async(&error) {
@@ -1604,7 +1622,6 @@ mod tests {
                 .spawn()
                 .unwrap();
             let node_default = wait_and_clean_private_child(node_default);
-            println!("actual Node unhandled write with broken fd2: {:?}", node_default.status);
             assert_eq!(node_default.status.code(), Some(1));
             assert_eq!(source.status.code(), node_default.status.code());
             let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
@@ -1628,7 +1645,7 @@ mod tests {
                 .unwrap();
             let native = wait_and_clean_private_child(native);
             assert_eq!(
-                js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                js_json::parse_lossless(std::fs::read_to_string(output_path).unwrap()).unwrap(),
                 expected
             );
             assert_eq!(
@@ -1714,7 +1731,7 @@ mod tests {
             let native = wait_and_clean_private_child(command.spawn().unwrap());
             assert_eq!(native.status.code(), Some(0), "sink={sink}: {:?}", native.status);
             assert_eq!(
-                js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                js_json::parse_lossless(std::fs::read_to_string(output_path).unwrap()).unwrap(),
                 expected
             );
         }
