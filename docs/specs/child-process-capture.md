@@ -3,7 +3,7 @@
 Shared `utils::child_process::capture_child_process` extends the existing wait/read authority; no second output-reader implementation.
 
 - [x] Preserve existing unbounded wait behavior when no cap/signal is configured, including idle grace for inherited pipes.
-- [x] Apply a configured byte cap independently to stdout/stderr; retain bounded bytes and terminate/reap immediately on overflow or abort.
+- [x] Apply a configured byte cap independently to stdout/stderr; retain bounded bytes, destroy captured pipes, then send the explicit configured kill signal and reap on overflow or abort. Existing callers explicitly use SIGKILL; footer execFile parity uses SIGTERM (approved2026-10-24). No alternate signal escalation is added.
 - [x] Stop output readers after completion and report read failures explicitly rather than treating them as successful EOF.
 - [x] Expose the stop reason separately from captured status/bytes. RTK retains frozen stdout/stderr maxBuffer labels and ordinary command-error formatting.
 - [x] RTK decodes output safely and clamps at a UTF-8 boundary, including replacement expansion; no byte-index panic.
@@ -12,4 +12,6 @@ Shared `utils::child_process::capture_child_process` extends the existing wait/r
 Node execFile's chunk-dependent UTF-16 overflow prefix is not reproduced. User approval2026-10-23: sensible bounded native capture, exact configured cap/ordinary output/error labels, explicit prefix gap. This replaces the old post-read approximation; both streams are now bounded before producer completion.
 
 ## Proof
+`child_process_kill_signal` compares an actual Node execFile overflow with a real Python SIGTERM trap. The trap's side-effect marker proves the requested signal ran and stdout was already closed (EPIPE); the pre-change native SIGKILL path had no marker (genuine RED). An explicit SIGKILL regression preserves the existing caller contract. Runtime isolation/watchdog group cleanup applies to all private children.
+
 `differential_ls_rtk_io` compares seven actual frozen success/failure outputs, including BOM/Unicode whitespace and quiet nonzero exit. Separate native safety cases write multi-megabyte UTF-8 to each stream; error output stays within20KiB and producer completion markers never appear. RED reproduces UTF-8 slicing panic; `ls-rtk-io-green-2.log`9/0 with six shared child-process and existing RTK controls.

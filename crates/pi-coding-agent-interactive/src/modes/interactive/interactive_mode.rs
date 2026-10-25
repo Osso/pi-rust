@@ -4165,7 +4165,9 @@ impl InteractiveMode {
         });
         Ok(Some(FooterSessionOverride {
             cwd: manager.get_cwd().to_owned(),
-            session_manager: Some(Arc::clone(&session_manager)),
+            session_manager: Some(crate::core::readonly_session_manager::create_readonly_session_manager(
+                Arc::clone(&session_manager),
+            )),
             model,
             thinking_level: thinking_level.into(),
             context_usage,
@@ -4191,10 +4193,8 @@ impl InteractiveMode {
             .session_manager
             .as_ref()
             .expect("child footer has manager");
-        let manager = manager_handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let entries = manager.build_context_entries();
-        let source_cwd = manager.get_cwd().to_owned();
-        drop(manager);
+        let entries = manager_handle.build_context_entries();
+        let source_cwd = manager_handle.get_cwd();
         self.footer.borrow_mut().set_session_override(footer_override.clone());
         self.footer_data_provider.set_session_override(footer_override);
         self.chat_container.borrow_mut().clear();
@@ -7889,7 +7889,7 @@ impl InteractiveMode {
         let models = self.get_model_candidates()?;
         let unique_providers: HashSet<&str> = models.iter().map(|model| model.provider.as_str()).collect();
         self.footer_data_provider
-            .set_available_provider_count(unique_providers.len());
+            .set_available_provider_count(unique_providers.len() as f64);
         Ok(())
     }
 
@@ -8507,7 +8507,7 @@ impl InteractiveMode {
         self.footer
             .borrow_mut()
             .set_auto_compact_enabled(self.session().auto_compaction_enabled());
-        self.footer_data_provider.set_cwd(self.cwd());
+        self.footer_data_provider.set_cwd(self.cwd())?;
         self.hide_thinking_block
             .set(self.settings(|settings| settings.get_hide_thinking_block()));
         self.ui

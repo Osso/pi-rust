@@ -688,7 +688,8 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
                 footer_data
                     .as_ref()
                     .unwrap()
-                    .set_cwd(JsString::from(dir.to_str().expect("fixture path must be UTF-8")));
+                    .set_cwd(JsString::from(dir.to_str().expect("fixture path must be UTF-8")))
+                    .unwrap();
             }
             "tool" => {
                 let tool = runner.get_tool_definition(step["name"].as_str().unwrap()).unwrap();

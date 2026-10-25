@@ -328,7 +328,7 @@ fn format_rtk_ls_error(message: &JsString, stdout: &str, stderr: &str) -> JsStri
 
 async fn run_rtk_ls(cwd: &JsString, path: &JsString, signal: Option<&AbortSignal>) -> Result<String, RtkError> {
     let mut child = spawn_rtk_ls(cwd, path)?;
-    let capture = capture_child_process(&mut child, Some(RTK_MAX_BUFFER), signal)
+    let capture = capture_child_process(&mut child, Some(RTK_MAX_BUFFER), signal, rustix::process::Signal::KILL)
         .await
         .map_err(|error| RtkError::Failed {
             message: error.to_string().into(),
