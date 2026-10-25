@@ -9,7 +9,7 @@ const api = (await import(pathToFileURL(process.argv[2]).href)) as Api;
 
 type Request = {
  id: number;
- mode: "open" | "memory" | "create" | "fork" | "load";
+ mode: "open" | "memory" | "create" | "fork" | "load" | "recent" | "continue" | "list" | "listAll" | "info";
  path: string;
  cwd: string;
  dir?: string;
@@ -76,14 +76,26 @@ for await (const line of createInterface({ input: process.stdin })) {
  const request = JSON.parse(line) as Request;
  let manager: Manager | undefined;
  try {
-  if (request.mode === "load") {
-   process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, output: api.loadEntriesFromFile(request.path) })}\n`);
+  if (["load", "recent", "list", "listAll", "info"].includes(request.mode)) {
+   let output: unknown;
+   if (request.mode === "load") output = api.loadEntriesFromFile(request.path);
+   else if (request.mode === "recent") output = api.findMostRecentSession(request.dir!, request.cwd);
+   else if (request.mode === "info") output = await api.buildSessionInfo(request.path);
+   else {
+    const progress: number[][] = [];
+    const onProgress = (loaded: number, total: number) => { progress.push([loaded, total]); };
+    const sessions = request.mode === "list" ? await api.SessionManager.list(request.cwd, request.dir, onProgress)
+      : await api.SessionManager.listAll(request.dir, onProgress);
+    output = { sessions, progress };
+   }
+   process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, output })}\n`);
    continue;
   }
   const options = request.sessionId === undefined ? undefined : { id: request.sessionId };
   manager = request.mode === "memory" ? api.SessionManager.inMemory(request.cwd, options)
    : request.mode === "create" ? api.SessionManager.create(request.cwd, request.dir, options)
    : request.mode === "fork" ? api.SessionManager.forkFrom(request.path, request.cwd, request.dir, options, request.from)
+   : request.mode === "continue" ? api.SessionManager.continueRecent(request.cwd, request.dir)
    : api.SessionManager.open(request.path, request.dir);
   const results = [];
   for (const command of request.commands ?? []) {

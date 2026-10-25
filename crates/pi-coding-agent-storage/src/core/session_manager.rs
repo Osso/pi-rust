@@ -1852,9 +1852,14 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         Some(cwd) => Some(resolve(cwd).ok()?),
         None => None,
     };
-    let entries = fs::read_dir(encode_node_utf8(&resolved_session_dir)).ok()?;
+    let mut entries = fs::read_dir(encode_node_utf8(&resolved_session_dir))
+        .ok()?
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    // Node readdirSync uses scandir filename order; Date mtime drops sub-ms precision.
+    entries.sort_by_key(|entry| entry.file_name());
     let mut files: Vec<(JsString, f64)> = Vec::new();
-    for entry in entries.flatten() {
+    for entry in entries {
         let file_name = entry.file_name().to_string_lossy().into_owned();
         if !file_name.ends_with(".jsonl") {
             continue;
@@ -1868,13 +1873,7 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         {
             continue;
         }
-        let mtime = entry
-            .metadata()
-            .ok()
-            .and_then(|metadata| metadata.modified().ok())
-            .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|elapsed| elapsed.as_secs_f64() * 1000.0)
-            .unwrap_or(0.0);
+        let mtime = system_time_date(entry.metadata().ok()?.modified().ok()?);
         files.push((path, mtime));
     }
     files.sort_by(|left, right| right.1.total_cmp(&left.1));

@@ -187,6 +187,30 @@ fn initial_persistence_and_fork_failures_keep_frozen_fs_boundary() {
     assert_eq!(actual, *expected);
 }
 
+#[test]
+fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
+    use pi_coding_agent::core::session_manager::find_most_recent_session;
+    use std::time::{Duration, UNIX_EPOCH};
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = source();
+    // Create b first so filesystem enumeration is not already alphabetic.
+    for (name, nanos) in [("b", 900_000), ("a", 100_000)] {
+        let path = created(&mut ts, dir, name);
+        let renamed = format!("{dir}/{name}.jsonl");
+        fs::rename(path, &renamed).unwrap();
+        let file = fs::File::options().write(true).open(&renamed).unwrap();
+        let modified = UNIX_EPOCH + Duration::new(1_700_000_000, nanos);
+        file.set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
+    }
+    let expected = call(&mut ts, json!({"id":1,"mode":"recent","dir":dir,"cwd":dir}));
+    assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
+    assert_eq!(
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        expected
+    );
+}
+
 fn assistant(text: &str) -> AgentMessage {
     serde_json::from_value(json!({"role":"assistant","content":[{"type":"text","text":text}],
         "api":"anthropic-messages","provider":"anthropic","model":"fixture",
