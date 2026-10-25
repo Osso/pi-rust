@@ -30,3 +30,11 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN same command: 10/10; `/tmp/ext-b-hook-green.log`.
 - GREEN `cargo test -j3 -p pi-coding-agent --test suite_tools differential_claude_bash_hook::`: 1 test / 12 frozen cases; `/tmp/ext-b-hook-oracle-green.log`.
 - Proof covers the hook implementation commit (this change), invalidated only by relevant changes.
+
+## Hosted image generation and web search
+
+- RED new `image-model-team` frozen case: `/tmp/ext-b-image-red.log`.
+- GREEN `cargo test -j3 -p pi-coding-agent --test suite_tools differential_codex_hosted_tools::`, 1/1; `/tmp/ext-b-hosted-oracle.log`.
+- GREEN same target filter `codex_hosted_tools::`, 13/13 (includes differential due substring filter); `/tmp/ext-b-hosted-behavior.log`. This filter should not be repeated.
+- GREEN `cargo test -j3 -p pi-coding-agent --test suite_core_1 differential_codex_hosted_abort::`, 1/1; `/tmp/ext-b-hosted-abort.log`.
+- Proof covers hosted implementation commit (this change); relevant edits invalidate it.

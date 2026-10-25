@@ -52,7 +52,10 @@ pub struct ImageGenerationToolOptions {
 pub fn is_openai_hosted_image_generation_model(model: Option<&Model>) -> bool {
     model.is_some_and(|model| {
         model.api == "openai-codex-responses"
-            && (model.provider == "openai-codex" || model.provider == "openai-codex-gc")
+            && matches!(
+                model.provider.as_str(),
+                "openai-codex" | "openai-codex-gc" | "openai-codex-team"
+            )
     })
 }
 

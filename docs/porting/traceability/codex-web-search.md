@@ -23,3 +23,9 @@ Source: `packages/coding-agent/extensions/codex-web-search/src/index.ts`. Rust:
   `pi_ai::request::Fetch` client.
 - `WebSearchToolOptions::{run_search, timeout_ms}` are test seams; production
   callers use `default()`.
+
+## Whole-module re-pin audit (2026-10-25)
+
+All symbols and branches in the table were compared with unmodified `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`: default registration, metadata/schema, payload tool filtering and duplicate/no-change branches, model/prompt/auth gates, request forwarding, timeout composition/cleanup, hosted stream stop/error handling and output extraction. Exact UTF-16 carriers remain in prompt, payload and results. Hosted tools use scripted worker seams, never live providers.
+
+Current proof: frozen helper/execute differential, 12 behavioral tests, and actual-module abort/lifetime differential; see [lane ledger](../bundled-ext-b-proof.md). Gap: pathological JSON shapes, fractional/extreme timers, entropy and OS faults follow the approved user-observable parity policy. Default hosted network integration is not exercised against live services.
