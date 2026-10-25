@@ -173,40 +173,18 @@ fn tool_call_ids_are_required_only_for_claude_and_gpt_oss() {
 }
 
 #[test]
-fn signed_empty_blocks_are_kept_so_their_signature_is_echoed_back() {
+fn signed_empty_blocks_are_dropped_without_losing_a_following_tool_call() {
     let model = model("google-generative-ai", "google", "gemini-3-pro-preview", false);
     let contents = contents(
         &model,
         &context(vec![
             user_text("Hi"),
             Message::Assistant(Box::new(assistant(
-                vec![thinking_block("", Some(VALID_SIG)), tool_call("call_1", "bash", None)],
-                "google",
-                "google-generative-ai",
-                "gemini-3-pro-preview",
-            ))),
-        ]),
-    );
-    let model_turn = contents.iter().find(|c| c["role"] == "model").unwrap();
-    let signed: Vec<&Value> = model_turn["parts"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter(|part| part["thoughtSignature"] == VALID_SIG)
-        .collect();
-    assert_eq!(signed.len(), 1);
-    assert_eq!(signed[0]["thought"], true);
-}
-
-#[test]
-fn signed_empty_text_blocks_are_kept() {
-    let model = model("google-generative-ai", "google", "gemini-3-pro-preview", false);
-    let contents = contents(
-        &model,
-        &context(vec![
-            user_text("Hi"),
-            Message::Assistant(Box::new(assistant(
-                vec![text_block("", Some(VALID_SIG)), tool_call("call_1", "bash", None)],
+                vec![
+                    thinking_block("", Some(VALID_SIG)),
+                    text_block("", Some(VALID_SIG)),
+                    tool_call("call_1", "bash", None),
+                ],
                 "google",
                 "google-generative-ai",
                 "gemini-3-pro-preview",
@@ -215,13 +193,11 @@ fn signed_empty_text_blocks_are_kept() {
     );
     let model_turn = contents.iter().find(|c| c["role"] == "model").unwrap();
     assert_eq!(
-        model_turn["parts"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .filter(|part| part["thoughtSignature"] == VALID_SIG)
-            .count(),
-        1
+        model_turn["parts"],
+        json!([{
+            "functionCall":{"name":"bash","args":{"command":"ls"}},
+            "thoughtSignature":"skip_thought_signature_validator"
+        }])
     );
 }
 

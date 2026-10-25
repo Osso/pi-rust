@@ -1,9 +1,9 @@
 //! Port of `packages/ai/src/api/mistral-conversations.ts`.
 //!
 //! Streams the native Mistral Chat Completions endpoint. The TypeScript module
-//! speaks the SDK wire shape and serializes it with `toMistralWirePayload`;
-//! this port builds the same payload shape as ordered JSON and applies the
-//! identical camelCase-to-snake_case remapping.
+//! builds a camelCase payload before its SDK serializes the wire shape.
+//! This port keeps callback values separate from SDK defaults, field order,
+//! and camelCase-to-snake_case remapping.
 
 use crate::api::openai_sdk::{ingress_metadata_text, validate_metadata_fields};
 use pi_js_compat::js_json::JsString;
@@ -579,6 +579,10 @@ fn to_mistral_wire_payload(payload: &JsValue) -> Result<JsValue, MistralError> {
         .clone();
     let messages: Vec<JsValue> = messages.iter().map(to_mistral_wire_message).collect::<Result<_, _>>()?;
     wire.insert("messages".into(), JsValue::Array(messages));
+    if let Some(JsValue::Array(tools)) = wire.get("tools") {
+        let tools = tools.iter().map(to_mistral_wire_tool).collect::<Result<_, _>>()?;
+        wire.insert("tools".into(), JsValue::Array(tools));
+    }
 
     if let Some(JsValue::Object(response_format)) = wire.get("response_format").cloned() {
         let mut wire_response_format = response_format;
@@ -626,6 +630,34 @@ fn order_mistral_sdk_fields(mut record: JsObject, keys: &[&str]) -> JsObject {
         .collect()
 }
 
+fn to_mistral_wire_tool(tool: &JsValue) -> Result<JsValue, MistralError> {
+    let mut wire = tool
+        .as_object()
+        .cloned()
+        .ok_or_else(|| MistralError::message("Mistral tool must be an object"))?;
+    if let Some(JsValue::Object(function)) = wire.get_mut("function") {
+        *function = order_mistral_sdk_fields(
+            std::mem::take(function),
+            &["name", "description", "strict", "parameters"],
+        );
+    }
+    Ok(JsValue::Object(order_mistral_sdk_fields(wire, &["type", "function"])))
+}
+
+fn to_mistral_wire_tool_call(call: &JsValue) -> Result<JsValue, MistralError> {
+    let mut wire = call
+        .as_object()
+        .cloned()
+        .ok_or_else(|| MistralError::message("Mistral tool call must be an object"))?;
+    wire.entry("id".into())
+        .or_insert_with(|| JsValue::String("null".into()));
+    wire.entry("index".into()).or_insert_with(|| JsValue::from(json!(0)));
+    Ok(JsValue::Object(order_mistral_sdk_fields(
+        wire,
+        &["id", "type", "function", "index"],
+    )))
+}
+
 fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
     let Some(message) = message.as_object() else {
         return Err(MistralError::message("Mistral message must be an object"));
@@ -633,6 +665,10 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
     let mut wire = message.clone();
     remap_mistral_property(&mut wire, "toolCalls", "tool_calls");
     remap_mistral_property(&mut wire, "toolCallId", "tool_call_id");
+    if let Some(JsValue::Array(calls)) = wire.get("tool_calls") {
+        let calls = calls.iter().map(to_mistral_wire_tool_call).collect::<Result<_, _>>()?;
+        wire.insert("tool_calls".into(), JsValue::Array(calls));
+    }
     if let Some(JsValue::Array(content)) = wire.get("content").cloned() {
         let content: Vec<JsValue> = content
             .iter()
@@ -646,7 +682,10 @@ fn to_mistral_wire_message(message: &JsValue) -> Result<JsValue, MistralError> {
         .and_then(|role| role.to_utf8().ok())
         .as_deref()
     {
-        Some("assistant") => &["role", "content", "tool_calls", "prefix"],
+        Some("assistant") => {
+            wire.entry("prefix".into()).or_insert(JsValue::Bool(false));
+            &["role", "content", "tool_calls", "prefix"]
+        }
         Some("tool") => &["role", "content", "tool_call_id", "name"],
         _ => &["role", "content"],
     };
@@ -760,8 +799,8 @@ fn to_function_tools(tools: &[Tool]) -> Vec<JsValue> {
                 "function": {
                     "name": tool.name,
                     "description": tool.description,
-                    "strict": false,
                     "parameters": tool.parameters,
+                    "strict": false,
                 }
             })
         })
@@ -868,7 +907,6 @@ fn to_assistant_chat_message(assistant: &AssistantMessage, result: &mut Vec<Valu
                         "name": tool_call.name,
                         "arguments": pi_js_compat::js_json::stringify_lossless(&JsValue::Object(tool_call.arguments.clone())),
                     },
-                    "index": 0,
                 }));
             }
         }
@@ -876,19 +914,18 @@ fn to_assistant_chat_message(assistant: &AssistantMessage, result: &mut Vec<Valu
 
     let mut message = Map::new();
     message.insert("role".to_owned(), Value::String("assistant".to_owned()));
-    message.insert("prefix".to_owned(), Value::Bool(false));
     if !content_parts.is_empty() {
         message.insert("content".to_owned(), Value::Array(content_parts));
     }
     if !tool_calls.is_empty() {
         message.insert("toolCalls".to_owned(), Value::Array(tool_calls));
     }
-    if message.len() > 2 {
+    if message.len() > 1 {
         result.push(Value::Object(message));
     }
 }
 
-fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, supports_images: bool) -> String {
+fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, supports_images: bool) -> JsString {
     let text = tool_result
         .content
         .iter()
@@ -902,7 +939,7 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
         .content
         .iter()
         .any(|part| matches!(part, ToolResultContent::Image(_)));
-    let trimmed = text.trim();
+    let trimmed = JsString::from(text).trim();
     let error_prefix = if tool_result.is_error { "[tool error] " } else { "" };
 
     if !trimmed.is_empty() {
@@ -911,7 +948,7 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
         } else {
             ""
         };
-        return format!("{error_prefix}{trimmed}{image_suffix}");
+        return pi_js_compat::js_format!("{}{}{}", error_prefix, trimmed, image_suffix);
     }
 
     if has_images {
@@ -921,14 +958,14 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
             } else {
                 "(see attached image)"
             }
-            .to_owned();
+            .into();
         }
         return if tool_result.is_error {
             "[tool error] (image omitted: model does not support images)"
         } else {
             "(image omitted: model does not support images)"
         }
-        .to_owned();
+        .into();
     }
 
     if tool_result.is_error {
@@ -936,7 +973,7 @@ fn build_tool_result_text(tool_result: &crate::types::ToolResultMessage, support
     } else {
         "(no tool output)"
     }
-    .to_owned()
+    .into()
 }
 
 // --- Streaming -------------------------------------------------------------
@@ -1395,11 +1432,15 @@ fn apply_finish_reason(output: &mut AssistantMessage, choice: &JsValue) {
 
 struct Utf8StreamDecoder {
     pending: Vec<u8>,
+    at_start: bool,
 }
 
 impl Utf8StreamDecoder {
     fn new() -> Self {
-        Self { pending: Vec::new() }
+        Self {
+            pending: Vec::new(),
+            at_start: true,
+        }
     }
 
     fn push(&mut self, bytes: &[u8], final_chunk: bool) -> String {
@@ -1433,6 +1474,12 @@ impl Utf8StreamDecoder {
                         None => break,
                     }
                 }
+            }
+        }
+        if self.at_start && !output.is_empty() {
+            self.at_start = false;
+            if let Some(text) = output.strip_prefix('\u{feff}') {
+                output = text.to_owned();
             }
         }
         output

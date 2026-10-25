@@ -185,6 +185,22 @@ async fn observe(scenario: &Value) -> Value {
         })
     }));
 
+    let payload_observation = Arc::new(Mutex::new(None));
+    if scenario["options"]["observePayload"] == true {
+        let previous = options.request.on_payload.take();
+        let capture = payload_observation.clone();
+        options.request.on_payload = Some(Arc::new(move |payload, model| {
+            let previous = previous.clone();
+            let capture = capture.clone();
+            Box::pin(async move {
+                *capture.lock().unwrap() = Some(pi_js_compat::js_json::stringify_lossless(&payload));
+                match previous {
+                    Some(callback) => callback(payload, model).await,
+                    None => Ok(None),
+                }
+            })
+        }));
+    }
     let api = scenario["api"].as_str().unwrap_or("stream");
     let mut event_stream = if api == "streamSimple" {
         let simple = SimpleStreamOptions {
@@ -226,14 +242,18 @@ async fn observe(scenario: &Value) -> Value {
         Value::Object(captured)
     });
 
-    json!({
+    let mut observation = json!({
         "id": id,
         "ok": true,
         "request": request,
         "onResponse": observed.lock().unwrap().clone(),
         "events": events,
         "message": message,
-    })
+    });
+    if scenario["options"]["observePayload"] == true {
+        observation["onPayload"] = json!(payload_observation.lock().unwrap().clone());
+    }
+    observation
 }
 
 fn parse_thinking_level(value: &str) -> Option<ThinkingLevel> {
@@ -643,6 +663,99 @@ fn mistral_sdk_chunk_header_validation_matches_frozen_errors() {
             .unwrap()
             .block_on(observe(&request));
         assert_eq!(observed, expected, "header case{index}");
+    }
+}
+
+async fn compare_mistral_contract(request: Value) {
+    let mut source = oracle::TsOracle::spawn(
+        "mistral-conversations-oracle.ts",
+        "packages/ai/src/api/mistral-conversations.ts",
+    );
+    let expected = source.request(&request);
+    assert_eq!(observe(&request).await, expected);
+}
+
+fn replay_context(text: &str) -> Value {
+    json!({"tools":[{"name":"read","description":"Read","parameters":{"type":"object","properties":{}}}],
+        "messages":[assistant(json!([{"type":"toolCall","id":"callvalid","name":"read","arguments":{"path":"file"}}])),
+        {"role":"toolResult","toolCallId":"callvalid","toolName":"read","content":[{"type":"text","text":text}],"isError":false,"timestamp":1}]})
+}
+
+#[tokio::test]
+async fn mistral_callback_receives_source_payload_before_sdk_defaults_and_ordering() {
+    let chunk = json!({"id":"r","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}).to_string();
+    compare_mistral_contract(scenario(
+        730,
+        model("mistral-large-latest", false),
+        replay_context("done"),
+        json!({"apiKey":"key","observePayload":true}),
+        json!({"chunks":sse(&[chunk])}),
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn mistral_tool_result_text_uses_javascript_bom_trimming() {
+    let chunk = json!({"id":"r","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"done"},"finish_reason":"stop"}]}).to_string();
+    compare_mistral_contract(scenario(
+        731,
+        model("mistral-large-latest", false),
+        replay_context("\u{feff}done\u{feff}"),
+        json!({"apiKey":"key"}),
+        json!({"chunks":sse(&[chunk])}),
+    ))
+    .await;
+}
+
+#[tokio::test]
+async fn mistral_valid_thinking_interleaved_tools_usage_and_unknown_fields_match_source() {
+    let aliases = [
+        "promptTokensDetails",
+        "prompt_tokens_details",
+        "promptTokenDetails",
+        "prompt_token_details",
+        "numCachedTokens",
+        "num_cached_tokens",
+    ];
+    for (index, alias) in aliases.into_iter().enumerate() {
+        let mut usage = json!({"prompt_tokens":20,"completion_tokens":4,"total_tokens":24});
+        usage[alias] = if alias.contains("Details") {
+            json!({"cachedTokens":7})
+        } else if alias.contains("details") {
+            json!({"cached_tokens":7})
+        } else {
+            json!(7)
+        };
+        let chunks = [
+            json!({"id":"r","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":[{"type":"thinking","thinking":[{"type":"text","text":"consider"}]},{"type":"text","text":"answer"}]},"finish_reason":null}]}),
+            json!({"id":"later","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call00001","index":0,"function":{"name":"read","arguments":"{\"x\":"}},{"id":"call00002","index":1,"function":{"name":"echo","arguments":{"v":1}}}]},"finish_reason":null}]}),
+            json!({"id":"later","model":"mistral-large-latest","choices":[{"index":0,"delta":{"tool_calls":[{"id":"call00001","index":0,"function":{"name":"ignored","arguments":"2}"}}],"content":"tail"},"finish_reason":"tool_calls"}],"usage":usage,"unknown_server_field":{"a":1}}),
+        ].map(|value|value.to_string());
+        compare_mistral_contract(scenario(
+            740 + index,
+            model("mistral-large-latest", true),
+            json!({"messages":[user(json!("hi"))]}),
+            json!({"apiKey":"key"}),
+            json!({"chunks":sse(&chunks)}),
+        ))
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn mistral_sse_decoder_removes_only_the_leading_transport_bom() {
+    for chunking in ["chunks", "bytes"] {
+        let chunk = json!({"id":"r","model":"mistral-large-latest","choices":[{"index":0,"delta":{"content":"inside\u{feff}body"},"finish_reason":"stop"}]}).to_string();
+        let mut chunks = sse(&[chunk]);
+        chunks[0].insert(0, '\u{feff}');
+        compare_mistral_contract(scenario(
+            750,
+            model("mistral-large-latest", false),
+            json!({"messages":[user(json!("hi"))]}),
+            json!({"apiKey":"key"}),
+            json!({"chunks":chunks,"chunking":chunking}),
+        ))
+        .await;
     }
 }
 
