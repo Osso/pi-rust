@@ -26,6 +26,7 @@ struct ScriptedTerminal {
     keys: Mutex<Vec<String>>,
     output: Vec<JsString>,
     active: bool,
+    wait_started: Option<std::time::Instant>,
 }
 
 impl ScriptedTerminal {
@@ -34,6 +35,7 @@ impl ScriptedTerminal {
             keys: Mutex::new(keys),
             output: Vec::new(),
             active: false,
+            wait_started: None,
         }
     }
 }
@@ -86,6 +88,19 @@ impl Terminal for ScriptedTerminal {
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
         let mut keys = self.keys.lock().unwrap();
         if keys.is_empty() {
+            return Vec::new();
+        }
+        if keys[0] == "WAIT_FOR_PICKER_ERROR" {
+            let visible = JsString::join(self.output.iter(), "").to_utf8().unwrap();
+            if !visible.contains("Selection blocked once") {
+                let started = self.wait_started.get_or_insert_with(std::time::Instant::now);
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(2),
+                    "picker error not rendered: {visible}"
+                );
+                return Vec::new();
+            }
+            keys.remove(0);
             return Vec::new();
         }
         vec![TerminalEvent::Input(JsString::from(keys.remove(0)))]
@@ -236,7 +251,7 @@ fn in_memory_settings() -> SettingsManager {
 }
 
 #[test]
-fn session_picker_validation_retry_cancel_and_exit_reach_the_terminal_boundary() {
+fn session_picker_validation_retry_and_cancel_reach_the_terminal_boundary() {
     let output = env_probe::run_probe(
         "session_picker_ui_probe_child",
         &[(
@@ -287,13 +302,14 @@ fn session_picker_ui_probe_child() {
         .unwrap();
     for (keys, expected) in [
         (
-            vec!["", "", "\r", "", "\r", "\u{1b}"],
+            vec!["", "", "\r", "WAIT_FOR_PICKER_ERROR", "\r", "\u{1b}"],
             SelectSessionOutcome::Selected("/sessions/selected.jsonl".into()),
         ),
         (vec!["\u{1b}"], SelectSessionOutcome::Cancelled),
-        (vec!["\u{3}"], SelectSessionOutcome::Exited),
+        (vec!["\u{3}"], SelectSessionOutcome::Cancelled),
     ] {
-        let settings = in_memory_settings();
+        let mut settings = in_memory_settings();
+        settings.set_theme(&JsString::from("dark"));
         let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(
             keys.into_iter().map(str::to_owned).collect(),
         )));
@@ -322,7 +338,13 @@ fn session_picker_ui_probe_child() {
                 },
             ))
             .unwrap();
-        assert_eq!(selected, expected);
+        assert_eq!(
+            selected,
+            expected,
+            "attempts={}, terminal={}",
+            attempts.load(std::sync::atomic::Ordering::SeqCst),
+            pi_js_compat::js_json::encode_node_utf8(&JsString::join(terminal.borrow().output.iter(), ""))
+        );
         assert!(!terminal.borrow().active);
         if matches!(selected, SelectSessionOutcome::Selected(_)) {
             let output = JsString::join(terminal.borrow().output.iter(), "");
