@@ -39,6 +39,74 @@ fn native_spool(path: &str, kind: &str) -> Value {
 }
 
 #[test]
+fn shared_mkdtemp_keeps_frozen_template_errors_and_suffix_format() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mut ts = oracle::TsOracle::spawn("storage-spool-oracle.mts", "packages/coding-agent/src/core");
+    let prefix = tmp.path().join("prefix-").to_str().unwrap().to_owned();
+    let expected = ts.request(&json!({"id":1,"op":"mkdtemp","path":prefix,"kind":"read"}));
+    assert_eq!(expected["output"]["ok"], true);
+    let native = pi_js_compat::node_fs::mkdtemp(&prefix.clone().into()).unwrap();
+    for path in [expected["output"]["path"].as_str().unwrap(), &encode_node_utf8(&native)] {
+        assert!(path.starts_with(&prefix));
+        let suffix = &path[prefix.len()..];
+        assert_eq!(suffix.len(), 6);
+        assert!(suffix.bytes().all(|byte| byte.is_ascii_alphanumeric()));
+        assert_eq!(std::fs::metadata(path).unwrap().permissions().mode() & 0o777, 0o700);
+        std::fs::remove_dir(path).unwrap();
+    }
+    for prefix in [
+        format!("{prefix}\0invalid"),
+        tmp.path().join("missing/prefix-").to_str().unwrap().to_owned(),
+    ] {
+        let expected = ts.request(&json!({"id":2,"op":"mkdtemp","path":prefix,"kind":"read"}));
+        assert_eq!(expected["output"]["ok"], false);
+        let native = pi_js_compat::node_fs::mkdtemp(&prefix.into()).unwrap_err();
+        assert_eq!(native.value().to_serde().unwrap(), expected["output"]["error"]);
+    }
+}
+
+#[test]
+fn spool_mkdtemp_failures_preserve_frozen_template_path_and_errno() {
+    if let Some(path) = std::env::var_os("PI_STORAGE_TMP_PATH") {
+        let real_tmpdir = std::env::var_os("PI_STORAGE_REAL_TMPDIR").unwrap();
+        let mut ts = oracle::TsOracle::spawn_with_environment(
+            "storage-spool-oracle.mts",
+            "packages/coding-agent/src/core",
+            &[("TMPDIR", real_tmpdir)],
+        );
+        let path = path.to_str().unwrap();
+        let expected = ts.request(&json!({"id":1,"path":path,"kind":"read","tmpdir":std::env::var("TMPDIR").unwrap()}));
+        assert_eq!(expected["output"]["ok"], false);
+        assert_eq!(native_spool(path, "read"), expected["output"]);
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = tmp.path().join("fixture.jsonl.zst");
+    std::fs::write(&archive, zstd::stream::encode_all(&b"private fixture"[..], 0).unwrap()).unwrap();
+    let regular = tmp.path().join("regular");
+    std::fs::write(&regular, b"not a directory").unwrap();
+    for root in [tmp.path().join("missing"), regular] {
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "spool_mkdtemp_failures_preserve_frozen_template_path_and_errno",
+                "--nocapture",
+            ])
+            .env("PI_STORAGE_TMP_PATH", &archive)
+            .env("PI_STORAGE_REAL_TMPDIR", tmp.path())
+            .env("TMPDIR", &root)
+            .output()
+            .unwrap();
+        assert!(
+            child.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&child.stdout),
+            String::from_utf8_lossy(&child.stderr)
+        );
+    }
+}
+
+#[test]
 fn spool_callback_and_worker_errors_match_frozen_cleanup_and_error_values() {
     // Frozen session-transcript-spool.ts:49-51 stringifies worker errors;
     // :60-70 preserves callback throws across recursive temporary cleanup.
