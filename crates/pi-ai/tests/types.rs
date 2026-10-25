@@ -1,6 +1,6 @@
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Message, Model,
-    ModelCompat, StopReason, ToolResultContent, Usage, UserContent,
+    AssistantContent, AssistantImages, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason,
+    Message, Model, ModelCompat, StopReason, ToolResultContent, Usage, UserContent,
 };
 use serde_json::{Value, json};
 
@@ -115,6 +115,24 @@ fn message_timestamp_numbers_serialize_exactly_like_node_and_round_trip_raw() {
             assert_eq!(serde_json::from_str::<Value>(&wire).unwrap(), expected["roundTrip"]);
         }
     }
+}
+
+#[test]
+fn fractional_image_timestamps_round_trip_like_frozen_numbers() {
+    let mut source = oracle::TsOracle::spawn("message-timestamp-oracle.ts", "packages/ai/src/types.ts");
+    let image = json!({
+        "api": "openrouter-images", "provider": "openrouter", "model": "image-model",
+        "output": [], "stopReason": "stop", "timestamp": 0,
+    });
+    let expected = source.request(&json!({"message": image, "value": 12.75}));
+    let decoded: AssistantImages = serde_json::from_value(expected["roundTrip"].clone())
+        .expect("frozen number timestamp permits ordinary fractions");
+    let actual = serde_json::to_string(&decoded).unwrap();
+    assert_eq!(actual, expected["wire"].as_str().unwrap());
+    let reverse = source.request(&json!({
+        "message": serde_json::to_value(&decoded).unwrap(), "value": 12.75,
+    }));
+    assert_eq!(reverse["roundTrip"], expected["roundTrip"]);
 }
 
 #[test]
