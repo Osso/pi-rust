@@ -333,10 +333,9 @@ fn public_background_completion_uses_live_ui_and_reports_async_getter_failure() 
                     .unwrap()
                     .contains(&expected_diagnostic)
             );
-            // The actual frozen ExtensionRunner also reports a stale mirror observer
-            // (oracle diagnostics; agents-core-ui-fidelity-red.log). Preserve it;
-            // compare the terminal uncaught line, not unrelated observer formatting.
-            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stderr = String::from_utf8(output.stderr.clone()).expect("UTF-8 fixture diagnostics");
+            let observer = format!("MultiAgentStore lifecycle notification listener failed: Error: {failure}");
+            assert!(stderr.lines().any(|line| line == observer), "{stderr}");
             let uncaught = format!("Error: {failure}");
             assert_eq!(stderr.lines().last(), Some(uncaught.as_str()));
         } else {
