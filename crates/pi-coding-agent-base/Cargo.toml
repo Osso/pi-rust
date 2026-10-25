@@ -1,0 +1,52 @@
+[package]
+name = "pi-coding-agent-base"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[dependencies]
+pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat", features = ["rusqlite"] }
+indexmap = { version = "=2.14.2", features = ["serde"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip", "raw_value"] }
+regex = "=1.13.1"
+gethostname = "=1.1.0"
+getrandom = "=0.4.3"
+serde_yaml_ng = "=0.10.0"
+url = "=2.5.8"
+percent-encoding = "=2.3.2"
+tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
+notify = "=8.2.0"
+photon-rs = { version = "=0.3.3", default-features = false }
+image = { version = "=0.24.9", default-features = false, features = [
+    "bmp",
+    "dds",
+    "dxt",
+    "farbfeld",
+    "gif",
+    "hdr",
+    "ico",
+    "jpeg",
+    "png",
+    "pnm",
+    "tga",
+    "tiff",
+    "webp",
+] }
+clipboard-rs = "=0.3.4"
+rustix = { version = "=1.1.5", features = ["fs", "process"] }
+tempfile = "=3.27.0"
+nix = { version = "=0.30.1", features = ["process"] }
+
+[dev-dependencies]
+tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
+nix = { version = "=0.30.1", features = ["poll", "process", "term"] }
+
+[lints]
+workspace = true

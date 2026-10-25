@@ -1,7 +1,7 @@
 # browser-cli traceability
 
 Source: `packages/coding-agent/extensions/browser-cli/src/index.ts` (169 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/browser_cli.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/browser_cli.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_tools.rs`.
 
 | Source symbol / branch | Rust item | Proof |

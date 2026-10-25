@@ -21,8 +21,8 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/agent_session_runtime.rs` — current session and lifecycle authority.
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs` — native UI lifecycle consumer.
+- `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs` — current session and lifecycle authority.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs` — native UI lifecycle consumer.
 - `crates/pi-coding-agent/src/modes/{extension_actions,print_mode,rpc/rpc_mode}.rs` — non-interactive runtime consumers.
 
 ## Tests asserting this spec

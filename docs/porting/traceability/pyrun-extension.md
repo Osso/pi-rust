@@ -1,6 +1,6 @@
 # Pyrun extension (`extensions/pyrun/src`)
 
-Port group: `crates/pi-coding-agent/src/bundled_extensions/pyrun/`.
+Port group: `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/`.
 Registered as `<first-party:pyrun>`; bwrap profiles use the ported
 `bundled_extensions::bwrap::backend` helpers.
 

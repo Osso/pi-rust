@@ -19,9 +19,9 @@ Match frozen `interactive-mode.ts` startup/header registration and reload expans
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/extensions/types.rs` — header factory result and optional expansion callback.
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs` — startup rendering, registration and UI-owner delivery.
-- `crates/pi-coding-agent/src/core/agent_session_runtime.rs` — fallible synchronous before-invalidate boundary.
+- `crates/pi-coding-agent-core/src/core/extensions/types.rs` — header factory result and optional expansion callback.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs` — startup rendering, registration and UI-owner delivery.
+- `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs` — fallible synchronous before-invalidate boundary.
 
 ## Tests asserting this spec
 

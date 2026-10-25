@@ -9,7 +9,7 @@ use pi_ai::request::CallbackError;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::future::Future;
-use std::io::{IsTerminal, Write};
+use std::io::IsTerminal;
 use std::path::Path;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -782,29 +782,7 @@ pub fn create_runtime_factory(options: RuntimeFactoryOptions) -> CreateAgentSess
 // Output
 // =============================================================================
 
-/// Writes text to stdout and flushes, like `process.stdout.write`.
-pub fn write_stdout(text: impl Into<JsString>) {
-    let mut stdout = std::io::stdout().lock();
-    let _ = stdout.write_all(encode_node_utf8(&text.into()).as_bytes());
-    let _ = stdout.flush();
-}
-
-/// Writes text to stderr and flushes, like `process.stderr.write`.
-pub fn write_stderr(text: impl Into<JsString>) {
-    let mut stderr = std::io::stderr().lock();
-    let _ = stderr.write_all(encode_node_utf8(&text.into()).as_bytes());
-    let _ = stderr.flush();
-}
-
-/// `console.log`.
-pub fn console_log(text: impl Into<JsString>) {
-    write_stdout(js_format!("{}\n", text.into()));
-}
-
-/// `console.error`.
-pub fn console_error(text: impl Into<JsString>) {
-    write_stderr(js_format!("{}\n", text.into()));
-}
+pub use pi_coding_agent_base::console::{console_error, console_log, write_stderr, write_stdout};
 
 // =============================================================================
 // Startup predicates

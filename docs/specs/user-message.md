@@ -15,7 +15,7 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/user-mes
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/modes/interactive/components/user_message.rs`: Markdown, state, styling and zone markers.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/components/user_message.rs`: Markdown, state, styling and zone markers.
 
 ## Tests asserting this spec
 

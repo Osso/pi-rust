@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/utils/windows-self-update.ts` at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/utils/windows_self_update.rs`.
+Rust: `crates/pi-coding-agent-base/src/utils/windows_self_update.rs`.
 
 Differential test skipped: the TypeScript module reads `process.report.getReport().sharedObjects`
 and performs real renames/copies. The Rust port injects the shared-object list and is proven

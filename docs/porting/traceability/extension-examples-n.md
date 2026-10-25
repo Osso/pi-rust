@@ -5,6 +5,8 @@ Worktree base updated from `5d2454d` to `04f51ba` before extension API implement
 
 ## Subagent discovery and dispatch
 
+2026-10-24 build-only correction: `js_format!` has no brace escapes. The tool description interpolates the literal `{previous}` as an argument rather than using the invalid `{{previous}}` template. `example_subagent::tool_description_matches_the_pinned_extension_literal` compares the complete registered description with the frozen extension through the real runner; no dispatch behavior changes.
+
 Embed `examples/extensions/subagent/index.rs` using `#[path]`; explicitly register
 `subagent_extension(api, agent_dir, Invocation { program, prefix })` in an
 `ExtensionRegistry` factory. `agent_dir` is the host-resolved agent root;

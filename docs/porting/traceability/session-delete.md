@@ -1,6 +1,6 @@
 # session-delete traceability
 
-Frozen source: `packages/coding-agent/src/core/session-delete.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent/src/core/session_delete.rs`. Contract: [spec](../../specs/session-archive.md).
+Frozen source: `packages/coding-agent/src/core/session-delete.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent-core/src/core/session_delete.rs`. Contract: [spec](../../specs/session-archive.md).
 
 | Source symbol/branch | Rust | Frozen differential / behavioral proof |
 |---|---|---|

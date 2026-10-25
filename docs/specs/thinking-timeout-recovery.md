@@ -20,7 +20,7 @@ AgentSession ports the frozen `core/agent-session.ts` thinking watchdog and per-
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/agent_session.rs`: watchdog, dispatch ownership, recovery, retry reporting and cancellation.
+- `crates/pi-coding-agent-core/src/core/agent_session.rs`: watchdog, dispatch ownership, recovery, retry reporting and cancellation.
 
 ## Tests asserting this spec
 

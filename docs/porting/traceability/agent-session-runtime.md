@@ -1,6 +1,6 @@
 # agent-session-runtime.ts traceability
 
-Rust: `crates/pi-coding-agent/src/core/agent_session_runtime.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`.
 
 ## Common-pin re-port in progress (2026-10-23)
 

@@ -2,7 +2,7 @@
 
 Frozen source: `packages/coding-agent/src/core/session-cwd.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([lock](../source-lock.json)). [Contract](../../specs/session-cwd.md).
 
-Rust: `crates/pi-coding-agent/src/core/session_cwd.rs`. Native filesystem/error boundaries use the shared Node adapters; results remain fallible through main/runtime callers. `tests/session_cwd.rs` has 16 tests; `oracle/session-cwd-oracle.mts` invokes the actual unmodified module.
+Rust: `crates/pi-coding-agent-core/src/core/session_cwd.rs`. Native filesystem/error boundaries use the shared Node adapters; results remain fallible through main/runtime callers. `tests/session_cwd.rs` has 16 tests; `oracle/session-cwd-oracle.mts` invokes the actual unmodified module.
 
 | Frozen symbol/branch | Native mapping | Proof |
 |---|---|---|

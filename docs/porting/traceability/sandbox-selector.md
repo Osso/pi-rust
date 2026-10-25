@@ -1,6 +1,6 @@
 # `components/sandbox-selector.ts`
 
-Authority: complete 137-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent/src/modes/interactive/components/sandbox_selector.rs`. [Contract](../../specs/sandbox-selector.md) · [Presets](permissions-presets.md).
+Authority: complete 137-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/sandbox_selector.rs`. [Contract](../../specs/sandbox-selector.md) · [Presets](permissions-presets.md).
 
 | Source export / branch | Native representation | Behavioral proof |
 |---|---|---|

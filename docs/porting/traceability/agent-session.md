@@ -2,7 +2,7 @@
 
 Q15 correction2026-10-23: agent_settled/AgentSettledEvent is removed old-only; common-pin packages have no counterpart. This removes the session emission/variant, extension event/registration/dispatch, mode consumers and exports. RPC test waits now observe actual agent_end/command responses. Process RED exposed an extra native JSON line and a frozen RPC wait that could never settle; common-pin RPC differential is now6/6 after context persistence and the source fork/clone error boundary were restored.
 
-Rust: `crates/pi-coding-agent/src/core/agent_session.rs` (module `core::agent_session`).
+Rust: `crates/pi-coding-agent-core/src/core/agent_session.rs` (module `core::agent_session`).
 
 ## Q13 working-directory recovery hooks (4b checkpoint)
 

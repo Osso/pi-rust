@@ -1,7 +1,7 @@
 # interactive-root-compositor.ts
 
 Source: `coding-agent/src/modes/interactive/interactive-root-compositor.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/interactive_root_compositor.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_root_compositor.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

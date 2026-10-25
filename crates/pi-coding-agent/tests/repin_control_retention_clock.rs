@@ -5,7 +5,7 @@ mod oracle;
 use pi_coding_agent::core::session_control_db::ControlDbError;
 use pi_coding_agent::utils;
 use pi_js_compat::js_json::JsString;
-#[path = "../src/core/session_control_db/retention.rs"]
+#[path = "../../pi-coding-agent-core/src/core/session_control_db/retention.rs"]
 mod retention_contract;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsValue as Value;

@@ -1,7 +1,7 @@
 # extensions/extension-runtime.ts → `core::extensions::extension_runtime`
 
 Source: `packages/coding-agent/src/core/extensions/extension-runtime.ts`
-(103 lines). Rust: `crates/pi-coding-agent/src/core/extensions/extension_runtime.rs`.
+(103 lines). Rust: `crates/pi-coding-agent-core/src/core/extensions/extension_runtime.rs`.
 
 | Source | Rust | Tests |
 | --- | --- | --- |

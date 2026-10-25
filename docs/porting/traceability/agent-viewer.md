@@ -1,7 +1,7 @@
 # agent-viewer traceability
 
 Source: `packages/coding-agent/extensions/agent-viewer/src/index.ts` (9 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/agent_viewer/mod.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs`.
 
 | Source symbol | Rust item | Proof |
 | --- | --- | --- |

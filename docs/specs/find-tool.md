@@ -34,8 +34,8 @@ Match `coding-agent/src/core/tools/find.ts` at immutable `4f9e6f8a4`. [Traceabil
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/tools/find.rs`: native find API, custom/fd execution and rendering.
-- `crates/pi-coding-agent/src/bundled_extensions/bwrap/index.rs`: direct custom-glob consumer forwards the same numeric value in its existing payload.
+- `crates/pi-coding-agent-core/src/core/tools/find.rs`: native find API, custom/fd execution and rendering.
+- `crates/pi-coding-agent-extensions/src/bundled_extensions/bwrap/index.rs`: direct custom-glob consumer forwards the same numeric value in its existing payload.
 
 ## Tests asserting this spec
 

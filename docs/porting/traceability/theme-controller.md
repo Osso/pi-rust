@@ -1,7 +1,7 @@
 # theme-controller.ts
 
 Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/theme/theme-controller.ts:1–126`.
-Rust: `crates/pi-coding-agent/src/modes/interactive/theme/theme_controller.rs`.
+Rust: `crates/pi-coding-agent-core/src/modes/interactive/theme/theme_controller.rs`.
 
 | Frozen symbol / branch | Rust | Proof |
 |---|---|---|

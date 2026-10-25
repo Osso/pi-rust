@@ -1,7 +1,7 @@
 # retry-delay.ts
 
 Frozen source: `4f9e6f8a4`, `packages/coding-agent/src/core/retry-delay.ts`.
-Rust: `crates/pi-coding-agent/src/core/retry_delay.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/retry_delay.rs`.
 
 | Export / branch | Proof |
 | --- | --- |

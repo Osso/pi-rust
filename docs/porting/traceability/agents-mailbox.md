@@ -1,7 +1,7 @@
 # agents-mailbox traceability
 
 Source: `packages/coding-agent/extensions/agents-mailbox/src/index.ts` (9 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/agents_mailbox/mod.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_mailbox/mod.rs`.
 
 | Source symbol | Rust item | Proof |
 | --- | --- | --- |

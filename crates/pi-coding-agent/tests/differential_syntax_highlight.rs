@@ -255,7 +255,7 @@ fn cases() -> Vec<Case> {
     cases
 }
 
-const GRAMMARS: &str = include_str!("../src/utils/syntax_highlight/grammars.json");
+const GRAMMARS: &str = include_str!("../../pi-coding-agent-base/src/utils/syntax_highlight/grammars.json");
 
 /// Multi-construct snippet exercised against every generated grammar.
 const GENERIC_SNIPPET: &str = r##"/* block comment */
