@@ -57,7 +57,9 @@ const config = await import(pathToFileURL(`${root}/config.ts`).href);
 const { KeybindingsManager } = await import(
 	pathToFileURL(`${root}/core/keybindings.ts`).href
 );
-const frozenDeclarations = declarations.map((node) => node.getText(ast)).join("\n");
+const frozenDeclarations = declarations
+	.map((node) => node.getText(ast))
+	.join("\n");
 const javascript = ts.transpileModule(
 	`${frozenDeclarations}
 	globalThis.buildHeader = function() { ${blocks[0].getText(ast)} };
