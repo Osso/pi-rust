@@ -11,3 +11,16 @@
 | Runtime exclusions | Timer/microtask races, numeric overflow and exotic wrong-typed tool detail shapes follow the repository gap policy. | gap |
 
 `goal_scheduling_review_timeout_wins_over_a_live_agent_wait` uses paused Tokio time with a real outstanding wait future, checks no review after five minutes, advances to25 minutes, then delivers the late wake. The frozen fixture runs its actual scheduler with a fake clock/timer and the same ordering; events match exactly.
+
+## Successor branch closure
+
+The entire frozen file was compared against the native scheduler. Additional
+`goal_scheduling_wait_wake_error_and_clear_match_frozen` scenarios prove no active
+agents, list error, wait error retaining the original deadline, successful wake
+with null details/content evidence, changed goal, and clear-all before late wake.
+`goal_agent_end_cancellation_and_deferred_paths_match_frozen` also proves deferred
+review/decision busy retry and epoch rejection; the completion matrix proves
+session clear/guard invalidation. Combined with the existing 25-minute timeout
+winner and report-error probe, these close the realistic scheduling branches.
+All tests GREEN in `/tmp/bundled3-goal-final-matrices.log` (35 goal tests).
+The gap row for runtime races/numeric extremes above remains; no new semantic gap.

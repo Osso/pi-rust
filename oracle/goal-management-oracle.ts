@@ -9,13 +9,15 @@ runOracle(async (api, request) => {
 		let tool!: Tool;
 		const notifications: unknown[] = [];
 		const entries: unknown[] = [];
+		const messages: { details: { displayId: string } }[] = [];
+		let latestDisplayId: string | undefined;
 		const ctx = { cwd: "/tmp", isIdle: () => true, hasPendingMessages: () => false,
 			sessionManager: { getSessionId: () => "goal-oracle", getSessionGoalJson: () => goal, setSessionGoalJson: (json: string) => { goal = json; }, clearSessionGoalJson: () => { goal = ""; }, getBranch: () => [] },
 			ui: { setStatus() {}, requestRender() {}, notify(message: string, type: string) { notifications.push([message, type]); } } };
-		const pi = { registerTool(value: Tool) { tool = value; }, registerCommand() {}, registerEntryRenderer() {}, registerMessageRenderer() {}, on() {}, appendEntry(_type: string, data: { message: string }) { entries.push(data.message); }, sendMessage() {}, sendUserMessage() {}, requestResumeContinuation() {}, async callTool() { return { content: [], details: { activeCount: 0 } }; } };
+		const pi = { registerTool(value: Tool) { tool = value; }, registerCommand() {}, registerEntryRenderer() {}, registerMessageRenderer() {}, on() {}, appendEntry(_type: string, data: { message: string; displayId?: string }) { entries.push(data.message); latestDisplayId = data.displayId; }, sendMessage(message: { details: { displayId: string } }) { if (message.details.displayId !== latestDisplayId) throw new Error("grouped instruction does not match persisted status"); messages.push({ ...message, details: { displayId: "<review-id>" } }); }, sendUserMessage() {}, requestResumeContinuation() {}, async callTool() { return { content: [], details: { activeCount: 0 } }; } };
 		(api.default as (pi: unknown, options: unknown) => void)(pi, { reviewGoal: async () => input.decision });
 		const result = await tool.execute("call-1", input.params, undefined, undefined, ctx);
-		outputs.push({ result, notifications, entries });
+		outputs.push({ result, notifications, entries, messages });
 	}
 	return outputs;
 }).catch(error => { console.error(error); process.exitCode = 1; });

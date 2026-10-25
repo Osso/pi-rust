@@ -995,7 +995,21 @@ async fn goal_management_outputs_match_frozen_without_extra_notifications() {
         *harness.records.lock().unwrap() = Records::default();
         let result = harness.run_tool(case["params"].clone()).await;
         let records = harness.records.lock().unwrap();
-        let actual = json!({"result":{"content":result.content,"details":result.details},"notifications":records.notifications.iter().map(|(message, _)|json!([message,"info"])).collect::<Vec<_>>(),"entries":records.entries.iter().filter_map(|(_, data)| data.as_ref().map(|data|data["message"].clone())).collect::<Vec<_>>()});
+        let messages = records
+            .messages
+            .iter()
+            .map(|message| {
+                let id = &message.details.as_ref().unwrap()["displayId"];
+                assert_eq!(id, &records.entries.last().unwrap().1.as_ref().unwrap()["displayId"]);
+                let id = pi_js_compat::js_json::encode_node_utf8(id.as_string().unwrap());
+                assert_eq!(id.split('-').map(str::len).collect::<Vec<_>>(), [8, 4, 4, 4, 12]);
+                assert!(id.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-'));
+                let mut message = json::to_value(message).unwrap();
+                message["details"] = json!({"displayId":"<review-id>"});
+                message
+            })
+            .collect::<Vec<_>>();
+        let actual = json!({"result":{"content":result.content,"details":result.details},"notifications":records.notifications.iter().map(|(message, _)|json!([message,"info"])).collect::<Vec<_>>(),"messages":messages,"entries":records.entries.iter().filter_map(|(_, data)| data.as_ref().map(|data|data["message"].clone())).collect::<Vec<_>>()});
         assert_eq!(actual, expected["output"][index], "case {index}");
     }
 }
