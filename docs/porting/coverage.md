@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 616, `gap` 25, `partial` 24, `todo` 21.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 617, `gap` 25, `partial` 24, `todo` 20.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -183,7 +183,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/json-parse.ts` | 124 | 0 | done | `crates/pi-ai/src/utils/json_parse.rs` | JSON repair + `partial-json@0.1.7` streaming parser; prefix/malformed differential corpus.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/node-http-proxy.ts` | 112 | 1 | done | `crates/pi-ai/src/utils/node_http_proxy.rs` | Proxy selection plus `Fetch` wrapper; differential over target/env matrix (see traceability).; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/oauth/anthropic.ts` | 440 | 2 | todo | `crates/pi-ai/src/auth/oauth/anthropic.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/anthropic.rs`; old path: `ai/src/auth/oauth/anthropic.ts`; manual-code/callback race, localhost:53692 server, JSON exchange, refresh skew; differential manual + callback + refresh. |
-| `ai/src/utils/oauth/device-code.ts` | 98 | 0 | todo | `crates/pi-ai/src/auth/oauth/device_code.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/device_code.rs`; old path: `ai/src/auth/oauth/device-code.ts`; RFC 8628 polling with deadline, slow_down and cancellation; Tokio tests. |
+| `ai/src/utils/oauth/device-code.ts` | 98 | 0 | done | `crates/pi-ai/src/auth/oauth/device_code.rs` | Whole frozen poll helper;11native tests including11direct-source schedule/result/error scenarios. Callback rejection Result preserves identity; runtime clock/timer gaps explicit. [Trace](traceability/device-code.md). |
 | `ai/src/utils/oauth/github-copilot.ts` | 469 | 4 | partial | `crates/pi-ai/src/auth/oauth/github_copilot.rs` | Removed old-only availableModelIds policy fallback; actual-source refresh/toAuth differential and account-picker fixtures. Remaining whole-flow audit: [trace](traceability/auth-oauth-github-copilot.md). |
 | `ai/src/utils/oauth/index.ts` | 165 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | registry/result helpers ported; built-in native flow bridge not revalidated; [trace](traceability/oauth-registry.md) |
 | `ai/src/utils/oauth/load.ts` | 21 | — | done | `crates/pi-ai/src/auth/oauth/load.rs` | Three frozen loaders only; direct native links, no old-only override registry/bun module/extra flow exports. Actual frozen exports/auth names/method sets/toAuth results GREEN. Deleted old-only tests and outside-consumer audit: [traceability](traceability/load.md). |
