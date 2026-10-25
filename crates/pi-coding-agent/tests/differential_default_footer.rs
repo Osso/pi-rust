@@ -198,7 +198,11 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                         .unwrap_or("/tmp/child")
                         .to_owned(),
                 ),
-                session_manager: Some(Arc::new(Mutex::new(override_session))),
+                session_manager: Some(
+                    pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager(Arc::new(
+                        Mutex::new(override_session),
+                    )),
+                ),
                 model: override_model,
                 thinking_level: JsString::from(
                     override_value

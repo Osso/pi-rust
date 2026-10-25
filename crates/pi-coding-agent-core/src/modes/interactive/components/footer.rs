@@ -107,16 +107,13 @@ impl FooterComponent {
             .session_override
             .as_ref()
             .and_then(|override_| override_.session_manager.clone());
-        let live_manager = self
-            .session_override
-            .is_none()
-            .then(|| self.session.session_manager_handle());
-        let session_manager = match &override_manager {
-            Some(manager) => Some(manager.lock().expect("session manager lock")),
-            None => live_manager
-                .as_ref()
-                .map(|manager| manager.lock().expect("session manager lock")),
-        };
+        let session_manager = override_manager.or_else(|| {
+            self.session_override.is_none().then(|| {
+                crate::core::readonly_session_manager::create_readonly_session_manager(
+                    self.session.session_manager_handle(),
+                )
+            })
+        });
         let mut data = SessionFooterData {
             input: 0.0,
             output: 0.0,

@@ -4165,7 +4165,9 @@ impl InteractiveMode {
         });
         Ok(Some(FooterSessionOverride {
             cwd: manager.get_cwd().to_owned(),
-            session_manager: Some(Arc::clone(&session_manager)),
+            session_manager: Some(crate::core::readonly_session_manager::create_readonly_session_manager(
+                Arc::clone(&session_manager),
+            )),
             model,
             thinking_level: thinking_level.into(),
             context_usage,

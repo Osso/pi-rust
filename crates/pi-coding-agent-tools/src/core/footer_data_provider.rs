@@ -18,7 +18,7 @@ use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use tokio::task::JoinHandle;
 
-use crate::core::session_manager::SessionManager;
+use crate::core::readonly_session_manager::ReadonlySessionManager;
 use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, close_watcher, watch_with_error_handler};
 
 /// Debounce for file-system triggered branch refreshes.
@@ -53,7 +53,7 @@ pub struct ContextUsage {
 #[derive(Clone)]
 pub struct FooterSessionOverride {
     pub cwd: JsString,
-    pub session_manager: Option<Arc<Mutex<SessionManager>>>,
+    pub session_manager: Option<ReadonlySessionManager>,
     pub model: Option<Model>,
     pub thinking_level: JsString,
     pub context_usage: Option<ContextUsage>,

@@ -100,10 +100,9 @@ fn set_override(
     let manager = value["manager"].as_str().unwrap();
     footer.set_session_override(FooterSessionOverride {
         cwd: raw(&value["cwd"]),
-        session_manager: managers
-            .iter()
-            .find(|(key, _)| *key == manager)
-            .map(|(_, manager)| manager.clone()),
+        session_manager: managers.iter().find(|(key, _)| *key == manager).map(|(_, manager)| {
+            pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager(manager.clone())
+        }),
         model: display_model(&value["model"], base),
         thinking_level: raw(&value["thinking"]),
         context_usage: (!value["context"].is_null()).then(|| ContextUsage {
