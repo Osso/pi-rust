@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 536, `gap` 21, `partial` 44, `todo` 85.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 537, `gap` 21, `partial` 44, `todo` 84.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -175,7 +175,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/types.ts` | 750 | 0 | partial | `crates/pi-ai/src/types.rs`, `request.rs` | Initial stop restored; Pending/Deferred enum variants and assistant handle field removed (16 type tests + 1 frozen raw persistence fixture GREEN). Deferred request/handle/trait shapes removed; constrained-sampling carrier/trait/constructor shapes removed after coding-agent integration; tool-result usage/added-tool-name carriers removed with old-JSONL byte preservation; raw stop-reason removed; remaining current-pin public-type audit pending; [traceability](traceability/ai-types.md). |
 | `ai/src/utils/abort-signals.ts` | 41 | 4 | partial | `crates/pi-ai/src/utils/abort_signals.rs` | Actual frozen helper: zero/single identity, synchronous native first reasons/pre-aborts, explicit cleanup and retained-signal lifetime after wrapper drop; no Tokio bridge tasks/runtime. Focused development proof; SDK/consumer reason work and integration gates remain. [Traceability](traceability/abort-signals.md). |
 | `ai/src/utils/diagnostics.ts` | 45 | 0 | done | `crates/pi-ai/src/utils/diagnostics.rs` | Thrown-value formatting, error extraction, diagnostic creation/append, serde wire shape.; re-run vs 4f9e6f8a4 pending |
-| `ai/src/utils/error-body.ts` | 127 | 0 | todo | `crates/pi-ai/src/utils/error_body.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/utils/error_body.rs`; Provider error status/body normalization, formatting, truncation; differential. |
+| `ai/src/utils/error-body.ts` | 127 | 0 | done | `crates/pi-ai/src/utils/error_body.rs` | Whole realistic SDK/JSON normalization, precedence, formatting, stringify and exact UTF-16 truncation revalidated: 27 targeted tests, six actual-source differentials GREEN. Exotic/runtime boundary is one approved gap row, not a new carrier. [Trace](traceability/error-body.md). |
 | `ai/src/utils/estimate.ts` | 111 | 2 | partial | `crates/pi-ai/src/utils/estimate.rs` | Frozen timestamp/added-tool drift removed; 8 behavioral + 1 differential GREEN (10 scenarios), RED 2. Native text/tool-definition boundary gaps: [traceability](traceability/estimate.md); `/tmp/pi-rust-repin-delta-ai/ledger.md`. |
 | `ai/src/utils/event-stream.ts` | 110 | 1 | done | `pi-ai/src/utils/event_stream.rs` | differential; re-run vs 4f9e6f8a4 pending |
 | `ai/src/utils/hash.ts` | 13 | 0 | done | `crates/pi-ai/src/utils/hash.rs` | UTF-16 code-unit short hash, bit-for-bit differential.; re-run vs 4f9e6f8a4 pending |
