@@ -797,6 +797,97 @@ async fn observe(request: &Value, controller: Option<pi_js_compat::abort::AbortC
     })
 }
 
+async fn compare_anthropic_contract(context: Value, options: Value, script: Vec<Value>) {
+    let mut source = oracle::TsOracle::spawn(
+        "anthropic-messages-oracle.ts",
+        "packages/ai/src/api/anthropic-messages.ts",
+    );
+    let request = json!({"id":900,"kind":"stream","model":model("anthropic","claude-haiku-4-5",None),"context":context,"options":options,"script":script});
+    let expected = source.request(&request);
+    assert_eq!(expected["ok"], json!(true));
+    assert_eq!(observe(&request, None).await, expected["output"]);
+}
+
+#[tokio::test]
+async fn anthropic_source_ignores_the_old_retry_delay_cap() {
+    let mut script = vec![
+        json!({"status":503,"headers":[["content-type","application/json"],["retry-after-ms","2"]],"chunks":["{\"error\":{\"message\":\"retry\"}}"]}),
+    ];
+    script.extend(text_script());
+    compare_anthropic_contract(
+        context(json!([user(json!("hi"))]), None, None),
+        json!({"apiKey":"key","maxRetries":1,"maxRetryDelayMs":1}),
+        script,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn anthropic_source_tool_id_replacement_counts_utf16_units() {
+    let messages = json!([
+        assistant(json!([{"type":"toolCall","id":"call😀tail","name":"read","arguments":{}}])),
+        tool_result("call😀tail", "read", json!([{"type":"text","text":"done"}]), None)
+    ]);
+    compare_anthropic_contract(context(messages, None, None), json!({"apiKey":"key"}), text_script()).await;
+}
+
+#[tokio::test]
+async fn anthropic_source_sse_decoding_consumes_the_initial_bom() {
+    let mut response = scripted(sse(&text_events()));
+    response["chunks"].as_array_mut().unwrap().insert(0, json!("\u{feff}"));
+    compare_anthropic_contract(
+        context(json!([user(json!("hi"))]), None, None),
+        json!({"apiKey":"key"}),
+        vec![response],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn anthropic_source_sensitive_stop_does_not_invent_error_text() {
+    let body = sse(&text_events()).replace("\"stop_reason\":\"end_turn\"", "\"stop_reason\":\"sensitive\"");
+    compare_anthropic_contract(
+        context(json!([user(json!("hi"))]), None, None),
+        json!({"apiKey":"key"}),
+        vec![scripted(body)],
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn anthropic_source_refusal_explanation_keeps_existing_native_utf16_carrier() {
+    use pi_js_compat::js_json::{JsValue, from_value};
+    let body = sse(&text_events()).replace(
+        "\"stop_reason\":\"end_turn\"",
+        "\"stop_reason\":\"refusal\",\"stop_details\":{\"explanation\":\"no\\ud800\"}",
+    );
+    let response = scripted(body);
+    let scalar_model = model("anthropic", "claude-haiku-4-5", None);
+    let scalar_context = context(json!([user(json!("hi"))]), None, None);
+    let options = json!({"apiKey":"key"});
+    let request = JsValue::from(
+        json!({"id":901,"kind":"stream","model":scalar_model,"context":scalar_context,"options":options,"script":[response]}),
+    );
+    let mut source = oracle::TsOracle::spawn(
+        "anthropic-messages-oracle.ts",
+        "packages/ai/src/api/anthropic-messages.ts",
+    );
+    let expected = source.request(&request);
+    assert_eq!(expected["ok"], JsValue::Bool(true));
+    let fetch = RecordingFetch::new(vec![scripted_response_from_json(&response)]);
+    let mut output = stream(
+        from_value(&JsValue::from(scalar_model)).unwrap(),
+        from_value(&JsValue::from(scalar_context)).unwrap(),
+        stream_options(&options, fetch, None),
+    );
+    while let Some(event) = output.next().await {
+        event.unwrap();
+    }
+    let mut result = pi_js_compat::js_json!(output.result().await.unwrap());
+    result["timestamp"] = pi_js_compat::js_json!(0);
+    assert_eq!(result, expected["output"]["result"]);
+}
+
 #[tokio::test]
 async fn anthropic_messages_matches_the_pinned_typescript_module() {
     let mut oracle = oracle::TsOracle::spawn(

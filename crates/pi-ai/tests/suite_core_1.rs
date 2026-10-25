@@ -102,6 +102,8 @@ pub mod differential_simple_acquisition;
 pub mod differential_simple_options;
 #[path = "differential_stainless_abort.rs"]
 pub mod differential_stainless_abort;
+#[path = "differential_stainless_retry.rs"]
+pub mod differential_stainless_retry;
 #[path = "differential_transform_messages.rs"]
 pub mod differential_transform_messages;
 #[path = "differential_validation.rs"]
