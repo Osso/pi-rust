@@ -1,6 +1,6 @@
 # Current session history search traceability
 
-Frozen source: `packages/coding-agent/src/core/tools/search-current-session-history.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent-core/src/core/tools/search_current_session_history.rs`. Contract: [spec](../../specs/search-current-session-history.md).
+Frozen source: `packages/coding-agent/src/core/tools/search-current-session-history.ts` at `4f9e6f8a4` ([lock](../source-lock.json)). Rust: `crates/pi-coding-agent-tools/src/core/tools/search_current_session_history.rs`. Contract: [spec](../../specs/search-current-session-history.md).
 
 | Source symbol/branch | Rust | Proof |
 |---|---|---|

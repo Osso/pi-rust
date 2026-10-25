@@ -1,7 +1,7 @@
 # coding-agent keybindings.ts traceability
 
 Source: `packages/coding-agent/src/core/keybindings.ts` (434 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-core/src/core/keybindings.rs`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-data/src/core/keybindings.rs`.
 The TUI registry itself is `packages/tui/src/keybindings.ts` → `crates/pi-tui/src/keybindings.rs`
 (see `keybindings.md`); this module only layers `app.*` bindings on top.
 

@@ -31,7 +31,7 @@ impl SessionCwdSource for SessionManager {
     }
 }
 
-pub(crate) fn stat_cwd_directory(path: &JsString) -> Result<bool, CallbackError> {
+pub fn stat_cwd_directory(path: &JsString) -> Result<bool, CallbackError> {
     if let Some(error) = pi_js_compat::node_fs::node_path_argument_error(path) {
         return Err(CallbackError::from_error(
             error.message.clone(),

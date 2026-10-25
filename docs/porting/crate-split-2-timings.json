@@ -1,0 +1,1762 @@
+{
+  "code_revision": "a87f64cc3d3bcb85610c5d39cf442324eed7e741",
+  "parent_revision": "4c28cdf4a874dc3dfbe8333c002496bdc25b9ab7",
+  "criteria": {
+    "approved_by": "main, 2026-10-24",
+    "statistic": "median of three eligible checks per crate",
+    "limit_seconds": 30,
+    "maximum_start_and_end_one_minute_load": 30,
+    "hard_every_run_ceiling": false
+  },
+  "probes": {
+    "data": "crates/pi-coding-agent-data/src/core/event_bus.rs",
+    "settings": "crates/pi-coding-agent-settings/src/core/settings_manager.rs",
+    "models": "crates/pi-coding-agent-models/src/core/model_resolver.rs",
+    "storage": "crates/pi-coding-agent-storage/src/core/session_control_db/mod.rs",
+    "packages": "crates/pi-coding-agent-packages/src/core/package_manager.rs",
+    "support": "crates/pi-coding-agent-tool-support/src/modes/interactive/theme/mod.rs",
+    "tools": "crates/pi-coding-agent-tools/src/core/tools/read.rs",
+    "runtime": "crates/pi-coding-agent-core/src/core/agent_session.rs",
+    "extensions": "crates/pi-coding-agent-extensions/src/bundled_extensions/codex_usage/mod.rs",
+    "interactive": "crates/pi-coding-agent-interactive/src/modes/interactive/components/status_indicator.rs",
+    "base": "crates/pi-coding-agent-base/src/utils/ansi.rs",
+    "facade": "crates/pi-coding-agent/src/lib.rs"
+  },
+  "baseline_revision": "726033aa",
+  "baseline": [
+    {
+      "stage": "before",
+      "sample": "warm",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:13:42 up 15 days,  1:44, 18 users,  load average: 26.93, 31.07, 33.82",
+      "elapsed": 46.37285255896859,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "warm",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:14:28 up 15 days,  1:45, 18 users,  load average: 27.30, 30.48, 33.47",
+      "elapsed": 115.35838636895642,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "data",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:16:24 up 15 days,  1:46, 18 users,  load average: 31.54, 31.79, 33.65",
+      "elapsed": 34.50240668398328,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "data",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:16:58 up 15 days,  1:47, 18 users,  load average: 30.16, 31.45, 33.47",
+      "elapsed": 51.5496672319714,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "storage",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:17:50 up 15 days,  1:48, 18 users,  load average: 31.38, 31.51, 33.38",
+      "elapsed": 28.104576645884663,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "storage",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:18:18 up 15 days,  1:48, 18 users,  load average: 34.33, 32.11, 33.51",
+      "elapsed": 44.31226367899217,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "packages",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:19:02 up 15 days,  1:49, 18 users,  load average: 37.16, 33.21, 33.82",
+      "elapsed": 32.99872965901159,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "packages",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:19:35 up 15 days,  1:50, 18 users,  load average: 33.61, 32.72, 33.64",
+      "elapsed": 62.16878261906095,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "tools",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:20:37 up 15 days,  1:51, 18 users,  load average: 31.21, 32.10, 33.35",
+      "elapsed": 41.700734126148745,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "tools",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:21:19 up 15 days,  1:51, 18 users,  load average: 27.37, 31.03, 32.94",
+      "elapsed": 73.2003571621608,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "runtime",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:22:32 up 15 days,  1:53, 18 users,  load average: 31.39, 31.21, 32.84",
+      "elapsed": 48.1815815649461,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "runtime",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:23:21 up 15 days,  1:53, 18 users,  load average: 31.34, 31.25, 32.78",
+      "elapsed": 53.37285462394357,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "extensions",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:24:14 up 15 days,  1:54, 18 users,  load average: 29.14, 30.73, 32.51",
+      "elapsed": 15.397582554956898,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "extensions",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:24:29 up 15 days,  1:55, 18 users,  load average: 30.11, 30.87, 32.53",
+      "elapsed": 24.82525520795025,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "interactive",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:24:54 up 15 days,  1:55, 18 users,  load average: 30.12, 30.83, 32.47",
+      "elapsed": 10.11121575301513,
+      "exit_code": 0
+    },
+    {
+      "stage": "before",
+      "sample": "interactive",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:25:04 up 15 days,  1:55, 18 users,  load average: 30.77, 30.95, 32.50",
+      "elapsed": 15.169874660903588,
+      "exit_code": 0
+    }
+  ],
+  "support_before_cut_revision": "2dd11f78",
+  "support_before_cut": [
+    {
+      "sample": "support",
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "19:43:01 up 15 days,  2:13, 18 users,  load average: 29.56, 28.99, 29.98",
+      "elapsed": 22.34719097893685,
+      "exit_code": 0
+    },
+    {
+      "sample": "support",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "19:43:23 up 15 days,  2:13, 18 users,  load average: 28.43, 28.78, 29.88",
+      "elapsed": 36.55110071320087,
+      "exit_code": 0
+    }
+  ],
+  "settings_before_cut_revision": "8c04347c",
+  "data_and_settings_before_cut": [
+    {
+      "revision": "8c04347c4743e952d68b931a26e0522e5d6401b4",
+      "sample": "data",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "20:34:32 up 15 days,  3:05, 18 users,  load average: 28.04, 27.29, 35.06",
+      "end_uptime": "20:35:04 up 15 days,  3:05, 18 users,  load average: 28.08, 27.44, 34.82",
+      "start_load": [
+        28.041015625,
+        27.29296875,
+        35.06201171875
+      ],
+      "end_load": [
+        28.08447265625,
+        27.43701171875,
+        34.82421875
+      ],
+      "elapsed": 32.01825463096611,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "8c04347c4743e952d68b931a26e0522e5d6401b4",
+      "sample": "data",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "20:35:04 up 15 days,  3:05, 18 users,  load average: 28.08, 27.44, 34.82",
+      "end_uptime": "20:35:34 up 15 days,  3:06, 18 users,  load average: 27.18, 27.30, 34.54",
+      "start_load": [
+        28.08447265625,
+        27.43701171875,
+        34.82421875
+      ],
+      "end_load": [
+        27.18505859375,
+        27.29541015625,
+        34.54150390625
+      ],
+      "elapsed": 30.236891712993383,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "8c04347c4743e952d68b931a26e0522e5d6401b4",
+      "sample": "data",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "20:35:34 up 15 days,  3:06, 18 users,  load average: 27.18, 27.30, 34.54",
+      "end_uptime": "20:36:05 up 15 days,  3:06, 18 users,  load average: 28.31, 27.57, 34.40",
+      "start_load": [
+        27.18505859375,
+        27.29541015625,
+        34.54150390625
+      ],
+      "end_load": [
+        28.30615234375,
+        27.5673828125,
+        34.40185546875
+      ],
+      "elapsed": 31.64292265684344,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "8c04347c4743e952d68b931a26e0522e5d6401b4",
+      "sample": "data",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "20:36:05 up 15 days,  3:06, 18 users,  load average: 28.31, 27.57, 34.40",
+      "end_uptime": "20:37:05 up 15 days,  3:07, 18 users,  load average: 35.10, 29.48, 34.62",
+      "start_load": [
+        28.30615234375,
+        27.5673828125,
+        34.40185546875
+      ],
+      "end_load": [
+        35.09716796875,
+        29.48046875,
+        34.62255859375
+      ],
+      "elapsed": 59.917554708896205,
+      "exit_code": 0
+    }
+  ],
+  "final": [
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "data",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:14:16 up 15 days,  3:44, 18 users,  load average: 19.13, 36.23, 48.88",
+      "end_uptime": "21:14:33 up 15 days,  3:45, 18 users,  load average: 18.43, 35.24, 48.36",
+      "start_load": [
+        19.13232421875,
+        36.2314453125,
+        48.884765625
+      ],
+      "end_load": [
+        18.43212890625,
+        35.2392578125,
+        48.357421875
+      ],
+      "elapsed": 16.82515985495411,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "data",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:14:33 up 15 days,  3:45, 18 users,  load average: 18.43, 35.24, 48.36",
+      "end_uptime": "21:14:50 up 15 days,  3:45, 18 users,  load average: 16.97, 33.81, 47.61",
+      "start_load": [
+        18.43212890625,
+        35.2392578125,
+        48.357421875
+      ],
+      "end_load": [
+        16.96875,
+        33.81396484375,
+        47.60888671875
+      ],
+      "elapsed": 16.466016924008727,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "data",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:14:50 up 15 days,  3:45, 18 users,  load average: 16.97, 33.81, 47.61",
+      "end_uptime": "21:15:08 up 15 days,  3:45, 18 users,  load average: 16.37, 32.86, 47.08",
+      "start_load": [
+        16.96875,
+        33.81396484375,
+        47.60888671875
+      ],
+      "end_load": [
+        16.3720703125,
+        32.8583984375,
+        47.0751953125
+      ],
+      "elapsed": 17.906027171993628,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "data",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:15:08 up 15 days,  3:45, 18 users,  load average: 16.37, 32.86, 47.08",
+      "end_uptime": "21:15:38 up 15 days,  3:46, 18 users,  load average: 16.29, 31.26, 46.09",
+      "start_load": [
+        16.3720703125,
+        32.8583984375,
+        47.0751953125
+      ],
+      "end_load": [
+        16.287109375,
+        31.26123046875,
+        46.09130859375
+      ],
+      "elapsed": 29.960406279889867,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "settings",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:15:38 up 15 days,  3:46, 18 users,  load average: 16.29, 31.26, 46.09",
+      "end_uptime": "21:15:57 up 15 days,  3:46, 18 users,  load average: 17.63, 30.62, 45.57",
+      "start_load": [
+        16.287109375,
+        31.26123046875,
+        46.09130859375
+      ],
+      "end_load": [
+        17.62890625,
+        30.6220703125,
+        45.5654296875
+      ],
+      "elapsed": 19.190684432163835,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "settings",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:15:57 up 15 days,  3:46, 18 users,  load average: 17.63, 30.62, 45.57",
+      "end_uptime": "21:16:15 up 15 days,  3:46, 18 users,  load average: 18.26, 29.93, 45.02",
+      "start_load": [
+        17.62890625,
+        30.6220703125,
+        45.5654296875
+      ],
+      "end_load": [
+        18.26220703125,
+        29.931640625,
+        45.01953125
+      ],
+      "elapsed": 18.4605438481085,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "settings",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:16:15 up 15 days,  3:46, 18 users,  load average: 18.26, 29.93, 45.02",
+      "end_uptime": "21:16:31 up 15 days,  3:47, 18 users,  load average: 19.40, 29.61, 44.67",
+      "start_load": [
+        18.26220703125,
+        29.931640625,
+        45.01953125
+      ],
+      "end_load": [
+        19.3984375,
+        29.6083984375,
+        44.67138671875
+      ],
+      "elapsed": 15.579430417856202,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "settings",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:16:31 up 15 days,  3:47, 18 users,  load average: 19.40, 29.61, 44.67",
+      "end_uptime": "21:17:09 up 15 days,  3:47, 18 users,  load average: 22.96, 29.24, 43.91",
+      "start_load": [
+        19.3984375,
+        29.6083984375,
+        44.67138671875
+      ],
+      "end_load": [
+        22.96240234375,
+        29.23583984375,
+        43.908203125
+      ],
+      "elapsed": 38.631094007985666,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "models",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:17:09 up 15 days,  3:47, 18 users,  load average: 22.96, 29.24, 43.91",
+      "end_uptime": "21:17:39 up 15 days,  3:48, 18 users,  load average: 28.09, 29.91, 43.67",
+      "start_load": [
+        22.96240234375,
+        29.23583984375,
+        43.908203125
+      ],
+      "end_load": [
+        28.09228515625,
+        29.90869140625,
+        43.66552734375
+      ],
+      "elapsed": 29.696975436992943,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "models",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:17:39 up 15 days,  3:48, 18 users,  load average: 28.09, 29.91, 43.67",
+      "end_uptime": "21:18:08 up 15 days,  3:48, 18 users,  load average: 28.80, 29.96, 43.32",
+      "start_load": [
+        28.09228515625,
+        29.90869140625,
+        43.66552734375
+      ],
+      "end_load": [
+        28.80126953125,
+        29.9580078125,
+        43.31640625
+      ],
+      "elapsed": 28.830781508004293,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "models",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:18:08 up 15 days,  3:48, 18 users,  load average: 28.80, 29.96, 43.32",
+      "end_uptime": "21:18:42 up 15 days,  3:49, 18 users,  load average: 32.98, 30.75, 43.08",
+      "start_load": [
+        28.80126953125,
+        29.9580078125,
+        43.31640625
+      ],
+      "end_load": [
+        32.98095703125,
+        30.75439453125,
+        43.080078125
+      ],
+      "elapsed": 34.36032537696883,
+      "exit_code": 0,
+      "eligible": false
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "models",
+      "attempt": 4,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:25:02 up 15 days,  3:55, 18 users,  load average: 29.22, 37.75, 43.29",
+      "end_uptime": "21:25:28 up 15 days,  3:56, 18 users,  load average: 28.24, 36.85, 42.84",
+      "start_load": [
+        29.21923828125,
+        37.74755859375,
+        43.28955078125
+      ],
+      "end_load": [
+        28.24365234375,
+        36.84765625,
+        42.84423828125
+      ],
+      "elapsed": 25.258921978995204,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "models",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:25:28 up 15 days,  3:56, 18 users,  load average: 28.24, 36.85, 42.84",
+      "end_uptime": "21:26:07 up 15 days,  3:56, 18 users,  load average: 28.77, 35.92, 42.28",
+      "start_load": [
+        28.24365234375,
+        36.84765625,
+        42.84423828125
+      ],
+      "end_load": [
+        28.77392578125,
+        35.9208984375,
+        42.279296875
+      ],
+      "elapsed": 39.069246432045475,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "storage",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:26:07 up 15 days,  3:56, 18 users,  load average: 28.77, 35.92, 42.28",
+      "end_uptime": "21:26:33 up 15 days,  3:57, 18 users,  load average: 27.59, 35.09, 41.83",
+      "start_load": [
+        28.77392578125,
+        35.9208984375,
+        42.279296875
+      ],
+      "end_load": [
+        27.58740234375,
+        35.0859375,
+        41.833984375
+      ],
+      "elapsed": 26.705350216012448,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "storage",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:26:33 up 15 days,  3:57, 18 users,  load average: 27.59, 35.09, 41.83",
+      "end_uptime": "21:26:59 up 15 days,  3:57, 18 users,  load average: 27.14, 34.25, 41.34",
+      "start_load": [
+        27.58740234375,
+        35.0859375,
+        41.833984375
+      ],
+      "end_load": [
+        27.13916015625,
+        34.25,
+        41.33935546875
+      ],
+      "elapsed": 25.643283494981006,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "storage",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:26:59 up 15 days,  3:57, 18 users,  load average: 27.14, 34.25, 41.34",
+      "end_uptime": "21:27:25 up 15 days,  3:57, 18 users,  load average: 25.77, 33.35, 40.85",
+      "start_load": [
+        27.13916015625,
+        34.25,
+        41.33935546875
+      ],
+      "end_load": [
+        25.76953125,
+        33.34716796875,
+        40.85107421875
+      ],
+      "elapsed": 25.353620206937194,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "storage",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:27:25 up 15 days,  3:57, 18 users,  load average: 25.77, 33.35, 40.85",
+      "end_uptime": "21:28:09 up 15 days,  3:58, 18 users,  load average: 28.00, 32.80, 40.31",
+      "start_load": [
+        25.76953125,
+        33.34716796875,
+        40.85107421875
+      ],
+      "end_load": [
+        28.00439453125,
+        32.80322265625,
+        40.30615234375
+      ],
+      "elapsed": 44.92860345216468,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "packages",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:28:09 up 15 days,  3:58, 18 users,  load average: 28.00, 32.80, 40.31",
+      "end_uptime": "21:28:34 up 15 days,  3:59, 18 users,  load average: 26.95, 32.19, 39.90",
+      "start_load": [
+        28.00439453125,
+        32.80322265625,
+        40.30615234375
+      ],
+      "end_load": [
+        26.94873046875,
+        32.18701171875,
+        39.90283203125
+      ],
+      "elapsed": 24.658946075942367,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "packages",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:28:34 up 15 days,  3:59, 18 users,  load average: 26.95, 32.19, 39.90",
+      "end_uptime": "21:28:57 up 15 days,  3:59, 18 users,  load average: 26.56, 31.75, 39.60",
+      "start_load": [
+        26.94873046875,
+        32.18701171875,
+        39.90283203125
+      ],
+      "end_load": [
+        26.5595703125,
+        31.75390625,
+        39.59521484375
+      ],
+      "elapsed": 23.31180117605254,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "packages",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:28:58 up 15 days,  3:59, 18 users,  load average: 26.56, 31.75, 39.60",
+      "end_uptime": "21:29:22 up 15 days,  3:59, 18 users,  load average: 28.02, 31.70, 39.37",
+      "start_load": [
+        26.5595703125,
+        31.75390625,
+        39.59521484375
+      ],
+      "end_load": [
+        28.01708984375,
+        31.70361328125,
+        39.37109375
+      ],
+      "elapsed": 24.43003076314926,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "packages",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:29:22 up 15 days,  3:59, 18 users,  load average: 28.02, 31.70, 39.37",
+      "end_uptime": "21:30:11 up 15 days,  4:00, 18 users,  load average: 32.00, 32.18, 39.12",
+      "start_load": [
+        28.01708984375,
+        31.70361328125,
+        39.37109375
+      ],
+      "end_load": [
+        31.99853515625,
+        32.181640625,
+        39.125
+      ],
+      "elapsed": 49.10541444411501,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "support",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:31:51 up 15 days,  4:02, 18 users,  load average: 28.82, 31.21, 38.07",
+      "end_uptime": "21:32:27 up 15 days,  4:03, 18 users,  load average: 28.88, 30.98, 37.74",
+      "start_load": [
+        28.8154296875,
+        31.2109375,
+        38.07177734375
+      ],
+      "end_load": [
+        28.87744140625,
+        30.97607421875,
+        37.73974609375
+      ],
+      "elapsed": 35.33978917985223,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "support",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:32:27 up 15 days,  4:03, 18 users,  load average: 28.88, 30.98, 37.74",
+      "end_uptime": "21:32:55 up 15 days,  4:03, 18 users,  load average: 30.03, 31.01, 37.53",
+      "start_load": [
+        28.87744140625,
+        30.97607421875,
+        37.73974609375
+      ],
+      "end_load": [
+        30.03173828125,
+        31.00634765625,
+        37.53125
+      ],
+      "elapsed": 28.543034519068897,
+      "exit_code": 0,
+      "eligible": false
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "support",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:33:15 up 15 days,  4:03, 18 users,  load average: 29.02, 30.71, 37.30",
+      "end_uptime": "21:33:40 up 15 days,  4:04, 18 users,  load average: 27.57, 30.24, 36.96",
+      "start_load": [
+        29.0185546875,
+        30.712890625,
+        37.29541015625
+      ],
+      "end_load": [
+        27.56591796875,
+        30.236328125,
+        36.9619140625
+      ],
+      "elapsed": 25.205712602939457,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "support",
+      "attempt": 4,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:33:40 up 15 days,  4:04, 18 users,  load average: 27.57, 30.24, 36.96",
+      "end_uptime": "21:34:07 up 15 days,  4:04, 18 users,  load average: 27.85, 30.09, 36.73",
+      "start_load": [
+        27.56591796875,
+        30.236328125,
+        36.9619140625
+      ],
+      "end_load": [
+        27.85498046875,
+        30.087890625,
+        36.7333984375
+      ],
+      "elapsed": 26.696944433962926,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "support",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:34:07 up 15 days,  4:04, 18 users,  load average: 27.85, 30.09, 36.73",
+      "end_uptime": "21:35:24 up 15 days,  4:05, 18 users,  load average: 43.18, 34.27, 37.67",
+      "start_load": [
+        27.85498046875,
+        30.087890625,
+        36.7333984375
+      ],
+      "end_load": [
+        43.18212890625,
+        34.2744140625,
+        37.6708984375
+      ],
+      "elapsed": 76.39858972514048,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "tools",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:37:04 up 15 days,  4:07, 18 users,  load average: 27.25, 31.63, 36.40",
+      "end_uptime": "21:37:21 up 15 days,  4:07, 18 users,  load average: 24.94, 30.82, 36.03",
+      "start_load": [
+        27.25341796875,
+        31.6279296875,
+        36.39599609375
+      ],
+      "end_load": [
+        24.9423828125,
+        30.82373046875,
+        36.029296875
+      ],
+      "elapsed": 17.809460763121024,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "tools",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:37:21 up 15 days,  4:07, 18 users,  load average: 24.94, 30.82, 36.03",
+      "end_uptime": "21:37:39 up 15 days,  4:08, 18 users,  load average: 23.69, 30.15, 35.70",
+      "start_load": [
+        24.9423828125,
+        30.82373046875,
+        36.029296875
+      ],
+      "end_load": [
+        23.6904296875,
+        30.154296875,
+        35.697265625
+      ],
+      "elapsed": 17.85114582697861,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "tools",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:37:39 up 15 days,  4:08, 18 users,  load average: 23.69, 30.15, 35.70",
+      "end_uptime": "21:37:58 up 15 days,  4:08, 18 users,  load average: 23.48, 29.79, 35.49",
+      "start_load": [
+        23.6904296875,
+        30.154296875,
+        35.697265625
+      ],
+      "end_load": [
+        23.48193359375,
+        29.787109375,
+        35.48779296875
+      ],
+      "elapsed": 18.642006210051477,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "tools",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:37:58 up 15 days,  4:08, 18 users,  load average: 23.48, 29.79, 35.49",
+      "end_uptime": "21:38:29 up 15 days,  4:09, 18 users,  load average: 22.35, 28.81, 34.95",
+      "start_load": [
+        23.48193359375,
+        29.787109375,
+        35.48779296875
+      ],
+      "end_load": [
+        22.3466796875,
+        28.8125,
+        34.94970703125
+      ],
+      "elapsed": 31.54654265800491,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "runtime",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:38:29 up 15 days,  4:09, 18 users,  load average: 22.35, 28.81, 34.95",
+      "end_uptime": "21:38:43 up 15 days,  4:09, 18 users,  load average: 22.53, 28.64, 34.83",
+      "start_load": [
+        22.3466796875,
+        28.8125,
+        34.94970703125
+      ],
+      "end_load": [
+        22.52783203125,
+        28.63720703125,
+        34.82666015625
+      ],
+      "elapsed": 13.903002246981487,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "runtime",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:38:43 up 15 days,  4:09, 18 users,  load average: 22.53, 28.64, 34.83",
+      "end_uptime": "21:38:56 up 15 days,  4:09, 18 users,  load average: 22.55, 28.34, 34.63",
+      "start_load": [
+        22.52783203125,
+        28.63720703125,
+        34.82666015625
+      ],
+      "end_load": [
+        22.54638671875,
+        28.34326171875,
+        34.630859375
+      ],
+      "elapsed": 12.834026894997805,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "runtime",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:38:56 up 15 days,  4:09, 18 users,  load average: 22.55, 28.34, 34.63",
+      "end_uptime": "21:39:10 up 15 days,  4:09, 18 users,  load average: 21.73, 27.88, 34.38",
+      "start_load": [
+        22.54638671875,
+        28.34326171875,
+        34.630859375
+      ],
+      "end_load": [
+        21.72900390625,
+        27.8837890625,
+        34.37939453125
+      ],
+      "elapsed": 13.88829523907043,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "runtime",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:39:10 up 15 days,  4:09, 18 users,  load average: 21.73, 27.88, 34.38",
+      "end_uptime": "21:39:32 up 15 days,  4:10, 18 users,  load average: 20.68, 27.24, 34.03",
+      "start_load": [
+        21.72900390625,
+        27.8837890625,
+        34.37939453125
+      ],
+      "end_load": [
+        20.67529296875,
+        27.24267578125,
+        34.02880859375
+      ],
+      "elapsed": 21.894713749177754,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "extensions",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:39:32 up 15 days,  4:10, 18 users,  load average: 20.68, 27.24, 34.03",
+      "end_uptime": "21:39:43 up 15 days,  4:10, 18 users,  load average: 20.73, 27.04, 33.89",
+      "start_load": [
+        20.67529296875,
+        27.24267578125,
+        34.02880859375
+      ],
+      "end_load": [
+        20.73193359375,
+        27.03662109375,
+        33.888671875
+      ],
+      "elapsed": 11.311327838804573,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "extensions",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:39:43 up 15 days,  4:10, 18 users,  load average: 20.73, 27.04, 33.89",
+      "end_uptime": "21:39:55 up 15 days,  4:10, 18 users,  load average: 20.31, 26.64, 33.65",
+      "start_load": [
+        20.73193359375,
+        27.03662109375,
+        33.888671875
+      ],
+      "end_load": [
+        20.31103515625,
+        26.640625,
+        33.64892578125
+      ],
+      "elapsed": 11.810329342028126,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "extensions",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:39:55 up 15 days,  4:10, 18 users,  load average: 20.31, 26.64, 33.65",
+      "end_uptime": "21:40:06 up 15 days,  4:10, 18 users,  load average: 20.66, 26.50, 33.53",
+      "start_load": [
+        20.31103515625,
+        26.640625,
+        33.64892578125
+      ],
+      "end_load": [
+        20.6572265625,
+        26.50439453125,
+        33.52880859375
+      ],
+      "elapsed": 11.047234034864232,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "extensions",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:40:06 up 15 days,  4:10, 18 users,  load average: 20.66, 26.50, 33.53",
+      "end_uptime": "21:40:29 up 15 days,  4:11, 18 users,  load average: 21.30, 26.28, 33.30",
+      "start_load": [
+        20.6572265625,
+        26.50439453125,
+        33.52880859375
+      ],
+      "end_load": [
+        21.3037109375,
+        26.275390625,
+        33.30322265625
+      ],
+      "elapsed": 22.505312841152772,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "interactive",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:40:29 up 15 days,  4:11, 18 users,  load average: 21.30, 26.28, 33.30",
+      "end_uptime": "21:40:36 up 15 days,  4:11, 18 users,  load average: 21.47, 26.15, 33.19",
+      "start_load": [
+        21.3037109375,
+        26.275390625,
+        33.30322265625
+      ],
+      "end_load": [
+        21.46533203125,
+        26.1494140625,
+        33.18701171875
+      ],
+      "elapsed": 7.391663959948346,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "interactive",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:40:36 up 15 days,  4:11, 18 users,  load average: 21.47, 26.15, 33.19",
+      "end_uptime": "21:40:42 up 15 days,  4:11, 18 users,  load average: 21.03, 25.98, 33.09",
+      "start_load": [
+        21.46533203125,
+        26.1494140625,
+        33.18701171875
+      ],
+      "end_load": [
+        21.02734375,
+        25.98046875,
+        33.09423828125
+      ],
+      "elapsed": 6.080512843793258,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "interactive",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:40:42 up 15 days,  4:11, 18 users,  load average: 21.03, 25.98, 33.09",
+      "end_uptime": "21:40:49 up 15 days,  4:11, 18 users,  load average: 23.02, 26.24, 33.10",
+      "start_load": [
+        21.02734375,
+        25.98046875,
+        33.09423828125
+      ],
+      "end_load": [
+        23.015625,
+        26.24462890625,
+        33.103515625
+      ],
+      "elapsed": 7.0963984068948776,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "interactive",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:40:49 up 15 days,  4:11, 18 users,  load average: 23.02, 26.24, 33.10",
+      "end_uptime": "21:41:01 up 15 days,  4:11, 18 users,  load average: 22.96, 26.12, 32.99",
+      "start_load": [
+        23.015625,
+        26.24462890625,
+        33.103515625
+      ],
+      "end_load": [
+        22.958984375,
+        26.12158203125,
+        32.9892578125
+      ],
+      "elapsed": 11.960653759073466,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "base",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:41:01 up 15 days,  4:11, 18 users,  load average: 22.96, 26.12, 32.99",
+      "end_uptime": "21:41:24 up 15 days,  4:11, 18 users,  load average: 21.69, 25.63, 32.68",
+      "start_load": [
+        22.958984375,
+        26.12158203125,
+        32.9892578125
+      ],
+      "end_load": [
+        21.68603515625,
+        25.62646484375,
+        32.67919921875
+      ],
+      "elapsed": 22.352480480913073,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "base",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:41:24 up 15 days,  4:11, 18 users,  load average: 21.69, 25.63, 32.68",
+      "end_uptime": "21:41:45 up 15 days,  4:12, 18 users,  load average: 20.78, 25.08, 32.31",
+      "start_load": [
+        21.68603515625,
+        25.62646484375,
+        32.67919921875
+      ],
+      "end_load": [
+        20.7763671875,
+        25.08056640625,
+        32.31005859375
+      ],
+      "elapsed": 21.514569369144738,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "base",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:41:45 up 15 days,  4:12, 18 users,  load average: 20.78, 25.08, 32.31",
+      "end_uptime": "21:42:08 up 15 days,  4:12, 18 users,  load average: 19.81, 24.57, 31.99",
+      "start_load": [
+        20.7763671875,
+        25.08056640625,
+        32.31005859375
+      ],
+      "end_load": [
+        19.81396484375,
+        24.57421875,
+        31.98828125
+      ],
+      "elapsed": 22.969674051972106,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "base",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:42:08 up 15 days,  4:12, 18 users,  load average: 19.81, 24.57, 31.99",
+      "end_uptime": "21:42:45 up 15 days,  4:13, 18 users,  load average: 19.63, 23.93, 31.46",
+      "start_load": [
+        19.81396484375,
+        24.57421875,
+        31.98828125
+      ],
+      "end_load": [
+        19.62841796875,
+        23.93505859375,
+        31.45947265625
+      ],
+      "elapsed": 36.81407163781114,
+      "exit_code": 0
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "facade",
+      "attempt": 1,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:43:28 up 15 days,  4:14, 18 users,  load average: 21.77, 23.88, 31.12",
+      "end_uptime": "21:43:36 up 15 days,  4:14, 18 users,  load average: 22.33, 23.93, 31.06",
+      "start_load": [
+        21.77099609375,
+        23.88134765625,
+        31.1181640625
+      ],
+      "end_load": [
+        22.32861328125,
+        23.93408203125,
+        31.05712890625
+      ],
+      "elapsed": 7.936693236930296,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "facade",
+      "attempt": 2,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:43:36 up 15 days,  4:14, 18 users,  load average: 22.33, 23.93, 31.06",
+      "end_uptime": "21:43:40 up 15 days,  4:14, 18 users,  load average: 22.06, 23.85, 30.99",
+      "start_load": [
+        22.32861328125,
+        23.93408203125,
+        31.05712890625
+      ],
+      "end_load": [
+        22.06201171875,
+        23.85205078125,
+        30.9921875
+      ],
+      "elapsed": 3.3478962799999863,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "facade",
+      "attempt": 3,
+      "command": [
+        "cargo",
+        "check",
+        "-j4",
+        "-p",
+        "pi-coding-agent"
+      ],
+      "uptime": "21:43:40 up 15 days,  4:14, 18 users,  load average: 22.06, 23.85, 30.99",
+      "end_uptime": "21:43:43 up 15 days,  4:14, 18 users,  load average: 22.06, 23.85, 30.99",
+      "start_load": [
+        22.06201171875,
+        23.85205078125,
+        30.9921875
+      ],
+      "end_load": [
+        22.06201171875,
+        23.85205078125,
+        30.9921875
+      ],
+      "elapsed": 3.1164858280681074,
+      "exit_code": 0,
+      "eligible": true
+    },
+    {
+      "revision": "29fdb61421819ce419d179bfc70f616efe99071c",
+      "sample": "facade",
+      "command": [
+        "cargo",
+        "build",
+        "-j4",
+        "-p",
+        "pi-coding-agent",
+        "--bin",
+        "pi"
+      ],
+      "uptime": "21:43:43 up 15 days,  4:14, 18 users,  load average: 22.06, 23.85, 30.99",
+      "end_uptime": "21:43:59 up 15 days,  4:14, 18 users,  load average: 22.45, 23.84, 30.87",
+      "start_load": [
+        22.06201171875,
+        23.85205078125,
+        30.9921875
+      ],
+      "end_load": [
+        22.447265625,
+        23.8447265625,
+        30.8740234375
+      ],
+      "elapsed": 15.626901573967189,
+      "exit_code": 0
+    }
+  ]
+}

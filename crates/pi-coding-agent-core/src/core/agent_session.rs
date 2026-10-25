@@ -106,6 +106,12 @@ impl From<AgentSessionError> for pi_ai::request::CallbackError {
     }
 }
 
+impl From<AgentSessionError> for crate::core::extensions::types::HandlerError {
+    fn from(error: AgentSessionError) -> Self {
+        Self::from(pi_ai::request::CallbackError::from(error))
+    }
+}
+
 impl std::fmt::Display for AgentSessionError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&encode_node_utf8(&self.message))
@@ -395,15 +401,8 @@ pub struct QueuedMessagePreviews {
     pub follow_up: Vec<QueuedMessagePreview>,
 }
 
-/// `ModelCycleResult`.
-#[derive(Debug, Clone, PartialEq, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct ModelCycleResult {
-    pub model: Model,
-    #[serde(serialize_with = "serialize_thinking_level")]
-    pub thinking_level: ThinkingLevel,
-    pub is_scoped: bool,
-}
+pub use pi_coding_agent_tools::core::agent_session::ModelCycleResult;
+use pi_coding_agent_tools::core::agent_session::serialize_thinking_level;
 
 /// Session statistics for `/session`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -5485,12 +5484,7 @@ impl AgentSession {
     }
 }
 
-/// Direction for [`AgentSession::cycle_model`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CycleDirection {
-    Forward,
-    Backward,
-}
+pub use pi_coding_agent_tools::core::agent_session::CycleDirection;
 
 /// Options for [`AgentSession::execute_bash`].
 #[derive(Clone, Default)]
@@ -5533,10 +5527,6 @@ impl Drop for ExternalUserInputReservation {
     fn drop(&mut self) {
         self.release();
     }
-}
-
-fn serialize_thinking_level<S: serde::Serializer>(level: &ThinkingLevel, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_str(level.as_str())
 }
 
 fn compaction_settings(

@@ -6,7 +6,7 @@ Common-pin checkpoint: message/project-path/sender ID fields retain `JsString`; 
 
 Pinned source: `packages/coding-agent/src/core/tools/ask-architect.ts` at `532f7d12`.
 
-Rust: `crates/pi-coding-agent-core/src/core/tools/ask_architect.rs` (`AskArchitectTool`).
+Rust: `crates/pi-coding-agent-tools/src/core/tools/ask_architect.rs` (`AskArchitectTool`).
 
 | Source | Rust | Tests |
 |---|---|---|

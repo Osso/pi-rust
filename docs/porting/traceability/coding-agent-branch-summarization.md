@@ -4,7 +4,7 @@
 
 Frozen `branch-summarization.ts:349–353` awaits acquisition/result and propagates rejection. Rust now returns Result for those failures, without converting them to a provider-error record; removed old retry/callback parameters and the callback-less alternate wrapper. [Bounded proof](stream-acquisition.md): native acquisition rejection, 14 branch tests, SDK/agent-session consumers. Historical evidence below is not a whole-module re-pin claim; existing usage fields await their owning re-port.
 
-Rust: `crates/pi-coding-agent-core/src/core/compaction/branch_summarization.rs`. Tests:
+Rust: `crates/pi-coding-agent-tools/src/core/compaction/branch_summarization.rs`. Tests:
 `tests/branch_summarization.rs`, `tests/differential_compaction.rs`.
 
 Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.

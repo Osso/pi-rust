@@ -1,7 +1,7 @@
 # coding-agent tool-definition-wrapper traceability
 
 Frozen: `packages/coding-agent/src/core/tools/tool-definition-wrapper.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
-Rust: `crates/pi-coding-agent-core/src/core/tools/tool_definition_wrapper.rs`.
+Rust: `crates/pi-coding-agent-tools/src/core/tools/tool_definition_wrapper.rs`.
 
 | Frozen lines | Behavior | Proof |
 |---|---|---|

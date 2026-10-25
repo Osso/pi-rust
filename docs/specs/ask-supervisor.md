@@ -17,9 +17,9 @@ Port `packages/coding-agent/src/core/tools/ask-supervisor.ts` at immutable `4f9e
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/tools/ask_supervisor.rs`: tool contract and rendering.
-- `crates/pi-coding-agent-core/src/supervisor/client.rs`: existing durable request transport.
-- `crates/pi-coding-agent-core/src/supervisor/project_resolver.rs`: existing project lookup.
+- `crates/pi-coding-agent-tools/src/core/tools/ask_supervisor.rs`: tool contract and rendering.
+- `crates/pi-coding-agent-tools/src/supervisor/client.rs`: existing durable request transport.
+- `crates/pi-coding-agent-tools/src/supervisor/project_resolver.rs`: existing project lookup.
 
 ## Tests asserting this spec
 

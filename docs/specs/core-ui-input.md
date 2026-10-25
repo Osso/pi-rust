@@ -27,7 +27,7 @@ Evidence: [traceability](../porting/traceability/core-ui-input.md).
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/extensions/types.rs` — native component/TUI API.
+- `crates/pi-coding-agent-tools/src/core/extensions/types.rs` — native component/TUI API.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs` — active renderer lifecycle, forced-render queue and input adapter.
 - `crates/pi-coding-agent/examples/extensions/space_invaders.rs` — explicitly registered native game.
 - `crates/pi-coding-agent/examples/extensions/interactive_shell.rs` — explicitly registered inherited-terminal handler.

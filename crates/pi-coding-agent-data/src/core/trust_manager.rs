@@ -84,7 +84,7 @@ pub struct TrustError {
 }
 
 impl TrustError {
-    pub(crate) fn new(message: impl Into<JsString>) -> Self {
+    pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
         }

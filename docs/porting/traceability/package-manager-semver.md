@@ -4,7 +4,7 @@
 
 `semver@7.8.0`, installed in frozen `4f9e6f8a4/node_modules/semver` (`package.json:3`). Read-only upstream reference: `npm/node-semver` tag `v7.8.0`, commit `efa4be6096c1f9b77d9d27d6132f6220c43b4e31`. Parent verified `classes/`, `functions/`, `internal/`, and `ranges/` byte-identical to the frozen installation. ISC [notice](../vendor/node-semver-LICENSE).
 
-The frozen package-manager imports `maxSatisfying`, `rcompare`, `satisfies`, `valid`, and `validRange` at `packages/coding-agent/src/core/package-manager.ts:30`; call sites are `:49–54`, `:1429`, and `:1477`. Native implementation: `crates/pi-coding-agent-core/src/core/package_manager_semver.rs`, one private module. The reduced Rust-semver parser and matcher were deleted; there is no parallel implementation, Node subprocess dependency, or linked npm dependency. [Contract](../../specs/package-manager-semver.md).
+The frozen package-manager imports `maxSatisfying`, `rcompare`, `satisfies`, `valid`, and `validRange` at `packages/coding-agent/src/core/package-manager.ts:30`; call sites are `:49–54`, `:1429`, and `:1477`. Native implementation: `crates/pi-coding-agent-packages/src/core/package_manager_semver.rs`, one private module. The reduced Rust-semver parser and matcher were deleted; there is no parallel implementation, Node subprocess dependency, or linked npm dependency. [Contract](../../specs/package-manager-semver.md).
 
 ## Source-to-native coverage
 

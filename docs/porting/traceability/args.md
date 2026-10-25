@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/cli/args.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent-core/src/cli/args.rs`.
+Rust: `crates/pi-coding-agent-data/src/cli/args.rs`.
 
 ## Common-pin renderer flag removal (2026-10-22)
 

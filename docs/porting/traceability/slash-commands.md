@@ -1,7 +1,7 @@
 # slash-commands.ts traceability
 
 Source: `packages/coding-agent/src/core/slash-commands.ts` (48 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-core/src/core/slash_commands.rs`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/slash_commands.rs`.
 
 | TS symbol | Rust item | Tests |
 | --- | --- | --- |
