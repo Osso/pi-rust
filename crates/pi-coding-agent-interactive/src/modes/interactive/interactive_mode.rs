@@ -6188,7 +6188,10 @@ impl InteractiveMode {
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
     /// exit 1. The TypeScript signature returns `Promise<never>`.
     fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<CallbackError>) -> ! {
-        let error = error.into().message;
+        let error = error
+            .into()
+            .error_or_string_message()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
         self.stop()

@@ -70,7 +70,13 @@ interface Request {
 		| "hook-cancel"
 		| "cwd-cancel"
 		| "cwd-retry-error"
-		| "success";
+		| "success"
+		| "cwd-success"
+		| "cwd-retry-cancel"
+		| "memory"
+		| "usage"
+		| "factory-string"
+		| "factory-object";
 	importPath?: string;
 }
 
@@ -82,8 +88,18 @@ async function captureStartup(request: Request) {
 	});
 	const extension = (api: ExtensionAPI) => {
 		api.on("resources_discover", () => ({ skillPaths: [skillPath] }));
-		if (request.importFailure === "hook-cancel")
-			api.on("session_before_switch", () => ({ cancel: true }));
+		if (
+			request.importFailure === "hook-cancel" ||
+			request.importFailure === "cwd-retry-cancel"
+		) {
+			let attempts = 0;
+			api.on("session_before_switch", () => {
+				attempts++;
+				return request.importFailure === "hook-cancel" || attempts === 2
+					? { cancel: true }
+					: undefined;
+			});
+		}
 	};
 	const loader = new DefaultResourceLoader({
 		cwd,
@@ -107,9 +123,10 @@ async function captureStartup(request: Request) {
 		apiKey: "fixture",
 		models: request.models,
 	});
-	const sessionManager = request.importFailure
-		? SessionManager.create(cwd, join(cwd, "sessions"))
-		: SessionManager.inMemory(cwd);
+	const sessionManager =
+		request.importFailure && request.importFailure !== "memory"
+			? SessionManager.create(cwd, join(cwd, "sessions"))
+			: SessionManager.inMemory(cwd);
 	if (request.restored)
 		sessionManager.appendMessage({
 			role: "user",
@@ -151,6 +168,10 @@ async function captureStartup(request: Request) {
 			request.importFailure === "cwd-retry-error"
 		)
 			throw new Error("File not found: imported dependency");
+		if (request.importFailure === "factory-string")
+			return Promise.reject("import failure \ud800");
+		if (request.importFailure === "factory-object")
+			return Promise.reject({ reason: "bad import" });
 		const next = await createAgentSession({
 			...services,
 			cwd: options.cwd,
@@ -214,6 +235,8 @@ async function captureImportFailure(
 		};
 		editorContainer: { render(width: number): string[] };
 		extensionSelector?: unknown;
+		loadingAnimation?: unknown;
+		createWorkingLoader(): unknown;
 		handleImportCommand(text: string): Promise<void>;
 	},
 	runtime: { session: { messages: unknown[]; sessionFile?: string } },
@@ -225,6 +248,10 @@ async function captureImportFailure(
 	const dialogs: number[][][] = [];
 	let rejected: { name: string; message: string } | null = null;
 	mode.statusContainer.addChild(new Text("pre-import status", 0, 0));
+	if (request.importFailure === "factory") {
+		mode.loadingAnimation = mode.createWorkingLoader();
+		mode.statusContainer.addChild(mode.loadingAnimation);
+	}
 	process.once("exit", (exitCode) => {
 		const output = {
 			exitCode,
@@ -232,18 +259,18 @@ async function captureImportFailure(
 			rejected,
 			chat: mode.chatContainer.render(120).map(units),
 			status: mode.statusContainer.render(120).map(units),
-			...(request.importFailure === "success"
-				? {
-						messages: runtime.session.messages,
-						copiedExact: readFileSync(runtime.session.sessionFile).equals(
-							readFileSync(path),
-						),
-					}
+			...(request.importFailure === "success" ||
+			request.importFailure === "cwd-success"
+				? captureImportedSession(runtime.session)
 				: {}),
 		};
 		writeSync(1, `${JSON.stringify({ ok: true, output })}\n`);
 	});
-	const operation = mode.handleImportCommand(`/import '${path}' ignored`);
+	const command =
+		request.importFailure === "usage"
+			? '/import ""'
+			: `/import '${path}' ignored`;
+	const operation = mode.handleImportCommand(command);
 	let lastFrame = "";
 	const driver = setInterval(() => {
 		if (!mode.extensionSelector) return;
@@ -266,6 +293,18 @@ async function captureImportFailure(
 		clearInterval(driver);
 	}
 	process.exit(0);
+}
+
+function captureImportedSession(session: {
+	messages: unknown[];
+	sessionFile?: string;
+}) {
+	if (!session.sessionFile)
+		throw new Error("successful import has no persisted file");
+	return {
+		messages: session.messages,
+		copiedFile: readFileSync(session.sessionFile, "utf8"),
+	};
 }
 
 async function captureChanges(

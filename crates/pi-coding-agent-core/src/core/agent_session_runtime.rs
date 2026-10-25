@@ -158,6 +158,21 @@ struct PreparedToolResultRelocation {
     permit: tokio::sync::OwnedMutexGuard<()>,
 }
 
+fn create_import_session_directory(path: &JsString) -> Result<(), CallbackError> {
+    let encoded = encode_node_utf8(path);
+    // Rust's recursive mkdir accepts an empty path as a no-op; Node's mkdirSync
+    // rejects it. Keep the source's in-memory import failure, not a recovery path.
+    let result = if path.is_empty() {
+        std::fs::create_dir(&encoded)
+    } else {
+        std::fs::create_dir_all(&encoded)
+    };
+    result.map_err(|error| {
+        let record = pi_js_compat::node_fs::node_fs_error_record(&error, "mkdir", path);
+        CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(record)).with_original(Arc::new(error))
+    })
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
@@ -1010,8 +1025,7 @@ impl AgentSessionRuntime {
         }
         let session_dir = self.session().session_manager().get_session_dir().to_owned();
         if !std::path::Path::new(&encode_node_utf8(&session_dir)).exists() {
-            std::fs::create_dir_all(encode_node_utf8(&session_dir))
-                .map_err(|error| CallbackError::new(error.to_string()))?;
+            create_import_session_directory(&session_dir)?;
         }
         let file_name = crate::utils::paths::node_basename(&resolved);
         let destination_path = crate::utils::paths::node_join(&session_dir, file_name);

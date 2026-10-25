@@ -93,7 +93,26 @@ fn import_error_class_controls_recovery_and_exit_like_frozen() {
 
 #[test]
 fn import_command_dialogs_state_and_retry_match_frozen() {
-    assert_import_cases_match_frozen(&["cancel", "hook-cancel", "cwd-cancel", "cwd-retry-error", "success"]);
+    assert_import_cases_match_frozen(&[
+        "cancel",
+        "hook-cancel",
+        "cwd-cancel",
+        "cwd-retry-error",
+        "success",
+        "cwd-success",
+        "cwd-retry-cancel",
+        "usage",
+    ]);
+}
+
+#[test]
+fn in_memory_import_preserves_the_frozen_empty_directory_discrepancy() {
+    assert_import_cases_match_frozen(&["memory"]);
+}
+
+#[test]
+fn fatal_runtime_errors_keep_frozen_unknown_value_display() {
+    assert_import_cases_match_frozen(&["factory-string", "factory-object"]);
 }
 
 fn assert_import_cases_match_frozen(cases: &[&str]) {
@@ -124,6 +143,7 @@ fn assert_import_cases_match_frozen(cases: &[&str]) {
             let message = serde_json::json!({"type":"message","id":"abc12345","parentId":null,"timestamp":"1970-01-01T00:00:00.000Z","message":{"role":"user","content":"Imported content","timestamp":0}});
             std::fs::write(&path, format!("{header}\n{message}\n")).unwrap();
         }
+        let original = std::fs::read(&path).ok();
         let request = serde_json::json!({"cwd":cwd,"agentDir":cwd,"skillPath":skill,"quiet":true,"verbose":false,"scoped":false,"restored":false,"watchChanges":false,"importFailure":failure,"importPath":path});
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -151,6 +171,11 @@ fn assert_import_cases_match_frozen(cases: &[&str]) {
         let expected = source.request(&request);
         assert_eq!(expected["ok"], true, "{expected}");
         assert_eq!(
+            std::fs::read(&path).ok(),
+            original,
+            "import must not change the input file"
+        );
+        assert_eq!(
             JsValue::from(actual),
             JsValue::from(&expected["output"]),
             "failure={failure}"
@@ -171,8 +196,7 @@ async fn drive_fixture_import(
     let capture_dialogs = dialogs.clone();
     let capture_rejection = rejected.clone();
     let observer = Rc::downgrade(mode);
-    let path = request["importPath"].as_str().unwrap().to_owned();
-    let success = case == "success";
+    let success = case == "success" || case == "cwd-success";
     terminal.borrow_mut().lifecycle_observer = Some(Rc::new(move |event| {
         if event == "stop" {
             let mode = observer.upgrade().unwrap();
@@ -185,9 +209,8 @@ async fn drive_fixture_import(
             let mut output = serde_json::json!({"chat":render(&mut *mode.chat_container.borrow_mut()),"status":render(&mut *mode.status_container.borrow_mut()),"dialogs":*capture_dialogs.borrow(),"rejected":*capture_rejection.borrow()});
             if success {
                 output["messages"] = serde_json::to_value(mode.session().messages()).unwrap();
-                output["copiedExact"] = serde_json::json!(
-                    std::fs::read(encode_node_utf8(&mode.session().session_file().unwrap())).unwrap()
-                        == std::fs::read(&path).unwrap()
+                output["copiedFile"] = serde_json::json!(
+                    std::fs::read_to_string(encode_node_utf8(&mode.session().session_file().unwrap())).unwrap()
                 );
             }
             println!("IMPORT_RESULT {output}");
@@ -197,10 +220,32 @@ async fn drive_fixture_import(
     mode.status_container
         .borrow_mut()
         .add_child(component(Text::new("pre-import status", 0, 0)));
+    if case == "factory" {
+        let loader = mode.create_working_loader(pi_tui::LoaderIndicatorOptions {
+            frames: Some(Vec::new()),
+            ..Default::default()
+        });
+        *mode.loading_animation.borrow_mut() = Some(loader.clone());
+        mode.status_container.borrow_mut().add_child(loader);
+    }
     if case == "factory" || case == "cwd-retry-error" {
         *factory_failure.lock().unwrap() = Some(CallbackError::new("File not found: imported dependency"));
     }
-    let command = js_format!("/import '{}' ignored", request["importPath"].as_str().unwrap());
+    if case == "factory-string" || case == "factory-object" {
+        let value = if case == "factory-string" {
+            JsValue::String(JsString::from("import failure ") + JsString::from_utf16(vec![0xd800]))
+        } else {
+            pi_js_compat::js_json!({"reason":"bad import"})
+        };
+        *factory_failure.lock().unwrap() = Some(CallbackError::from_rejection(
+            pi_js_compat::abort::AbortReason::Value(value),
+        ));
+    }
+    let command = if case == "usage" {
+        JsString::from("/import \"\"")
+    } else {
+        js_format!("/import '{}' ignored", request["importPath"].as_str().unwrap())
+    };
     let actor = mode.clone();
     let operation = tokio::task::spawn_local(async move { actor.handle_import_command(command).await });
     tokio::time::timeout(Duration::from_secs(5), async {
@@ -245,6 +290,7 @@ async fn startup_capture_child() {
         let cwd = request["cwd"].as_str().unwrap();
         let path = JsString::from(request["skillPath"].as_str().unwrap());
         let cancel_switch = request["importFailure"].as_str() == Some("hook-cancel");
+        let cancel_retry = request["importFailure"].as_str() == Some("cwd-retry-cancel");
         let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
             let path = path.clone();
             let handler: HandlerHandle<ResourcesDiscoverEvent, ResourcesDiscoverResult> = Arc::new(move |_, _| -> BoxFuture<'static, Result<Option<ResourcesDiscoverResult>, HandlerError>> {
@@ -252,8 +298,12 @@ async fn startup_capture_child() {
                 Box::pin(async move { Ok(Some(ResourcesDiscoverResult { skill_paths: Some(vec![path]), prompt_paths: None, theme_paths: None })) })
             });
             api.on_resources_discover(handler).unwrap();
-            if cancel_switch {
-                let handler: HandlerHandle<SessionBeforeSwitchEvent, SessionBeforeSwitchResult> = Arc::new(|_, _| -> BoxFuture<'static, Result<Option<SessionBeforeSwitchResult>, HandlerError>> { Box::pin(async { Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) })) }) });
+            if cancel_switch || cancel_retry {
+                let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let handler: HandlerHandle<SessionBeforeSwitchEvent, SessionBeforeSwitchResult> = Arc::new(move |_, _| -> BoxFuture<'static, Result<Option<SessionBeforeSwitchResult>, HandlerError>> {
+                    let attempt = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Box::pin(async move { Ok((cancel_switch || attempt == 1).then_some(SessionBeforeSwitchResult { cancel: Some(true) })) })
+                });
                 api.on_session_before_switch(handler).unwrap();
             }
             Box::pin(async { Ok(()) })
@@ -267,7 +317,7 @@ async fn startup_capture_child() {
         }).unwrap());
         loader.reload().await.unwrap();
         let factory_failure = Arc::new(Mutex::new(None));
-        let (initial, terminal, _faux, _temp) = build_mode_with_extra_providers(loader.clone(), None, settings, Vec::new(), serde_json::Map::new(), request["importFailure"].is_string(), TestModeSetup { cwd: Some(cwd.into()), runtime_factory_failure: Some(factory_failure.clone()), ..Default::default() }).await;
+        let (initial, terminal, _faux, _temp) = build_mode_with_extra_providers(loader.clone(), None, settings, Vec::new(), serde_json::Map::new(), request["importFailure"].is_string() && request["importFailure"].as_str() != Some("memory"), TestModeSetup { cwd: Some(cwd.into()), runtime_factory_failure: Some(factory_failure.clone()), ..Default::default() }).await;
         let models: Vec<_> = initial.session().model_registry().get_all().into_iter().filter(|model| model.provider == "faux").collect();
         request["models"] = serde_json::to_value(&models).unwrap();
         request["colors"] = serde_json::json!(crate::modes::interactive::theme::REQUIRED_COLORS);

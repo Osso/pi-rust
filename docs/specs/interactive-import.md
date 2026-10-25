@@ -9,8 +9,9 @@ Match frozen `interactive-mode.ts:7237–7313` path parsing and import control f
 - [x] Honor a runtime before-switch cancellation. Successful import emits `Session imported from: <path>` and restores imported messages.
 - [x] A typed missing cwd prompts for fallback; rejection emits cancellation. A failed retry rejects at the original await boundary rather than becoming a recoverable error or a new fatal catch.
 - [x] Typed missing-file errors remain recoverable; an ordinary factory Error with similar text is fatal, with the exact full frame and exit1.
-- [ ] Prove successful fallback-cwd retry and a cancellation returned by the retry.
-- [ ] Preserve the source in-memory import empty-directory failure before runtime callbacks; it is not a new native recovery path.
+- [x] Match successful fallback-cwd retry and a cancellation returned by that retry, including exact restored messages and copied JSONL bytes.
+- [x] Preserve the source in-memory import empty-directory failure before runtime callbacks; it is a recorded discrepancy, not a new native recovery path.
+- [x] Fatal runtime errors display Error.message or the original ordinary raw rejection's JavaScript String value, retaining UTF-16 text.
 
 ## How it works
 
@@ -29,7 +30,7 @@ Match frozen `interactive-mode.ts:7237–7313` path parsing and import control f
 
 ## Known gaps (current cycle)
 
-The two unchecked branches above remain in this active slice. Whole interactive-mode acceptance is separate.
+All realistic branches in this bounded command slice have source/native proof. Whole interactive-mode acceptance remains separate.
 
 ## Out of scope
 
