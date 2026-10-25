@@ -148,6 +148,20 @@ async function main(): Promise<void> {
 				clearFetchScript();
 			}
 		}
+		if (request.operation === "registration_snapshot") {
+			let error = null;
+			try {
+				registry.registerProvider(request.provider, request.config);
+			} catch (failure) {
+				error = failure instanceof Error ? failure.message : String(failure);
+			}
+			const models = registry
+				.getAll()
+				.filter(
+					(model: { provider: string }) => model.provider === request.provider,
+				);
+			return { error, models, serializedModels: JSON.stringify(models) };
+		}
 		if (request.operation === "config_snapshot") {
 			return {
 				error: registry.getError() ?? null,

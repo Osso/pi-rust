@@ -70,6 +70,12 @@ At a202b4d2: config35files and49-case shared SDK request matrix plus Bedrock's4s
 
 Crate split parent726033aa merged at1953a55a. Workspace/all-target JSON check0errors/0warnings (`q15e-thinking-workspace-1`); warning Clippy0errors/1676historical warnings/0owned changed-line findings (`q15e-thinking-clippy-1`); strict frozen-builder TS/Biome0; inventory686rows/186679lines PASS. Rust/TS changed-line readability audit: pure carrier/lookups, explicit spawn/IO boundaries, removed enum parsing and scalar round-trips, no unresolved new blocker. Whole-registry refresh/registration/OAuth/status/header/cache closure remains open.
 
+## Registration model-input dependency (2026-10-24)
+
+`model_registry_registration_repin` compares actual frozen registerProvider output, complete model values and serialized order for5valid input cases. RED2: explicit empty model-level baseUrl is replaced by the provider URL natively (frozen943 uses ??); samplingParams/autoCompactionThreshold/unknownRoot survive native full-Model cloning but frozen945-960 reconstructs only listed fields. Inherit-endpoint, explicit nonempty endpoint and empty-model-api logical-default controls match. `q15e-registry-registration-input-red.log`; full snapshots `/var/tmp/osso/q15e-registry-registration-353017.json`.
+
+No production change yet. Proposed replacement: a native input record matching frozen's inline ProviderConfigInput.models object, with optional api/baseUrl, only declared fields and raw compat until effective API selection. Explicit From<Model> copies only source-recognized fields; constructor migrations remain mechanical. Parent representation decision pending; the prior carrier checkpoints remain landed.
+
 ## Remaining work
 
 - Complete test/example migration after deletion of source-absent model_runtime, models_store,
