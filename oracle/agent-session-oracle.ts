@@ -115,7 +115,7 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = ["preflight-compaction", "compaction-lock"].includes(request.operation)
+	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow"].includes(request.operation)
 		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
@@ -190,7 +190,7 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (["preflight-compaction", "compaction-lock"].includes(request.operation)) {
+	if (["preflight-compaction", "compaction-lock", "repeat-overflow"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -201,6 +201,22 @@ async function run(request) {
 		settingsManager.setCompactionEnabled(false);
 		const runner = session.extensionRunner;
 		const emit = runner.emit.bind(runner);
+		if (request.operation === "repeat-overflow") {
+			settingsManager.setRetryEnabled(false);
+			let compactions = 0;
+			runner.hasHandlers = (type) => type === "compaction";
+			runner.emit = async (event) => {
+				if (event.type !== "compaction") return emit(event);
+				compactions++;
+				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
+			};
+			core.setResponses(["maximum context length exceeded", "fatal", "maximum context length exceeded", "fatal"].map((errorMessage) =>
+				fauxAssistantMessage([], { stopReason: "error", errorMessage, timestamp: 0 })));
+			await session.prompt("first overflow request");
+			await session.prompt("second overflow request");
+			session.dispose();
+			return { compactions };
+		}
 		if (request.operation === "compaction-lock") {
 			sessionManager.appendMessage({ role: "user", content: "unfinished request", timestamp: 10 });
 			agent.state.messages = sessionManager.buildSessionContext().messages;

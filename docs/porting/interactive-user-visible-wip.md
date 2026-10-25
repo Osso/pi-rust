@@ -62,6 +62,14 @@ Readability: source scope printing and cycle-hint formatting are separate short 
 
 Diagnostic incident: an early oracle waited at the real confirmation dialog because the fixture had not driven terminal input. Both owned process groups were killed, and all six recorded PIDs were verified exited. The final fixture drives Enter through the actual terminal callback; no dialog stub, production timeout or assertion weakening was used. An initial in-memory import probe hit the source's `mkdir('')` boundary before the factory, so the like-boundary comparison now uses persisted sessions on both sides.
 
+## Interactive import checkpoint
+
+`14bc35da4` + `3e36e1421` port literal UTF-16 path parsing and the full realistic import dialog/retry workflow. Source/native proof covers 26 parser vectors and 13 import process outcomes, including exact copied JSONL bytes/restored messages, cwd retries, cancellation, missing/factory error classification and raw fatal values. The source's in-memory empty-directory mkdir failure is preserved explicitly. Shared export argument parsing is covered; whole export handling is not accepted here.
+
+Final proof at `3e36e1421`: `import-command-final-ui.log` has eleven passing focused UI tests, including all import and startup scenarios; its header test exposed a process-global keybinding fixture collision (native hints reverted to ctrl+c/ctrl+o instead of the configured ctrl+x/ctrl+y). `336ef21d8` moves that unchanged 48-frame differential into an explicitly invoked child process, without serializing tests or changing production behavior. `import-header-isolated-green.log` proves header + concurrent switch/fork 2/2. No assertion is weakened and no scenario is omitted.
+
+`import-command-final-runtime.log`: 45/45, plus the existing explicitly invoked isolated cwd helper. `import-command-check.log`: PASS without warnings. Scoped core/interactive clippy (`import-command-clippy.jsonl`): 232 existing diagnostics, no changed-line primary span; after the test-only isolation change, interactive clippy (`import-header-clippy.jsonl`): 204 existing diagnostics, no changed-line primary span. Strict frozen two-oracle TS/ES2024 and Biome pass (`import-command-typecheck.log`). Format/inventory pass: 686 / 186679; 485 done / 21 gap / 52 partial / 128 todo. Artifacts remain under `/tmp/repin-interactive-2-proof/`. Runtime and interactive mode remain partial.
+
 ## Next work
 
 Continue realistic interactive command/event slices. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Runtime callback setup still needs a final realistic API review before whole-module closure. No whole-mode/runtime acceptance is claimed.

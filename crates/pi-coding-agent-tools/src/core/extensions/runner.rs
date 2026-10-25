@@ -749,13 +749,6 @@ impl ExtensionRunner {
         None
     }
 
-    pub fn get_markdown_transformers(&self) -> Vec<MarkdownTransformer> {
-        self.extensions
-            .iter()
-            .filter_map(|extension| extension.read().markdown_transformer.clone())
-            .collect()
-    }
-
     pub fn get_entry_renderer(&self, custom_type: impl Into<JsString>) -> Option<EntryRenderer> {
         let custom_type = custom_type.into();
         for extension in &self.extensions {

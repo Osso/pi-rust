@@ -1,5 +1,13 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Storage-3 mailbox JSON ordering (2026-10-25)
+
+Actual source-produced `recordOutboundSessionMessage` exposed two real REDs: public copyMessage JSON and canonical SQLite data used native id-first order instead of their distinct frozen orders (`/tmp/storage3-store-wire-red.log`). Expanded actual-source contact/send-main/send-child/notification/steering matrix also exposes notification canonical ordering (`/tmp/storage3-store-other-wire-valid-red.log`); direct canonical rows already matched before the fix. The native public serializer now uses frozen copyMessage order; private put sites encode direct/outbound/lifecycle constructor order through the existing transient JsObject serialization boundary. No permanent raw/typed duplicate, new carrier/API, dependency or fallback. New tests compare complete returned JSON strings and stored data bytes, not source structure. Current source/native4-test byte matrix passes12 constructor/return boundaries (`/tmp/storage3-store-wire-green.log`, c4c340b0e); protected strict fixture typecheck passes. This fixes a bounded store wire boundary, not whole-module acceptance.
+
+## Lifecycle and transition listener catch boundary — storage-3 (2026-10-25)
+
+The same frozen catch/log/continue boundary at lines1174–1211 also applies to lifecycle-notification and transition listeners. Both native callbacks now return `Result<(),CallbackError>` and log original throws at their own exact source prefixes before continuing. The expanded existing child-process fixture covers all3 listener kinds × string/null/object throws: actual frozen baseline `/tmp/storage3-store-listeners-source.log`; native API RED `/tmp/storage3-store-listeners-api-red.log` rejected Result callbacks. Waiting, registration, desktop notification and mailbox mirror callers gain only `Ok(())`/early `Ok(())` adapters, preserving their prior local error handling; no outside-lane algorithm changes.
+
 ## Update-listener catch boundary (2026-10-25)
 
 `AgentUpdateListener` and `subscribe_agent_updates` now return `Result<(), CallbackError>`. The store catches each rejection, logs `MultiAgentStore agent update listener failed:` with the shared original-throw console formatter, and continues remaining listeners and publication, matching frozen lines1202–1211. `repin_store_listener_failure` compares actual frozen/native state, subsequent-listener revisions and captured stderr for string, null and object throws. API RED `/tmp/storage2-listener-red.log`, frozen baseline `/tmp/storage2-listener-frozen.log`, GREEN `/tmp/storage2-listener-green.log` (1 parent test, 3 child processes). Core deferred-terminal retry propagates its original finalizer error into this catch (the temporary bool drain sink is removed; [proof](terminal-outbox-delivery.md)). Agents-core wait, interactive channel and four test consumers return `Ok(())` mechanically; no callback panic wrapper or unwind catch remains on this boundary. V8 stack frames remain excluded under the standing gap.
@@ -30,7 +38,7 @@ Remaining: full cross-state reverse-init/mutation and exact schema migration acc
 
 Runtime durability remains blocked at the [delivery boundary](../../specs/control-store-repin.md#integration-status--2026-10-21); these fixtures authorize no deployment or live-state use.
 
-Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1387 lines) at the pinned revision.
+Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1467 lines) at the pinned revision.
 Rust: `crates/pi-coding-agent-storage/src/core/multi_agent_store.rs`.
 
 ## Exported symbols
@@ -83,7 +91,7 @@ Every other public method maps to the snake_case Rust method of the same name:
 
 | Branch | Rust | Proof |
 |---|---|---|
-| Active lifecycle = `spawning`, `running`, `steering_pending`, `waiting_for_input`, `cancelling` | `is_active_lifecycle` | `active_counts_follow_core_lifecycle_state` |
+| Active lifecycle = `running`, `steering_pending`, `waiting_for_input`, `cancelling` | `is_active_lifecycle` | `active_counts_follow_core_lifecycle_state` |
 | Slot selection: pinned slot first, else active agent order | `find_agent_for_slot_selection` | `slot_fallback_uses_active_agent_order`, `pinned_slots_preserve_metadata_and_conflict_with_occupants` |
 | Revision fences on metadata mutations | `pin_agent_slot`, `clear_agent_slot`, `update_agent_transcript`, `send_mailbox_message` | `rejects_stale_lifecycle_mutations_and_returns_current_snapshot` |
 | Direct messages only between parent/child or main thread children | `can_send_direct_message`, `is_main_thread_child` | `direct_mailbox_messages_require_a_parent_child_relationship` |
@@ -107,9 +115,6 @@ reads. Outputs are compared as parsed JSON.
 
 ## Discrepancies / gaps
 
-- TypeScript builds mailbox objects with different key orders at different creation sites
-  (terminal notification, parent contact, outbound record). Rust uses one struct field order.
-  JSON object key order is not part of the observable contract: every consumer parses the payload
-  and TS itself is internally inconsistent. The differential therefore compares parsed values.
+- The historical claim that mailbox JSON key order was unobservable was not an approved deviation. Current persistence/wire parity requires the distinct frozen constructor and copyMessage orders; the storage-3 byte-level RED above supersedes that claim. Parsed-value differentials alone do not prove this boundary.
 - `private` helpers have no exported symbol; they are exercised indirectly through the public
   methods listed above.

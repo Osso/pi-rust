@@ -12,9 +12,14 @@ const { SessionManager } = await import(
 );
 interface Request {
 	root: string;
-	operation: "setup" | "withSession" | "beforeRestart";
+	operation:
+		| "setup"
+		| "withSession"
+		| "beforeRestart"
+		| "asyncSetup"
+		| "asyncSetupReject";
 	kind: "native" | "raw";
-	value: { message: string; code?: unknown; custom?: unknown };
+	value: unknown;
 }
 function errorWire(error: unknown) {
 	if (error instanceof Error) {
@@ -35,11 +40,16 @@ function errorWire(error: unknown) {
 for await (const line of createInterface({ input: process.stdin })) {
 	try {
 		const request = JSON.parse(line) as Request;
+		const details = request.value as {
+			message: string;
+			code?: unknown;
+			custom?: unknown;
+		};
 		const failure =
 			request.kind === "native"
-				? Object.assign(new RangeError(request.value.message), {
-						code: request.value.code,
-						custom: request.value.custom,
+				? Object.assign(new RangeError(details.message), {
+						code: details.code,
+						custom: details.custom,
 					})
 				: request.value;
 		const manager = SessionManager.create(
@@ -101,7 +111,20 @@ for await (const line of createInterface({ input: process.stdin })) {
 					setup: async (sm: typeof manager) => {
 						calls.push("setup");
 						sm.appendCustomMessageEntry("setup_visible", "setup payload", true);
-						if (request.operation === "setup") throw failure;
+						if (request.operation.startsWith("asyncSetup")) {
+							await Promise.resolve();
+							calls.push("afterAwait");
+							sm.appendCustomMessageEntry(
+								"setup_after_await",
+								"after await",
+								true,
+							);
+						}
+						if (
+							request.operation === "setup" ||
+							request.operation === "asyncSetupReject"
+						)
+							throw failure;
 					},
 					withSession: async () => {
 						calls.push("withSession");
@@ -123,6 +146,19 @@ for await (const line of createInterface({ input: process.stdin })) {
 				error: errorWire(error),
 				setupVisible,
 				agentMessageCount: runtime.session.agent.state.messages.length,
+				...(request.operation.startsWith("asyncSetup")
+					? {
+							setupEntries: runtime.session.sessionManager
+								.getEntries()
+								.filter(
+									(entry: { type: string }) => entry.type === "custom_message",
+								)
+								.map((entry: { customType: string; content: unknown }) => ({
+									customType: entry.customType,
+									content: entry.content,
+								})),
+						}
+					: {}),
 			}),
 		);
 	} catch (error) {

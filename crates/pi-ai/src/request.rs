@@ -130,6 +130,8 @@ pub struct ProviderRequestOptions {
 /// `StreamOptions` plus the untyped API-specific remainder.
 #[derive(Clone, Default)]
 pub struct StreamOptions {
+    /// Caller working directory for local/subprocess providers, never a server payload field.
+    pub cwd: Option<JsString>,
     pub request: ProviderRequestOptions,
     pub temperature: Option<f64>,
     /// Merged into OpenAI-compatible request bodies after named fields.

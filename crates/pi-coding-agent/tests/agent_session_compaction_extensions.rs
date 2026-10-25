@@ -582,6 +582,73 @@ async fn resumed_manual_compaction_releases_turn_start_for_streaming_input() {
 }
 
 #[tokio::test]
+async fn overflow_recovery_resets_when_the_next_user_request_starts_like_frozen() {
+    use pi_coding_agent::core::agent_session::PromptOptions;
+    let env = env_with(
+        json!({"enabled": false, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    for index in 0..4 {
+        env.session
+            .session_manager()
+            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+                role: pi_ai::UserRole::Tag,
+                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
+                input_source: None,
+                provider_native: None,
+                timestamp: f64::from(index + 1),
+            }))
+            .expect("newer user");
+    }
+    env.faux.set_responses(
+        [
+            "maximum context length exceeded",
+            "fatal",
+            "maximum context length exceeded",
+            "fatal",
+        ]
+        .into_iter()
+        .map(|message| {
+            faux_assistant_message(
+                "",
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(pi_ai::StopReason::Error),
+                    error_message: Some(message.into()),
+                    timestamp: Some(0.0),
+                    ..Default::default()
+                },
+            )
+            .into()
+        })
+        .collect(),
+    );
+    env.session
+        .prompt("first overflow request", PromptOptions::default())
+        .await
+        .expect("first request");
+    env.session
+        .prompt("second overflow request", PromptOptions::default())
+        .await
+        .expect("second request");
+    let compactions = env.captured.lock().unwrap().compaction.len();
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "repeat-overflow", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"compactions": 2}}));
+    assert_eq!(json!({"compactions": compactions}), expected["value"]);
+}
+
+#[tokio::test]
 async fn manual_compaction_preflight_cancel_reports_cancelled() {
     let env = env_with(
         json!({"keepRecentTokens": 1}),

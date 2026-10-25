@@ -166,6 +166,7 @@ fn preparation() -> CompactionPreparation {
         previous_summary: None,
         file_ops,
         settings: CompactionSettings {
+            threshold_percent: None,
             enabled: true,
             reserve_tokens: 2000.0,
             keep_recent_tokens: 20_000.0,

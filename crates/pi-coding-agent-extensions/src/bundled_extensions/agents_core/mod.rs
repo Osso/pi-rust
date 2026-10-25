@@ -2,7 +2,9 @@
 //! (`packages/coding-agent/extensions/agents-core/src`).
 
 pub mod agent_model_tool;
+pub mod child_response;
 pub mod control_runtime;
+pub mod descendant_settlement;
 pub mod dispatch_runtime;
 pub mod lifecycle_runtime;
 pub mod mailbox_runtime;

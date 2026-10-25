@@ -25,3 +25,7 @@ The existing actual-source buildSessionInfo regression (0.75,12.75,-12.75,maximu
 ## Proof scope
 
 Original RED: fractional12.75 rejected as i64 (`message-timestamps-red.log`). Focused JSON and consumer proof plus both all-target checks recorded in `/tmp/pi-rust-repin-delta-ai/ledger.md`. This does not close unrelated provider/type rows or establish whole-workspace runtime parity.
+
+## AssistantImages (2026-10-25)
+
+Frozen types.ts:473 declares an ordinary number timestamp. Native i64 rejected the source-valid12.75 JSON value (`/tmp/ai-image-timestamp-red.log`). AssistantImages now uses f64 and the existing message timestamp serializer authority, with only the two native image producer clock casts and three fixture literals and the existing image-auth clock bounds adapted. New source→native→source fractional value/wire round trip uses the shared Node oracle; `assistant-images-timestamp-fixture.mts` typechecks the value against the unmodified frozen interface. No numeric-extreme cases, new carrier or image protocol change were added.

@@ -6,7 +6,12 @@ use std::path::Path;
 use std::process::{Command, Output};
 
 fn run_export(root: &Path, args: &[&str]) -> Output {
-    Command::new(env!("CARGO_BIN_EXE_pi"))
+    run_export_with_session_dir(root, args, None)
+}
+
+fn run_export_with_session_dir(root: &Path, args: &[&str], session_dir: Option<&Path>) -> Output {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_pi"));
+    command
         .args(args)
         .current_dir(root)
         .env("HOME", root.join("home"))
@@ -16,9 +21,11 @@ fn run_export(root: &Path, args: &[&str]) -> Output {
         .env("NO_COLOR", "1")
         .env_remove("PI_PACKAGE_DIR")
         .env_remove("PI_CODING_AGENT_SESSION_DIR")
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("run terminal export")
+        .stdin(std::process::Stdio::null());
+    if let Some(session_dir) = session_dir {
+        command.env("PI_CODING_AGENT_SESSION_DIR", session_dir);
+    }
+    command.output().expect("run terminal export")
 }
 
 #[test]
@@ -153,6 +160,73 @@ fn terminal_export_file_errors_match_frozen_and_width_errors_fail_before_io() {
 
 fn assistant(stop_reason: &str, content: Vec<serde_json::Value>) -> serde_json::Value {
     json!({"role":"assistant","content":content,"api":"faux","provider":"faux","model":"model","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":stop_reason,"timestamp":8})
+}
+
+#[test]
+fn terminal_export_id_directory_precedence_and_compacted_projection_match_frozen() {
+    let root = tempfile::tempdir().unwrap();
+    let id = "12345678-1234-4123-8123-123456789abc";
+    let mut oracle = oracle::TsOracle::spawn(
+        "export-terminal-oracle.ts",
+        "packages/coding-agent/src/core/export-terminal.ts",
+    );
+    let mut paths = Vec::new();
+    for name in ["settings", "environment", "argument"] {
+        let dir = root.path().join(name);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(format!("2026-01-01T00-00-00-000Z_{id}.jsonl"));
+        let header =
+            json!({"type":"session","version":3,"id":id,"timestamp":"2026-01-01T00:00:00.000Z","cwd":root.path()});
+        let entries = [
+            json!({"type":"message","id":"old","parentId":null,"timestamp":"2026-01-01T00:00:00.000Z","message":{"role":"user","content":"BEFORE COMPACTION MUST NOT SHOW","timestamp":1}}),
+            json!({"type":"message","id":"kept","parentId":"old","timestamp":"2026-01-01T00:00:01.000Z","message":{"role":"user","content":format!("Retained {name} history"),"timestamp":2}}),
+            json!({"type":"compaction","id":"compact","parentId":"kept","timestamp":"2026-01-01T00:00:02.000Z","summary":format!("Saved {name} summary"),"firstKeptEntryId":"kept","tokensBefore":1234}),
+            json!({"type":"message","id":"after","parentId":"compact","timestamp":"2026-01-01T00:00:03.000Z","message":{"role":"user","content":format!("After {name} compaction"),"timestamp":4}}),
+        ];
+        let original = std::iter::once(header)
+            .chain(entries)
+            .map(|entry| entry.to_string())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        std::fs::write(&path, &original).unwrap();
+        paths.push((dir, path, original));
+    }
+    let agent = root.path().join("agent");
+    std::fs::create_dir(&agent).unwrap();
+    let settings = json!({"sessionDir":paths[0].0,"theme":"dark"}).to_string();
+    std::fs::write(agent.join("settings.json"), &settings).unwrap();
+    for (index, env_dir, arg_dir) in [
+        (0, None, None),
+        (1, Some(paths[1].0.as_path()), None),
+        (2, Some(paths[1].0.as_path()), Some(paths[2].0.as_path())),
+    ] {
+        let expected = oracle.request(&json!({"id":index,"path":paths[index].1,"columns":60}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        let mut args = vec!["--export-terminal", "12345678", "--export-columns", "60"];
+        if let Some(dir) = arg_dir {
+            args.extend(["--session-dir", dir.to_str().unwrap()]);
+        }
+        let actual = run_export_with_session_dir(root.path(), &args, env_dir);
+        assert_eq!(
+            actual.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&actual.stderr)
+        );
+        assert!(actual.stderr.is_empty());
+        let actual = String::from_utf8(actual.stdout).unwrap();
+        assert_eq!(actual, expected["output"].as_str().unwrap());
+        assert!(!actual.contains("BEFORE COMPACTION"));
+        assert!(actual.contains("Retained"));
+    }
+    assert_eq!(std::fs::read_to_string(agent.join("settings.json")).unwrap(), settings);
+    assert_eq!(std::fs::read_dir(&agent).unwrap().count(), 1);
+    assert_eq!(std::fs::read_dir(root.path()).unwrap().count(), 4);
+    for (dir, path, original) in paths {
+        assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+        assert_eq!(std::fs::read_dir(dir).unwrap().count(), 1);
+    }
 }
 
 #[test]

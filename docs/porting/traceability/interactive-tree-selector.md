@@ -3,6 +3,8 @@
 Frozen: `coding-agent/src/modes/interactive/components/tree-selector.ts` at `4f9e6f8a4`.
 Native: `crates/pi-coding-agent-ui/src/modes/interactive/components/tree_selector.rs`.
 
+Baseline fixture isolation (2026-10-25): all case batches install process-global keybindings, including a remapped binding case. A shared async test lock now holds across each batch's exact native/oracle comparisons so parallel height/filter tests cannot render another test's key hints. Expanded mismatch diagnostics retain exact differing fields and frames.
+
 ## Symbol and branch map
 
 | Frozen symbols / lines | Native representation | Proof |

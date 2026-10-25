@@ -256,6 +256,11 @@ fn differential_should_compact() {
         { "contextTokens": 271999, "contextWindow": 372000, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }, "threshold": 272000 },
         { "contextTokens": 272000, "contextWindow": 372000, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }, "threshold": 272000 },
         { "contextTokens": 95000, "contextWindow": 100000, "settings": { "enabled": false, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 49999, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "threshold": 90000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "threshold": 10000, "settings": { "thresholdPercent": 75, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 100000, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": false, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
     ]);
     let expected = oracle.request(COMPACTION, "shouldCompact", json!({ "cases": cases }));
     let actual: Vec<Value> = cases
@@ -263,12 +268,15 @@ fn differential_should_compact() {
         .unwrap()
         .iter()
         .map(|case| {
-            json!(should_compact(
-                case["contextTokens"].as_f64().unwrap(),
-                case["contextWindow"].as_f64().unwrap(),
-                &settings(&case["settings"]),
-                case.get("threshold").and_then(Value::as_f64),
-            ))
+            json!(
+                should_compact(
+                    case["contextTokens"].as_f64().unwrap(),
+                    case["contextWindow"].as_f64().unwrap(),
+                    &settings(&case["settings"]),
+                    case.get("threshold").and_then(Value::as_f64),
+                )
+                .expect("valid threshold")
+            )
         })
         .collect();
     assert_eq!(actual, *expected.as_array().unwrap());
@@ -290,6 +298,15 @@ fn differential_find_cut_point_and_turn_start() {
             "startIndex": 0,
             "endIndex": 4,
             "keepRecentTokens": 20000,
+        },
+        {
+            "entries": [
+                message_entry("1", None, user_message("old user")),
+                message_entry("2", Some("1"), assistant_message("old assistant", usage(0.0, 0.0, 0.0, 0.0))),
+                entry("3", Some("2"), "2026-01-01T00:00:00.000Z", json!({ "type": "custom_message", "customType": "test", "content": "new turn", "display": true })),
+                message_entry("4", Some("3"), assistant_message("part one", usage(0.0, 0.0, 0.0, 0.0))),
+                message_entry("5", Some("4"), assistant_message("part two", usage(0.0, 0.0, 0.0, 0.0)))
+            ], "startIndex": 0, "endIndex": 5, "keepRecentTokens": 20000
         },
         {
             "entries": [

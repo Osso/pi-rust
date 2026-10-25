@@ -25,6 +25,8 @@ Supervisor main retains each `SessionEntry::as_message()` borrowed/owned view wh
 
 ## service.ts
 
+Current common-pin whole-module proof: [supervisor-service](supervisor-service.md). The following group table is historical.
+
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
 | `buildSupervisorPrompt` | exact instruction block + 2-space JSON request | `build_supervisor_prompt`; `builds_bounded_prompts_for_each_request_kind` + differential `differential_supervisor_service` (5 request kinds) |
@@ -66,8 +68,7 @@ Common pin: `4f9e6f8a4`. Console queue IDs/text, snapshots, startup paths/errors
 
 - `runSupervisorService` is process-level (signal handlers, real model runtime); its wiring is compiled and exercised
   indirectly through the resource-loader and session tests. The request loop is differentially covered.
-- The evaluation task is aborted (`JoinHandle::abort`) on deadline/preemption in addition to the cancellation token;
-  TypeScript relies on the evaluator honoring its `AbortSignal`.
+- Service evaluator cleanup now follows the source AbortSignal/await contract; current proof is in [supervisor-service](supervisor-service.md).
 
 ## Discrepancies
 

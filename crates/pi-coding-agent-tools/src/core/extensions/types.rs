@@ -37,7 +37,7 @@ use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
-    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
+    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
 pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -86,7 +86,7 @@ pub type CompactErrorCallback = Arc<dyn Fn(&CallbackError) -> Result<(), Callbac
 pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type JsStringCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
@@ -2667,23 +2667,6 @@ pub struct MessageRenderOptions {
     pub expanded: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkdownTransformContext {
-    pub message_type: MarkdownMessageType,
-    pub is_streaming: bool,
-    #[serde(serialize_with = "pi_js_compat::number::serialize")]
-    pub available_width: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum MarkdownMessageType {
-    User,
-    Assistant,
-    AssistantThinking,
-}
-
 #[derive(Clone)]
 pub struct EntryRenderOptions {
     pub expanded: bool,
@@ -2691,8 +2674,6 @@ pub struct EntryRenderOptions {
     pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
     pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
-
-pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;
 
 pub type MessageRenderer =
     Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &Theme) -> Option<ComponentRef> + Send + Sync>;
@@ -2931,7 +2912,6 @@ pub struct ExtensionState {
     pub tool_gates: Vec<ToolGateHandle>,
     pub tools: IndexMap<String, RegisteredTool>,
     pub message_renderers: IndexMap<JsString, MessageRenderer>,
-    pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<JsString, EntryRenderer>>,
     pub commands: IndexMap<JsString, RegisteredCommand>,
     pub flags: IndexMap<String, ExtensionFlag>,
@@ -3499,12 +3479,6 @@ impl ExtensionApi {
         self.extension_lock()
             .message_renderers
             .insert(custom_type.into(), renderer);
-        Ok(())
-    }
-
-    pub fn register_markdown_transformer(&self, transformer: MarkdownTransformer) -> Result<(), String> {
-        self.runtime.assert_active()?;
-        self.extension_lock().markdown_transformer = Some(transformer);
         Ok(())
     }
 

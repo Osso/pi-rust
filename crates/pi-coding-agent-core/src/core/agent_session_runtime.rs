@@ -22,7 +22,7 @@ use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
 use crate::core::session_cwd::{assert_session_cwd_exists, find_nearest_existing_cwd};
 use crate::core::session_errors::SessionImportFileNotFoundError;
-use crate::core::session_manager::SessionManager;
+use crate::core::session_manager::{SessionManager, SharedSessionManager};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
 /// Result returned by runtime creation.
@@ -96,7 +96,7 @@ pub struct ForkResult {
 
 /// Session setup callback used by `newSession`.
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Callback receiving the replacement session context.
 pub type ReplacedSessionCallback = Arc<
     dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, Result<(), CallbackError>>
@@ -156,6 +156,21 @@ struct PreparedCwdRelocation {
 struct PreparedToolResultRelocation {
     relocation: PreparedCwdRelocation,
     permit: tokio::sync::OwnedMutexGuard<()>,
+}
+
+fn create_import_session_directory(path: &JsString) -> Result<(), CallbackError> {
+    let encoded = encode_node_utf8(path);
+    // Rust's recursive mkdir accepts an empty path as a no-op; Node's mkdirSync
+    // rejects it. Keep the source's in-memory import failure, not a recovery path.
+    let result = if path.is_empty() {
+        std::fs::create_dir(&encoded)
+    } else {
+        std::fs::create_dir_all(&encoded)
+    };
+    result.map_err(|error| {
+        let record = pi_js_compat::node_fs::node_fs_error_record(&error, "mkdir", path);
+        CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(record)).with_original(Arc::new(error))
+    })
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
@@ -836,17 +851,8 @@ impl AgentSessionRuntime {
         self.apply(result);
         if let Some(setup) = options.setup {
             let handle = self.session().session_manager_handle();
-            let mut manager = {
-                let guard = handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                guard.clone()
-            };
-            let future = setup(&mut manager);
-            *handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = manager;
-            future.await?;
-            let (context, identities) = handle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .build_session_context_with_identities();
+            setup(handle.clone()).await?;
+            let (context, identities) = lock(&handle).build_session_context_with_identities();
             self.session()
                 .agent()
                 .set_messages_with_identities(context.messages, identities)
@@ -1010,8 +1016,7 @@ impl AgentSessionRuntime {
         }
         let session_dir = self.session().session_manager().get_session_dir().to_owned();
         if !std::path::Path::new(&encode_node_utf8(&session_dir)).exists() {
-            std::fs::create_dir_all(encode_node_utf8(&session_dir))
-                .map_err(|error| CallbackError::new(error.to_string()))?;
+            create_import_session_directory(&session_dir)?;
         }
         let file_name = crate::utils::paths::node_basename(&resolved);
         let destination_path = crate::utils::paths::node_join(&session_dir, file_name);

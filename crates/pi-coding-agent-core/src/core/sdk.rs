@@ -355,14 +355,42 @@ async fn create_agent_session_internal(
     let stream_fn: StreamFn = {
         let settings = Arc::clone(&settings);
         let model_registry = model_registry.clone();
+        let cwd = cwd.clone();
         let session_ref = Arc::clone(&session_ref);
         let extension_runner_ref = Arc::clone(&extension_runner_ref);
         Arc::new(move |model: Model, context, mut options: SimpleStreamOptions| {
             let settings = Arc::clone(&settings);
             let model_registry = model_registry.clone();
+            let cwd = cwd.clone();
             let session_ref = Arc::clone(&session_ref);
             let extension_runner_ref = Arc::clone(&extension_runner_ref);
             Box::pin(async move {
+                let auth = model_registry
+                    .get_api_key_and_headers(&model)
+                    .await
+                    .map_err(AgentError::from)?;
+                let (api_key, headers, env) = match auth {
+                    ResolvedRequestAuth::Ok { api_key, headers, env } => (api_key, headers, env),
+                    ResolvedRequestAuth::Err { error } => return Err(AgentError::new(error)),
+                };
+                let env = match (env, options.stream.request.env.take()) {
+                    (None, None) => None,
+                    (auth, request) => Some(
+                        auth.into_iter()
+                            .flatten()
+                            .chain(request.into_iter().flatten())
+                            .collect(),
+                    ),
+                };
+                options.stream.request.api_key = api_key;
+                options.stream.request.env = env;
+                options.stream.request.headers = crate::core::provider_attribution::merge_provider_attribution_headers(
+                    &model,
+                    &lock(&settings),
+                    options.stream.session_id.as_ref(),
+                    &[headers, options.stream.request.headers.take()],
+                );
+                options.stream.cwd = Some(cwd);
                 let provider_retry = lock(&settings).get_provider_retry_settings();
                 let http_idle_timeout_ms = lock(&settings)
                     .get_http_idle_timeout_ms()
@@ -437,19 +465,7 @@ async fn create_agent_session_internal(
                         Ok(())
                     },
                 ));
-                match model_registry
-                    .get_api_key_and_headers(&model)
-                    .await
-                    .map_err(|error| pi_agent_core::agent::types::AgentError::new(error.message))?
-                {
-                    ResolvedRequestAuth::Ok { api_key, headers, env } => {
-                        options.stream.request.api_key = api_key;
-                        options.stream.request.headers = headers;
-                        options.stream.request.env = env;
-                        pi_ai::compat::stream_simple(model, context, options).map_err(AgentError::from)
-                    }
-                    ResolvedRequestAuth::Err { error } => Err(pi_agent_core::agent::types::AgentError::new(error)),
-                }
+                pi_ai::compat::stream_simple(model, context, options).map_err(AgentError::from)
             })
         })
     };

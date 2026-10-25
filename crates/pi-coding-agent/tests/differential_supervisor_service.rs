@@ -112,6 +112,16 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
             json!({"content": [{"type": "text", "text": "{\"kind\":\"complete\",\"reason\":\"done\"}"}]}),
         ),
         (
+            "empty-first-text-falls-through",
+            "approval_review",
+            json!({"kind":"approve","reason":"ok","content":[{"type":"text","text":""},{"type":"text","text":"invalid"}]}),
+        ),
+        (
+            "nonempty-invalid-text-does-not-fall-through",
+            "approval_review",
+            json!({"kind":"approve","reason":"ok","content":[{"type":"text","text":"invalid"}]}),
+        ),
+        (
             "wrong-kind",
             "goal_set_review",
             json!({"kind": "continue", "reason": "wrong kind"}),
@@ -215,6 +225,47 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
         index += 1;
     }
     assert_eq!(index, ts_results.len());
+}
+
+#[test]
+fn instruction_review_exports_match_frozen_with_native_text() {
+    use pi_coding_agent::supervisor::service::{
+        SUPERVISOR_INSTRUCTION_REJECTION_REASONS, build_supervisor_instruction_review_context,
+        parse_supervisor_instruction_review_decision, supervisor_instruction_rejection_feedback,
+    };
+    let inputs = [
+        json!("ACCEPT"),
+        json!("REJECT_TASK_ASSIGNMENT"),
+        json!("REJECT_IMPLEMENTATION_PRESCRIPTION"),
+        json!("REJECT_SEQUENCING_INSTRUCTION"),
+        json!("REJECT_AGENT_OR_TOOL_DIRECTION"),
+        json!("REJECT_PLAN_OVERRIDE"),
+        json!("ACCEPT\n"),
+        json!("accept"),
+        json!(""),
+        json!(null),
+        json!(1),
+        json!({"kind":"ACCEPT"}),
+    ];
+    let mut cases = Vec::new();
+    let mut actual = Vec::new();
+    for (index, input) in inputs.iter().enumerate() {
+        let name = format!("decision-{index}");
+        cases.push(json!({"kind":"instruction","name":name,"response":input}));
+        actual.push(json!({"name":name,"value":parse_supervisor_instruction_review_decision(input)}));
+    }
+    for (index, reason) in SUPERVISOR_INSTRUCTION_REJECTION_REASONS.iter().enumerate() {
+        let name = format!("feedback-{index}");
+        cases.push(json!({"kind":"feedback","name":name,"reason":reason}));
+        actual.push(json!({"name":name,"value":supervisor_instruction_rejection_feedback(*reason)}));
+    }
+    let instructions = JsString::from("Observe\n") + JsString::from_utf16(vec![0xd800]);
+    cases.push(json!({"kind":"instructionContext","name":"context","instructions":instructions,"timestamp":1234.5}));
+    actual.push(json!({"name":"context","value":build_supervisor_instruction_review_context(&instructions,1234.5)}));
+    let mut ts = oracle::TsOracle::spawn("coding-agent-supervisor-service-oracle.ts", SOURCE_MODULE);
+    let expected = ts.request(&json!({"id":2,"operation":"supervisor","cases":cases}));
+    assert_eq!(expected["ok"], json!(true));
+    assert_eq!(json!(actual), expected["output"]["results"]);
 }
 
 #[test]

@@ -37,9 +37,15 @@ fn restore_clears_source_listener_sets_but_keeps_update_subscribers() {
     let store = MultiAgentStore::new(MultiAgentStoreOptions::default());
     let counts = Arc::new(Mutex::new([0_u32; 3]));
     let transitions = counts.clone();
-    let _t = store.subscribe_agent_transitions(move |_, _| transitions.lock().unwrap()[0] += 1);
+    let _t = store.subscribe_agent_transitions(move |_, _| {
+        transitions.lock().unwrap()[0] += 1;
+        Ok(())
+    });
     let lifecycle = counts.clone();
-    let _l = store.subscribe_lifecycle_notifications(move |_| lifecycle.lock().unwrap()[1] += 1);
+    let _l = store.subscribe_lifecycle_notifications(move |_| {
+        lifecycle.lock().unwrap()[1] += 1;
+        Ok(())
+    });
     let updates = counts.clone();
     let _u = store.subscribe_agent_updates(move |_, _| {
         updates.lock().unwrap()[2] += 1;
