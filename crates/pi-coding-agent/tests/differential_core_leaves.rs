@@ -638,7 +638,8 @@ fn project_resolver_matches_typescript() {
 
     let config = read_supervisor_project_config(&config_path.as_str().into()).unwrap();
     let to_json = |config: &SupervisorProjectConfig| -> Value {
-        serde_json::from_str(&serde_json::to_string(config).unwrap()).unwrap()
+        let value = pi_js_compat::js_json::to_value(config).unwrap();
+        serde_json::from_str(&pi_js_compat::js_json::stringify_lossless(&value)).unwrap()
     };
     let text = |value: Option<JsString>| value.map(|value| value.to_utf8().unwrap());
     let empty = SupervisorProjectConfig::new();
