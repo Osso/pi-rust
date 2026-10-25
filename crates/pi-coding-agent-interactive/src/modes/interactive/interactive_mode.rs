@@ -12484,6 +12484,55 @@ mod ui_tests {
         }
     }
 
+    fn completed_fixture_response(text: &str) -> pi_ai::providers::faux::FauxResponseStep {
+        faux_assistant_message(
+            vec![
+                faux_text(text),
+                pi_ai::providers::faux::faux_tool_call(
+                    "end_turn",
+                    pi_js_compat::js_json::JsObject::from_iter([("reason".into(), JsValue::String(text.into()))]),
+                    Some(format!("end-{text}")),
+                ),
+            ],
+            Default::default(),
+        )
+        .into()
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn fixture_streams_keep_their_responses_across_other_registry_refreshes() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (first, _first_terminal, first_faux, _first_temp) = build_mode().await;
+                let (second, _second_terminal, second_faux, _second_temp) = build_mode().await;
+                first_faux.set_responses(vec![completed_fixture_response("first session")]);
+                second_faux.set_responses(vec![completed_fixture_response("second session")]);
+                second.session().model_registry().refresh().unwrap();
+                first
+                    .session()
+                    .prompt("first request", PromptOptions::default())
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    first.session().get_last_assistant_text(),
+                    Some("first session".into()),
+                    "messages: {:?}",
+                    first.session().messages()
+                );
+                first.session().model_registry().refresh().unwrap();
+                second
+                    .session()
+                    .prompt("second request", PromptOptions::default())
+                    .await
+                    .unwrap();
+                assert_eq!(
+                    second.session().get_last_assistant_text(),
+                    Some("second session".into())
+                );
+            })
+            .await;
+    }
+
     #[tokio::test(flavor = "current_thread")]
     async fn hidden_coordination_queue_keeps_user_input_and_delivery_intact() {
         let local = tokio::task::LocalSet::new();
@@ -13168,6 +13217,7 @@ mod ui_tests {
                 let initial_active_tool_names = initial_active_tool_names.clone();
                 Box::pin(async move {
                     let model = faux.get_model(None).expect("faux model");
+                    let stream_provider = Arc::clone(&faux.provider);
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
@@ -13178,10 +13228,8 @@ mod ui_tests {
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
-                                Box::pin(async move {
-                                    pi_ai::compat::stream_simple(model, context, options)
-                                        .map_err(pi_agent_core::AgentError::from)
-                                })
+                                let stream = stream_provider.stream_simple(model, context, options);
+                                Box::pin(async move { stream.map_err(pi_agent_core::AgentError::from) })
                             },
                         )),
                         ..Default::default()
