@@ -1,6 +1,8 @@
 //! Port of `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts`.
 
-use std::sync::Arc;
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use crate::core::extensions::types::{
     BoxFuture, ExtensionContext, HandlerError, InputEvent, InputSource, ToolResultEvent,
@@ -14,7 +16,16 @@ use super::goal_types::{
 #[derive(Clone)]
 pub struct GoalReviewEvidenceController {
     pub review: GoalEvidenceReview,
+    sessions: SharedUserEvidence,
 }
+
+#[derive(Clone, Default)]
+struct UserEvidence {
+    request: Option<JsString>,
+    answers: Vec<JsString>,
+}
+
+type SharedUserEvidence = Arc<Mutex<HashMap<JsString, UserEvidence>>>;
 
 fn append_evidence(ctx: &ExtensionContext, evidence: GoalReviewEvidenceEvent) -> Result<(), HandlerError> {
     let cwd = ctx.cwd()?;
@@ -67,6 +78,27 @@ fn append_end_turn_evidence(event: &ToolResultEvent, ctx: &ExtensionContext) -> 
     )
 }
 
+fn answered_questions_text(event: &ToolResultEvent) -> Option<JsString> {
+    if event.tool_name.as_str() != "ask_questions" || event.is_error {
+        return None;
+    }
+    let details = event.details.as_ref()?;
+    if !pi_js_compat::js_json::is_truthy(details)
+        || details.get("cancelled").is_some_and(pi_js_compat::js_json::is_truthy)
+        || details.get("queued").is_some_and(pi_js_compat::js_json::is_truthy)
+    {
+        return None;
+    }
+    let text = JsString::join(
+        event.content.iter().filter_map(|part| match part {
+            pi_ai::types::TextOrImageContent::Text(text) => Some(&text.text),
+            pi_ai::types::TextOrImageContent::Image(_) => None,
+        }),
+        "\n",
+    );
+    (!text.is_empty()).then_some(text)
+}
+
 fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count: usize) -> Result<(), HandlerError> {
     if evidence_count == 0 {
         return Ok(());
@@ -93,23 +125,46 @@ fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count
     )
 }
 
-fn create_evidence_review(review_goal: GoalSupervisorReview) -> GoalEvidenceReview {
+fn assemble_review_payload(
+    mut payload: JsObject,
+    user: UserEvidence,
+    events: &[GoalReviewEvidenceEvent],
+) -> Result<JsObject, HandlerError> {
+    if let Some(request) = user.request {
+        payload.insert("userRequest".into(), JsValue::String(request));
+    }
+    if !user.answers.is_empty() {
+        payload.insert(
+            "userAnswers".into(),
+            JsValue::Array(user.answers.into_iter().map(JsValue::String).collect()),
+        );
+    }
+    if !events.is_empty() {
+        payload.insert(
+            "conversationEvents".into(),
+            pi_js_compat::js_json::to_value(events).map_err(|error| HandlerError::new(error.to_string()))?,
+        );
+    }
+    Ok(payload)
+}
+
+fn create_evidence_review(review_goal: GoalSupervisorReview, sessions: SharedUserEvidence) -> GoalEvidenceReview {
     Arc::new(move |input: GoalReviewInput| {
         let review_goal = Arc::clone(&review_goal);
+        let sessions = sessions.clone();
         Box::pin(async move {
             let cwd = input.ctx.cwd()?;
             let session = input.ctx.session_manager()?;
             let conversation_events = load_or_migrate_active_goal(&cwd, &session)?
                 .and_then(|goal| goal.review_evidence)
                 .unwrap_or_default();
-            let mut payload = input.payload.clone();
-            if !conversation_events.is_empty() {
-                payload.insert(
-                    "conversationEvents".into(),
-                    pi_js_compat::js_json::to_value(&conversation_events)
-                        .map_err(|error| HandlerError::new(error.to_string()))?,
-                );
-            }
+            let user = sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(&session.get_session_id())
+                .cloned()
+                .unwrap_or_default();
+            let payload = assemble_review_payload(input.payload, user, &conversation_events)?;
             let decision = review_goal(GoalReviewInput {
                 kind: input.kind,
                 payload,
@@ -126,18 +181,45 @@ fn create_evidence_review(review_goal: GoalSupervisorReview) -> GoalEvidenceRevi
 
 /// `createGoalReviewEvidenceController`.
 pub fn create_goal_review_evidence_controller(review_goal: GoalSupervisorReview) -> GoalReviewEvidenceController {
+    let sessions = SharedUserEvidence::default();
     GoalReviewEvidenceController {
-        review: create_evidence_review(review_goal),
+        review: create_evidence_review(review_goal, sessions.clone()),
+        sessions,
     }
 }
 
 impl GoalReviewEvidenceController {
     pub fn append_input(&self, event: &InputEvent, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+        if event.source != InputSource::Extension && !event.text.is_empty() {
+            let session_id = ctx.session_manager()?.get_session_id();
+            self.sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .insert(
+                    session_id,
+                    UserEvidence {
+                        request: Some(event.text.clone()),
+                        answers: Vec::new(),
+                    },
+                );
+        }
         append_input_evidence(event, ctx)
     }
 
     pub fn append_tool_result(&self, event: &ToolResultEvent, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-        append_end_turn_evidence(event, ctx)
+        append_end_turn_evidence(event, ctx)?;
+        let Some(answers) = answered_questions_text(event) else {
+            return Ok(());
+        };
+        let session_id = ctx.session_manager()?.get_session_id();
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(session_id)
+            .or_default()
+            .answers
+            .push(answers.clone());
+        append_evidence(ctx, GoalReviewEvidenceEvent::User { text: answers })
     }
 
     pub fn consume(
