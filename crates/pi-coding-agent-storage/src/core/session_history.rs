@@ -2,7 +2,7 @@
 use super::session_manager::{SessionEntry, SessionManager, SessionManagerError};
 use super::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
 use std::fs::{File, OpenOptions};
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 const READ_BUFFER_SIZE: usize = 64 * 1024;
@@ -30,11 +30,12 @@ impl ReverseEntries {
                 .create_new(true)
                 .open(&plain)
                 .map_err(error)?;
-            io::copy(
+            super::session_transcript_spool::copy_spool_bytes(
+                &source,
                 &mut create_session_transcript_read_stream(&source).map_err(SessionManagerError::from)?,
                 &mut output,
             )
-            .map_err(error)?;
+            .map_err(SessionManagerError::from)?;
             (File::open(plain).map_err(error)?, Some(directory))
         } else {
             (open_history_file(&source)?, None)

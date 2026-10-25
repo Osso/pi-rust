@@ -28,7 +28,7 @@ fn spool_worker(source: &JsString, target: &JsString) -> Result<(), Box<NativeNo
     copy_spool_bytes(source, &mut input, &mut output)
 }
 
-fn copy_spool_bytes(
+pub(super) fn copy_spool_bytes(
     source: &JsString,
     input: &mut dyn Read,
     output: &mut impl Write,

@@ -1,10 +1,14 @@
 # session-transcript-spool.ts
 
+## Whole-module audit — storage-3 (2026-10-25)
+
+All71 frozen lines were compared to the current implementation: one public callback function; plain-path pass-through; `.jsonl.zst` selection; mkdtemp; exclusive0600 output; worker success/failure/timeout; callback throw; finally cleanup and cleanup-error precedence. The six existing source/native fixtures plus the recorded real90-second deadline proof cover those realistic branches. The in-process/runtime liveness deviation remains the existing approved gap below. `copy_spool_bytes` is now pub(super) solely so history can retain the same codec/IO error authority; no spool behavior changes. Current scoped clippy has zero diagnostics in this module. Whole manager/control acceptance remains separate.
+
 ## Callback and worker error re-pin (2026-10-25)
 
-`repin_storage_spool::spool_callback_and_worker_errors_match_frozen_cleanup_and_error_values` compile-RED exposed the missing throwable callback API. The current API takes/returns `CallbackError`; real frozen/native probes compare valid decompressed bytes/mode, TypeError+custom code and null callback throws, invalid zstd and truncated-frame worker failures. Private worker output carries the lossless `String(error)` as JSON, matching frozen MessagePort semantics rather than stderr message/newline flattening. The std Read-only boundary converts codec/FS errors once; output open/write errors retain Node records. `SessionManagerError` retains the callback in its source chain and uses the shared `pi_js_compat::callback_error::throw_callback_uncaught` authority for unobserved throws. Existing manager/read callers propagate or catch at their frozen sites.
+`repin_storage_spool::spool_callback_and_worker_errors_match_frozen_cleanup_and_error_values` compile-RED exposed the missing throwable callback API. The current API takes/returns `CallbackError`; real frozen/native probes compare valid decompressed bytes/mode, TypeError+custom code and null callback throws, invalid zstd and truncated-frame worker failures. The worker propagates the lossless `String(error)`, matching frozen MessagePort semantics rather than stderr message/newline flattening. The std Read-only boundary converts codec/FS errors once; output open/write errors retain Node records. `SessionManagerError` retains the callback in its source chain and uses the shared `pi_js_compat::callback_error::throw_callback_uncaught` authority for unobserved throws. Existing manager/read callers propagate or catch at their frozen sites.
 
-GREEN log: `/tmp/pi-rust-repin-storage/spool-callback-green-attempt2.log`; initial missing carrier was resolved by fast-forwarding parent `0c700e231` (no local shared-crate edit). The subsequent shared mkdtemp proof is recorded below. The cleanup error branches below now have frozen proof; the unapproved packaged executable dependency blocks whole-module closure.
+GREEN log: `/tmp/pi-rust-repin-storage/spool-callback-green-attempt2.log`; initial missing carrier was resolved by fast-forwarding parent `0c700e231` (no local shared-crate edit). The subsequent shared mkdtemp proof is recorded below. The cleanup error branches below have frozen proof; the later approved in-process replacement removes the packaged executable dependency.
 
 ## Shared mkdtemp authority (2026-10-25)
 
@@ -28,6 +32,6 @@ Consumer audit: frozen `packages/coding-agent/src/core/session-tool-output.ts:32
 
 | gap | Blocked-OS-call cancellation and process liveness differ between Node Worker and Rust thread; approved2026-10-25. |
 
-Recorded focused timeout/kill, callback/corruption cleanup and large-history proofs: [integration ledger](session-storage-integration.md). Release/SDK package layout remains open. Fork test originally RED on stale plain File::open ENOENT.
+Recorded focused timeout/kill, callback/corruption cleanup and large-history proofs: [integration ledger](session-storage-integration.md). Release/SDK decoding no longer requires a worker asset, as proved by the missing-package regression. Fork test originally RED on stale plain File::open ENOENT.
 
 Failure-boundary tests: `spool_callback_and_corruption_failures_cleanup_private_files` proves exact decompressed bytes, private0600 output, callback error preserved, no leftover plaintext, corrupt/truncated worker error cleanup. `storage_thread_90second_timeout_cleans_spool` blocks real native decoding on FIFO and asserts the exact90-second timeout and temporary cleanup; it releases the test-owned blocked open afterward. Earlier subprocess kill/reap proof is historical and invalidated by thread replacement. FIFO is failure injection, not a primary transcript/schema fixture.
