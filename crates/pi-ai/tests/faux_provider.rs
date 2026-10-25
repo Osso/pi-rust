@@ -14,8 +14,7 @@ use pi_ai::types::{
 };
 use serde_json::json;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {

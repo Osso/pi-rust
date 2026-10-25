@@ -156,8 +156,7 @@ fn test_provider(
     })
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn image_request_auth_receives_the_actual_image_model() {

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::api::google_shared::{convert_messages, convert_tools};
 use pi_js_compat::{
     js_json,

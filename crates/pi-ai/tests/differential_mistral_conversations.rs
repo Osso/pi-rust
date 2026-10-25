@@ -1,12 +1,9 @@
-#[path = "support/provider_normalize.rs"]
-pub mod provider_normalize;
+pub use crate::shared_provider_normalize as provider_normalize;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 // The shared support module exposes helpers used by sibling test binaries.
 #[allow(dead_code)]
-#[path = "support/recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_recording_fetch as recording_fetch;
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};

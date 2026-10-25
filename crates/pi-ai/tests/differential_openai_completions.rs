@@ -1,12 +1,8 @@
-#[path = "support/provider_normalize.rs"]
-pub mod provider_normalize;
+pub use crate::shared_provider_normalize as provider_normalize;
 
-#[path = "support/json_compare.rs"]
-mod json_compare;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_json_compare as json_compare;
+use crate::shared_oracle as oracle;
+use crate::shared_recording_fetch as recording_fetch;
 
 use std::collections::BTreeSet;
 use std::sync::Arc;

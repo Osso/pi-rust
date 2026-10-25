@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::auth::{ModelsError, ModelsErrorCode};
 use pi_js_compat::abort::AbortReason;
 use pi_js_compat::js_json as json;

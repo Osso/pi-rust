@@ -14,13 +14,11 @@ use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, Htt
 use pi_js_compat::abort::AbortSignal;
 use serde_json::{Value, json};
 
-#[path = "support/oauth.rs"]
-mod oauth_support;
+use crate::shared_oauth as oauth_support;
 
 use oauth_support::{PromptAnswer, TestInteraction, runtime};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn legacy_modify_models_filters_present_ids_and_preserves_absent_id_catalog() {

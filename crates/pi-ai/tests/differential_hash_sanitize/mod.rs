@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::utils::hash::short_hash;
 use pi_ai::utils::sanitize_unicode::sanitize_surrogate_units;

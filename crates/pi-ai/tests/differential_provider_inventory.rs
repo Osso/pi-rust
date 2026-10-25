@@ -4,8 +4,7 @@ use pi_ai::models::{CreateModelsOptions, Models, MutableModels};
 use pi_ai::providers::all::{builtin_images_models, builtin_images_providers, builtin_models, builtin_providers};
 use serde_json::json;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn builtin_factory_ids_and_order_match_frozen_all_module() {

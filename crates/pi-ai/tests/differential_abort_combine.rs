@@ -1,8 +1,6 @@
 //! The frozen combine helper's synchronous reason, cleanup and returned-signal lifetimes.
-#[path = "support/abort_reason.rs"]
-mod abort_reason;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_abort_reason as abort_reason;
+use crate::shared_oracle as oracle;
 
 use pi_ai::utils::abort_signals::combine_abort_signals;
 use pi_js_compat::abort::{AbortController, AbortReason, AbortSignal};

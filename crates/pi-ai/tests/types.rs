@@ -67,8 +67,7 @@ fn source_absent_cost_tiers_remain_unknown_properties() {
     );
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 fn timestamp_message_fixture(role: &str) -> Value {
     match role {

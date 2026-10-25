@@ -11,11 +11,9 @@ use pi_ai::request::{BoxFuture, Fetch, ProviderRequestOptions, SimpleStreamOptio
 use pi_ai::types::{Context, Model};
 use serde_json::{Map, Value, json};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
-#[path = "support/oauth.rs"]
-mod oauth_support;
+use crate::shared_oauth as oauth_support;
 
 use oauth_support::PromptAnswer;
 use oauth_support::TestInteraction;

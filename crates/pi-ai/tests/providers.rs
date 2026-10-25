@@ -13,8 +13,7 @@ use pi_ai::types::{Context, Model};
 use serde_json::json;
 
 #[allow(dead_code)]
-#[path = "support/recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_recording_fetch as recording_fetch;
 
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 

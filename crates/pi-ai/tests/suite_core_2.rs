@@ -1,5 +1,11 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/oauth.rs"]
+mod shared_oauth;
+#[path = "support/oracle.rs"]
+mod shared_oracle;
+use shared_oauth::recording_fetch as shared_recording_fetch;
+
 #[path = "faux_provider.rs"]
 pub mod faux_provider;
 #[path = "generator_repin_artifacts.rs"]

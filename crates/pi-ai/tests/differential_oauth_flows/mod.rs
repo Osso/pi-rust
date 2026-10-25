@@ -1,7 +1,5 @@
-#[path = "../support/oauth.rs"]
-mod oauth_support;
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oauth as oauth_support;
+use crate::shared_oracle as oracle;
 
 use std::collections::BTreeMap;
 use std::time::Duration;

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::auth::{ApiKeyAuth, ApiKeyResolveInput, AuthError, AuthResult, ModelAuth, ProviderAuth};
 use pi_ai::models::{
     CreateModelsOptions, CreateProviderOptions, Models, MutableModels, ProviderApi, create_models, create_provider,

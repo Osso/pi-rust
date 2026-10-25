@@ -10,12 +10,10 @@ use pi_ai::auth::{OAuthAuth, OAuthCredential};
 use pi_ai::request::Fetch;
 use serde_json::{Map, Value, json};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[allow(dead_code)]
-#[path = "support/recording_fetch.rs"]
-mod recording_fetch;
+use crate::shared_recording_fetch as recording_fetch;
 
 use recording_fetch::{RecordingFetch, ScriptedResponse};
 

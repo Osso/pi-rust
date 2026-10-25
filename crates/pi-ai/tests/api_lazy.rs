@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};

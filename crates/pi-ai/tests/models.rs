@@ -67,8 +67,7 @@ fn context() -> Context {
     }
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn request_auth_receives_the_actual_model_not_provider_status_context() {

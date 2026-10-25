@@ -1,6 +1,5 @@
 //! Frozen generate-models.ts:328–589 metadata, actual module via AST exposure.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::model_catalog_generator::apply_model_metadata;
 use pi_js_compat::{js_json, js_json::JsValue};
 

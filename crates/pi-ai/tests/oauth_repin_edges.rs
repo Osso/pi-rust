@@ -1,4 +1,5 @@
 //! Native regressions found by the whole-module common-pin OAuth audit.
+use crate::shared_oauth as support;
 use pi_ai::{
     auth::oauth::{
         anthropic::AnthropicOAuth,
@@ -17,8 +18,6 @@ use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
 };
-#[path = "support/oauth.rs"]
-mod support;
 use support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use support::{PromptAnswer, TestInteraction, lock_callback_port, runtime};
 

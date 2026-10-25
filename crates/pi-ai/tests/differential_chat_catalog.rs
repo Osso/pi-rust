@@ -4,8 +4,7 @@ use pi_ai::providers::openai_codex::openai_codex_provider_with_id;
 use pi_ai::types::Model;
 use serde_json::{Value, json};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 fn source_export() -> Value {
     let mut ts = oracle::TsOracle::spawn("chat-catalog-oracle.ts", "packages/ai/src/models.generated.ts");
