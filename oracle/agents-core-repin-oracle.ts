@@ -69,6 +69,29 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "spawnProfile": {
+            const api = await load<RuntimeModule>("runtime.ts");
+            const {SessionManager} = await load<{SessionManager: {create(cwd: unknown, directory: unknown): {setMetadataControlDbPath(db: unknown): void}}}>("../../../src/core/session-manager.ts");
+            const {MultiAgentStore} = await load<{MultiAgentStore: new () => {setPersistenceSessionManager(manager: unknown): void}}>("../../../src/core/multi-agent-store.ts");
+            const {SettingsManager} = await load<{SettingsManager: {inMemory(settings: unknown): unknown}}>("../../../src/core/settings-manager.ts");
+            const manager = SessionManager.create(request.cwd, request.sessionDir);
+            manager.setMetadataControlDbPath(request.db);
+            const store = new MultiAgentStore();
+            if (request.persisted) store.setPersistenceSessionManager(manager);
+            let captured: unknown = null;
+            const handler = api.createMultiAgentPiRequestHandler({store, createChildSession: async (input: {agent: {model?: unknown}; context: string}) => {
+                captured = {model: input.agent.model ?? null, context: input.context};
+                throw new Error("stop after profile capture");
+            }});
+            let error: string | null = null;
+            try {
+                await handler({method:"agents.spawn", params:{agentType:request.agentType, prompt:"task"}}, {
+                    cwd:request.cwd, sessionManager:manager, model:request.model,
+                    modelRegistry:{getAll:()=>[request.model]}, settingsManager:SettingsManager.inMemory(request.settings ?? {}),
+                });
+            } catch (cause) {error = cause instanceof Error ? cause.message : String(cause);}
+            return {captured, error};
+        }
         case "factoryOptions": {
             const api = await load<RuntimeModule>("runtime.ts");
             const registry = {find: () => undefined};
