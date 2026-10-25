@@ -80,6 +80,10 @@ Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](trace
 
 `acefd5e8c` mechanically moves both CLI formatter implementations unchanged into the tools layer, with facade re-exports; `f80e52736` ports name/unname/tools/extensions handlers. [Full proof](traceability/interactive-mode.md#name-and-inventory-commands-2026-10-25):16 source/native states at widths25/120, persisted names/events/title effects and repeated inventories; lower formatter3+4 common-pin tests. Required -j3 workspace/all-targets0/0, TS/Biome/fmt/inventory pass, scoped clippy0 owned findings. No changes to cli/args.rs or main.rs for this slice.
 
+## Help/notices checkpoint
+
+`9819acb69` closes the bounded help/notices group:17 actual-source cases, including full-file changelog instead of cached startup excerpt, empty-version/empty-notice truthiness and PI_OFFLINE empty-string behavior. Default/custom hotkeys and extension descriptions match unchanged helpers; only the classified User-Agent runtime token is adapted. [Full ledger](traceability/interactive-mode.md#help-and-startup-notices-2026-10-25). Required pre-commit workspace -j3 all-targets0/0, TS/Biome/fmt pass, clippy0 owned findings. Whole interactive-mode remains partial.
+
 ## Next work
 
 Continue realistic interactive command/event slices. Runtime's locked718-line audit is now [closed](traceability/agent-session-runtime.md#whole-module-audit-closure-2026-10-25), including optional initial SessionStartEvent and frozen public re-exports. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Setup is no longer open. The apparent absent-model issue is resolved by frozen Agent's `initialState?.model ?? DEFAULT_MODEL` sentinel; no API change is required. No whole interactive-mode acceptance is claimed.
