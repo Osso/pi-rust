@@ -1,11 +1,8 @@
 //! Behavioral tests for the bundled `claude-bash-hook` extension.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_executable_script as executable_script;
+use crate::shared_extensions as support;
 
 use std::path::{Path, PathBuf};
 

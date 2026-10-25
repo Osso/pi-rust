@@ -2,8 +2,7 @@
 mod example;
 #[path = "support/extension_examples_e_git.rs"]
 mod git_support;
-#[path = "support/extension_examples_e.rs"]
-mod harness;
+use crate::shared_extension_examples_e as harness;
 use serde_json::{Value, json};
 
 fn tool_result() -> Value {
@@ -96,3 +95,11 @@ async fn clean_stash_missing_repo_agent_end_clear_and_failed_apply_preserve_sour
         "source notifies even if git stash apply fails"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extension_examples_e.rs"]
+pub mod shared_extension_examples_e;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

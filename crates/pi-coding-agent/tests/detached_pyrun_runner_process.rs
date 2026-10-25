@@ -2,8 +2,7 @@
 //! behavior at the real process boundary: the runner owns the evaluation, writes
 //! the JSONL artifact, settles the control-db job, and answers control commands.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use indexmap::IndexMap;
 use std::fs;
@@ -743,3 +742,7 @@ async fn terminal_commit_failure_uses_the_frozen_error_tag() {
         "{error:?}"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

@@ -1,12 +1,9 @@
 //! Differential tests for the bundled `codex-web-search` and
 //! `codex-image-generation` extensions.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use std::sync::{Arc, Mutex};
 

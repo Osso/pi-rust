@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::request::{BoxFuture, CallbackError};
 use pi_coding_agent::core::agent_session_runtime::{
@@ -80,3 +79,7 @@ async fn startup_archive_runs_before_factory_failure_without_blocking_the_factor
     let actual = json!({"ok":true,"factoryError":factory_error,"archived":archive.exists() && !file.exists(),"archivedMetadata":metadata.and_then(|metadata|metadata.is_archived)==Some(true),"content":content});
     assert_eq!(actual, expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

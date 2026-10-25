@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file, read_session_header};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -143,8 +142,7 @@ async fn export_uses_read_only_stale_archive_and_legacy_source() {
     assert_eq!(std::fs::read_to_string(path).unwrap(), bytes);
 }
 
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 #[tokio::test]
 async fn persisted_history_tool_recovers_source_compacted_ancestor() {
     use pi_coding_agent::core::extensions::types::ContextTool;
@@ -1187,3 +1185,9 @@ async fn legacy_v1_raw_summary_extras_survive_migration_and_export() {
     assert_eq!(call(&mut ts, json!({"op":"exportExtraTokens","path":output})), expected);
     assert_eq!(std::fs::read(path).unwrap(), before);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

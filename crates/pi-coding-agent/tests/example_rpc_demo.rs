@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/rpc_demo.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use serde_json::{Value, json};
 use std::{

@@ -1,5 +1,7 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "../../pi-coding-agent/tests/support/oracle.rs"]
+mod shared_oracle;
 #[path = "../../pi-ai/tests/support/oracle.rs"]
 mod shared_oracle_0;
 #[path = "../../pi-tui/tests/support/oracle.rs"]

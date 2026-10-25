@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/github_issue_autocomplete.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_b.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::json;
 use std::{os::unix::fs::PermissionsExt, sync::Arc};
 
@@ -103,3 +101,13 @@ async fn fixture_requests_cache_errors_and_completions_match() {
     harness::compare("github-issue-autocomplete",Arc::new(|api| {let result=example::github_issue_autocomplete_extension(api);Box::pin(async move {result})}),json!({"cwd":nongit.path(),"path":path,"cases":[{"event":"session_start"},{"event":"autocomplete","text":"#1"}]})).await;
     pi_js_compat::process_env::remove("PATH");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

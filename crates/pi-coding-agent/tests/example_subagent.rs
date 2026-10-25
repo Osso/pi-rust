@@ -1,9 +1,7 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "../examples/extensions/subagent/index.rs"]
 mod subagent;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
 use pi_coding_agent::core::extensions::*;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -444,3 +442,9 @@ async fn check_renderers(running: bool, ties: bool) {
         assert_eq!(pi_js_compat::js_json!(actual), expected["renders"][i], "render {i}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

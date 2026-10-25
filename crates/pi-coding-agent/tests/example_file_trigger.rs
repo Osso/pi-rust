@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/file_trigger.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::json;
 
 #[tokio::test]
@@ -52,3 +50,9 @@ async fn private_watch_injects_clears_ignores_blank_and_preserves_failure_match_
     }
     pi_js_compat::process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

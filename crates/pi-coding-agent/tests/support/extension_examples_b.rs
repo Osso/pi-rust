@@ -1,3 +1,4 @@
+use crate::shared_ui_thread as ui_thread;
 use crate::{extension_support as fixture, oracle};
 use futures_util::FutureExt;
 use pi_coding_agent::core::auth_storage::AuthStorage;
@@ -8,8 +9,6 @@ use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-#[path = "ui_thread.rs"]
-mod ui_thread;
 
 #[derive(Default)]
 struct Ui {
@@ -787,5 +786,4 @@ fn configure_faux(
     model
 }
 
-#[path = "scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;

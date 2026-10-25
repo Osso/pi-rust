@@ -820,5 +820,8 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
     server.close().await.unwrap();
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

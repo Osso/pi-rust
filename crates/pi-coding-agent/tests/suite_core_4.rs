@@ -120,3 +120,17 @@ pub mod runtime_process;
 pub mod self_restart_state;
 #[path = "settings_manager.rs"]
 pub mod settings_manager;
+
+// Shared support is compiled once per integration target.
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+pub mod shared_ai_oracle;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/image_fixtures.rs"]
+pub mod shared_image_fixtures;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/repin_fixture_process.rs"]
+pub mod shared_repin_fixture_process;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

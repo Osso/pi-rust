@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::mime::detect_supported_image_mime_type;
 use serde_json::{Value, json};

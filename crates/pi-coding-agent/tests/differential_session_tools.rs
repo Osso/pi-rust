@@ -1,11 +1,8 @@
 //! Differential tests: session directory and session/coordination tools against the pinned TypeScript source.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use std::path::Path;
 
@@ -2444,3 +2441,11 @@ async fn ask_questions_tool_differential() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

@@ -17,8 +17,7 @@ use serde_json::{Value, json};
 
 #[path = "support/config_probe.rs"]
 mod config_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/trust_probe.rs"]
 mod trust_probe;
 
@@ -412,3 +411,7 @@ fn permission_rule_store_matches_the_pinned_typescript_module() {
     assert_eq!(Value::Array(results), expected["output"]["results"]);
     assert_eq!(Value::Array(writes), expected["output"]["writes"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

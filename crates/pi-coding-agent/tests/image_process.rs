@@ -1,8 +1,7 @@
 use pi_coding_agent::utils::image_process::{ProcessImageOptions, ProcessImageResult, process_image};
 use pi_coding_agent::utils::image_resize_core::ImageResizeOptions;
 
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 
 fn bmp_1x1_red_24bpp() -> Vec<u8> {
     let mut buffer = vec![0u8; 58];

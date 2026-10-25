@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::{SupervisorRequestKind, SupervisorResponse};
 use pi_coding_agent::supervisor::client::{
     RequestSupervisorDecisionInput, SupervisorClientDependencies, request_supervisor_decision_with_dependencies,

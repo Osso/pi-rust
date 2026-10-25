@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
@@ -481,3 +480,7 @@ fn settings_state_callbacks_and_submenu_sequences_match_frozen() {
 
     assert!(mismatches.is_empty(), "settings mismatches: {mismatches:?}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

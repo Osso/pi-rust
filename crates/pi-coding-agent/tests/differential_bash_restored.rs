@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::agent::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::detached_job_runner::{
@@ -192,3 +191,7 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
     pi_js_compat::process_cwd::chdir(&original_cwd).unwrap();
     assert!(failures.is_empty(), "{}", js_json::stringify_lossless(&json!(failures)));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

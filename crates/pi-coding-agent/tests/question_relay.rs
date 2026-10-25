@@ -1,8 +1,6 @@
 //! Frozen question-relay-tools behavior over real, isolated SQLite mailboxes.
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use pi_coding_agent::bundled_extensions::agents_core::runtime::{MultiAgentExtensionOptions, multi_agent_extension};
 use pi_coding_agent::core::extensions::{

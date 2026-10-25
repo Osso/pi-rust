@@ -1,8 +1,7 @@
 //! Whole pinned program oracle plus the exact shipped Rust example on the real SDK.
 #[path = "../examples/sdk/01_minimal.rs"]
 mod minimal;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -336,5 +335,10 @@ async fn native_example_prompt_failure_releases_resources_without_printing_messa
     cleanup.unregister();
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

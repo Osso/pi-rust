@@ -1,7 +1,6 @@
 #[path = "support/agent_session_fixture.rs"]
 mod agent_session_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -2273,3 +2272,9 @@ fn footer_cases() -> Vec<(Value, Value)> {
     }
     cases
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

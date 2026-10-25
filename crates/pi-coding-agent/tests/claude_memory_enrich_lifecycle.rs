@@ -145,5 +145,8 @@ async fn wait_for_file(path: &std::path::Path) {
     .expect("child started");
 }
 
+use crate::shared_executable_script as executable_script;
+
+// Shared support is compiled once per integration target.
 #[path = "support/executable_script.rs"]
-mod executable_script;
+pub mod shared_executable_script;

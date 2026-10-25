@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/13_session_runtime.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use serde_json::json;
@@ -189,3 +188,9 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
     runtime.dispose().await.expect("runtime disposal succeeds");
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

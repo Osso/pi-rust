@@ -2,7 +2,7 @@
 
 use pi_coding_agent::core::extensions::types::{ExtensionCommandContext, HandlerError, RegisteredCommand};
 
-use super::support::Harness;
+use crate::shared_bundled_extensions::Harness;
 
 impl Harness {
     pub fn command(&self, name: &str) -> RegisteredCommand {

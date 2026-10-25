@@ -1,8 +1,7 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 // This standalone target isolates process-global API registration and self-spawn fixtures.
 #[path = "differential_supervisor_cleanup.rs"]
@@ -679,5 +678,10 @@ async fn supervisor_session_uses_the_sol_model_and_supervisor_tool_set() {
     assert!(result.session.get_tool_definition("bash").is_none());
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

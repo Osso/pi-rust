@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::terminal_outbox_delivery::{
     is_terminal_outbox_cleanup_due, terminal_outbox_retention_threshold,

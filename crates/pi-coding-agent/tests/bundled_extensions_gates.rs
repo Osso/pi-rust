@@ -2,12 +2,8 @@
 
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 
 use std::sync::Arc;
 

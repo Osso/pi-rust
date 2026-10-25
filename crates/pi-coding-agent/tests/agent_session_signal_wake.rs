@@ -160,5 +160,8 @@ fn user_texts(session: &pi_coding_agent::core::agent_session::AgentSession) -> V
         .collect()
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

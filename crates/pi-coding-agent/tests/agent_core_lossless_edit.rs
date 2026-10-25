@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 
 use pi_coding_agent::core::tools::edit_primitives::{
     Edit, apply_edits_to_normalized_content, generate_diff_string, generate_unified_patch,

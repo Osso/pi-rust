@@ -1,8 +1,7 @@
 //! Differential: architect system/observation prompts against the pinned TypeScript module.
 
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use pi_coding_agent::architect::observer::{
     ArchitectObservation, ArchitectObservationReason, ArchitectSessionSnapshot,

@@ -68,3 +68,9 @@ async fn flags_commands_cycles_selector_models_prompts_persistence_and_errors_ma
     harness::compare("preset", register, json!({"cwd":cwd,"steps":[start(),command("")]})).await;
     std::fs::remove_file(global).unwrap();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,6 +1,5 @@
 //! Filesystem failures must retain frozen public error semantics, not silently become empty data.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_js_compat::js_json::JsString;
 use serde_json::json;

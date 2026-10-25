@@ -1,11 +1,8 @@
 #[path = "../examples/extensions/doom_overlay/index.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
-#[path = "support/ui_thread.rs"]
-mod ui_thread;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
+use crate::shared_ui_thread as ui_thread;
 
 use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;

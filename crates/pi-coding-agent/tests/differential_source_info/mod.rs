@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::source_info::{
     SourceInfo, SourceOrigin, SourceScope, SyntheticSourceInfoOptions, create_synthetic_source_info,

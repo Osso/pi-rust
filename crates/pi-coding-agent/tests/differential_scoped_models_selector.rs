@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::{Modality, Model, ModelCost};
 use pi_coding_agent::{
@@ -461,3 +460,7 @@ fn filtered_reorder_uncaught_failure_matches_frozen_process_boundary() {
     );
     assert_eq!(std::str::from_utf8(&native_output.stderr).unwrap().trim(), diagnostic);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

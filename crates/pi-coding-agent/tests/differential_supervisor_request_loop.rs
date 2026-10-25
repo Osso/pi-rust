@@ -1,8 +1,7 @@
 //! Differential: `supervisor/main.ts` request loop against the pinned TypeScript module.
 
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use std::sync::{Arc, Mutex};
 
@@ -234,5 +233,10 @@ async fn supervisor_request_loop_matches_typescript() {
     assert_eq!(rust["session"], ts["session"]);
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

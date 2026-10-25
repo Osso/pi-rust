@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::footer_data_provider::FooterDataProvider;
 use pi_js_compat::{js_json, js_json::JsValue};
 const SOURCE: &str = "packages/coding-agent/src/core/footer-data-provider.ts";

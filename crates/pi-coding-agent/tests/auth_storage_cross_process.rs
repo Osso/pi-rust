@@ -13,8 +13,7 @@ use pi_coding_agent::core::auth_storage::{AuthStorage, AuthStorageBackend, FileA
 use pi_js_compat::js_json::{self, JsValue};
 use serde_json::{Value, json};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use oracle::TsOracle;
 

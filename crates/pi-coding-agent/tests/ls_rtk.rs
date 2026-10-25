@@ -6,8 +6,7 @@ use pi_coding_agent::core::tools::ls::LsTool;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue};
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 const MODE_VAR: &str = "PI_LS_RTK_MODE";
 const DIR_VAR: &str = "PI_LS_RTK_DIR";
@@ -101,3 +100,7 @@ fn run_fallback_case() {
     assert_eq!(text(&result), "real.txt\nsub/");
     assert!(empty.is_dir());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

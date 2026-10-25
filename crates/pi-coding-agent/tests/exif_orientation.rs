@@ -1,5 +1,4 @@
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 
 use pi_coding_agent::utils::exif_orientation::{apply_exif_orientation, read_exif_orientation};
 use pi_coding_agent::utils::photon::decode_image;

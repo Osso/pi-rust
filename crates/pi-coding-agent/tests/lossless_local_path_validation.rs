@@ -1,6 +1,5 @@
 //! Local Operations validate Node paths before OS encoding or syscall entry.
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 
 use pi_coding_agent::core::tools::{
     edit::{EditOperations, LocalEditOperations},

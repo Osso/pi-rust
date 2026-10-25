@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
@@ -54,8 +53,7 @@ fn result_cap_matches_frozen_for_json_details_and_raw_text() {
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 #[test]
 fn update_spill_failure_is_synchronous_and_catchable() {
@@ -225,3 +223,9 @@ async fn timer_update_failure_probe() {
         }
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

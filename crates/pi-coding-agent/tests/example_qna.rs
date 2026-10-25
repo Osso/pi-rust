@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/qna.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_extensions as extension_support;
+use crate::shared_oracle as oracle;
 #[path = "support/extension_examples_b.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;
@@ -53,3 +51,13 @@ async fn real_loader_faux_extraction_complete_prompt_and_editor_effects_match() 
         assert_eq!(actual["errors"], json!([]));
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

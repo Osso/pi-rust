@@ -1,6 +1,5 @@
 //! Frozen agents-status tree ordering, formatting and widget lifetime.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "agents_status_widget.rs"]
 mod widget;
 use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;

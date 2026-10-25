@@ -1,10 +1,8 @@
 //! Differential coverage for docs-tree-context, claude-memory-enrich, and claude-memory-session-end.
 
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use std::fs;
 use std::path::Path;
@@ -393,3 +391,9 @@ async fn claude_memory_session_end_skips_ephemeral_sessions() {
     process_env::clear();
     assert!(!temp.path().join("claude-memory/pi-index.log").exists());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

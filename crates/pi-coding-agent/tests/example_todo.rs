@@ -88,3 +88,13 @@ async fn todo_stored_details_are_isolated_on_branch_back_and_reload() {
         {"event":"entries"}
     ]})).await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

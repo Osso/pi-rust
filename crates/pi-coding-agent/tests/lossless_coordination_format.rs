@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::runtime_coordination_format::format_runtime_mailbox_prompt;
 use pi_coding_agent::core::session_control_db::RuntimeMailboxMessage;

@@ -1,6 +1,5 @@
 //! RED intent for the separately parked canonical claim serialization order.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::{
     RuntimeMailboxAddress, claim_runtime_mailbox_messages, register_runtime_mailbox_listener,
 };

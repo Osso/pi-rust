@@ -4,10 +4,8 @@
 //! `discoverAndLoadExtensions`/`ExtensionRunner`; the Rust side registers the
 //! same handlers through the Rust extension API.
 
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -2412,3 +2410,9 @@ async fn handlers_appended_during_dispatch_run_in_the_same_event() {
     runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
     assert_eq!(*observed.lock().unwrap(), ["first", "appended"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

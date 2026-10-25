@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/event_bus.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::json;
 
 #[tokio::test]
@@ -51,3 +49,9 @@ async fn notifications_follow_session_context_and_real_bus_order() {
         ])
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

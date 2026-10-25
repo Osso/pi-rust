@@ -5,8 +5,7 @@
 //! - Worker operations are compared with the real Node `fs-worker.cjs` on the
 //!   same fixtures.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::path::Path;
 use std::process::Command;

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::paths::{
     PathInputOptions, canonicalize_path, format_path_relative_to_cwd_or_absolute, get_cwd_relative_path, is_local_path,

@@ -1,6 +1,5 @@
 //! Opt-in native port of `examples/extensions/questionnaire.ts`.
-#[path = "forms.rs"]
-mod forms;
+use crate::shared_forms as forms;
 use forms::{FormEditor, editor_lines, option_lines, wrap_prefixed};
 use indexmap::IndexMap;
 use pi_agent_core::AgentToolResult;

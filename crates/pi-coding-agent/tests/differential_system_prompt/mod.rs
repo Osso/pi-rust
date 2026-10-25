@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "../support/system_prompt_probe.rs"]
 mod probe;
 

@@ -103,5 +103,4 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
     SessionFixture { session, faux }
 }
 
-#[path = "scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;

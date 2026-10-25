@@ -1,8 +1,7 @@
 //! Behavioral tests for the edit on-disk preview and the bash elapsed-time state,
 //! both of which keep mutable state across `renderCall`/`renderResult` calls.
 
-#[path = "support/render_owner.rs"]
-pub mod render_owner;
+pub use crate::shared_render_owner as render_owner;
 
 use std::rc::Rc;
 use std::sync::Arc;

@@ -2,8 +2,7 @@
 //! behavior: durable artifact replay, lost runtimes, artifact collisions, and
 //! cancelling-job settlement through a real control database.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 #[path = "support/bundled_extensions.rs"]
 #[allow(dead_code)]
 mod support;

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::AgentToolResult;
 use pi_ai::types::TextOrImageContent;
@@ -567,3 +566,7 @@ async fn kitty_conversion_updates_later_before_request_render_and_retains_remove
         assert!(failures.is_empty(), "{} async image cases differ", failures.len());
     }).await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

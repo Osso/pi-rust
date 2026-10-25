@@ -112,3 +112,9 @@ async fn complete_renderers_and_delegated_execution_match_pinned_extension() {
     assert_eq!(actual["files"]["edit.txt"].as_string().unwrap(), "after\n");
     assert_eq!(actual["files"]["write.txt"].as_string().unwrap(), "written\nλ");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

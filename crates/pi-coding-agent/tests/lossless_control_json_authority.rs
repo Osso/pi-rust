@@ -1,6 +1,5 @@
 //! RED-intent regressions for source-written canonical JSON; unexecuted until lib compiles.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_control_db::{update_multi_agent_agent_slot, upsert_multi_agent_mailbox_message};
 use pi_js_compat::js_json::{self, JsString};

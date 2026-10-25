@@ -2,8 +2,7 @@
 //! formats against the pinned TypeScript module: byte-identical files, read-back
 //! serialization, and identical validation errors.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::path::Path;
 

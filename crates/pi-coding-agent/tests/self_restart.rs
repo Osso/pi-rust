@@ -18,8 +18,7 @@ use pi_coding_agent::core::self_restart::{
 };
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use tempfile::TempDir;
 
 const TEST_EXEC_MARKER: &str = "PI_TEST_SELF_RESTART_EXEC_DIR";
@@ -560,3 +559,7 @@ async fn can_return_immediately_after_spawning_the_restarted_child() {
     }
     assert_eq!(fs::read_to_string(&marker).expect("restarted child marker"), "done");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -2,8 +2,7 @@
 //! `core/agent-session.ts`: the `session_before_compact` preflight, the
 //! `compaction` provider event, and the background-cache `compaction` override.
 
-#[path = "support/oracle.rs"]
-mod callbacks_oracle;
+use crate::shared_oracle as callbacks_oracle;
 #[path = "agent_session_compaction_events.rs"]
 mod saved_events;
 
@@ -1487,5 +1486,10 @@ async fn auto_compaction_hook_duration_includes_extension_work_like_frozen() {
     assert_auto_compaction_hook_matches_frozen("auto-duration-hook").await;
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

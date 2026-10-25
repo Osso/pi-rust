@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/working_indicator.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::json;
 
 #[tokio::test]
@@ -44,3 +42,9 @@ async fn modes_frames_order_reset_and_invalid_input_match_ts() {
             .any(|v| *v == json!(["indicator", null]))
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

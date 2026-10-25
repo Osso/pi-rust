@@ -1,5 +1,4 @@
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 
 use pi_coding_agent::utils::image_resize::{format_dimension_note, resize_image};
 use pi_coding_agent::utils::image_resize_core::{ImageResizeOptions, resize_image_in_process};

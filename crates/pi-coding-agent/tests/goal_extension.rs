@@ -964,8 +964,7 @@ async fn goal_commands_propagate_notification_errors() {
     }
 }
 
-#[path = "support/oracle.rs"]
-mod management_oracle;
+use crate::shared_oracle as management_oracle;
 
 #[tokio::test]
 async fn goal_management_outputs_match_frozen_without_extra_notifications() {

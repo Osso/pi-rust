@@ -1,7 +1,6 @@
 //! Differential proof for `utils/changelog.ts` plus focused parse tests.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 use std::path::PathBuf;

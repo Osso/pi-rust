@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/tool_override.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_extensions as extension_support;
+use crate::shared_oracle as oracle;
 #[path = "support/extension_examples_b.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;
@@ -92,3 +90,13 @@ async fn audits_reads_and_blocks_sensitive_paths_with_complete_results() {
     assert!(!missing_agent.exists());
     pi_js_compat::process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

@@ -1,6 +1,5 @@
 //! Native error ingress, with Node replacement only at the real SQLite TEXT bind.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::{enqueue_incoming_message, fail_incoming_message};
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 

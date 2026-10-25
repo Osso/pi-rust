@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::tool_detach_registry::{DEFAULT_AUTO_DETACH_AFTER_MS, ToolDetachHandle, ToolDetachRegistry};
 use pi_js_compat::{js_json as json, js_json::JsValue};

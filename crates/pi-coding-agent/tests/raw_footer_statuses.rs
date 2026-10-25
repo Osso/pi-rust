@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::footer_data_provider::{
     ExtensionStatus, FooterDataProvider, find_git_paths, resolve_footer_executable_name_with_env,
 };

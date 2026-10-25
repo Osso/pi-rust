@@ -27,7 +27,7 @@ use pi_coding_agent::modes::interactive::theme::{
 };
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
-use super::support;
+use crate::shared_extensions as support;
 
 /// Scripted HTTP responses with request recording.
 pub struct StubFetch {

@@ -1995,3 +1995,7 @@ fn tool_execution_limits_long_text_blocks() {
     assert_eq!(lines[50], "... (50 more lines hidden)");
     assert_eq!(lines[51], "line 100");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

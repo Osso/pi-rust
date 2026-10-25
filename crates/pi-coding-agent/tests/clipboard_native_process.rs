@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::ffi::OsString;
 
@@ -57,3 +56,7 @@ fn clipboard_guard_child() {
     pi_js_compat::process_env::set("WAYLAND_DISPLAY", "");
     println!("CLIPBOARD_GUARD:{}", json!([before, clipboard().is_some()]));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

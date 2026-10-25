@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::modes::interactive::components::visual_truncate::truncate_to_visual_lines;
 use pi_js_compat::js_json::{JsString, parse_lossless};
 use serde_json::json;

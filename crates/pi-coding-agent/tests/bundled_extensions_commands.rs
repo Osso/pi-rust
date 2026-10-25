@@ -3,12 +3,8 @@
 use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 #[path = "support/bundled_extension_tool.rs"]
 mod tool_support;
 
@@ -725,3 +721,11 @@ fn session_archive_shutdown_errors_match_frozen_stderr() {
         );
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled_extension_load.rs"]
+pub mod shared_bundled_extension_load;
+#[path = "support/bundled_extensions.rs"]
+pub mod shared_bundled_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

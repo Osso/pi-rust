@@ -2,8 +2,7 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -507,3 +506,7 @@ fn startup_input_returns_the_typed_text() {
 fn startup_input_returns_none_when_cancelled() {
     assert_eq!(run_input_probe(&["\u{1b}"]), None);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

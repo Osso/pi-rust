@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::*;
 use serde_json::{Value, json};
 fn step(ts: &mut oracle::TsOracle, op: &str, args: Value) -> Value {

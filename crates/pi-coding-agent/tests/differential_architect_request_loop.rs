@@ -1,8 +1,7 @@
 //! Differential: `architect/main.ts` cycle and request completion against the pinned TypeScript module.
 
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use std::sync::{Arc, Mutex};
 

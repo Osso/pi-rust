@@ -2,10 +2,8 @@
 //! registration/completion/UI transcript with the actual pinned TS example.
 #[path = "../examples/extensions/commands.rs"]
 mod commands;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};

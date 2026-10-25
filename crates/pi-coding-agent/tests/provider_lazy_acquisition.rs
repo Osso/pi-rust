@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::{
     api::lazy::lazy_api,
@@ -233,3 +232,7 @@ async fn lazy_inner_failure_child() {
     let result = tokio::time::timeout(std::time::Duration::from_secs(2), outer.next()).await;
     panic!("iteration failure must exit through shared uncaught authority, got {result:?}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

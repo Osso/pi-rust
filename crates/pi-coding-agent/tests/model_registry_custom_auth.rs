@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::providers::models_data::builtin_model;
 use pi_coding_agent::core::{
@@ -56,3 +55,7 @@ async fn custom_provider_key_propagates_only_after_frozen_registration_validatio
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,10 +1,8 @@
 //! Composition proof: opt-in example loaded through the real native extension API.
 #[path = "../examples/extensions/custom_header.rs"]
 mod custom_header;
-#[path = "support/extensions.rs"]
-mod extensions;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_extensions as extensions;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::rc::Rc;
@@ -220,3 +218,9 @@ async fn pinned_custom_header_composition_matches_all_modes_and_colors() {
     }
     pi_js_compat::process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

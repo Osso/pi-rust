@@ -1,9 +1,7 @@
-#[path = "support/catalog_fetch.rs"]
-mod catalog_fetch;
+use crate::shared_catalog_fetch as catalog_fetch;
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::{
     core::{
         auth_storage::AuthStorage,
@@ -177,3 +175,9 @@ async fn catalog_registry_lifetime_probe() {
     let output = pi_js_compat::js_json!({"before":before,"refresh":refresh,"memoAfterRefresh":memo_after,"stale":stale,"afterRefresh":after_refresh,"rootResult":js_json::to_value(&root_result).unwrap(),"staleAfterRoot":stale_after_root,"afterRoot":after_root});
     println!("\nCATALOG_RESULT:{}", js_json::stringify_lossless(&output));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/catalog_fetch.rs"]
+pub mod shared_catalog_fetch;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

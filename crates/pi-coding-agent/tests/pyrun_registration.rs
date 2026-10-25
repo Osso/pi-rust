@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::bundled_extensions::pyrun::{PyrunExtensionOptions, install_pyrun_extension};
 use pi_coding_agent::core::extensions::ExtensionRunner;
@@ -564,3 +562,9 @@ async fn pyrun_runner_inherits_the_current_environment_overlay_like_frozen() {
     }
     process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -2,8 +2,7 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;
@@ -309,3 +308,7 @@ fn offline_mode_skips_missing_package_installs_probe() {
     let resolved = block(manager.resolve(None)).unwrap();
     assert!(resolved.extensions.is_empty());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

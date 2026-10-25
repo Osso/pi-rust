@@ -1,6 +1,5 @@
 //! Frozen TS ↔ Rust persistence, sequencing, collision rollback, and channel-origin behavior.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::host_relay::{RelayFrame, parse_frame};
 use pi_coding_agent::core::host_relay_store::*;
 use pi_coding_agent::core::session_control_db::*;

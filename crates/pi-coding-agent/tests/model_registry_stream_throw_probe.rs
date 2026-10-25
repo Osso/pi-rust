@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::request::{CallbackError, SimpleStreamOptions};
 use pi_coding_agent::core::{
     auth_storage::AuthStorage,
@@ -103,3 +102,7 @@ async fn registered_raw_and_simple_dispatch_propagate_callback_rejection_like_fr
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

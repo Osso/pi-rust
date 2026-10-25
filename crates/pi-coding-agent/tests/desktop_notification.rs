@@ -1,8 +1,7 @@
 use pi_js_compat::js_json::{JsString, JsValue, parse_lossless, stringify_lossless};
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use std::ffi::OsString;
 use std::fs;
@@ -217,3 +216,7 @@ fn notification_encodes_raw_title_and_body_only_at_notify_send_argv() {
     );
     assert_eq!(&argv[4..], &["�", "�"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

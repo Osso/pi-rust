@@ -57,3 +57,7 @@ fn resolver_restore_probe_child() {
 fn resolver_initial_selection_matches_frozen() {
     model_resolver_oracle::run("initial");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

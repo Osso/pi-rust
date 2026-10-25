@@ -1,8 +1,5 @@
 //! Own the real initial launch and the internal runner dispatch in one executable.
-#[path = "../support/bundled.rs"]
-mod bundled;
-#[path = "../support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::bundled_extensions::pyrun::{
     detached_evaluation::{DurablePyrunEvaluationInput, run_durable_detachable_pyrun_evaluation},
@@ -168,3 +165,9 @@ async fn wait_for_completed_job(control: &JsString, session: &JsString) {
         tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "../support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "../support/extensions.rs"]
+pub mod shared_extensions;

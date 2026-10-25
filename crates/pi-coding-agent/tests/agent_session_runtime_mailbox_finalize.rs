@@ -1,6 +1,5 @@
 use super::*;
-#[path = "support/oracle.rs"]
-pub(super) mod oracle;
+pub(super) use crate::shared_oracle as oracle;
 
 #[tokio::test(start_paused = true)]
 async fn reserved_finalize_propagates_outbox_claim_failure_after_durable_finalization() {

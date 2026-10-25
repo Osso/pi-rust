@@ -1,7 +1,6 @@
 //! Ports `packages/coding-agent/test/sessions-command.test.ts`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use serde_json::json;
 use std::sync::Mutex;

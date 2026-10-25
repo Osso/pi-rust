@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use pi_js_compat::{
     abort::AbortReason,
@@ -173,3 +172,7 @@ fn automatic_detach_throw_probe() {
     std::thread::sleep(std::time::Duration::from_secs(5));
     panic!("automatic callback did not throw");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

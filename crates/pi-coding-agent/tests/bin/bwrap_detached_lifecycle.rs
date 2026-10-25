@@ -1,8 +1,6 @@
 //! Test-only executable owns the extension call and its real detached runner.
-#[path = "../support/bundled.rs"]
-mod bundled;
-#[path = "../support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::bundled_extensions::bwrap::index::{BwrapExtensionOptions, install_bwrap_extension};
 use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
@@ -148,3 +146,9 @@ async fn full_access_bash_forwards_detached_lifecycle_and_registry() {
     assert!(!registry.has_running());
     println!("PASS: bwrap full-access detaches, completes, and preserves output without invoking bwrap");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "../support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "../support/extensions.rs"]
+pub mod shared_extensions;

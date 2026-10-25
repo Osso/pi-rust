@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::extensions::ExtensionRunner;
 use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};

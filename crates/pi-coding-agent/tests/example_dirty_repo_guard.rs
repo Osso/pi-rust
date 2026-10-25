@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/dirty_repo_guard.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::json;
 
 fn git(cwd: &std::path::Path, args: &[&str]) {
@@ -57,3 +55,9 @@ async fn actual_private_git_clean_dirty_and_non_repository_match_ts() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

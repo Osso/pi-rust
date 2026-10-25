@@ -3,8 +3,7 @@ use pi_coding_agent::core::extensions::loader::{
 };
 use pi_js_compat::js_json::JsString;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn loader_resolves_relative_entries_and_manifest_absolute_paths_like_frozen() {

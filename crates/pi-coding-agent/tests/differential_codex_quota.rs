@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::{AssistantMessage, StopReason};
 use pi_coding_agent::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};

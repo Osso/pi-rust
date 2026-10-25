@@ -9,8 +9,7 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -1258,3 +1257,7 @@ fn apply_step(
     }
     renders.push(component.render(*width));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

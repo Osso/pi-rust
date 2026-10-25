@@ -1,3 +1,4 @@
+use crate::shared_oracle as oracle;
 use pi_ai::{
     auth::{AuthError, OAuthCredential},
     oauth::*,
@@ -7,8 +8,6 @@ use pi_coding_agent::core::auth_storage::{AuthStorage, GetApiKeyOptions, InMemor
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::json;
 use std::sync::Arc;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 const RAW: &str = r#"{"fake":{"type":"oauth","access":"a\ud800","refresh":"r\udfff","expires":0,"\ud800":{"nested":"\udfff"}},"\ud800":{},"�":{}}"#;
 #[test]
@@ -221,3 +220,7 @@ fn public_missing_get_does_not_add_credentials_to_the_created_auth_file() {
     assert_eq!(std::fs::read(&path).unwrap(), before);
     assert_eq!(before, b"{}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

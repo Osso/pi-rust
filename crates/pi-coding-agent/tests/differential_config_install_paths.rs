@@ -1,7 +1,6 @@
 #![cfg(unix)]
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::config::{self, InstallContext};
 use pi_js_compat::js_json as json;
@@ -170,3 +169,7 @@ fn install_path_child() {
     .unwrap();
     println!("RESULT:{}", js_json::stringify_lossless(&result));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

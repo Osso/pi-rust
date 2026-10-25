@@ -1,12 +1,8 @@
 //! Differential coverage for the `ask-secret` and `browser-cli` bundled extensions.
 
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
 
 use std::sync::Arc;
 

@@ -1,7 +1,5 @@
-#[path = "../examples/extensions/doom_overlay/doom_engine.rs"]
-mod engine;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_doom_engine as engine;
+use crate::shared_oracle as oracle;
 use pi_js_compat::{js_format, js_json::JsString};
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};

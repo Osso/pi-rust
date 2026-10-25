@@ -1,9 +1,7 @@
 //! Behavioral tests for the bundled `codex-usage` extension.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;

@@ -1,11 +1,7 @@
 //! Differential tests for the bundled `default-footer` extension.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};

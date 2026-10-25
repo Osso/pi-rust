@@ -11,8 +11,7 @@ use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 const SCRIPT_BODY: &str = "#!/bin/sh\nexit 0\n";
 

@@ -150,3 +150,13 @@ pub mod session_tool_output;
 pub mod session_tool_output_constants;
 #[path = "sessions_command.rs"]
 pub mod sessions_command;
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/repin_fixture_process.rs"]
+pub mod shared_repin_fixture_process;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

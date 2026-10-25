@@ -1,11 +1,8 @@
 #[path = "../../pi-agent-core/tests/support/mod.rs"]
 pub mod agent_support;
-#[path = "support/extensions.rs"]
-mod extension_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_extensions as extension_support;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use pi_coding_agent::core::extensions::types::{
     BoxFuture, ContextTool, ExtensionContext, ExtensionMode, ExtensionUiContext, ExtensionUiCustomFactory,

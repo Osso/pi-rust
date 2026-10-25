@@ -3,9 +3,8 @@
 //! The oracle imports the pinned TypeScript modules and returns their raw
 //! values; the Rust side must match byte-for-byte after JSON serialization.
 
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use pi_coding_agent::bundled_extensions::goal::goal_args::{ParseGoalArgsResult, ParsedGoalArgs, parse_goal_args};
 use pi_coding_agent::bundled_extensions::goal::goal_objective::deduplicate_current_goal_scope;

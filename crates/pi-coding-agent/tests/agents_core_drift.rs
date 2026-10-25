@@ -1,8 +1,6 @@
 //! Source-backed RED-intent fixtures. Unexecuted until the coding library compiles.
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::bundled_extensions::agents_core::{
     registration::register_agents_core_tools,
@@ -490,3 +488,9 @@ async fn background_ui_lifetime_child() {
         pi_coding_agent::core::multi_agent_store::AgentLifecycle::Completed
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

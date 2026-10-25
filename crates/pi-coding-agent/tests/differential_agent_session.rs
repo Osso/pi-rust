@@ -3,8 +3,7 @@
 //! Runs one multi-turn scenario through the real TypeScript SDK and the Rust
 //! port, then compares event summaries and normalized session JSONL.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -524,5 +523,10 @@ fn assert_json_seq(actual: &Value, expected: &Value, label: &str) {
     }
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

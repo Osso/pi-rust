@@ -55,3 +55,17 @@ pub mod format_size;
 pub mod raw_visual_truncate;
 #[path = "truncation_constants.rs"]
 pub mod truncation_constants;
+
+// Shared support is compiled once per integration target.
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+pub mod shared_ai_oracle;
+#[path = "support/corpus.rs"]
+pub mod shared_corpus;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/render_owner.rs"]
+pub mod shared_render_owner;
+#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
+pub mod shared_tui_virtual_terminal;

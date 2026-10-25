@@ -1,6 +1,5 @@
 //! Frozen release checks at the request, response, error and process-environment boundaries.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse};
 use pi_coding_agent::utils::version_check::{
@@ -227,3 +226,7 @@ fn release_api_matches_frozen_source() {
         assert_requests_and_result(run_native(&case), response["output"].clone(), &case);
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

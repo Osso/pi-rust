@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/questionnaire.rs"]
 mod example;
-#[path = "support/extension_forms.rs"]
-mod harness;
+use crate::shared_extension_forms as harness;
 use serde_json::json;
 
 #[tokio::test]

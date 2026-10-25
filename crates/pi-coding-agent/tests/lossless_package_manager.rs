@@ -1,9 +1,8 @@
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::package_manager::{
     DefaultPackageManager, PackageSettingsSnapshot, PackageSettingsStore, PackageSource, ParsedSource,
 };
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
-#[path = "support/oracle.rs"]
-mod oracle;
 struct Settings;
 impl PackageSettingsStore for Settings {
     fn global_settings(&self) -> PackageSettingsSnapshot {

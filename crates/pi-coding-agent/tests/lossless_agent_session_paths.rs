@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::{Agent, AgentOptions};
 use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
@@ -306,3 +305,7 @@ async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_co
     assert_eq!(errors[0].event, "skill_expansion");
     created.session.dispose();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

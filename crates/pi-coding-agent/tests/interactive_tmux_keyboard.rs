@@ -4,8 +4,7 @@
 //! The host tmux is never consulted: the environment and the tmux program are
 //! injected, and the program is a recording script.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use pi_js_compat::js_json::JsString;
 use std::ffi::OsStr;

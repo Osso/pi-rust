@@ -3,8 +3,7 @@
 
 #[path = "support/config_probe.rs"]
 mod config_probe;
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use std::collections::BTreeMap;
 use std::ffi::OsString;
@@ -476,3 +475,7 @@ fn install_commands_match_the_pinned_typescript_module() {
         assert_eq!(actual, response["output"], "scenario {}", scenario.name);
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

@@ -955,5 +955,10 @@ async fn polling_delivers_an_idle_prompt_after_the_interval() {
     assert!(texts[0].contains("Idle notice"), "prompt: {:?}", texts);
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

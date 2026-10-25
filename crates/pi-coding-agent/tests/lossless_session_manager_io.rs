@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_manager::{ForkEntrySelection, SessionManager, load_entries_from_file};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
@@ -292,3 +291,7 @@ fn mutation_rejects_noncompaction_before_testing_empty_summary() {
         &(JsString::from("Entry ") + &id + " is not a compaction")
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

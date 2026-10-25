@@ -161,10 +161,8 @@ async fn default_resource_loader_options_build_a_loader() {
     assert!(services.resource_loader.get_skills().skills.is_empty());
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_oracle as oracle;
+use crate::shared_scripted_registry as scripted_registry;
 
 #[tokio::test]
 async fn services_paths_and_flag_diagnostics_match_frozen() {
@@ -232,3 +230,9 @@ async fn services_paths_and_flag_diagnostics_match_frozen() {
         );
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

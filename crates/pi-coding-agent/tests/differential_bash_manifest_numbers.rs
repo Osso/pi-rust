@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::detached_bash_runner::{
     DetachedBashLaunchManifestData, write_detached_bash_launch_manifest,
 };

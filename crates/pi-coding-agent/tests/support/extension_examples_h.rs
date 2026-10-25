@@ -3,14 +3,12 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use std::sync::Arc;
 
+use crate::shared_extensions as fixture;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, ColorValue, Theme};
 use pi_js_compat::js_json as json;
 use serde_json::Value;
-#[path = "extensions.rs"]
-mod fixture;
-#[path = "oracle.rs"]
-mod oracle;
 
 pub async fn compare(factory: ExtensionFactory, request: Value) -> JsValue {
     let cwd = request["cwd"].as_str().unwrap();

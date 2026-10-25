@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::paths::{PathInputOptions, normalize_path};
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -335,3 +334,7 @@ fn cloud_sync_marking_does_not_suppress_synchronous_argument_errors() {
     let actual = pi_js_compat::js_json!({"ok":false,"error":error.value()});
     assert_eq!(actual, expected["output"]["results"].as_array().unwrap()[0]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

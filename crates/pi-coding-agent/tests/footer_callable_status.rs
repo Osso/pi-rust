@@ -334,3 +334,7 @@ async fn pyrun_disabled_bridge_does_not_read_callable_footer_statuses() {
     assert!(!called.load(std::sync::atomic::Ordering::SeqCst));
     provider.dispose();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

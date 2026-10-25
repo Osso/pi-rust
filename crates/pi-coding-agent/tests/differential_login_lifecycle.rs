@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::modes::interactive::components::login_dialog::LoginDialogComponent;
 use pi_js_compat::js_json::JsString;
 use pi_tui::{Component, Focusable};
@@ -165,3 +164,7 @@ fn login_lifecycle_probe() {
     }
     assert_eq!(all_actual, all_expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::tool_detach_registry::{ToolDetachHandle, ToolDetachRegistry};
 use pi_js_compat::{callback_error::CallbackError, js_json as json};
 use std::sync::{
@@ -164,3 +163,7 @@ fn active_unref_timer_probe() {
     writeln!(output, "NATIVE_ACTIVE_UNREF=true").unwrap();
     output.flush().unwrap();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

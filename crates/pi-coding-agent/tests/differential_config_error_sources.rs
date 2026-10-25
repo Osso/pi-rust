@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::{config::ConfigError, utils::paths::normalize_path};
 use pi_js_compat::node_error::NativeNodeError;

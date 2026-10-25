@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/interactive_shell.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 use futures_util::FutureExt;
 use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry};
 use pi_js_compat::js_json::JsString;
@@ -219,3 +217,9 @@ async fn lone_surrogate_projects_to_replacement_at_string_api_boundary() {
     assert_eq!(expected[0]["result"]["exitCode"], 1);
     assert_eq!(native(&request).await, expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

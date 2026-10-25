@@ -124,8 +124,7 @@ async fn round_trips_a_durable_request_and_exact_identity_response() {
     assert_eq!(response.error, None);
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn pyrun_bridge_persisted_request_matches_frozen_bytes() {

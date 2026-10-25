@@ -1,7 +1,5 @@
-#[path = "support/catalog_fetch.rs"]
-mod catalog_fetch;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_catalog_fetch as catalog_fetch;
+use crate::shared_oracle as oracle;
 use catalog_fetch::CatalogFetch;
 use pi_coding_agent::core::model_catalog_cache::{EnsureModelCatalogOptions, ModelCatalogCache};
 use serde_json::{Value, json};

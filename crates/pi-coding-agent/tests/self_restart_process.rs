@@ -11,8 +11,7 @@ use serde_json::json;
 use std::sync::{Arc, Mutex};
 #[path = "support/self_restart_numeric.rs"]
 mod numeric;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use numeric::{fixture_exit_code, number_flags};
 
 fn object<const N: usize>(fields: [(&str, JsValue); N]) -> JsValue {
@@ -1122,3 +1121,7 @@ async fn restart_dependencies_and_rejections_match_actual_frozen_module() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

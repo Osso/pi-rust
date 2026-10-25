@@ -1,15 +1,13 @@
 //! Frozen whole viewer/trace over the same isolated persisted DB and JSONL files.
-#[path = "support/oracle.rs"]
-mod oracle;
-use pi_js_compat::js_json::JsString;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 use pi_coding_agent::bundled_extensions::agents_core::runtime::{
     MultiAgentExtensionOptions, register_agent_viewer_tools,
 };
 use pi_coding_agent::core::extensions::{create_extension_runtime, load_extension_from_factory};
 use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::{js_json, js_json as json};
 use std::sync::Arc;
 

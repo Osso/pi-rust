@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::{
     auth_storage::{AuthStatus, AuthStorage},
@@ -181,3 +180,7 @@ async fn isolated_provider_auth_matrix() {
         js_json::stringify_lossless(&JsValue::Array(outputs))
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

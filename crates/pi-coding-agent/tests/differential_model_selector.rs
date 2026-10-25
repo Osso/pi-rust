@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::{
     core::{auth_storage::AuthStorage, model_registry::ModelRegistry, model_resolver::ScopedModel},
     modes::interactive::{

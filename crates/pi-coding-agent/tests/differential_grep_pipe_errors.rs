@@ -1,8 +1,6 @@
 #![cfg(target_os = "linux")]
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::tools::grep::{GrepOperations, GrepTool, GrepToolOptions};
@@ -128,3 +126,9 @@ fn grep_pipe_error_child() {
     };
     println!("GREP_PIPE_ERROR:{}", js_json::stringify_lossless(&record));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

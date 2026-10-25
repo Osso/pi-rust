@@ -127,8 +127,7 @@ impl Fixture {
     }
 }
 
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 async fn execute(
     context: ExtensionContext,
@@ -351,3 +350,7 @@ async fn requires_exactly_one_of_path_or_id() {
         "change_working_directory path must be a non-empty string"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

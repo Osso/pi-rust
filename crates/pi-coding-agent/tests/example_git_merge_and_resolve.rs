@@ -1,13 +1,11 @@
 #[path = "../examples/extensions/git_merge_and_resolve.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_e_git.rs"]
 mod git_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -140,3 +138,9 @@ async fn agent_end_complete_transcripts_and_repository_state_match() {
         assert_eq!(snapshot(&cwd), snapshot(&oracle_cwd), "{scenario}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

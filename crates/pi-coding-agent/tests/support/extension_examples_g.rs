@@ -1,4 +1,6 @@
 //! Modes extend A/B's registry + real-runner pattern; shared base actions live in extensions.rs.
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 use futures_util::FutureExt;
 use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
@@ -7,10 +9,6 @@ use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "extensions.rs"]
-mod support;
 pub type Trace = Arc<Mutex<Vec<Value>>>;
 struct Ui {
     trace: Trace,

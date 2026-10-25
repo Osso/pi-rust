@@ -4,8 +4,7 @@
 //! `control.sqlite` file. Neither side may normalize the other's rows: reads are
 //! compared as source-ordered JSON.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
 
 use std::thread;

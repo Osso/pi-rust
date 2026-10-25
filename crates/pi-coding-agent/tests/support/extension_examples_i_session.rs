@@ -1,13 +1,8 @@
 //! Session/model-specific seams atop A/B's real registry/runner fixtures.
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
+use crate::shared_ui_thread as ui_thread;
 use futures_util::FutureExt;
-use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "extensions.rs"]
-mod support;
-#[path = "ui_thread.rs"]
-mod ui_thread;
 use pi_ai::providers::faux::{
     FauxAssistantMessageOptions, FauxModelDefinition, FauxResponseStep, RegisterFauxProviderOptions,
     faux_assistant_message,
@@ -16,6 +11,8 @@ use pi_coding_agent::core::{
     auth_storage::AuthStorage, extensions::*, model_registry::ModelRegistry, session_manager::SessionManager,
 };
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path, set_theme_instance};
+use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};

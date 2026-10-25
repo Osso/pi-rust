@@ -1,7 +1,6 @@
 #[path = "support/mode_harness.rs"]
 mod mode_harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use mode_harness::{ModeHarness, create_package_dir, read_source_lock, verify_source_head};
 use pi_agent_core::agent::AgentMessage;

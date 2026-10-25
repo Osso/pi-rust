@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::extensions::types::ToolRenderContext;
 use pi_coding_agent::core::tools::{read, render_utils};
@@ -125,3 +124,7 @@ fn path_outcome(result: Result<JsString, pi_coding_agent::utils::paths::PathErro
         Err(error) => json!({"error":error.message()}),
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

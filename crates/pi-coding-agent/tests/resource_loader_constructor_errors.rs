@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::request::CallbackError;
 use pi_coding_agent::core::{
@@ -150,3 +149,7 @@ async fn resource_loader_constructor_nss_child() {
     };
     println!("RESULT:{}", output.unwrap_or(Value::Null));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/plan_mode/utils.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, parse_lossless, stringify_lossless};
 use serde_json::{Value, json};
 fn todos_json(todos: &[example::TodoItem]) -> JsValue {

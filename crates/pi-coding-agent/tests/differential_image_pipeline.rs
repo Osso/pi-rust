@@ -5,11 +5,9 @@
 //! Fixture images are generated here and sent to both implementations so both
 //! sides decode identical bytes.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 
 use std::io::Cursor;
 

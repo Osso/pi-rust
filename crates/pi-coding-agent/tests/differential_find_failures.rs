@@ -1,8 +1,6 @@
 #![cfg(unix)]
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;
@@ -174,3 +172,9 @@ async fn find_failure_boundaries_and_combined_caps_match_frozen() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

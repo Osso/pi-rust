@@ -1,5 +1,4 @@
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 
 use pi_coding_agent::utils::image_convert::{convert_image_bytes_to_png, convert_to_png};
 

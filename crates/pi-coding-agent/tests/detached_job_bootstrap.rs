@@ -7,8 +7,7 @@ use pi_coding_agent::core::detached_job_bootstrap::{
     DetachedPayloadError, GatedDetachedPayloadInput, spawn_gated_detached_payload,
 };
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn existing_output_error_matches_frozen_node_open() {
@@ -347,3 +346,7 @@ fn wait_for_session_leader(pid: u32) -> String {
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

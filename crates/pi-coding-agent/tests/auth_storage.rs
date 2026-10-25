@@ -1,7 +1,6 @@
 //! Ports `packages/coding-agent/test/auth-storage.test.ts`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;

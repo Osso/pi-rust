@@ -1,13 +1,11 @@
 #[path = "../examples/extensions/tic_tac_toe.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_b.rs"]
 mod harness;
 #[path = "support/extension_examples_a.rs"]
 mod messages;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use serde_json::{Value, json};
@@ -298,3 +296,13 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     assert_eq!(final_state["agentCursorCol"], pi_js_compat::js_json!(0));
     assert_eq!(final_state["currentTurn"], pi_js_compat::js_json!("X"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

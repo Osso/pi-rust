@@ -1,6 +1,5 @@
 //! Evidence-only frozen source discrepancy; not authorization to preserve or fix Rust behavior.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::{Value, json};
 #[test]
 fn source_all_sync_failures_after_rotation_returns_memory_only_success() {

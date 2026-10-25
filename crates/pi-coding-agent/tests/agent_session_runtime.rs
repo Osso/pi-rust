@@ -1596,5 +1596,8 @@ async fn late_tools_refresh_the_real_session_without_reactivating_disabled_tools
     assert!(!session.get_active_tool_names().contains(&"new_tool".into()));
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

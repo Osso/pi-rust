@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::footer_data_provider::{BranchChangeSubscription, FooterDataProvider};
 use pi_js_compat::js_json;
 use std::sync::{Arc, Mutex};
@@ -233,3 +232,7 @@ async fn branch_callbacks_follow_live_set_removal_addition_and_disposal() {
         assert_eq!(actual, expected, "{operation}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

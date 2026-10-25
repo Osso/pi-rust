@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/custom_footer.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use serde_json::{Value, json};
 fn assistant(input: f64, output: f64, cost: f64) -> Value {
     json!({"role":"assistant","content":[],"api":"faux","provider":"faux","model":"faux-1","usage":{"input":input,"output":output,"cacheRead":99,"cacheWrite":88,"totalTokens":input+output+187.0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":cost}},"stopReason":"stop","timestamp":0})
@@ -58,3 +56,9 @@ async fn footer_without_git_branch_omits_parentheses() {
     assert!(!line.contains('('));
     assert!(line.contains("faux-footer-1"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

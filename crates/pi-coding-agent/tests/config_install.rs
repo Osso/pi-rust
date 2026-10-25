@@ -2,8 +2,7 @@
 //! `packages/coding-agent/test/config.test.ts` using an injected install context (package dir,
 //! exec path, argv entrypoint, platform, PATH) instead of mutating process globals.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use std::collections::BTreeMap;
 use std::fs;

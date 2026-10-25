@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions};
 use serde_json::{Value, json};
@@ -238,3 +237,7 @@ async fn accumulator_stream_failure_child() {
         panic!("expected an uncaught stream error before the bounded wait expired");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

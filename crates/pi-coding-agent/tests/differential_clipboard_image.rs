@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::collections::BTreeMap;
 use std::os::unix::fs::PermissionsExt;
@@ -459,3 +458,7 @@ fn clipboard_image_helpers_match_frozen_js_whitespace_and_truthiness() {
     let actual = JsValue::from(json!({"extensions":extensions,"wayland":wayland}));
     assert_eq!(actual, expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

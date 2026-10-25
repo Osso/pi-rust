@@ -1,7 +1,6 @@
 #[path = "support/agent_session_fixture.rs"]
 mod agent_session_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::{agent::AgentMessage, harness::types::ThinkingLevel};
 use pi_ai::types::{AssistantMessage, Model, ToolResultMessage, ToolResultRole, Usage};
@@ -371,3 +370,9 @@ async fn footer_usage_override_truthiness_and_lifecycle_match_frozen() {
     process_env::clear();
     assert!(failed.is_empty(), "footer mismatches: {failed:?}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

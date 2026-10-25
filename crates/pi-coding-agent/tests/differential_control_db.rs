@@ -4,8 +4,7 @@
 //! Values are compared as source-ordered JSON; only generated ISO timestamps are
 //! substituted in place.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_control_db::*;
 use pi_coding_agent::core::session_health::SessionHealthRecord;

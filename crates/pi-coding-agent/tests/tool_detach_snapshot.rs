@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::tool_detach_registry::{DetachSubscription, ToolDetachHandle, ToolDetachRegistry};
 use pi_js_compat::{callback_error::CallbackError, js_json as json};
 use std::sync::{Arc, Mutex};

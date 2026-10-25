@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/render_owner.rs"]
-pub mod render_owner;
+use crate::shared_oracle as oracle;
+pub use crate::shared_render_owner as render_owner;
 use pi_agent_core::agent::AgentToolResult;
 use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderResultOptions, ToolRenderState};
 use pi_coding_agent::core::tools::bash::render_result;

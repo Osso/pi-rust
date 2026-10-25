@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::footer_data_provider::{FooterDataProvider, GitBranchRunner, SystemGitBranchRunner};
 use pi_js_compat::{
     js_json,
@@ -93,3 +92,7 @@ elif case=='failure': os.write(1,b'ignored');sys.exit(7)
     }
     assert_eq!(JsValue::Array(actual), JsValue::Array(expected));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

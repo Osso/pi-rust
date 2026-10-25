@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::git::parse_git_url;
 use pi_js_compat::js_json::JsString;

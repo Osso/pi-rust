@@ -1,7 +1,6 @@
 //! Differential tests: the pinned TypeScript core leaf modules versus the Rust port.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 

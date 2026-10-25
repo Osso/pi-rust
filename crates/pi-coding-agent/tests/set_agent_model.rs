@@ -1,11 +1,7 @@
 //! Frozen agent-model-tool registration and live-child mutation contract.
+use crate::shared_bundled as bundled;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::providers::faux::{
@@ -860,5 +856,14 @@ async fn registers_agent_model_tool_without_approval() {
     assert_eq!(actual, oracle.request(&pi_js_compat::js_json!({"op": "metadata"})));
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

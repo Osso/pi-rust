@@ -9,8 +9,7 @@ use pi_coding_agent::core::session_cwd::{
 };
 use pi_coding_agent::core::session_manager::SessionManager;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 fn issue_wire(issue: &pi_coding_agent::core::session_cwd::SessionCwdIssue) -> serde_json::Value {
     serde_json::json!({"sessionFile":issue.session_file.as_ref().map(JsString::units),"sessionCwd":issue.session_cwd.units(),"fallbackCwd":issue.fallback_cwd.units()})

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::resident_console_transport::{ResidentConsoleIdentity, ResidentConsoleManagedBy};
 use pi_coding_agent::supervisor::ensure_running::*;
 use pi_js_compat::js_json as json;
@@ -305,3 +304,7 @@ async fn missing_and_nonexecutable_target_errors_are_reported_before_readiness()
         pi_js_compat::js_format!("Could not start Supervisor: spawn {} EACCES", invocation.command)
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

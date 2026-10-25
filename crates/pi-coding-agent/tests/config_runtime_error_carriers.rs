@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use std::{path::Path, process::Command};
 
 #[test]
@@ -196,3 +195,7 @@ async fn runtime_error_child() {
         "relayResident",
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

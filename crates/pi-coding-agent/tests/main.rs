@@ -955,5 +955,8 @@ async fn debug_repl_provider_reports_the_documented_gap() {
     assert_eq!(DEBUG_REPL_GAP, "Debug REPL is not ported (core/debug-repl.ts)");
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

@@ -68,8 +68,7 @@ async fn standalone_sdk_defaults_to_memory_and_blocks_activation_detachment_and_
     );
     result.session.dispose();
 }
-#[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;
 
 #[tokio::test]
 async fn standalone_llm_approval_blocks_write_without_contacting_supervisor_or_mutating_policy() {
@@ -174,3 +173,7 @@ async fn standalone_sdk_rejects_persisted_or_orchestrated_options_before_runtime
         "Standalone worker cannot receive multi-agent orchestration"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

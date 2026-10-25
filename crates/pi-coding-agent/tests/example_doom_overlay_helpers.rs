@@ -1,10 +1,8 @@
 //! Separable Doom helpers only: the actual overlay is blocked on key-release opt-in.
-#[path = "../examples/extensions/doom_overlay/doom_engine.rs"]
-mod doom_engine;
+use crate::shared_doom_engine as doom_engine;
 #[path = "../examples/extensions/doom_overlay/doom_keys.rs"]
 mod doom_keys;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "../examples/extensions/doom_overlay/wad_finder.rs"]
 mod wad_finder;
 
@@ -498,3 +496,9 @@ async fn wad_search_order_and_download_failures_match_pinned_without_network() {
         );
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "../examples/extensions/doom_overlay/doom_engine.rs"]
+pub mod shared_doom_engine;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

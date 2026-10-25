@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 use pi_coding_agent::core::detached_job_runner::{create_detached_job_artifacts, reserve_detached_job_artifacts};
 use pi_js_compat::js_json::{JsString, encode_node_utf8, to_value};
 

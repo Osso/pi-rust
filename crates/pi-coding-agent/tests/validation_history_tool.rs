@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::utils::validation::validate_arguments;
 use pi_coding_agent::core::tools::search_current_session_history::parameters;

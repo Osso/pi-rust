@@ -2,8 +2,7 @@
 //! Doom runtime loader; no generated JavaScript/WASM interpreter is bundled here.
 #[path = "doom_component.rs"]
 pub mod doom_component;
-#[path = "doom_engine.rs"]
-pub mod doom_engine;
+pub use crate::shared_doom_engine as doom_engine;
 #[path = "doom_keys.rs"]
 mod doom_keys;
 

@@ -1,7 +1,5 @@
-#[path = "support/corpus.rs"]
-mod corpus;
-#[path = "support/oracle.rs"]
-pub(super) mod oracle;
+use crate::shared_corpus as corpus;
+pub(super) use crate::shared_oracle as oracle;
 
 use corpus::Corpus;
 use pi_coding_agent::core::tools::truncate::{

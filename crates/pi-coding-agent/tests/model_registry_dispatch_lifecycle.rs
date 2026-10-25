@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::{
     compat,
@@ -243,3 +242,7 @@ async fn raw_simple_dispatch_and_upsert_refresh_unregister_match_frozen() {
     assert_eq!(expected["calls"].as_array().unwrap().len(), 6);
     assert_eq!(native_lifecycle().await, *expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

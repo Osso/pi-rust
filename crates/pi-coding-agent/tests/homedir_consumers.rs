@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::utils::paths::{PathInputOptions, normalize_path};
 use serde_json::{Value, json};
 use std::process::Command;
@@ -30,3 +29,7 @@ fn path_home_child() {
     let actual:Vec<_>=[("home","~"),("child","~/child")].into_iter().map(|(name,input)|json!({"name":name,"ok":true,"value":normalize_path(input,&PathInputOptions::default()).unwrap()})).collect();
     assert_eq!(json!(actual), expected["output"]["results"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

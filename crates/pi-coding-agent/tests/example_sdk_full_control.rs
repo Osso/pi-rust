@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/12_full_control.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_prompt.rs"]
 mod prompt;
 #[path = "support/sdk_examples.rs"]
@@ -146,3 +145,9 @@ async fn replaces_discovery_settings_prompt_and_tools() {
         "List files in the current directory."
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

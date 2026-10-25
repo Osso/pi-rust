@@ -1,8 +1,7 @@
 //! Differential test: theme JSON loading, validation, and ANSI resolution
 //! against the pinned TypeScript module through `oracle/coding-agent-theme-oracle.ts`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;

@@ -1,7 +1,6 @@
 #[path = "../support/env_probe.rs"]
 mod env_probe;
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Model;

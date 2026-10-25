@@ -1,9 +1,7 @@
 //! Behavioral tests for the bundled `default-footer` extension.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -574,8 +572,7 @@ async fn default_footer_checked_render_preserves_callable_status_throw() {
     assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected["error"]));
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[derive(Default)]
 struct LifecycleUi {
@@ -640,3 +637,11 @@ async fn background_compaction_status_lifecycle_matches_frozen() {
     }
     assert_eq!(js_json!(ui.calls.lock().unwrap().clone()), expected["output"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

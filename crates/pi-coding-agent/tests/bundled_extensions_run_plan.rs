@@ -3,10 +3,8 @@
 use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 use std::sync::Arc;
@@ -221,3 +219,9 @@ fn find_next_plan_item_skips_checked_items() {
         None
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled_extensions.rs"]
+pub mod shared_bundled_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

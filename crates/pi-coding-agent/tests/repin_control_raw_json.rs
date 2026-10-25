@@ -1,10 +1,8 @@
 //! Persisted source JSON is not covered by typed-input exclusions.
-use pi_js_compat::js_json::JsString;
-#[path = "support/repin_fixture_process.rs"]
-mod fixture_process;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
+use crate::shared_repin_fixture_process as fixture_process;
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use pi_js_compat::{js_json, js_json as json};
 

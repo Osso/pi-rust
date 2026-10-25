@@ -13,3 +13,7 @@ fn config_value_references_match_the_pinned_typescript_source() {
 fn config_status_process_probe_child() {
     config_value_status_probe::run_child_probe();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

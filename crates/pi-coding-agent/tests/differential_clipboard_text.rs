@@ -1,6 +1,5 @@
 //! Whole frozen clipboard.ts over actual private clipboard-tool processes.
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 #[path = "support/mode_harness.rs"]
 mod mode_harness;
 
@@ -511,3 +510,7 @@ async fn run_matrix(selected: Option<&str>) {
         compare_processes(root, &config, source, native);
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

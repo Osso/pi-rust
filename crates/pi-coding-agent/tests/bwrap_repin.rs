@@ -1,8 +1,6 @@
 //! Frozen bwrap registration/status behavior without real sandboxes.
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 use pi_coding_agent::bundled_extensions::bwrap::{
     backend::create_sandboxed_bash_operations,
     index::{BwrapExtensionOptions, install_bwrap_extension},
@@ -92,5 +90,4 @@ async fn full_access_preserves_configured_shell() {
     );
 }
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;

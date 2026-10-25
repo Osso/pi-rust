@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::{
     core::{
         keybindings::KeybindingsManager,
@@ -539,3 +538,7 @@ async fn tree_path_env_probe() {
         ]))
         .await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

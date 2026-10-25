@@ -116,3 +116,11 @@ pub mod lossless_version_check;
 pub mod main_process;
 #[path = "management_http.rs"]
 pub mod management_http;
+
+// Shared support is compiled once per integration target.
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+pub mod shared_ai_oracle;
+#[path = "support/image_fixtures.rs"]
+pub mod shared_image_fixtures;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

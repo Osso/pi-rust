@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/custom_provider_gitlab_duo.rs"]
 mod gitlab;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 use pi_ai::request::BoxFuture;
 use pi_ai::{
     auth::{
@@ -495,3 +493,9 @@ async fn gitlab_conversion_child() {
         .await
         .expect("fixture stream progress");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

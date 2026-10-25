@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/model_status.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use serde_json::{Value, json};
 use std::io::Write;
@@ -157,3 +155,9 @@ async fn all_model_sources_update_status_and_log_but_restore_does_not_notify() {
         ])
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

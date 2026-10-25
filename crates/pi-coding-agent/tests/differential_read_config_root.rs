@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::tools::read::create_agent_config_read_tool_definition;
 use pi_js_compat::js_json::{JsValue, to_value};
