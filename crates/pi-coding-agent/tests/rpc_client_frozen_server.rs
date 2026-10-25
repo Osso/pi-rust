@@ -6,7 +6,6 @@ use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
 use pi_js_compat::js_json::{self, JsValue};
 use serde::Serialize;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
 
 fn check_wire<T: Serialize>(
     log: &Path,
@@ -73,7 +72,7 @@ async fn every_typed_getter_decodes_actual_frozen_server_responses_without_loss(
         ("PI_HARNESS_SESSION_DIR", root.path().join("sessions").display().to_string()),
         ("PI_CODING_AGENT_STATE_DIR", root.path().join("state").display().to_string()),
         ("PI_HARNESS_RPC_ROOT", root.path().join("state").display().to_string()),
-        ("PI_HARNESS_RESPONSES", r#"[{"text":"first","endTurn":"done","toolId":"first"},{"text":"second","endTurn":"done","toolId":"second"},{"text":"summary"}]"#.into()),
+        ("PI_HARNESS_RESPONSES", r#"[{"text":"first","endTurn":"done","toolId":"first"},{"text":"second","endTurn":"done","toolId":"second"},{"text":"summary"},{"text":"turn prefix summary"}]"#.into()),
         ("PI_HARNESS_RPC_FIXTURE", r#"{"uiProbe":true}"#.into()),
     ] { options.env.insert(name.into(),value); }
     let client = RpcClient::new(options);
@@ -92,14 +91,8 @@ async fn every_typed_getter_decodes_actual_frozen_server_responses_without_loss(
     check!("cycle_model", None, client.cycle_model());
     check!("get_available_models", Some("models"), client.get_available_models());
     check!("cycle_thinking_level", None, client.cycle_thinking_level());
-    client
-        .prompt_and_wait("x".repeat(2000), None, Duration::from_secs(10))
-        .await
-        .unwrap();
-    client
-        .prompt_and_wait("second", None, Duration::from_secs(10))
-        .await
-        .unwrap();
+    client.prompt_and_wait("x".repeat(2000), None, 10_000.0).await.unwrap();
+    client.prompt_and_wait("second", None, 10_000.0).await.unwrap();
     check!("get_session_stats", None, client.get_session_stats());
     check!("bash", None, client.bash("printf private"));
     check!("get_messages", Some("messages"), client.get_messages());

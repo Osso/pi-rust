@@ -36,7 +36,7 @@ use crate::modes::rpc::rpc_types::{QueueMode, RpcCommand, RpcCommandBody, RpcSes
 use crate::utils::child_process::node_spawn_error_message;
 
 /// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
-pub const DEFAULT_EVENT_TIMEOUT: Duration = Duration::from_secs(60);
+pub const DEFAULT_EVENT_TIMEOUT: f64 = 60_000.0;
 const STARTUP_DELAY: Duration = Duration::from_millis(100);
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const TERMINATE_TIMEOUT: Duration = Duration::from_secs(1);
@@ -46,7 +46,7 @@ const STDERR_CHUNK_BYTES: usize = 8192;
 /// `RpcEventListener`: receives each non-correlated event line as JSON.
 ///
 /// `on_event` accepts any compatible closure; this alias names the shared form.
-pub type RpcEventListener = Arc<dyn Fn(&JsValue) + Send + Sync>;
+pub type RpcEventListener = Arc<dyn Fn(&JsValue) -> Result<(), pi_ai::request::CallbackError> + Send + Sync>;
 
 /// Options for [`RpcClient::start`].
 #[derive(Debug, Clone, Default)]
@@ -284,7 +284,7 @@ fn kill_process(pid: u32, signal: Signal) -> std::io::Result<()> {
 #[derive(Clone)]
 struct Listener {
     id: u64,
-    callback: Arc<dyn Fn(&JsValue) + Send + Sync>,
+    callback: RpcEventListener,
 }
 
 struct SyncState {
@@ -340,9 +340,26 @@ impl ClientInner {
             }
         }
 
-        let listeners = self.sync.lock().expect("sync state poisoned").listeners.clone();
-        for listener in listeners {
-            (listener.callback)(&value);
+        // Frozen's encompassing catch also ignores null.type and callback rejections.
+        if value.is_null() {
+            return;
+        }
+        let mut index = 0;
+        loop {
+            let listener = self
+                .sync
+                .lock()
+                .expect("sync state poisoned")
+                .listeners
+                .get(index)
+                .cloned();
+            let Some(listener) = listener else {
+                return;
+            };
+            if (listener.callback)(&value).is_err() {
+                return;
+            }
+            index += 1;
         }
     }
 
@@ -513,14 +530,18 @@ impl RpcClient {
     /// Subscribes to agent events. Dropping the subscription unsubscribes.
     pub fn on_event<F>(&self, listener: F) -> RpcEventSubscription
     where
-        F: Fn(&JsValue) + Send + Sync + 'static,
+        F: Fn(&JsValue) -> Result<(), pi_ai::request::CallbackError> + Send + Sync + 'static,
     {
+        self.register_listener(|_| Arc::new(listener))
+    }
+
+    fn register_listener(&self, callback: impl FnOnce(u64) -> RpcEventListener) -> RpcEventSubscription {
         let mut sync = self.inner.sync.lock().expect("sync state poisoned");
         sync.next_listener_id += 1;
         let id = sync.next_listener_id;
         sync.listeners.push(Listener {
             id,
-            callback: Arc::new(listener),
+            callback: callback(id),
         });
         RpcEventSubscription {
             inner: Arc::clone(&self.inner),
@@ -842,10 +863,10 @@ impl RpcClient {
     // =========================================================================
 
     /// Waits for the first agent_end event, including a retrying end.
-    pub async fn wait_for_idle(&self, timeout: Duration) -> Result<(), RpcClientError> {
+    pub async fn wait_for_idle(&self, timeout_ms: f64) -> Result<(), RpcClientError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let _subscription = self.subscribe_sender(sender);
-        let outcome = tokio::time::timeout(timeout, async {
+        let outcome = tokio::time::timeout(event_timeout(timeout_ms), async {
             while let Some(event) = receiver.recv().await {
                 if is_final_agent_end(&event) {
                     return;
@@ -859,8 +880,8 @@ impl RpcClient {
     }
 
     /// Collects events until the agent becomes idle.
-    pub async fn collect_events(&self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
-        self.start_collector().finish(timeout).await
+    pub async fn collect_events(&self, timeout_ms: f64) -> Result<Vec<JsValue>, RpcClientError> {
+        self.start_collector(timeout_ms).finish().await
     }
 
     /// Sends a prompt and waits for completion, returning all events.
@@ -868,17 +889,18 @@ impl RpcClient {
         &self,
         message: impl Into<JsString>,
         images: Option<Vec<ImageContent>>,
-        timeout: Duration,
+        timeout_ms: f64,
     ) -> Result<Vec<JsValue>, RpcClientError> {
-        let collector = self.start_collector();
+        let collector = self.start_collector(timeout_ms);
         self.prompt(message, images).await?;
-        collector.finish(timeout).await
+        collector.finish().await
     }
 
-    fn start_collector(&self) -> EventCollector {
+    fn start_collector(&self, timeout_ms: f64) -> EventCollector {
         let (sender, receiver) = mpsc::unbounded_channel();
         let subscription = self.subscribe_sender(sender);
         EventCollector {
+            deadline: tokio::time::Instant::now() + event_timeout(timeout_ms),
             receiver,
             subscription,
             inner: Arc::clone(&self.inner),
@@ -886,22 +908,41 @@ impl RpcClient {
     }
 
     fn subscribe_sender(&self, sender: mpsc::UnboundedSender<JsValue>) -> RpcEventSubscription {
-        self.on_event(move |event| {
-            let _ = sender.send(event.clone());
+        let inner = Arc::downgrade(&self.inner);
+        self.register_listener(move |id| {
+            Arc::new(move |event| {
+                let _ = sender.send(event.clone());
+                if is_final_agent_end(event)
+                    && let Some(inner) = inner.upgrade()
+                {
+                    inner
+                        .sync
+                        .lock()
+                        .expect("sync state poisoned")
+                        .listeners
+                        .retain(|listener| listener.id != id);
+                }
+                Ok(())
+            })
         })
     }
 }
 
+fn event_timeout(timeout_ms: f64) -> Duration {
+    Duration::from_secs_f64(pi_js_compat::node_timers::normalize_timeout_delay(timeout_ms) / 1000.0)
+}
+
 struct EventCollector {
+    deadline: tokio::time::Instant,
     receiver: mpsc::UnboundedReceiver<JsValue>,
     subscription: RpcEventSubscription,
     inner: Arc<ClientInner>,
 }
 
 impl EventCollector {
-    async fn finish(mut self, timeout: Duration) -> Result<Vec<JsValue>, RpcClientError> {
+    async fn finish(mut self) -> Result<Vec<JsValue>, RpcClientError> {
         let mut events = Vec::new();
-        let outcome = tokio::time::timeout(timeout, async {
+        let outcome = tokio::time::timeout_at(self.deadline, async {
             while let Some(event) = self.receiver.recv().await {
                 let done = is_final_agent_end(&event);
                 events.push(event);

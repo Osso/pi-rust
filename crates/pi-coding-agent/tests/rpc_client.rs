@@ -6,7 +6,7 @@ use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
 use serde_json::json;
 use tempfile::TempDir;
 
-const EVENT_TIMEOUT: Duration = Duration::from_secs(10);
+const EVENT_TIMEOUT: f64 = 10_000.0;
 
 fn write_script(dir: &TempDir, contents: &str) -> PathBuf {
     let path = dir.path().join("child.mjs");
@@ -65,6 +65,7 @@ lines.on("line", (line) => {
     let captured = std::sync::Arc::clone(&events);
     let _subscription = client.on_event(move |event| {
         captured.lock().expect("events").push(event.clone());
+        Ok(())
     });
 
     client.start().await.expect("client must start");
@@ -353,6 +354,7 @@ setInterval(() => {}, 1000);
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -389,6 +391,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -421,6 +424,7 @@ setInterval(() => {}, 1000);
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -463,6 +467,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -515,6 +520,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -568,6 +574,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 
@@ -619,6 +626,7 @@ lines.on("line", (line) => {
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     let _subscription = client.on_event(move |event| {
         let _ = sender.send(event.clone());
+        Ok(())
     });
     client.start().await.expect("client must start");
 

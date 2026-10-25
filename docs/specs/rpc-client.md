@@ -7,7 +7,8 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 - [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors.
 - [ ] Preserve parsed external JSON envelopes, property presence, raw UTF-16 and unknown properties through correlation and event delivery.
 - [ ] Apply frozen success truthiness and Error construction before decoding a declared getter result; distinguish missing data from explicit null.
-- [ ] Settle wait/collection on the first `agent_end`, regardless of `willRetry`; subscribe before prompting.
+- [ ] Settle wait/collection on the first `agent_end`, regardless of `willRetry`; subscribe before prompting. Remove terminal subscriptions during notification and retain the live listener-array iteration semantics.
+- [ ] Accept binary64 millisecond timeouts and normalize them through the shared Node timer authority. Callback failures use `Result<(), CallbackError>`; frozen's encompassing line-dispatch catch swallows them literally, without uncaught routing.
 - [ ] Expose only the frozen declared commands and return types; retain unknown properties and order in declared model reference/info records.
 
 ## How it works

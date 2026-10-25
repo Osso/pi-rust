@@ -20,9 +20,65 @@ async fn native(request: &JsValue) -> JsValue {
         "PI_RPC_CLIENT_REPLY".into(),
         js_json::stringify_lossless(request.get("reply").unwrap()),
     );
+    options.env.insert(
+        "PI_RPC_EXTRA_EVENTS".into(),
+        js_json::stringify_lossless(request.get("events").unwrap_or(&JsValue::Array(Vec::new()))),
+    );
     let client = RpcClient::new(options);
+    let removal = std::sync::Arc::new(std::sync::Mutex::new(None));
+    if request.get("listenerRemovesItself").and_then(JsValue::as_bool) == Some(true) {
+        let slot = removal.clone();
+        let subscription = client.on_event(move |_| {
+            drop(slot.lock().unwrap().take());
+            Ok(())
+        });
+        *removal.lock().unwrap() = Some(subscription);
+    }
+    let _fault = if request.get("listenerFault").and_then(JsValue::as_bool) == Some(true) {
+        Some(client.on_event(|event| {
+            if event.get("willRetry").and_then(JsValue::as_bool) == Some(true) {
+                return Err(pi_ai::request::CallbackError::new("fixture callback"));
+            }
+            Ok(())
+        }))
+    } else {
+        None
+    };
     client.start().await.unwrap();
-    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"typed".into()) {
+    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"timeout".into()) {
+        let delay = match request.get("delay").unwrap() {
+            JsValue::Number(value) => *value,
+            JsValue::String(value) if value == "NaN" => f64::NAN,
+            JsValue::String(value) if value == "Infinity" => f64::INFINITY,
+            JsValue::String(value) if value == "-Infinity" => f64::NEG_INFINITY,
+            _ => panic!("unknown timer fixture"),
+        };
+        if request.get("idleTimeout").and_then(JsValue::as_bool) == Some(true) {
+            tokio::time::timeout(Duration::from_secs(2), client.wait_for_idle(delay))
+                .await
+                .expect("normalized idle timeout must settle")
+                .map(|()| pi_js_compat::js_json!({"ok":true}))
+        } else {
+            tokio::time::timeout(Duration::from_secs(2), client.collect_events(delay))
+                .await
+                .expect("normalized collection timeout must settle")
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value}))
+        }
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"collector_skip".into()) {
+        let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::<JsValue>::new()));
+        let captured = seen.clone();
+        let (events, (sent, _watcher)) = tokio::join!(client.collect_events(2000.0), async {
+            let watcher = client.on_event(move |event| {
+                captured.lock().unwrap().push(event.clone());
+                Ok(())
+            });
+            (client.prompt("input", None).await, watcher)
+        });
+        sent.unwrap();
+        events.map(
+            |events| pi_js_compat::js_json!({"ok":true,"value":{"events":events,"seen":seen.lock().unwrap().clone()}}),
+        )
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"typed".into()) {
         match request
             .get("method")
             .and_then(JsValue::as_string)
@@ -57,10 +113,7 @@ async fn native(request: &JsValue) -> JsValue {
             .await
             .map(|value| pi_js_compat::js_json!({"ok":true,"value":value}))
     } else {
-        let (events, sent) = tokio::join!(
-            client.collect_events(Duration::from_secs(2)),
-            client.prompt("input", None)
-        );
+        let (events, sent) = tokio::join!(client.collect_events(2000.0), client.prompt("input", None));
         sent.unwrap();
         events.map(|value| pi_js_compat::js_json!({"ok":true,"value":value}))
     };
@@ -75,6 +128,56 @@ async fn native(request: &JsValue) -> JsValue {
         }
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
     }
+}
+
+#[tokio::test]
+async fn rpc_client_number_timeouts_use_the_shared_node_normalization() {
+    // Frozen :470/:490 pass the numeric delay directly to setTimeout.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for delay in [
+        JsValue::Number(0.0),
+        JsValue::Number(-1.0),
+        JsValue::Number(0.5),
+        JsValue::Number(2147483648.0),
+        JsValue::String("NaN".into()),
+        JsValue::String("Infinity".into()),
+        JsValue::String("-Infinity".into()),
+    ] {
+        for idle in [false, true] {
+            let request = pi_js_compat::js_json!({"operation":"timeout","delay":delay.clone(),"idleTimeout":idle,"reply":{"type":"response","success":true}});
+            let expected = source.request(&request);
+            assert_eq!(native(&request).await, expected);
+        }
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_collection_unsubscribes_during_the_terminal_notification() {
+    // Frozen :498-500 removes the current listener inside the live dispatch loop.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"collector_skip","reply":{"type":"response","success":true,"command":"prompt"}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
+}
+
+#[tokio::test]
+async fn rpc_client_listener_throw_and_live_unsubscribe_match_the_caught_source_loop() {
+    // Frozen :539-545 catches callback failures and iterates the live listener array.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for (fault, removes) in [(true, false), (false, true)] {
+        let request = pi_js_compat::js_json!({"operation":"collect","events":[{"type":"skip"}],"listenerFault":fault,"listenerRemovesItself":removes,"reply":{"type":"response","success":true,"command":"prompt"}});
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected, "fault={fault}, removes={removes}");
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_line_dispatch_ignores_null_but_delivers_other_json_values() {
+    // Frozen :523-545 catches null.type; every other primitive boxes and reaches listeners.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"collect","events":[null,false,17,"raw",[],{}],"reply":{"type":"response","success":true,"command":"prompt"}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
 }
 
 #[tokio::test]

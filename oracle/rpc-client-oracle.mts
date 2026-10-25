@@ -11,6 +11,9 @@ type Client = {
 	collectEvents(timeout: number): Promise<unknown[]>;
 	waitForIdle(timeout: number): Promise<void>;
 	prompt(message: string): Promise<void>;
+	onEvent(
+		listener: (event: { type?: unknown; willRetry?: unknown }) => void,
+	): () => void;
 	setModel(provider: string, id: string): Promise<unknown>;
 	cycleModel(): Promise<unknown>;
 	getAvailableModels(): Promise<unknown>;
@@ -24,8 +27,19 @@ type Api = {
 	}) => Client;
 };
 type Request = {
-	operation: "send" | "collect" | "idle" | "typed";
+	operation:
+		| "send"
+		| "collect"
+		| "idle"
+		| "typed"
+		| "collector_skip"
+		| "timeout";
 	reply: unknown;
+	events?: unknown[];
+	delay?: number | "NaN" | "Infinity" | "-Infinity";
+	idleTimeout?: boolean;
+	listenerFault?: boolean;
+	listenerRemovesItself?: boolean;
 	method?: "model" | "cycle" | "models" | "new" | "text";
 };
 
@@ -61,10 +75,41 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 	await writeFile(path, child);
 	const client = new api.RpcClient({
 		cliPath: path,
-		env: { PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply) },
+		env: {
+			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
+			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
+		},
 	});
+	let remove: (() => void) | undefined;
+	if (request.listenerRemovesItself) remove = client.onEvent(() => remove?.());
+	if (request.listenerFault)
+		client.onEvent((event) => {
+			if (event.type === "agent_end" && event.willRetry)
+				throw new Error("fixture callback");
+		});
 	try {
 		await client.start();
+		if (request.operation === "timeout") {
+			const delay =
+				typeof request.delay === "string"
+					? Number(request.delay)
+					: (request.delay ?? 2000);
+			return {
+				ok: true,
+				value: request.idleTimeout
+					? await client.waitForIdle(delay)
+					: await client.collectEvents(delay),
+			};
+		}
+		if (request.operation === "collector_skip") {
+			const events = client.collectEvents(2000);
+			const seen: unknown[] = [];
+			client.onEvent((event) => {
+				seen.push(event);
+			});
+			await client.prompt("input");
+			return { ok: true, value: { events: await events, seen } };
+		}
 		if (request.operation === "typed")
 			return { ok: true, value: await sendTyped(client, request.method) };
 		if (request.operation === "send")
