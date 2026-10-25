@@ -8,7 +8,7 @@ Search-only history follows frozen `core/session-history.ts` at the [common pin]
 - [x] Stop without opening the transcript when the first retained parent is absent or empty.
 - [x] Read archived history without restoring or modifying the archive; bound memory by the read chunk and largest record; clean temporary plaintext after exhaustion or early drop.
 - [x] Preserve original Node open errors when the transcript disappears after manager creation.
-- [ ] Preserve original decoder Error, code and errno when an archive becomes corrupt after manager creation.
+- [x] Preserve original decoder Error, code and errno when an archive becomes corrupt after manager creation.
 
 ## How it works
 
@@ -28,7 +28,7 @@ Search-only history follows frozen `core/session-history.ts` at the [common pin]
 
 ## Known gaps (current cycle)
 
-- [ ] Current decoder change needs focused GREEN and scoped lint proof.
+Current history tests pass; history has no scoped lint diagnostics. Storage-wide strict lint still reports inherited diagnostics outside this module.
 
 ## Out of scope
 
