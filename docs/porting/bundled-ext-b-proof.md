@@ -75,3 +75,11 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN same command: installed full-access extension forwards store/lifecycle/registry, registry detaches real runner, lifecycle reaches Completed, output.log is exactly `readydone`; `/tmp/ext-b-bwrap-detach-green.log`.
 - Standalone harness owns internal-runner dispatch; it does not invoke bwrap, a real sandbox, or providers. Mechanical new test target in Cargo.toml.
 - Proof covers bwrap index closure commit (this change). No realistic detached-job gap remains.
+
+## Final targeted gate
+
+- `eceb9cc11`: `cargo clippy -j3 -p pi-coding-agent-extensions --lib` PASS; `/tmp/ext-b-clippy-extensions.log`. 116 existing extension warnings, zero on lane-changed lines (each diagnostic intersected with the lane diff). No warning suppression added.
+- Same revision: `cargo check -j3 -p pi-coding-agent-extensions --lib` PASS; `/tmp/ext-b-check-extensions.log`.
+- Same revision: fixture Clippy `cargo clippy -j3 -p pi-coding-agent --no-deps` with explicit targets suite_extensions, suite_tools, suite_core_1, suite_core_2, suite_interactive, default_footer_extension, claude_memory_enrich_lifecycle, codex_usage_auth_boundary, bwrap-detached-lifecycle: PASS; `/tmp/ext-b-clippy-fixtures.log`. Zero warnings intersect lane-changed fixture lines. Existing unrelated warnings remain.
+- Readability: manual changed-line review of nine assigned modules, new process fixtures and changed TS oracle. `rust-code-analysis-cli` is unavailable (ENOENT), so no automated complexity claim is made. Native orchestration functions retain existing longer frozen control flow; new helpers/tests have explicit names and bounded nesting. No new abstraction, fallback or suppression.
+- Footer oracle strict typecheck found unknown dynamic-export types (including the pre-existing component access); explicit fixture function signatures now type the same runtime imports. Uses the pinned compiler/source config with scoped ES2024 target/lib per oracle-gate.md. No source patch or weakened assertion. Type-only fixture annotations do not invalidate runtime/Rust proof.
