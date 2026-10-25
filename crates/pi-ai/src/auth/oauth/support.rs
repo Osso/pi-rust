@@ -1,7 +1,7 @@
 //! Shared runtime for the OAuth flows: injected `Fetch`, clock, randomness,
 //! HTTP helpers, and the loopback callback server.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use pi_js_compat::abort::{AbortController, AbortSignal};
 use serde_json::Value;
@@ -375,6 +375,7 @@ pub type CallbackHandler = Arc<dyn Fn(CallbackRequest) -> BoxFuture<'static, Cal
 /// A loopback HTTP server serving one OAuth callback route.
 pub struct CallbackServer {
     port: u16,
+    listener: Arc<Mutex<Option<TcpListener>>>,
     shutdown: AbortController,
     task: JoinHandle<()>,
 }
@@ -385,6 +386,7 @@ impl CallbackServer {
     }
 
     pub fn close(self) {
+        drop(self.listener.lock().expect("callback listener mutex").take());
         self.shutdown.abort(None);
         self.task.abort();
     }
@@ -415,6 +417,8 @@ pub async fn start_callback_server(
 ) -> std::io::Result<CallbackServer> {
     let listener = TcpListener::bind((pi_js_compat::js_json::encode_node_utf8(host).as_str(), port)).await?;
     let local_port = listener.local_addr()?.port();
+    let listener = Arc::new(Mutex::new(Some(listener)));
+    let task_listener = Arc::clone(&listener);
     let shutdown = AbortController::new();
     let task_shutdown = shutdown.signal();
     let task = tokio::spawn(async move {
@@ -422,7 +426,8 @@ pub async fn start_callback_server(
             tokio::select! {
                 biased;
                 _ = task_shutdown.wait() => break,
-                accepted = listener.accept() => {
+                accepted = accept_callback_connection(&task_listener) => {
+                    let Some(accepted) = accepted else { break };
                     let Ok((stream, _)) = accepted else { continue };
                     let handler = Arc::clone(&handler);
                     tokio::spawn(serve_connection(stream, handler));
@@ -432,9 +437,24 @@ pub async fn start_callback_server(
     });
     Ok(CallbackServer {
         port: local_port,
+        listener,
         shutdown,
         task,
     })
+}
+
+async fn accept_callback_connection(
+    listener: &Mutex<Option<TcpListener>>,
+) -> Option<std::io::Result<(tokio::net::TcpStream, std::net::SocketAddr)>> {
+    std::future::poll_fn(|context| {
+        // Do not retain the listener across Pending: close must release its port synchronously.
+        let listener = listener.lock().expect("callback listener mutex");
+        let Some(listener) = listener.as_ref() else {
+            return std::task::Poll::Ready(None);
+        };
+        listener.poll_accept(context).map(Some)
+    })
+    .await
 }
 
 async fn serve_connection(mut stream: tokio::net::TcpStream, handler: CallbackHandler) {
