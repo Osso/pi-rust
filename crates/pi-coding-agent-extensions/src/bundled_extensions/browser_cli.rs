@@ -27,8 +27,8 @@ const BROWSER_CLI_PROMPT_GUIDELINES: [&str; 7] = [
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserCliCommandResult {
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: JsString,
+    pub stderr: JsString,
     pub exit_code: Option<i32>,
 }
 
@@ -36,8 +36,8 @@ pub struct BrowserCliCommandResult {
 #[serde(rename_all = "camelCase")]
 pub struct BrowserCliCommandExecution {
     pub args: Vec<JsString>,
-    pub stdout: String,
-    pub stderr: String,
+    pub stdout: JsString,
+    pub stderr: JsString,
     pub exit_code: Option<i32>,
 }
 
@@ -64,8 +64,12 @@ pub struct BrowserCliExtensionOptions {
 }
 
 pub fn browser_cli_extension(pi: &ExtensionApi, options: BrowserCliExtensionOptions) -> Result<(), HandlerError> {
+    if !crate::utils::executable::is_executable_available(&BROWSER_CLI_EXECUTABLE.into(), &Default::default())
+        .map_err(|error| HandlerError::from(*error))?
+    {
+        return Ok(());
+    }
     pi.register_tool(create_browser_cli_tool_definition(options))
-        .map_err(HandlerError::from)
 }
 
 pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -> ToolDefinition {
@@ -177,8 +181,100 @@ mod lossless_tests {
         assert!(
             result
                 .stdout
-                .lines()
+                .split('\n')
                 .any(|line| line == "BROWSER_CLI_SESSION=browser-test:main")
+        );
+    }
+
+    #[test]
+    fn failure_output_trims_javascript_whitespace_in_stream_order() {
+        let execution = BrowserCliCommandExecution {
+            args: Vec::new(),
+            stdout: "\u{feff}out\u{feff}".into(),
+            stderr: "\u{feff}bad\u{feff}".into(),
+            exit_code: None,
+        };
+        assert_eq!(
+            format_browser_cli_failure(0, &execution),
+            "browser-cli command 1 exited with code unknown: bad\nout"
+        );
+    }
+
+    #[tokio::test]
+    async fn abort_keeps_default_runner_alive_to_send_sigterm_and_reap() {
+        let dir = tempfile::tempdir().unwrap();
+        let ready = dir.path().join("ready");
+        let terminated = dir.path().join("terminated");
+        let script = "import signal,time,sys,pathlib,os\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path(sys.argv[2]).write_text('term'), sys.exit(0)))\npathlib.Path(sys.argv[1]).write_text(str(os.getpid()))\ntime.sleep(2)\n";
+        let controller = pi_js_compat::abort::AbortController::new();
+        let signal = controller.signal();
+        let args = vec![
+            JsString::from("-c"),
+            script.into(),
+            ready.to_str().unwrap().into(),
+            terminated.to_str().unwrap().into(),
+        ];
+        let future = Box::pin(run_browser_cli_command(
+            "/usr/bin/python3".into(),
+            args,
+            "fixture:main".into(),
+            Some(signal.clone()),
+        ));
+        let task = tokio::spawn(wait_for_abort(future, Some(signal)));
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !ready.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("child ready");
+        controller.abort(None);
+        assert_eq!(task.await.unwrap().unwrap_err().message, "browser-cli command aborted");
+        let observed = tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while !terminated.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            observed.is_ok(),
+            "the real child must receive SIGTERM, not SIGKILL or a dropped future"
+        );
+        assert_eq!(std::fs::read_to_string(terminated).unwrap(), "term");
+        let pid = std::fs::read_to_string(ready).unwrap();
+        let proc = std::path::PathBuf::from(format!("/proc/{pid}"));
+        tokio::time::timeout(std::time::Duration::from_secs(3), async {
+            while proc.exists() {
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("aborted child must be reaped");
+    }
+
+    #[test]
+    fn injected_runner_output_retains_raw_utf16_through_results_and_failure_text() {
+        let wire = pi_js_compat::js_json::parse_lossless(r#"{"stdout":"x\ud800","stderr":"y\udc00","exitCode":null}"#)
+            .unwrap();
+        let result: BrowserCliCommandResult = pi_js_compat::js_json::from_value(&wire).expect("native runner result");
+        assert_eq!(pi_js_compat::js_json::to_value(&result).unwrap(), wire);
+        let execution = BrowserCliCommandExecution {
+            args: Vec::new(),
+            stdout: result.stdout,
+            stderr: result.stderr,
+            exit_code: result.exit_code,
+        };
+        assert_eq!(
+            pi_js_compat::js_json::to_value(&format_browser_cli_batch_output(std::slice::from_ref(&execution)))
+                .unwrap(),
+            pi_js_compat::js_json::parse_lossless(r#""x\ud800y\udc00""#).unwrap()
+        );
+        assert_eq!(
+            pi_js_compat::js_json::to_value(&format_browser_cli_failure(0, &execution)).unwrap(),
+            pi_js_compat::js_json::parse_lossless(
+                r#""browser-cli command 1 exited with code unknown: y\udc00\nx\ud800""#
+            )
+            .unwrap()
         );
     }
 
@@ -245,7 +341,7 @@ async fn run_browser_cli_batch(
     Ok(results)
 }
 
-async fn wait_for_abort<T>(
+async fn wait_for_abort<T: Send + 'static>(
     future: BoxFuture<'static, Result<T, HandlerError>>,
     signal: Option<AbortSignal>,
 ) -> Result<T, HandlerError> {
@@ -255,10 +351,14 @@ async fn wait_for_abort<T>(
     if token.aborted() {
         return Err(create_abort_error());
     }
-    tokio::select! {
-        result = future => result,
-        _ = token.wait() => Err(create_abort_error()),
-    }
+    let mut task = tokio::spawn(future);
+    let result = tokio::select! {
+        result = &mut task => result,
+        _ = token.wait() => return Err(create_abort_error()),
+    };
+    result.unwrap_or_else(|error| {
+        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.to_string())
+    })
 }
 
 async fn run_browser_cli_command(
@@ -280,25 +380,23 @@ async fn run_browser_cli_command(
         .spawn()
         .map_err(|error| HandlerError::new(spawn_error_message(&executable, &error)))?;
 
-    let wait = crate::utils::child_process::wait_for_child_process(&mut child);
-    let output = match signal {
-        Some(token) => {
-            tokio::select! {
-                _ = token.wait() => {
-                    let _ = child.kill().await;
-                    return Err(create_abort_error());
-                }
-                output = wait => output,
-            }
-        }
-        None => wait.await,
-    }
+    let captured = crate::utils::child_process::capture_child_process(
+        &mut child,
+        None,
+        signal.as_ref(),
+        rustix::process::Signal::TERM,
+    )
+    .await
     .map_err(|error| HandlerError::new(error.to_string()))?;
-
+    if captured.stopped == Some(crate::utils::child_process::CaptureStop::Aborted)
+        || signal.as_ref().is_some_and(AbortSignal::aborted)
+    {
+        return Err(create_abort_error());
+    }
     Ok(BrowserCliCommandResult {
-        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        exit_code: output.status,
+        stdout: JsString::from(String::from_utf8_lossy(&captured.output.stdout).as_ref()),
+        stderr: JsString::from(String::from_utf8_lossy(&captured.output.stderr).as_ref()),
+        exit_code: captured.output.status,
     })
 }
 
@@ -306,30 +404,36 @@ fn create_abort_error() -> HandlerError {
     HandlerError::new("browser-cli command aborted")
 }
 
-fn format_browser_cli_batch_output(commands: &[BrowserCliCommandExecution]) -> String {
-    commands
-        .iter()
-        .flat_map(|command| [command.stdout.as_str(), command.stderr.as_str()])
-        .filter(|value| !value.is_empty())
-        .collect()
+fn format_browser_cli_batch_output(commands: &[BrowserCliCommandExecution]) -> JsString {
+    JsString::join(
+        commands
+            .iter()
+            .flat_map(|command| [&command.stdout, &command.stderr])
+            .filter(|value| !value.is_empty()),
+        "",
+    )
 }
 
-fn format_browser_cli_failure(index: usize, result: &BrowserCliCommandExecution) -> String {
-    let output = [result.stderr.trim(), result.stdout.trim()]
-        .into_iter()
-        .filter(|value| !value.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+fn format_browser_cli_failure(index: usize, result: &BrowserCliCommandExecution) -> JsString {
+    let output = JsString::join(
+        [result.stderr.trim(), result.stdout.trim()]
+            .into_iter()
+            .filter(|value| !value.is_empty()),
+        "\n",
+    );
     let detail = if output.is_empty() {
-        String::new()
+        JsString::default()
     } else {
-        format!(": {output}")
+        JsString::from(": ") + output
     };
     let exit_code = result
         .exit_code
         .map(|code| code.to_string())
         .unwrap_or_else(|| "unknown".to_owned());
-    format!("browser-cli command {} exited with code {exit_code}{detail}", index + 1)
+    JsString::from(format!(
+        "browser-cli command {} exited with code {exit_code}",
+        index + 1
+    )) + detail
 }
 
 fn spawn_error_message(command: &str, error: &std::io::Error) -> pi_js_compat::js_json::JsString {

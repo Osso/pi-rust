@@ -282,6 +282,7 @@ async function runEffortCase(
 	const ctx: AnyRecord = {
 		model,
 		multiAgentAgentId: input.child ? "child-agent" : undefined,
+		multiAgentRequiresAgentId: input.requiresId ?? false,
 		sessionManager: {
 			getBranch: () =>
 				(input.branch ?? []).map((entry: AnyRecord) => ({
@@ -320,6 +321,8 @@ async function runEffortCase(
 				{ type: "session_start", reason: "resume" },
 				ctx,
 			);
+		} else if (op.kind === "session_tree") {
+			await handlers.get("session_tree")({ type: "session_tree" }, ctx);
 		} else if (op.kind === "thinking_level_select") {
 			await handlers.get("thinking_level_select")(
 				{ level: op.level, previousLevel: op.previousLevel },

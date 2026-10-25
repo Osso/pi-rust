@@ -397,18 +397,22 @@ async fn registers_all_small_extensions_under_source_ids() {
         .iter()
         .flat_map(|extension| extension.read().tools.keys().cloned().collect::<Vec<_>>())
         .collect();
-    assert_eq!(
-        tool_names,
-        vec![
-            "ask_secret",
-            "browser-cli",
-            "image_gen",
-            "web_search",
-            "loop",
-            "set_session_name",
-            "restart_self",
-        ]
-    );
+    let browser_available =
+        pi_coding_agent::utils::executable::is_executable_available(&"browser-cli".into(), &Default::default())
+            .expect("executable lookup");
+    let expected_tools: Vec<&str> = [
+        "ask_secret",
+        "browser-cli",
+        "image_gen",
+        "web_search",
+        "loop",
+        "set_session_name",
+        "restart_self",
+    ]
+    .into_iter()
+    .filter(|name| *name != "browser-cli" || browser_available)
+    .collect();
+    assert_eq!(tool_names, expected_tools);
     let command_names: Vec<JsString> = extensions
         .iter()
         .flat_map(|extension| extension.read().commands.keys().cloned().collect::<Vec<_>>())
