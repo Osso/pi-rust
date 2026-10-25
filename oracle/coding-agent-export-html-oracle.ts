@@ -14,6 +14,23 @@ function errorOf(error: unknown): { name: string; message: string } {
 }
 
 const handlers: Record<string, Handler> = {
+	exportPaths: async (api, request) => {
+		const { SessionManager } = await import(pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href);
+		const oldCwd = process.cwd();
+		process.chdir(request.cwd as string);
+		try {
+			const manager = SessionManager.openReadOnly(request.inputPath as string);
+			const options = request.outputPath === undefined ? undefined : request.shorthand ? request.outputPath : { outputPath: request.outputPath };
+			const outputPath = request.live
+				? await api.exportSessionToHtml(manager, undefined, options)
+				: await api.exportFromFile(request.inputPath, options);
+			return { path: outputPath, html: readFileSync(outputPath as string, "utf-8") };
+		} catch (error) {
+			return { error: errorOf(error) };
+		} finally {
+			process.chdir(oldCwd);
+		}
+	},
 	exportLive: async (api, request) => {
 		const { SessionManager } = await import(pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href);
 		const calls: unknown[] = [];
