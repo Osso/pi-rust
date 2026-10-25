@@ -578,6 +578,54 @@ fn rpc_ui_overflow_timeout_uses_node_delay_normalization() {
     assert!(native_error.is_empty(), "{native_error}");
 }
 
+#[test]
+fn rpc_external_response_ids_retain_every_json_value() {
+    let (mut session, _root) = Session::start();
+    for id in [
+        Value::Null,
+        json!(false),
+        json!(17),
+        json!([1, 2]),
+        json!({"value":"id"}),
+    ] {
+        session.send_both(&json!({"id":id,"type":"get_tree"}).to_string());
+        let predicate =
+            |line: &str| line.contains("\"type\":\"response\"") && line.contains("\"command\":\"get_tree\"");
+        let source = session.ts.wait_for(predicate);
+        let native = session.rust.wait_for(predicate);
+        assert_eq!(serde_json::from_str::<Value>(&source).unwrap()["id"], id);
+        session.assert_same(&source, &native);
+    }
+    let (_, source_code, source_error) = session.ts.finish();
+    let (_, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+}
+
+#[test]
+fn rpc_fire_and_forget_ui_methods_emit_exact_requests_without_editor_state() {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"fireProbe":true}"#)]);
+    session.send_both(r#"{"id":"fire","type":"prompt","message":"/rpc-fire-fixture"}"#);
+    let (source, native) = session.response("fire");
+    session.assert_same(&source, &native);
+    let normalizer = session.normalizer;
+    let (source, source_code, source_error) = session.ts.finish();
+    let (native, native_code, native_error) = session.rust.finish();
+    assert_eq!(source_code, native_code);
+    assert_eq!(source_error, native_error);
+    assert_eq!(source.len(), 10);
+    assert_eq!(source.len(), native.len());
+    for (source, native) in source.iter().zip(&native) {
+        assert_eq!(normalizer.normalize(source), normalizer.normalize(native));
+    }
+    for runtime in ["ts", "rust"] {
+        assert_eq!(
+            std::fs::read_to_string(root.path().join(runtime).join("state/fire-report.json")).unwrap(),
+            "{\"editor\":\"\"}"
+        );
+    }
+}
+
 fn assert_rpc_startup_signal(config: &'static str, code: i32) {
     let (session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", config)]);
     let (source, source_code, source_error) = session.ts.finish_with_exit_deadline(std::time::Duration::from_secs(20));

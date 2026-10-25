@@ -6,6 +6,16 @@ type FixtureResources = { getExtensions(): unknown };
 type RpcContext = {
 	mode: string;
 	ui: {
+		notify(message: string, type?: "info" | "warning" | "error"): void;
+		setWidget(
+			key: string,
+			content?: string[],
+			opts?: { placement: "aboveEditor" | "belowEditor" },
+		): void;
+		setTitle(title: string): void;
+		setEditorText(text: string): void;
+		pasteToEditor(text: string): void;
+		getEditorText(): string;
 		select(
 			title: string,
 			options: string[],
@@ -16,7 +26,7 @@ type RpcContext = {
 		editor(title: string): Promise<string | undefined>;
 		setStatus(
 			key: string,
-			status: (view: undefined) => string | undefined,
+			status: string | undefined | ((view: undefined) => string | undefined),
 		): void;
 	};
 };
@@ -49,6 +59,7 @@ export async function configureRpcResources(
 		earlySignal?: "SIGTERM" | "SIGHUP";
 		pendingShutdown?: boolean;
 		uiProbe?: boolean;
+		fireProbe?: boolean;
 		uiTimeout?: number;
 	};
 	const root = process.env.PI_HARNESS_RPC_ROOT;
@@ -65,6 +76,26 @@ export async function configureRpcResources(
 	const runtime = loader.createExtensionRuntime();
 	const extension = await loader.loadExtensionFromFactory(
 		(api: FixtureApi) => {
+			if (config.fireProbe)
+				api.registerCommand("rpc-fire-fixture", {
+					handler: async (_args, context) => {
+						context.ui.notify("notice-\ud800");
+						context.ui.notify("warning", "warning");
+						context.ui.setStatus("clear", undefined);
+						context.ui.setStatus("text", "status-\udc00");
+						context.ui.setWidget("clear");
+						context.ui.setWidget("lines", ["one", "two-\ud800"], {
+							placement: "belowEditor",
+						});
+						context.ui.setTitle("title-\udc00");
+						context.ui.setEditorText("editor-\ud800");
+						context.ui.pasteToEditor("paste-\udc00");
+						writeFileSync(
+							join(root, "fire-report.json"),
+							JSON.stringify({ editor: context.ui.getEditorText() }),
+						);
+					},
+				});
 			if (config.uiProbe)
 				api.registerCommand("rpc-ui-fixture", {
 					handler: async (_args, context) => {
