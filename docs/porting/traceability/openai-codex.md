@@ -20,6 +20,8 @@ Modern openaiCodexOAuth selects browser/device, rejects unknown methods, adds th
 
 DISCREPANCY: onAuth runs before the browser utility's server-close finally. If it throws, the callback listener leaks; outer modern auth still aborts its manual signal and returns the exact rejection. Existing `auth_types_contract::codex_auth_url_throw_preserves_frozen_listener_leak` checks the real occupied port1455 in isolated processes and retains the actual-source proof. This was not silently repaired.
 
+The shared [callback-close repair](anthropic.md#callback-close-final-gate-repair-2026-10-25) releases the listening port synchronously, matching the frozen `server.close()` call; existing callback ordering and the classified onAuth leak remain unchanged.
+
 ## Proof and persistence
 
 Existing native browser callback/device/refresh/JWT/interval/error/toAuth tests pass. `differential_oauth_flows` compares actual frozen/native device, form exchange, refresh credentials and requests. `auth_codex_credential_order` passes all three tests, including seven actual frozen AuthStorage/Codex wrapper cases covering absent/direct/empty/profile/precedence/undecodable/native-unit email and exact auth.json bytes. No credentialsFromToken/key-order reimplementation occurred.
