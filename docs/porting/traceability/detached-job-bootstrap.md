@@ -1,6 +1,6 @@
 # coding-agent detached-job-bootstrap traceability
 
-Pinned source: `packages/coding-agent/src/core/detached-job-bootstrap.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/coding-agent/src/core/detached-job-bootstrap.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 
 Proof: behavioral tests in `crates/pi-coding-agent/tests/detached_job_bootstrap.rs` against real processes, `/proc` descriptors, sessions, and files.
 
@@ -28,3 +28,7 @@ Node uses `spawn(..., { detached: true })` plus a pipe on fd 3. `unsafe_code = "
 ## Discrepancies
 
 None beyond the approved mechanism deviation.
+
+## Current re-pin audit
+
+Whole module read against frozen 4f9e6f8a4. Open errors previously leaked Rust OS text; actual-source EEXIST regression `/tmp/runtime-services-red-bootstrap-error.log` now maps the output/identity file open boundary through the shared Node filesystem message authority. GREEN at 567abb2c7; `/tmp/runtime-services-green-bootstrap.log`. Existing real gate/session/descriptors/env/cwd/output/identity tests retained. Exotic descriptor/fsync/entropy faults and unsupported OS runtime shapes are excluded by the current parity bar.

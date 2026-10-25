@@ -175,6 +175,7 @@ pub fn enqueue_detached_job_status_request(
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
+                "createdAt": crate::utils::iso_time::now_iso_string(),
                 "fromAgentId": input.requester_address.agent_id.clone().unwrap_or_else(|| "main".into()),
                 "id": message_id,
                 "kind": "system",
@@ -233,6 +234,7 @@ pub fn enqueue_detached_job_status_response(
             },
             message: pi_js_compat::js_json!({
                 "body": js_json::stringify_lossless(&body),
+                "createdAt": crate::utils::iso_time::now_iso_string(),
                 "fromAgentId": input.identity.job_id,
                 "id": message_id,
                 "kind": "system",
