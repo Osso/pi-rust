@@ -1,5 +1,4 @@
 pub use pi_coding_agent_core::cli::args;
-pub mod experimental;
 
 pub mod config_selector;
 pub mod control_command;

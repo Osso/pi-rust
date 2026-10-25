@@ -31,3 +31,13 @@ Gaps / deviations:
 - `register` takes a typed `RegisterDetachedJobInput`; JS `agentType` string is `DetachedJobAgentType`.
 - `launchBash` accepts an injected `WriteBashLaunchManifest` hook (used by tests) instead of module mocking.
 - `observe` returns `Result<Option<AgentSnapshot>>`; TS throws on control-db errors, so the error is preserved rather than swallowed.
+
+## Detached Pyrun status fixture lifetime (2026-10-25)
+
+The baseline status-2 timeout was timing-dependent: its fake evaluation
+completed after 500 ms regardless of whether the parent had issued both
+status requests. The focused unchanged test passed locally; that does not
+refute the recorded full-run failure. The child now waits for a parent release
+file, bounded to 30 seconds, written only after both exact running responses
+are checked. This preserves the test's required live-evaluation boundary
+without increasing the response timeout or changing runner behavior.

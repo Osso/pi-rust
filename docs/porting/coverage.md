@@ -364,7 +364,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/pyrun/src/detached-output.ts` | 79 | — | todo | — | new on master |
 | `coding-agent/extensions/pyrun/src/detached-progress.ts` | 137 | — | todo | — | new on master |
 | `coding-agent/extensions/pyrun/src/detached-runner-entry.ts` | 13 | 19 | done | `crates/pi-coding-agent/src/internal_runner.rs`, `crates/pi-coding-agent/src/bin/pi.rs` | Internal runner mode dispatches to `run_detached_pyrun_runner` and writes `<manifest>.runner-error`; `pi_binary_dispatches_the_detached_pyrun_runner_mode`, `pi_binary_reports_a_runner_failure_to_the_runner_error_file`; traceability `pyrun-extension.md`.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/extensions/pyrun/src/detached-runner.ts` | 417 | 18 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/detached_runner.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/detached_runner.rs`; Manifest checksum/JS number formatting, activation, invocation modes, runner settlement with concurrent control polling, finalization; `detached_pyrun_runner_process` (in-process + real runner process + `pi` binary dispatch), differential `differential_pyrun_detached`; traceability `pyrun-extension.md`. |
+| `coding-agent/extensions/pyrun/src/detached-runner.ts` | 417 | 18 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/detached_runner.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/detached_runner.rs`; 2026-10-25 status fixture holds evaluation live until both requests finish; Manifest checksum/JS number formatting, activation, invocation modes, runner settlement with concurrent control polling, finalization; `detached_pyrun_runner_process` (in-process + real runner process + `pi` binary dispatch), differential `differential_pyrun_detached`; traceability `pyrun-extension.md`. |
 | `coding-agent/extensions/pyrun/src/eval-tool.ts` | 274 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/eval_tool.rs` | Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/pyrun/src/index.ts` | 650 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/index.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/index.rs`; Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
 | `coding-agent/extensions/pyrun/src/runner.ts` | 354 | 0 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/runner.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/pyrun/runner.rs`; Behavioral `pyrun_extension`/`detached_pyrun`; differential `differential_pyrun`; traceability `pyrun-extension.md`. |
@@ -823,14 +823,14 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/cli/auth-check.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/tests removed |
 | `coding-agent/src/cli/auth-command.ts` | removed | absent at 4f9e6f8a4; parser/dispatch/help/tests removed |
 | `coding-agent/src/cli/credential-print.ts` | removed | absent at 4f9e6f8a4; dispatch/tests removed |
-| `coding-agent/src/cli/experimental/auth.ts` | done | `crates/pi-coding-agent/src/cli/experimental/auth.rs` |
-| `coding-agent/src/cli/experimental/cli.ts` | done | `crates/pi-coding-agent/src/cli/experimental/cli.rs` |
-| `coding-agent/src/cli/experimental/command-options.ts` | done | `crates/pi-coding-agent/src/cli/experimental/command_options.rs` |
-| `coding-agent/src/cli/experimental/command.ts` | done | `crates/pi-coding-agent/src/cli/experimental/command.rs` |
-| `coding-agent/src/cli/experimental/commands/client.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/client.rs` |
-| `coding-agent/src/cli/experimental/commands/pi.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/pi.rs` |
-| `coding-agent/src/cli/experimental/commands/server.ts` | done | `crates/pi-coding-agent/src/cli/experimental/commands/server.rs` |
-| `coding-agent/src/cli/experimental/transport-address.ts` | done | `crates/pi-coding-agent/src/cli/experimental/transport_address.rs` |
+| `coding-agent/src/cli/experimental/auth.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/cli.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/command-options.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/command.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/client.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/pi.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/commands/server.ts` | done | Removed: no frozen counterpart (2026-10-25) |
+| `coding-agent/src/cli/experimental/transport-address.ts` | done | Removed: no frozen counterpart (2026-10-25) |
 | `coding-agent/src/client/index.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/client/remote-session.ts` | done | Removed: no frozen counterpart (2026-10-21) |
 | `coding-agent/src/client/transcript.ts` | done | Removed: no frozen counterpart (2026-10-21) |
