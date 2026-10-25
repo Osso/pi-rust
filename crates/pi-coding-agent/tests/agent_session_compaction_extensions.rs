@@ -194,15 +194,15 @@ async fn env_with(
                 let captured = Arc::clone(&background_start_capture);
                 Box::pin(async move {
                     captured.lock().unwrap().background.push("background_compaction_start");
-                    Ok(())
-                }) as pi_ai::request::BoxFuture<'static, Result<(), HandlerError>>
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
             api.on_background_compaction_end(move |_event, _ctx| {
                 let captured = Arc::clone(&background_end_capture);
                 Box::pin(async move {
                     captured.lock().unwrap().background.push("background_compaction_end");
-                    Ok(())
-                }) as pi_ai::request::BoxFuture<'static, Result<(), HandlerError>>
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
             Ok(())
         })();
