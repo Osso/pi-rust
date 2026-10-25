@@ -64,12 +64,27 @@ async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
     runtime
 }
 
-fn stream_fn() -> pi_agent_core::agent::types::StreamFn {
+fn stream_fn(faux: &FauxProviderHandle) -> pi_agent_core::agent::types::StreamFn {
+    let provider = Arc::clone(&faux.provider);
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
-        Box::pin(async move {
-            pi_ai::compat::stream_simple(model, context, options).map_err(pi_agent_core::AgentError::from)
-        })
+        let stream = provider.stream_simple(model, context, options);
+        Box::pin(async move { Ok(stream) })
     })
+}
+
+fn assert_restriction_context(entry: &pi_coding_agent::core::session_manager::SessionEntry, request: &str) {
+    let known = entry.known().expect("known restriction entry");
+    let pi_coding_agent::core::session_manager::KnownSessionEntry::Custom(context) = known.as_ref() else {
+        panic!("expected restriction-context entry");
+    };
+    assert_eq!(context.custom_type, "codex_restriction_context");
+    let data = context.data.as_ref().expect("restriction context data");
+    let request_id = data.get("requestId").and_then(JsValue::as_string).expect("request ID");
+    assert!(!request_id.is_empty());
+    assert_eq!(
+        data,
+        &pi_js_compat::js_json!({"requestId": request_id, "userRequest": request})
+    );
 }
 
 #[tokio::test]
@@ -167,7 +182,7 @@ async fn fixture_with_multi_agent(
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn()),
+        stream_fn: Some(stream_fn(&faux)),
         ..Default::default()
     })
     .expect("agent");
@@ -408,6 +423,33 @@ async fn repin_settings_invalid_compaction_threshold_rejects_before_next_request
 }
 
 #[tokio::test]
+async fn scripted_sessions_keep_their_responses_across_other_registry_refreshes() {
+    // Frozen agent-session.ts uses the injected agent.streamFn for each session.
+    // Shared API names and refreshes must not change a test session's scripted transport.
+    let first = idle_fixture("openai-codex-responses", json!({"retry":{"enabled":false}})).await;
+    let second = idle_fixture("openai-codex-responses", json!({"retry":{"enabled":false}})).await;
+    first
+        .faux
+        .set_responses(vec![completed_timeout_response("first answer")]);
+    second
+        .faux
+        .set_responses(vec![completed_timeout_response("second answer")]);
+    first.session.model_registry().refresh();
+    let (first_result, second_result) = tokio::join!(
+        first.session.prompt("first request", PromptOptions::default()),
+        second.session.prompt("second request", PromptOptions::default()),
+    );
+    first_result.expect("first session prompt");
+    second_result.expect("second session prompt");
+    assert_eq!(first.session.get_last_assistant_text(), Some("first answer".into()));
+    assert_eq!(second.session.get_last_assistant_text(), Some("second answer".into()));
+    assert_eq!(first.faux.get_pending_response_count(), 0);
+    assert_eq!(second.faux.get_pending_response_count(), 0);
+    first.session.dispose();
+    second.session.dispose();
+}
+
+#[tokio::test]
 async fn prompt_persists_user_and_assistant_messages() {
     let fixture = fixture().await;
     let events = record_events(&fixture.session);
@@ -440,10 +482,20 @@ async fn prompt_persists_user_and_assistant_messages() {
     assert!(matches!(messages[0], AgentMessage::User(_)));
     assert!(matches!(messages[1], AgentMessage::Assistant(_)));
 
+    // Frozen agent-session.ts:2785-2800,3083 persists authorization before the user message.
     let entries = fixture.session.session_manager().get_entries();
-    assert_eq!(entries.len(), 3, "every message is persisted");
-    assert_eq!(entries[0].entry_type(), "message");
-    assert_eq!(entries[1].entry_type(), "message");
+    assert_eq!(entries.len(), 4, "restriction context + all three messages");
+    assert_restriction_context(&entries[0], "hi");
+    for (entry, message) in entries[1..].iter().zip(&messages) {
+        let known = entry.known().expect("known message entry");
+        let pi_coding_agent::core::session_manager::KnownSessionEntry::Message(persisted) = known.as_ref() else {
+            panic!("expected a message entry");
+        };
+        assert_eq!(persisted.message.as_ref(), message);
+    }
+    for pair in entries.windows(2) {
+        assert_eq!(pair[1].parent_id(), pair[0].id());
+    }
 
     let types = event_types(&events);
     assert_eq!(types.first().map(String::as_str), Some("agent_start"));
@@ -833,7 +885,15 @@ async fn navigate_tree_moves_leaf_and_returns_editor_text() {
         .await
         .expect("prompt");
     let entries = fixture.session.session_manager().get_entries();
-    let user_entry_id = entries[0].id().expect("user entry id").to_owned();
+    assert_eq!(entries.len(), 3, "restriction context + user + assistant");
+    assert_restriction_context(&entries[0], "first");
+    let user_entry = entries[1].known().expect("known user entry");
+    let pi_coding_agent::core::session_manager::KnownSessionEntry::Message(user) = user_entry.as_ref() else {
+        panic!("expected user message after restriction context");
+    };
+    assert_eq!(user.message.role(), "user");
+    assert_eq!(entries[1].parent_id(), entries[0].id());
+    let user_entry_id = entries[1].id().expect("user entry id").to_owned();
     let result = fixture
         .session
         .navigate_tree(&user_entry_id, NavigateTreeOptions::default())
@@ -841,7 +901,8 @@ async fn navigate_tree_moves_leaf_and_returns_editor_text() {
         .expect("navigate");
     assert!(!result.cancelled);
     assert_eq!(result.editor_text.as_ref(), Some(&JsString::from("first")));
-    assert_eq!(fixture.session.session_manager().get_leaf_id(), None);
+    // Frozen :6129-6132 branches to the user's parent, which is the restriction context.
+    assert_eq!(fixture.session.session_manager().get_leaf_id(), entries[0].id());
     assert!(fixture.session.messages().is_empty());
 }
 
@@ -864,10 +925,21 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
         .prompt("second", PromptOptions::default())
         .await
         .expect("second prompt");
-    let first_user_entry = fixture.session.session_manager().get_entries()[0]
-        .id()
-        .expect("first user entry")
-        .to_owned();
+    let entries = fixture.session.session_manager().get_entries();
+    assert_eq!(entries.len(), 6, "two restriction contexts and two message pairs");
+    assert_restriction_context(&entries[0], "first");
+    assert_restriction_context(&entries[3], "second");
+    for (index, role) in [(1, "user"), (2, "assistant"), (4, "user"), (5, "assistant")] {
+        let known = entries[index].known().expect("known message");
+        let KnownSessionEntry::Message(message) = known.as_ref() else {
+            panic!("expected message at index {index}");
+        };
+        assert_eq!(message.message.role(), role);
+    }
+    for pair in entries.windows(2) {
+        assert_eq!(pair[1].parent_id(), pair[0].id());
+    }
+    let first_user_entry = entries[1].id().expect("first user entry").to_owned();
 
     fixture.faux.set_responses(vec![
         faux_assistant_message("BRANCH SUMMARY", FauxAssistantMessageOptions::default()).into(),
@@ -891,8 +963,12 @@ async fn navigate_tree_summarizes_the_abandoned_branch_and_attaches_the_summary(
         panic!("expected a branch summary entry");
     };
     assert!(summary.summary.contains("BRANCH SUMMARY"));
-    assert_eq!(summary.parent_id, None);
-    assert_eq!(summary.from_id, "root");
+    // Frozen :6129-6132,6154-6158 attaches the summary at the target user's parent.
+    assert_eq!(summary.parent_id.as_ref(), entries[0].id());
+    assert_eq!(
+        summary.from_id,
+        entries[0].id().expect("restriction context id").clone()
+    );
     assert_eq!(summary.from_hook, Some(false));
     let manager = fixture.session.session_manager();
     assert_eq!(manager.get_label(&summary.id), Some(&JsString::from("abandoned")));
@@ -2016,7 +2092,7 @@ async fn binds_detached_job_lifecycle_when_a_store_is_configured() {
             tools: Some(Vec::new()),
             messages: None,
         }),
-        stream_fn: Some(stream_fn()),
+        stream_fn: Some(stream_fn(&faux)),
         ..Default::default()
     })
     .expect("agent");
@@ -3267,9 +3343,6 @@ async fn persist_failures_are_uncaught_like_the_typescript_event_handler() {
 #[path = "support/scripted_registry.rs"]
 mod scripted_registry;
 
-// These scenarios register the same frozen API names in the process-global provider registry.
-static IDLE_PROVIDER_REGISTRY_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
 async fn idle_fixture(api: &str, settings: serde_json::Value) -> Fixture {
     fixture_with_multi_agent(
         serde_json::from_value(settings).unwrap(),
@@ -3318,7 +3391,6 @@ async fn idle_conversation(fixture: &Fixture, large: bool) {
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_runs_once_at_provider_cache_deadline() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for (api, minutes) in [("openai-codex-responses", 27), ("claude-bridge", 54)] {
         let fixture = idle_fixture(api, json!({})).await;
         let reasons = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -3345,7 +3417,6 @@ async fn idle_compaction_runs_once_at_provider_cache_deadline() {
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_skips_ineligible_context_and_changed_reference() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for (api, settings, large, replace) in [
         ("faux", json!({}), true, false),
         ("openai-codex-responses", json!({}), false, false),
@@ -3379,7 +3450,6 @@ async fn idle_compaction_skips_ineligible_context_and_changed_reference() {
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_rechecks_queue_model_disposal_and_manual_boundary() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for change in ["queued", "model", "disposed", "manual"] {
         let fixture = idle_fixture("openai-codex-responses", json!({})).await;
         idle_conversation(&fixture, true).await;
@@ -3425,7 +3495,6 @@ fn end_turn_at(text: &str, timestamp: f64) -> pi_ai::providers::faux::FauxRespon
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_replaces_deadline_with_latest_request_timestamp() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     let fixture = idle_fixture("openai-codex-responses", json!({})).await;
     let now = pi_ai::request::now_millis() as f64;
     let lifetime = 27.0 * 60_000.0;
@@ -3457,7 +3526,6 @@ async fn idle_compaction_replaces_deadline_with_latest_request_timestamp() {
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_defers_busy_tool_then_uses_completed_request_deadline() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     let started = Arc::new(tokio::sync::Notify::new());
     let release = Arc::new(tokio::sync::Notify::new());
     let fixture = fixture_with_multi_agent(
@@ -3506,7 +3574,6 @@ async fn idle_compaction_defers_busy_tool_then_uses_completed_request_deadline()
 
 #[tokio::test(start_paused = true)]
 async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_observer_or_error() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for scenario in ["startup", "reload", "observer", "error", "aborted"] {
         let fixture = fixture_with_multi_agent(
             serde_json::from_value(json!({"compaction":{"keepRecentTokens":1}})).unwrap(),
@@ -3851,7 +3918,6 @@ fn restriction_response() -> pi_ai::AssistantMessage {
 
 #[tokio::test]
 async fn restriction_execution_matches_frozen_session_scenarios() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     let mut source = tools_oracle::TsOracle::spawn(
         "restriction-session-oracle.ts",
         "packages/coding-agent/src/core/agent-session.ts",
@@ -4143,7 +4209,6 @@ async fn fixture_with_restriction_requester(requester: SupervisorDecisionRequest
 
 #[tokio::test]
 async fn restriction_discards_independently_delayed_advice_after_state_change_or_cancellation() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for change in [
         "abort", "reserve", "review", "model", "goal", "request", "messages", "queued", "dispose",
     ] {
@@ -4244,7 +4309,6 @@ async fn restriction_discards_independently_delayed_advice_after_state_change_or
 
 #[tokio::test(start_paused = true)]
 async fn restriction_timeout_and_abort_restore_tools_and_reset_for_a_new_human_retry() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for (operative, timeout) in [(false, false), (false, true), (true, false), (true, true)] {
         let requests = Arc::new(AtomicUsize::new(0));
         let count = requests.clone();
@@ -4322,7 +4386,6 @@ async fn restriction_timeout_and_abort_restore_tools_and_reset_for_a_new_human_r
 
 #[tokio::test]
 async fn restriction_discards_late_validation_without_overwriting_new_tool_selection() {
-    let _registry_guard = IDLE_PROVIDER_REGISTRY_LOCK.lock().await;
     for change in ["abort", "toolsEmpty", "toolsSame", "messages", "model", "reserve"] {
         let fixture = fixture_with_restriction_requester(
             Arc::new(|_| Box::pin(async { Ok(restriction_advisory_reply()) })),
