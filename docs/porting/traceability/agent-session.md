@@ -318,3 +318,7 @@ Frozen :2090–2110/4541 releases turn-start ownership before awaiting the resum
 ## Re-pin branch-summary authentication (2026-10-25)
 
 Frozen :6097 uses `_getRequiredRequestAuth`, not best-effort compaction auth. Tree summarization now rejects missing credentials before invoking the provider, preserving the full login guidance. `navigate_tree_summary_requires_auth_before_calling_provider_like_frozen` compares an actual frozen missing-provider request against native with a queued summary that would otherwise succeed. RED `/tmp/repin-agent-session-tree-auth-red.log` observed native success versus frozen auth error. The oracle receives native's package directory through `PI_PACKAGE_DIR` so both complete error strings name the same installation docs; no message content or fields are removed.
+
+## Re-pin empty tree summary and label (2026-10-25)
+
+Frozen :6156/6168/6182 tests summary and label truthiness before persistence. Native now skips empty extension summaries and labels instead of creating an empty branch-summary/label entry. Real native extension/store test `navigate_tree_empty_extension_summary_and_label_match_frozen` compares actual frozen navigation with an injected empty summary/label: no saved summary, no labels, root leaf, absent result summary entry. RED `/tmp/repin-agent-session-tree-empty-red2.log` observed one summary and label plus a non-root leaf.

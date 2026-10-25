@@ -148,6 +148,24 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "navigation-empty-summary") {
+		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		const runner = session.extensionRunner;
+		const emit = runner.emit.bind(runner);
+		runner.hasHandlers = (type) => type === "session_before_tree";
+		runner.emit = async (event) => event.type === "session_before_tree" ? { summary: { summary: "" }, label: "" } : emit(event);
+		const result = await session.navigateTree(first, { summarize: true, label: "" });
+		const entries = sessionManager.getEntries();
+		session.dispose();
+		return {
+			hasSummary: result.summaryEntry !== undefined,
+			atRoot: sessionManager.getLeafId() === null,
+			summaries: entries.filter((entry) => entry.type === "branch_summary").length,
+			labels: entries.filter((entry) => entry.type === "label").length,
+		};
+	}
 	if (request.operation === "navigation-auth") {
 		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("old answer"));

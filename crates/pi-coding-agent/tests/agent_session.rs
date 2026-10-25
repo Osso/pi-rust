@@ -936,6 +936,76 @@ async fn navigate_tree_summary_requires_auth_before_calling_provider_like_frozen
 }
 
 #[tokio::test]
+async fn navigate_tree_empty_extension_summary_and_label_match_frozen() {
+    use pi_coding_agent::core::extensions::types::{HandlerError, SessionBeforeTreeResult, SessionTreeSummary};
+    let fixture = fixture_with_timeout_extension(Arc::new(|api| {
+        let registered = api.on_session_before_tree(|_event, _ctx| {
+            Box::pin(async {
+                Ok(Some(SessionBeforeTreeResult {
+                    summary: Some(SessionTreeSummary {
+                        summary: JsString::default(),
+                        details: None,
+                        usage: None,
+                    }),
+                    label: Some(JsString::default()),
+                    ..Default::default()
+                }))
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<SessionBeforeTreeResult>, HandlerError>>
+        });
+        Box::pin(async move { registered.map_err(HandlerError::new) })
+    }))
+    .await;
+    let first = fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("first request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }))
+        .expect("user");
+    fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::Assistant(Box::new(faux_assistant_message(
+            "old answer",
+            Default::default(),
+        ))))
+        .expect("assistant");
+    let result = fixture
+        .session
+        .navigate_tree(
+            &first,
+            NavigateTreeOptions {
+                summarize: Some(true),
+                label: Some(JsString::default()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("navigate");
+    let manager = fixture.session.session_manager();
+    let entries = manager.get_entries();
+    let actual = json!({
+        "hasSummary": result.summary_entry.is_some(), "atRoot": manager.get_leaf_id().is_none(),
+        "summaries": entries.iter().filter(|entry| entry.entry_type() == "branch_summary").count(),
+        "labels": entries.iter().filter(|entry| entry.entry_type() == "label").count(),
+    });
+    drop(manager);
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "navigation-empty-summary", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"hasSummary": false, "atRoot": true, "summaries": 0, "labels": 0}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
 async fn navigate_tree_moves_leaf_and_returns_editor_text() {
     let fixture = fixture().await;
     // Frozen agent-loop.ts:308 continues until end_turn; keep this fixture to one complete turn.

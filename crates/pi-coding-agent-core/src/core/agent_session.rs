@@ -7241,6 +7241,8 @@ impl AgentSession {
             _ => (Some(target_id.to_owned()), None),
         };
 
+        let summary_text = summary_text.filter(|text| !text.is_empty());
+        let label = label.filter(|label| !label.is_empty());
         let mut summary_entry = None;
         let had_summary = summary_text.is_some();
         {
