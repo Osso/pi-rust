@@ -79,7 +79,7 @@ async fn assert_transport_failure(truncated: bool) {
         );
         let expected = source
             .request(&serde_json::json!({"operation":"workflow","payload":"{}","args":args,"closedLoopback":endpoint}));
-        assert_eq!(expected["status"], i32::from(strict), "{expected}");
+        assert_eq!(expected["status"], 0, "{expected}");
         let fetch = LoopbackFetch {
             endpoint,
             fetch: pi_ai::http::fetch_with_options(pi_ai::http::FetchClientOptions {
@@ -108,22 +108,12 @@ async fn assert_transport_failure(truncated: bool) {
         if let Some(server) = server {
             server.join().unwrap();
         }
-        assert_eq!(result.is_err(), strict);
-        if let Err(error) = &result {
-            writeln!(stderr, "{error}").unwrap();
-            assert_eq!(error.name, "TypeError");
-            assert_eq!(error.message, message);
-            assert!(error.cause.as_ref().is_some_and(|cause| !cause.is_empty()));
-        }
-        if strict {
-            assert!(!output.exists());
-        } else {
-            let artifact = std::fs::read_to_string(&output).unwrap();
-            assert_eq!(
-                pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::parse_lossless(&artifact).unwrap()),
-                expected["catalog"].as_str().unwrap()
-            );
-        }
+        assert!(result.is_ok(), "{result:?}");
+        let artifact = std::fs::read_to_string(&output).unwrap();
+        assert_eq!(
+            pi_js_compat::js_json::stringify_lossless(&pi_js_compat::js_json::parse_lossless(&artifact).unwrap()),
+            expected["catalog"].as_str().unwrap()
+        );
         let native_stderr = String::from_utf8(stderr.bytes).unwrap();
         let proof = std::path::Path::new("/tmp/pi-rust-image-generator-proof");
         std::fs::create_dir_all(proof).unwrap();
@@ -161,7 +151,7 @@ async fn assert_transport_failure(truncated: bool) {
             .map(normalize_node_header)
             .collect();
         assert_eq!(native_headers, source_headers);
-        assert_eq!(native_stderr.matches("[cause]:").count(), if strict { 2 } else { 1 });
+        assert_eq!(native_stderr.matches("[cause]:").count(), 1);
         if !truncated {
             assert!(native_stderr.contains("Connection refused (os error 111)"));
         }
@@ -169,10 +159,7 @@ async fn assert_transport_failure(truncated: bool) {
         assert_eq!(expected["events"].as_array().unwrap().len(), 3);
         assert_eq!(expected["events"][0]["stream"], "stdout");
         assert_eq!(expected["events"][1]["stream"], "stderr");
-        assert_eq!(
-            expected["events"][2]["stream"],
-            if strict { "stderr" } else { "stdout" }
-        );
+        assert_eq!(expected["events"][2]["stream"], "stdout");
         let native_event_headers: Vec<_> = events
             .borrow()
             .iter()

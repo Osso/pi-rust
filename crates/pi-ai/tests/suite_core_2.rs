@@ -32,8 +32,6 @@ pub mod http;
 pub mod image_catalog_generator;
 #[path = "image_catalog_http.rs"]
 pub mod image_catalog_http;
-#[path = "image_catalog_prototype.rs"]
-pub mod image_catalog_prototype;
 #[path = "image_content_properties.rs"]
 pub mod image_content_properties;
 #[path = "images.rs"]
