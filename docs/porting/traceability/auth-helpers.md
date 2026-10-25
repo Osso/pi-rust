@@ -11,10 +11,12 @@ Frozen `packages/ai/src/auth/helpers.ts`, `4f9e6f8a4` (51 lines). Rust `auth/hel
 
 RED: 3 new behavioral tests failed (ownership/env leak/load retry). GREEN: existing 16-test auth target plus added 1-test actual-import differential (5 cases). Revision `6cfe4f44` + helper slice; `/tmp/pi-rust-repin-delta-ai/ledger.md` and logs.
 
-## Explicit remaining gaps
+## Current completion proof
 
 Q15c closed the old-only field/check differences: LazyOAuthInput now has only native name/load, API-key login is an optional callback, and helper-local cancellation checks are removed. AuthContext failures propagate through Result; auth14/current provider matrix and raw context/notify source proofs pass. [Current interfaces](auth-types.md).
 
-- A cancelled Rust future during module loading can discard in-flight load; frozen promise persists. Success/rejection reuse proven only for completed loads.
+Current auth14 GREEN at ac6fc9c47, including the actual-source helper differential (five cases); `/tmp/ai-auth-closure-helpers.log` also contains three incidental existing OAuth tests, not additional helper claims. Completed lazy success/rejection reuse and all envApiKeyAuth branches match. The required all-target check and scoped Clippy proof at unchanged Rust revisiond6dd70086 remain current (`/tmp/ai-env-current-{check,clippy}*`).
 
-Coverage partial, not new-pin whole-module parity. No source bug identified by current fixtures.
+Native async lifecycle gap: cold/dropped Rust futures, including interrupted in-flight module loading, do not retain JavaScript Promise execution; parent explicitly reaffirmed this language-boundary ruling2026-10-25. Normal awaiting and completed-load success/rejection caching remain exact.
+
+Status done under the approved parity bar. No source bug identified.
