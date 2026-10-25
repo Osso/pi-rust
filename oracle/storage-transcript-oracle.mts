@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { writeFileSync } from "node:fs";
+import { zstdCompressSync } from "node:zlib";
 
 const source = await import(pathToFileURL(join(process.argv[2], "session-transcript.ts")).href);
 
@@ -27,10 +29,23 @@ async function observeFailure(path: string, mode: string): Promise<unknown> {
 }
 
 for await (const line of createInterface({ input: process.stdin })) {
-    const request: { id: number; path: string; mode: string } = JSON.parse(line);
-    console.log(JSON.stringify({
-        id: request.id,
-        ok: true,
-        output: await observeFailure(request.path, request.mode),
-    }));
+    const request: { id: number; path: string; mode: string; op?: string; bytes?: number[] } = JSON.parse(line);
+    let output: unknown;
+    if (request.op === "write") {
+        if (!request.bytes) throw new Error("write requires fixture bytes");
+        writeFileSync(request.path, zstdCompressSync(Buffer.from(request.bytes)));
+        output = { written: true };
+    } else if (request.op === "read") {
+        let streamed = "";
+        for await (const chunk of source.createSessionTranscriptReadStream(request.path)) streamed += chunk;
+        output = {
+            bytes: [...source.readSessionTranscriptBytes(request.path)],
+            text: source.readSessionTranscriptText(request.path),
+            streamed,
+            resolved: source.readSessionTranscriptPath(request.path),
+        };
+    } else {
+        output = await observeFailure(request.path, request.mode);
+    }
+    console.log(JSON.stringify({ id: request.id, ok: true, output }));
 }
