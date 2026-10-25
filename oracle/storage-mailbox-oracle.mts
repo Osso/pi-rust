@@ -8,6 +8,7 @@ const { SessionManager } = await load("session-manager.ts");
 const control = await load("session-control-db.ts");
 const acceptance = await load("runtime-mailbox-acceptance.ts");
 const transcript = await load("runtime-mailbox-transcript.ts");
+const delivery = await load("runtime-mailbox-delivery.ts");
 type Request = {
 	id: number;
 	op: string;
@@ -18,8 +19,11 @@ type Request = {
 	messages?: unknown[];
 	text?: string;
 	ids?: number[];
+	message?: unknown;
+	handled?: string[];
+	recipientSessionId?: string;
 };
-function handle(request: Request): unknown {
+async function handle(request: Request): Promise<unknown> {
 	if (request.op === "create") {
 		const session = SessionManager.create(request.dir, request.dir);
 		session.setMetadataControlDbPath(request.db);
@@ -29,12 +33,48 @@ function handle(request: Request): unknown {
 			sessionId: session.getSessionId(),
 		};
 	}
+	if (request.op === "deliveryTrace") {
+		const session = SessionManager.create(request.dir, request.dir);
+		session.setMetadataControlDbPath(request.db);
+		session.persistForRecovery();
+		const trace: { id: string; acceptedCount: number }[] = [];
+		let prompt: string | null = null;
+		await delivery.deliverClaimedRuntimeMailboxMessages({
+			controlDbPath: request.db,
+			messages: request.messages,
+			recipientSessionId: request.recipientSessionId,
+			sessionManager: session,
+			intercept: async (message: { storeRef: { messageId: string } }) => {
+				trace.push({
+					id: message.storeRef.messageId,
+					acceptedCount: transcript.readAcceptedRuntimeMailboxStoreRefs(
+						session.getSessionFile(),
+					).length,
+				});
+				return request.handled?.includes(message.storeRef.messageId) ?? false;
+			},
+			onAccepted: () => {},
+			prompt: async (text: string, accept: (message: unknown) => void) => {
+				prompt = text;
+				accept(delivery.createRuntimeMailboxUserMessage(text, "extension"));
+			},
+		});
+		return {
+			trace,
+			prompt,
+			refs: transcript.readAcceptedRuntimeMailboxStoreRefs(
+				session.getSessionFile(),
+			),
+		};
+	}
+	if (request.op === "toolDelivery")
+		return acceptance.readRuntimeMailboxToolDelivery(request.message) ?? null;
 	if (request.op === "enqueue")
 		return control.enqueueStoredRuntimeMailboxMessage(
 			request.db,
 			request.input,
 		);
-	if (request.op === "accept") {
+	if (request.op === "accept" || request.op === "acceptRaw") {
 		const session = SessionManager.open(request.path);
 		const recipient = { sessionId: session.getSessionId(), agentId: null };
 		control.registerRuntimeMailboxListener(
@@ -50,18 +90,31 @@ function handle(request: Request): unknown {
 			10,
 		);
 		session.setMetadataControlDbPath(request.db);
-		const message = {
-			role: "user",
-			content: [{ type: "text", text: request.text }],
-			inputSource: "extension",
-			timestamp: 1,
-		};
-		acceptance.acceptRuntimeMailboxMessages(
-			session,
-			request.db,
-			messages,
-			message,
-		);
+		const message =
+			request.op === "acceptRaw"
+				? request.message
+				: {
+						role: "user",
+						content: [{ type: "text", text: request.text }],
+						inputSource: "extension",
+						timestamp: 1,
+					};
+		try {
+			acceptance.acceptRuntimeMailboxMessages(
+				session,
+				request.db,
+				messages,
+				message,
+			);
+		} finally {
+			if (request.op === "acceptRaw") {
+				acceptance.releaseUnacceptedRuntimeMailboxMessages(
+					session,
+					request.db,
+					messages,
+				);
+			}
+		}
 		return {
 			persisted: acceptance.isRuntimeMailboxMessagePersisted(message),
 			refs: transcript.readAcceptedRuntimeMailboxStoreRefs(request.path),
@@ -83,7 +136,11 @@ for await (const line of createInterface({ input: process.stdin })) {
 	const request: Request = JSON.parse(line);
 	try {
 		console.log(
-			JSON.stringify({ id: request.id, ok: true, output: handle(request) }),
+			JSON.stringify({
+				id: request.id,
+				ok: true,
+				output: await handle(request),
+			}),
 		);
 	} catch (error) {
 		console.log(
