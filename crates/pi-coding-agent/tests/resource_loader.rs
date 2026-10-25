@@ -809,6 +809,7 @@ fn submodule_and_missing_gitdir_climb_normally() {
         &JsString::from(sub_src.to_str().unwrap()),
         &JsString::from(agent_dir.to_str().unwrap()),
     )
+    .unwrap()
     .into_iter()
     .map(|file| file.content)
     .collect();
@@ -824,6 +825,7 @@ fn submodule_and_missing_gitdir_climb_normally() {
         &JsString::from(corrupt_src.to_str().unwrap()),
         &JsString::from(agent_dir.to_str().unwrap()),
     )
+    .unwrap()
     .into_iter()
     .map(|file| file.content)
     .collect();

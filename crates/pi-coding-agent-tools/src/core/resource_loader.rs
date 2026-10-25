@@ -255,10 +255,6 @@ fn list_ancestor_dirs(cwd: &JsString) -> Vec<JsString> {
     ancestor_dirs
 }
 
-fn process_cwd() -> JsString {
-    crate::utils::paths::process_cwd().expect("process cwd must be available for resource discovery")
-}
-
 /// Native path identity is encoded only for the filesystem operation.
 fn path_exists(path: &JsString) -> bool {
     Path::new(&encode_node_utf8(path)).exists()
@@ -268,14 +264,16 @@ fn read_text_file(path: &JsString) -> std::io::Result<JsString> {
     fs::read(encode_node_utf8(path)).map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
 }
 
-fn resolve_from_process_cwd(input: &JsString) -> JsString {
-    resolve_path(input, &process_cwd(), &PathInputOptions::default()).unwrap_or_else(|_| input.to_owned())
+fn resolve_from_process_cwd(input: &JsString) -> Result<JsString, JsString> {
+    crate::utils::paths::node_resolve("", input).map_err(|error| error.message().clone())
 }
 
 /// Loads `AGENTS.md`/`CLAUDE.md` context files from the agent dir and cwd ancestors.
-pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Vec<ContextFile> {
-    let resolved_cwd = resolve_from_process_cwd(cwd);
-    let resolved_agent_dir = resolve_from_process_cwd(agent_dir);
+pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Result<Vec<ContextFile>, CallbackError> {
+    let base = crate::utils::paths::process_cwd().map_err(CallbackError::from)?;
+    let resolved_cwd = resolve_path(cwd, &base, &PathInputOptions::default()).map_err(CallbackError::from)?;
+    let resolved_agent_dir =
+        resolve_path(agent_dir, &base, &PathInputOptions::default()).map_err(CallbackError::from)?;
     let global_project_memory_real_path =
         canonicalize_path(node_join(&resolved_agent_dir, PROJECT_MEMORY_RELATIVE_PATH.join("/")));
     let ancestor_dirs = list_ancestor_dirs(&resolved_cwd);
@@ -306,7 +304,7 @@ pub fn load_project_context_files(cwd: &JsString, agent_dir: &JsString) -> Vec<C
         append_unique_context_files(&mut context_files, project_context_files, &mut seen_paths);
     }
 
-    context_files
+    Ok(context_files)
 }
 
 // =============================================================================
@@ -818,8 +816,7 @@ impl DefaultResourceLoader {
         self.publish_reload_step(self.load_skills_into(&mut state, &resource_sets), &state)?;
         self.publish_reload_step(self.load_prompts_into(&mut state, &resource_sets), &state)?;
         self.publish_reload_step(self.load_themes_into(&mut state, &resource_sets), &state)?;
-        self.load_agents_files_into(&mut state);
-        *self.state() = state.clone();
+        self.publish_reload_step(self.load_agents_files_into(&mut state), &state)?;
         self.publish_reload_step(self.load_rules_into(&mut state), &state)?;
         self.load_system_prompts_into(&mut state);
 
@@ -1023,12 +1020,12 @@ impl DefaultResourceLoader {
         Ok(())
     }
 
-    fn load_agents_files_into(&self, state: &mut ResourceLoaderState) {
+    fn load_agents_files_into(&self, state: &mut ResourceLoaderState) -> Result<(), JsString> {
         let agents_files = LoadedAgentsFiles {
             agents_files: if self.no_context_files {
                 Vec::new()
             } else {
-                load_project_context_files(&self.cwd, &self.agent_dir)
+                load_project_context_files(&self.cwd, &self.agent_dir).map_err(|error| error.message)?
             },
         };
         let resolved_agents_files = match &self.agents_files_override {
@@ -1036,6 +1033,7 @@ impl DefaultResourceLoader {
             None => agents_files,
         };
         state.agents_files = resolved_agents_files.agents_files;
+        Ok(())
     }
 
     fn load_rules_into(&self, state: &mut ResourceLoaderState) -> Result<(), JsString> {
@@ -1383,9 +1381,11 @@ impl DefaultResourceLoader {
             return self.get_default_source_info_for_path(resource_path).map(Some);
         }
 
-        let normalized_resource_path = resolve_from_process_cwd(resource_path);
-        if let Some(source_info) =
-            extra_source_infos.and_then(|infos| find_path_prefix_match(infos, &normalized_resource_path))
+        let normalized_resource_path = resolve_from_process_cwd(resource_path)?;
+        if let Some(source_info) = extra_source_infos
+            .map(|infos| find_path_prefix_match(infos, &normalized_resource_path))
+            .transpose()?
+            .flatten()
         {
             return Ok(Some(SourceInfo {
                 path: resource_path.to_owned(),
@@ -1397,8 +1397,10 @@ impl DefaultResourceLoader {
             let exact_metadata = metadata_by_path
                 .get(&normalized_resource_path)
                 .or_else(|| metadata_by_path.get(resource_path));
-            let metadata =
-                exact_metadata.or_else(|| find_path_prefix_match(metadata_by_path, &normalized_resource_path));
+            let metadata = match exact_metadata {
+                Some(exact) => Some(exact),
+                None => find_path_prefix_match(metadata_by_path, &normalized_resource_path)?,
+            };
             if let Some(metadata) = metadata {
                 return Ok(Some(create_source_info(resource_path, metadata)));
             }
@@ -1426,7 +1428,7 @@ impl DefaultResourceLoader {
             ));
         }
 
-        let normalized_path = resolve_from_process_cwd(file_path);
+        let normalized_path = resolve_from_process_cwd(file_path)?;
         let config_dir = package_config().config_dir_name.clone();
         let roots_by_scope = [
             (node_join(&self.agent_dir, "skills"), SourceScope::User),
@@ -1903,13 +1905,19 @@ fn dedupe_themes(themes: Vec<Theme>) -> LoadedThemes {
     }
 }
 
-fn find_path_prefix_match<'a, T>(entries: &'a IndexMap<JsString, T>, normalized_path: &JsString) -> Option<&'a T> {
-    entries.iter().find_map(|(source_path, value)| {
-        let normalized_source_path = resolve_from_process_cwd(source_path);
-        let is_match = normalized_path == &normalized_source_path
-            || normalized_path.starts_with(js_format!("{}{}", normalized_source_path, std::path::MAIN_SEPARATOR));
-        is_match.then_some(value)
-    })
+fn find_path_prefix_match<'a, T>(
+    entries: &'a IndexMap<JsString, T>,
+    normalized_path: &JsString,
+) -> Result<Option<&'a T>, JsString> {
+    for (source_path, value) in entries {
+        let normalized_source_path = resolve_from_process_cwd(source_path)?;
+        if normalized_path == &normalized_source_path
+            || normalized_path.starts_with(js_format!("{}{}", normalized_source_path, std::path::MAIN_SEPARATOR))
+        {
+            return Ok(Some(value));
+        }
+    }
+    Ok(None)
 }
 
 fn is_under_path(target: &JsString, root: &JsString) -> bool {

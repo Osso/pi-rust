@@ -18,7 +18,8 @@ fn frozen_context_loading_ignores_override_files() {
     let files = pi_coding_agent::core::resource_loader::load_project_context_files(
         &project.to_str().unwrap().into(),
         &agent.to_str().unwrap().into(),
-    );
+    )
+    .unwrap();
     let contents: Vec<JsString> = files.into_iter().map(|file| file.content).collect();
     assert!(contents.contains(&"regular".into()));
     assert!(contents.contains(&"local".into()));
@@ -105,6 +106,27 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
         expected
     );
     loader_ref.lock().unwrap().take();
+}
+
+#[test]
+fn context_file_roots_report_frozen_invalid_file_url_errors() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-resource-loader-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(
+        &serde_json::json!({"id":5,"operation":"context_files","cwd":"file://remote/project","agentDir":"/tmp"}),
+    );
+    assert_eq!(expected["ok"], false);
+    let error = pi_coding_agent::core::resource_loader::load_project_context_files(
+        &"file://remote/project".into(),
+        &"/tmp".into(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        serde_json::json!({"id":5,"ok":false,"error":{"name":error.name,"message":error.message}}),
+        expected
+    );
 }
 
 #[test]

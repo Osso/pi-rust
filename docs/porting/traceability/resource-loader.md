@@ -123,6 +123,10 @@ Frozen interactive-mode.ts:1897–1911 lists only getAgentsFiles under Context, 
 
 The existing startup frame differential now creates SYSTEM.md and APPEND_SYSTEM.md for every quiet/verbose/scoped/restored case. RED `/tmp/ext-api2-system-prompt-startup-red.log` contains native-only Context rows; GREEN pending. No source fixture or assertion normalization was loosened.
 
+## Public context root errors (2026-10-25)
+
+loadProjectContextFiles now returns Result with the existing CallbackError carrier and preserves actual path TypeError branding/message instead of falling back to unresolved roots. Resource-loader and three fixture consumers propagate/unwrap mechanically. Source-info normalization uses Node path.resolve (without tilde/file-URL reinterpretation), with Result propagated through prefix lookup. Removed the local process-cwd expect and all unresolved-path fallback helpers. RED `/tmp/ext-api2-context-root-red.log`: invalid file-URL root returned successful empty context; frozen throws TypeError. GREEN pending.
+
 ## Constructor error carrier
 
 [Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.
