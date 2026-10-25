@@ -14,9 +14,16 @@ runOracle(async (api, request) => {
 	}
 	if (request.operation === "inherit-environment") {
 		process.env.PI_PYRUN_FIXTURE_OVERLAY = "from-overlay";
-		const runner = new (api.PyrunRunnerClient as new (options: unknown) => Runner)(request.options);
-		try { return await runner.evaluate({ code: "environment" }); }
-		finally { runner.dispose(); }
+		const runner = new (
+			api.PyrunRunnerClient as new (
+				options: unknown,
+			) => Runner
+		)(request.options);
+		try {
+			return await runner.evaluate({ code: "environment" });
+		} finally {
+			runner.dispose();
+		}
 	}
 	const runner = new (
 		api.PyrunRunnerClient as new (
