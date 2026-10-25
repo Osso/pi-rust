@@ -48,6 +48,47 @@ fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
 }
 
 #[test]
+fn transcript_read_errors_match_frozen_node_diagnostics() {
+    let tmp = tempfile::tempdir().unwrap();
+    let file = tmp.path().join("transcript.jsonl");
+    std::fs::write(&file, "{}").unwrap();
+    let paths = [tmp.path().to_path_buf(), file.join("child")];
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    for path in paths {
+        let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefs","path":path}]}));
+        assert_eq!(peer["output"][0]["ok"], false, "{peer}");
+        let error =
+            read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(path.to_str().unwrap()))).unwrap_err();
+        assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
+        let native = std::error::Error::source(&error)
+            .unwrap()
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .unwrap();
+        assert_eq!(native.name, peer["output"][0]["error"]["name"].as_str().unwrap());
+    }
+}
+
+#[test]
+fn malformed_complete_transcript_retains_frozen_syntax_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("malformed.jsonl");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    for contents in ["{broken\n", "{\"type\":\"message\",\"mailboxStoreRefs\":[}\n"] {
+        std::fs::write(&path, contents).unwrap();
+        let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefs","path":path}]}));
+        assert_eq!(peer["output"][0]["ok"], false, "{peer}");
+        let error =
+            read_accepted_runtime_mailbox_store_refs(Some(&JsString::from(path.to_str().unwrap()))).unwrap_err();
+        assert_eq!(error.message(), peer["output"][0]["error"]["message"].as_str().unwrap());
+        let native = std::error::Error::source(&error)
+            .expect("JSON.parse must retain its SyntaxError")
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .unwrap();
+        assert_eq!(native.name, peer["output"][0]["error"]["name"].as_str().unwrap());
+    }
+}
+
+#[test]
 fn source_manager_receipts_preserve_lone_surrogate_values_keys_and_raw_items() {
     let t = tempfile::tempdir().unwrap();
     let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");

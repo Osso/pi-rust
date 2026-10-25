@@ -1,6 +1,8 @@
 //! Frozen runtime-mailbox-transcript.ts: scan every complete record without a UTF-8 JSON boundary.
 use super::session_control_db::ControlDbError;
 use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_fs::{NodeReadApi, node_read_error_record};
 
 pub const RUNTIME_MAILBOX_ACCEPTANCE_CUSTOM_TYPE: &str = "runtime_mailbox_acceptance";
 
@@ -51,7 +53,10 @@ pub fn read_accepted_runtime_mailbox_store_refs(
     let bytes = match std::fs::read(js_json::encode_node_utf8(path)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(error) => return Err(ControlDbError::new(error.to_string())),
+        Err(error) => {
+            let record = node_read_error_record(&error, path, NodeReadApi::ReadFileSync);
+            return Err(ControlDbError::from(NativeNodeError::from(record)));
+        }
     };
     // This is the source's filesystem UTF-8 decode boundary, not a JSON-string conversion.
     let transcript = String::from_utf8_lossy(&bytes);
@@ -62,7 +67,8 @@ pub fn read_accepted_runtime_mailbox_store_refs(
         if pi_js_compat::string::js_trim(line).is_empty() {
             continue;
         }
-        let entry = js_json::parse_lossless(line).map_err(|error| ControlDbError::new(error.to_string()))?;
+        let entry =
+            js_json::parse_lossless(line).map_err(|error| NativeNodeError::new("SyntaxError", error.into_message()))?;
         let kind = property(&entry, "type")?;
         let accepted = if string_equals(kind, "message") {
             property(&entry, "mailboxStoreRefs")?
