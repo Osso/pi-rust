@@ -8,8 +8,8 @@ Session display names follow the authorized [common source pin](../porting/sourc
 - [x] Make metadata authoritative: NULL means never named, empty means explicitly cleared, and generic metadata updates preserve both dedicated names and explicit clears.
 - [x] Ignore historical JSONL names; reset/rehydrate names on switching and do not inherit names into forks or copied imports.
 - [x] Persist CLI/RPC name changes without appending JSONL session-info entries.
-- [ ] Register the frozen `set_session_name` tool for persisted main sessions, with exact metadata, refusal ordering and returned content/details.
-- [ ] Collapse whitespace and cap names at 80 UTF-16 units without removing formatting; preserve manual names and explicit clears, allow this tool to revise its own name, and propagate write failures without claiming success.
+- [x] Register the frozen `set_session_name` tool for persisted main sessions, with exact metadata, refusal ordering and returned content/details.
+- [x] Collapse whitespace and cap names at 80 UTF-16 units without removing formatting; preserve manual names and explicit clears, allow this tool to revise its own name, and propagate write failures without claiming success.
 - [x] Match TypeScript's SQLite stored names when title truncation splits a surrogate pair; use U+FFFD rather than dropping the sliced code unit.
 
 ## How it works

@@ -41,7 +41,7 @@ pub fn session_autoname_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         }),
         render_call: None,
         render_result: None,
-    }).map_err(HandlerError::from)
+    })
 }
 
 fn execute_name_tool(

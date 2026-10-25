@@ -24,3 +24,5 @@ The oracle `oracle/session-name-tool-oracle.ts` calls the unmodified frozen exte
 ## Approved intermediate-string gap (2026-10-20)
 
 Historical generated-title proof at the old c248 pin is superseded: that title generator does not exist at the common pin. Tool input, truncation and result strings now retain exact UTF-16, including split surrogate units. The existing SQLite binding name-storage approval remains owned by the [session manager](session-manager.md) and [control DB](session-control-db.md) modules, not by an alternate naming implementation.
+
+- GREEN at `97bb81df3`: 16 exact frozen cases pass in `suite_extensions` (`/tmp/bundled-name-green.log`). After merging parent `77c92996b`, extension-local clippy reaches the crate but finds 120 errors; the one new redundant error conversion was removed. Remaining errors are existing other extension modules (`/tmp/bundled-ext-clippy-after-parent.log`). Rust/TS changed lines reviewed with the readability checklists.
