@@ -4,9 +4,9 @@ Port frozen `packages/ai/src/utils/oauth/oauth-page.ts` at `4f9e6f8a4`. [Traceab
 
 ## What it must do
 
-- [ ] Return the exact frozen success/error HTML, including headings, styles, logo and whitespace.
-- [ ] Escape ampersands, angle brackets and both quote characters in source order; omit absent or empty details.
-- [ ] Interpolate escaped text once. Literal template-marker text in messages/details must remain text.
+- [x] Return the exact frozen success/error HTML, including headings, styles, logo and whitespace.
+- [x] Escape ampersands, angle brackets and both quote characters in source order; omit absent or empty details.
+- [x] Interpolate escaped text once. Literal template-marker text in messages/details must remain text.
 
 ## How it works
 
@@ -23,7 +23,7 @@ Port frozen `packages/ai/src/utils/oauth/oauth-page.ts` at `4f9e6f8a4`. [Traceab
 
 ## Known gaps (current cycle)
 
-Current-revision focused proof is pending.
+None within the approved scope.
 
 ## Out of scope
 
