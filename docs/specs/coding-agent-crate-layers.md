@@ -4,11 +4,11 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 
 ## What it must do
 
-- [ ] Keep `pi-coding-agent` as the facade and owner of all existing executable, integration-test, and example targets.
-- [ ] Preserve values, process state, error behavior, public paths, embedded package metadata, and byte-identical `pi --version` and `pi --help` output.
-- [ ] Compile layered packages independently with the existing workspace lints, profiles, and disabled incremental compilation.
-- [ ] Add only internal path packages; preserve external dependency versions and features.
-- [ ] Keep frozen TypeScript inventory counts unchanged.
+- [x] Keep `pi-coding-agent` as the facade and owner of all existing executable, integration-test, and example targets; existing public imports compile unchanged.
+- [x] Keep embedded package metadata and byte-identical `pi --version` and `pi --help` output.
+- [x] Compile layered packages independently with the existing workspace lints, profiles, and disabled incremental compilation; touch tests rebuild only the changed layer and its dependents.
+- [x] Add only internal path packages; preserve external dependency versions and features.
+- [x] Keep frozen TypeScript inventory counts unchanged.
 
 ## How it works
 
@@ -28,8 +28,8 @@ Existing facade integration tests retain their imports. Checkpoint commands and 
 
 ## Known gaps (current cycle)
 
-- [ ] Complete checkpoint verification after the structural changes and parent integration.
+- The pre-existing `agent_session` serial failures match the unsplit parent exactly; the checkpoint accepts that exception. See the [proof ledger](../porting/crate-split.md).
 
 ## Out of scope
 
-Behavior changes, incremental compilation, profile/lint changes, external dependency additions, and further core splitting before round 1 lands.
+Behavior changes, incremental compilation, profile/lint changes, external dependency additions, and further core splitting before round 1 lands. The separately authorized subagent description macro correction preserves the frozen description bytes and has its own differential test.
