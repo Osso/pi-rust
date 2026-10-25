@@ -1,7 +1,7 @@
 # model-search.ts
 
 Source: `coding-agent/src/modes/interactive/model-search.ts`
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/model_search.rs`
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/model_search.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

@@ -1,6 +1,6 @@
 # `components/settings-selector.ts`
 
-Authority: common-pin851-line module. [Contract](../../specs/interactive-settings-selector.md). Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/settings_selector.rs`.
+Authority: common-pin851-line module. [Contract](../../specs/interactive-settings-selector.md). Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/settings_selector.rs`.
 
 ## Exported symbols and branches
 
