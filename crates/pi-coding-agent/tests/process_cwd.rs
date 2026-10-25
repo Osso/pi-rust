@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_manager::SessionManager;
 use pi_js_compat::abort::AbortReason;
@@ -231,3 +230,7 @@ fn process_cwd_child() {
     .unwrap();
     println!("CWD_PROBE:{result}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

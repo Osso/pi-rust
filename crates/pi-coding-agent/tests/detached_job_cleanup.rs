@@ -3,6 +3,7 @@
 use std::fs;
 use std::sync::Mutex;
 
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::detached_job_cleanup::{
     DetachedJobCleanupOptions, cleanup_detached_job_artifacts, run_detached_job_artifact_cleanup,
 };
@@ -12,8 +13,6 @@ use pi_js_compat::{
     js_json::{JsString, JsValue as Value, encode_node_utf8},
 };
 use tempfile::TempDir;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 const EXPIRED_AT: &str = "2026-07-19T18:00:00.000Z";
 const RECENT_AT: &str = "2026-07-23T17:00:00.000Z";

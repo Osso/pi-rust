@@ -147,7 +147,7 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
         thinking_level: Some(ThinkingLevel::Off),
         tools: Some(vec!["spawn_agent".to_owned()]),
         session_manager: Some(parent_manager),
-        control_db_path: Some(control_db_path.clone().into()),
+        control_db_path: Some(control_db_path.clone()),
         multi_agent_store: Some(Arc::clone(&store)),
         extension_factories: vec![InlineExtension::Factory {
             extension_path: Some("<first-party:agents-core>".to_owned().into()),
@@ -274,5 +274,8 @@ async fn production_factory_spawns_and_completes_a_real_child_session() {
     );
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

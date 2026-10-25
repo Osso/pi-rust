@@ -545,14 +545,11 @@ mod lossless_name_tests {
     fn path_and_id_targets_keep_original_units() {
         let raw = JsString::from_utf16(vec![0xd800]);
         let id = normalize_resume_session_params(&json::parse_lossless(r#"{"id":" id-\ud800 "}"#).unwrap()).unwrap();
-        assert_eq!(id.id.map(JsString::from), Some(JsString::from("id-") + &raw));
+        assert_eq!(id.id, Some(JsString::from("id-") + &raw));
         let path =
             normalize_resume_session_params(&json::parse_lossless(r#"{"path":" /session-\ud800.jsonl "}"#).unwrap())
                 .unwrap();
-        assert_eq!(
-            path.path.map(JsString::from),
-            Some(JsString::from("/session-") + raw + ".jsonl")
-        );
+        assert_eq!(path.path, Some(JsString::from("/session-") + raw + ".jsonl"));
     }
 
     #[test]

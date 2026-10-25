@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::{model_registry::clear_api_key_cache, resolve_config_value};
 use pi_js_compat::{
     js_json,

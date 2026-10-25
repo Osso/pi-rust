@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 
 use pi_coding_agent::cli::file_processor::process_file_arguments;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
@@ -10,7 +9,9 @@ async fn file_attachment_keeps_original_absolute_path_units() {
     let cwd = JsString::from(directory.path().to_str().unwrap());
     let path = cwd.clone() + "/file-" + JsString::from_utf16(vec![0xd800]) + ".txt";
     std::fs::write(encode_node_utf8(&path), "hello\n").unwrap();
-    let actual = process_file_arguments(&[path.clone()], None, &cwd).await.unwrap();
+    let actual = process_file_arguments(std::slice::from_ref(&path), None, &cwd)
+        .await
+        .unwrap();
     let mut source = oracle::TsOracle::spawn(
         "lossless-tool-paths-oracle.ts",
         "packages/coding-agent/src/cli/file-processor.ts",

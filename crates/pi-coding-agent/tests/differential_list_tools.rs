@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::cli::list_tools::{format_tool_inventory, list_tools};
 use pi_coding_agent::core::extensions::types::ToolInfo;

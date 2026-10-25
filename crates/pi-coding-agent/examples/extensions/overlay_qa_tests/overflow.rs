@@ -88,7 +88,7 @@ impl Process {
         let state = self.output.borrow();
         let inner = width.saturating_sub(2).max(1);
         let border = |s: &str| m.theme.fg(ThemeColor::Border, s);
-        let title = truncate_to_width(&format!(" Streaming Output ({} lines) ", state.lines.len()), inner);
+        let title = truncate_to_width(format!(" Streaming Output ({} lines) ", state.lines.len()), inner);
         let mut result = vec![js_format!(
             "{}{}{}",
             border("╭"),
@@ -98,7 +98,7 @@ impl Process {
         let remaining = state.lines.len().saturating_sub(15 + state.scroll);
         let scroll = if state.scroll > 0 || remaining > 0 {
             m.theme
-                .fg(ThemeColor::Dim, &format!(" ↑{} | ↓{remaining}", state.scroll))
+                .fg(ThemeColor::Dim, format!(" ↑{} | ↓{remaining}", state.scroll))
         } else {
             JsString::default()
         };

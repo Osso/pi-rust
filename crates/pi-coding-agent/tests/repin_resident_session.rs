@@ -5,8 +5,7 @@
 #![cfg(unix)]
 #[path = "support/resident_frozen_delta.rs"]
 mod frozen_delta;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;

@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/interactive_shell.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 use futures_util::FutureExt;
 use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry};
 use pi_js_compat::js_json::JsString;
@@ -53,7 +51,8 @@ impl ExtensionUiContext for Ui {
         Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
-                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("theme/dark.json")
                         .to_str()
                         .expect("fixture path must be UTF-8"),
                 ),
@@ -218,3 +217,9 @@ async fn lone_surrogate_projects_to_replacement_at_string_api_boundary() {
     assert_eq!(expected[0]["result"]["exitCode"], 1);
     assert_eq!(native(&request).await, expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

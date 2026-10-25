@@ -2,8 +2,7 @@
 mod env_probe;
 #[path = "support/agent_session_fixture.rs"]
 mod fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_js_compat::js_json::JsString;
@@ -107,3 +106,9 @@ async fn session_availability_probe() {
     after.sort();
     assert_eq!(actual, after, "failed rebuild must preserve the previous registry");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

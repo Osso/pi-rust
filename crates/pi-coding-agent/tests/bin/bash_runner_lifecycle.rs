@@ -1,6 +1,5 @@
 //! Test-only executable: the same binary owns tool scenarios and real runner children.
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::detached_bash_runner::run_detached_bash_runner;
@@ -280,3 +279,7 @@ fn normalize(value: &JsValue, root: &JsString) -> JsValue {
         value => value.clone(),
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "../support/oracle.rs"]
+pub mod shared_oracle;

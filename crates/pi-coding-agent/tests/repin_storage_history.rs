@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 pub(super) use oracle::TsOracle;
 
 use pi_coding_agent::core::session_history::read_session_history_reverse;

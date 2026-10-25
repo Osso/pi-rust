@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::{Agent, AgentInitialState, AgentOptions};
 use pi_ai::request::CallbackError;
@@ -266,3 +265,7 @@ async fn low_level_default_loops_preserve_registered_rejection_without_text_conv
     }
     assert_eq!(actual_cases, expected_cases);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -5,8 +5,7 @@ use pi_coding_agent::core::tools::grep::GrepTool;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 const MODE_VAR: &str = "PI_GREP_TEST_MODE";
 const DIR_VAR: &str = "PI_GREP_TEST_DIR";
@@ -116,3 +115,7 @@ fn run_missing_rg() {
         .expect_err("missing rg");
     assert_eq!(error.message, "ripgrep (rg) is not available on PATH");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

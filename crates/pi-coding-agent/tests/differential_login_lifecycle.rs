@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::modes::interactive::components::login_dialog::LoginDialogComponent;
 use pi_js_compat::js_json::JsString;
 use pi_tui::{Component, Focusable};
@@ -150,11 +149,11 @@ fn login_lifecycle_probe() {
                 op => panic!("unknown login step {op}"),
             }
             for (index, answer) in pending.iter_mut().enumerate() {
-                if let Some(future) = answer {
-                    if let Poll::Ready(value) = future.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
-                        answers[index] = value;
-                        *answer = None;
-                    }
+                if let Some(future) = answer
+                    && let Poll::Ready(value) = future.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+                {
+                    answers[index] = value;
+                    *answer = None;
                 }
             }
             let frames: Vec<Vec<u16>> = dialog.render(50).iter().map(|line| line.units().to_vec()).collect();
@@ -165,3 +164,7 @@ fn login_lifecycle_probe() {
     }
     assert_eq!(all_actual, all_expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

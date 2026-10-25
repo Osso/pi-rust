@@ -1,4 +1,6 @@
 //! Modes extend A/B's registry + real-runner pattern; shared base actions live in extensions.rs.
+use crate::shared_extensions as fixture;
+use crate::shared_oracle as oracle;
 use futures_util::FutureExt;
 use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use pi_coding_agent::modes::interactive::theme::{ColorMode, Theme, load_theme_from_path};
@@ -8,10 +10,6 @@ use pi_js_compat::js_json::encode_node_utf8;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-#[path = "extensions.rs"]
-mod fixture;
-#[path = "oracle.rs"]
-mod oracle;
 pub type Trace = Arc<Mutex<Vec<JsValue>>>;
 struct Ui {
     trace: Trace,
@@ -343,7 +341,8 @@ pub async fn compare(
     let theme = Arc::new(
         load_theme_from_path(
             &JsString::from(
-                (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                    .join("theme/dark.json")
                     .to_str()
                     .expect("fixture path must be UTF-8"),
             ),

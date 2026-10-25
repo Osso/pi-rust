@@ -67,7 +67,7 @@ fn always_processes_png_images() {
         assert!(
             result
                 .text
-                .contains(&format!("<file name=\"{}\">", image_path.display()))
+                .contains(format!("<file name=\"{}\">", image_path.display()))
         );
         std::fs::remove_dir_all(dir).unwrap();
     });

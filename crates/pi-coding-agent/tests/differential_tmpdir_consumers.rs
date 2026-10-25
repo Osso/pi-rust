@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
@@ -141,3 +140,7 @@ fn wrapper_spill_uses_mutable_node_tmpdir() {
         },
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

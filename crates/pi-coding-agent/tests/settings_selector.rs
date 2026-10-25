@@ -146,7 +146,7 @@ fn plain(component: &mut SettingsSelectorComponent) -> JsString {
         component
             .render(120)
             .iter()
-            .map(|line| strip_terminal_sequences(line))
+            .map(strip_terminal_sequences)
             .collect::<Vec<_>>(),
         "\n",
     )

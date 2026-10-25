@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::{Agent, AgentOptions};
 use pi_coding_agent::core::agent_session::{AgentSession, AgentSessionConfig};
@@ -231,9 +230,9 @@ fn model_reference_matching_does_not_replace_unmatched_units() {
     );
     assert_eq!(source["ok"].as_bool(), Some(true));
     assert!(source["output"]["model"].is_null());
-    assert!(find_exact_model_reference_match(&raw, &[model.clone()]).is_none());
+    assert!(find_exact_model_reference_match(&raw, std::slice::from_ref(&model)).is_none());
     assert_eq!(
-        find_exact_model_reference_match(&"vendor�/probe".into(), &[model.clone()]),
+        find_exact_model_reference_match(&"vendor�/probe".into(), std::slice::from_ref(&model)),
         Some(model)
     );
 }
@@ -306,3 +305,7 @@ async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_co
     assert_eq!(errors[0].event, "skill_expansion");
     created.session.dispose();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

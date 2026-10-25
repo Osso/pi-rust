@@ -118,7 +118,7 @@ impl Fixture {
     fn reconstructed(&self) -> SettingsManager {
         SettingsManager::create(
             &JsString::from(self.project.to_str().unwrap()),
-            Some(&JsString::from((&self.agent).to_string_lossy().as_ref())),
+            Some(&JsString::from(self.agent.to_string_lossy().as_ref())),
             Default::default(),
         )
         .unwrap()

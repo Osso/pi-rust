@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_manager::{
     ForkEntrySelection, NewSessionOptions, SessionManager, SessionManagerError, find_most_recent_session,
@@ -98,7 +97,7 @@ fn run_native(case: &str, fixture: &Fixture, dir: &JsString) -> Result<Value, Se
             Ok(read_snapshot(&manager))
         }
         "fork" | "fork-empty-from" => {
-            let selection = (case == "fork-empty-from").then(|| ForkEntrySelection::From(empty));
+            let selection = (case == "fork-empty-from").then_some(ForkEntrySelection::From(empty));
             Ok(read_snapshot(&SessionManager::fork_from(
                 &fixture.source,
                 &fixture.cwd,
@@ -222,3 +221,7 @@ fn session_manager_truthiness_matches_frozen_for_every_discovered_site() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

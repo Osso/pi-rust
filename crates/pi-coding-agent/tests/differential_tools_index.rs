@@ -1,8 +1,7 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::extensions::types::RenderShell;
 use pi_coding_agent::core::tools::{
@@ -267,3 +266,7 @@ fn availability_probe() {
         assert_eq!(json!(actual), expected["output"], "injected={injected}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

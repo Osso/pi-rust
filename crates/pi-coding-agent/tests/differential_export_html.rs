@@ -7,8 +7,7 @@
 mod env_probe;
 #[path = "support/export_fixture.rs"]
 mod export_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::encode_node_utf8;
@@ -131,7 +130,7 @@ async fn differential_export_probe() {
         .await
         .expect("rust export succeeds");
 
-        let actual_html = fs::read_to_string(&&encode_node_utf8(&actual_path)).expect("read rust html");
+        let actual_html = fs::read_to_string(encode_node_utf8(&actual_path)).expect("read rust html");
         assert_same_html(&actual_html, expected_html, theme);
     }
     // This standalone target runs the process-global cwd mutation only in its child probe.
@@ -300,3 +299,7 @@ async fn differential_missing_file_probe() {
     .expect_err("missing file must fail");
     assert_eq!(error.message(), expected["error"].as_str().unwrap());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

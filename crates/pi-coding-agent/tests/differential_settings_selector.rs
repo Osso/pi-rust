@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::types::ThinkingLevel;
 use pi_ai::types::Transport;
@@ -74,10 +73,10 @@ impl Events {
         self.values
             .borrow_mut()
             .push(json!([name, value.as_ref().map(stringify_lossless)]));
-        if name == "onThemePreview" {
-            if let Some(colors) = &self.preview_colors {
-                set_colors(colors);
-            }
+        if name == "onThemePreview"
+            && let Some(colors) = &self.preview_colors
+        {
+            set_colors(colors);
         }
         if name == self.fail {
             throw_uncaught("Error", format!("callback {name}"));
@@ -134,16 +133,14 @@ fn callbacks(events: &Events, preview: bool) -> Rc<SettingsCallbacks> {
     Rc::new(SettingsCallbacks {
         on_auto_compact_change: owned(events, "onAutoCompactChange", JsValue::Bool),
         on_show_images_change: owned(events, "onShowImagesChange", JsValue::Bool),
-        on_image_width_cells_change: owned(events, "onImageWidthCellsChange", |value| JsValue::Number(value as f64)),
+        on_image_width_cells_change: owned(events, "onImageWidthCellsChange", JsValue::Number),
         on_auto_resize_images_change: owned(events, "onAutoResizeImagesChange", JsValue::Bool),
         on_block_images_change: owned(events, "onBlockImagesChange", JsValue::Bool),
         on_enable_skill_commands_change: owned(events, "onEnableSkillCommandsChange", JsValue::Bool),
         on_steering_mode_change: owned(events, "onSteeringModeChange", steering),
         on_follow_up_mode_change: owned(events, "onFollowUpModeChange", steering),
         on_transport_change: owned(events, "onTransportChange", enum_value::<Transport>),
-        on_http_idle_timeout_ms_change: owned(events, "onHttpIdleTimeoutMsChange", |value| {
-            JsValue::Number(value as f64)
-        }),
+        on_http_idle_timeout_ms_change: owned(events, "onHttpIdleTimeoutMsChange", JsValue::Number),
         on_thinking_level_change: owned(events, "onThinkingLevelChange", enum_value::<ThinkingLevel>),
         on_theme_change: text(events, "onThemeChange"),
         on_theme_preview: preview.then(|| text(events, "onThemePreview")),
@@ -155,10 +152,10 @@ fn callbacks(events: &Events, preview: bool) -> Rc<SettingsCallbacks> {
         on_double_escape_action_change: owned(events, "onDoubleEscapeActionChange", double_escape),
         on_tree_filter_mode_change: owned(events, "onTreeFilterModeChange", tree_filter),
         on_show_hardware_cursor_change: owned(events, "onShowHardwareCursorChange", JsValue::Bool),
-        on_editor_padding_x_change: owned(events, "onEditorPaddingXChange", |value| JsValue::Number(value as f64)),
+        on_editor_padding_x_change: owned(events, "onEditorPaddingXChange", JsValue::Number),
         on_output_pad_change: owned(events, "onOutputPadChange", |value| JsValue::Number(value as f64)),
         on_autocomplete_max_visible_change: owned(events, "onAutocompleteMaxVisibleChange", |value| {
-            JsValue::Number(value as f64)
+            JsValue::Number(value)
         }),
         on_quiet_startup_change: owned(events, "onQuietStartupChange", JsValue::Bool),
         on_default_project_trust_change: owned(
@@ -483,3 +480,7 @@ fn settings_state_callbacks_and_submenu_sequences_match_frozen() {
 
     assert!(mismatches.is_empty(), "settings mismatches: {mismatches:?}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

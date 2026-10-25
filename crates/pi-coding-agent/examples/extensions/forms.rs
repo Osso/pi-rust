@@ -82,7 +82,7 @@ pub fn option_lines(
             lines,
             width,
             &prefix,
-            &theme.fg(
+            theme.fg(
                 if selected || (*other && editing) {
                     C::Accent
                 } else {
@@ -92,14 +92,14 @@ pub fn option_lines(
             ),
         );
         if let Some(description) = description.as_ref().filter(|s| !s.is_empty()) {
-            wrap_prefixed(lines, width, "     ", &theme.fg(C::Muted, description));
+            wrap_prefixed(lines, width, "     ", theme.fg(C::Muted, description));
         }
     }
 }
 
 pub fn editor_lines(lines: &mut Vec<JsString>, width: usize, theme: &Theme, editor: &mut Editor) {
     lines.push(JsString::default());
-    wrap_prefixed(lines, width, " ", &theme.fg(C::Muted, "Your answer:"));
+    wrap_prefixed(lines, width, " ", theme.fg(C::Muted, "Your answer:"));
     lines.extend(
         pi_tui::tui::Component::render(editor, width.saturating_sub(2).max(1))
             .into_iter()

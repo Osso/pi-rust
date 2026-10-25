@@ -1,7 +1,5 @@
-#[path = "support/corpus.rs"]
-mod corpus;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_corpus as corpus;
+use crate::shared_oracle as oracle;
 
 use corpus::Corpus;
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions, SnapshotOptions};

@@ -299,3 +299,9 @@ async fn prints_usage_for_help_and_unknown_flags() {
 fn default_stdio_io_is_constructible() {
     let _io = StdioLoginIo::default();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

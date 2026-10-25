@@ -126,7 +126,7 @@ fn persists_truncated_output_to_the_configured_temp_file() {
 
     assert_eq!(
         snapshot.full_output_path.as_ref(),
-        Some(path.to_str().unwrap()).map(JsString::from).as_ref()
+        Some(JsString::from(path.to_str().unwrap())).as_ref()
     );
     assert_eq!(fs::read(&path).unwrap(), b"a\nb\nc\n");
 }
@@ -176,7 +176,7 @@ fn persists_all_raw_chunks_once_the_output_exceeds_the_limits() {
 
     assert_eq!(
         snapshot.full_output_path.as_ref(),
-        Some(path.to_str().unwrap()).map(JsString::from).as_ref()
+        Some(JsString::from(path.to_str().unwrap())).as_ref()
     );
     assert_eq!(fs::read(&path).unwrap(), b"a\nb\n");
 }

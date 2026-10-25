@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::messages::CustomMessageContent;

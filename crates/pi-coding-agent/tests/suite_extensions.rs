@@ -86,3 +86,35 @@ pub mod raw_extension_dialogs;
 pub mod raw_extension_ui_types;
 #[path = "session_autoname.rs"]
 pub mod session_autoname;
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/bundled_extension_load.rs"]
+pub mod shared_bundled_extension_load;
+#[path = "support/bundled_extensions.rs"]
+pub mod shared_bundled_extensions;
+#[path = "../examples/extensions/doom_overlay/doom_engine.rs"]
+pub mod shared_doom_engine;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/extension_examples_e.rs"]
+pub mod shared_extension_examples_e;
+#[path = "support/extension_examples_l_games.rs"]
+pub mod shared_extension_examples_l_games;
+#[path = "support/extension_forms.rs"]
+pub mod shared_extension_forms;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "../examples/extensions/forms.rs"]
+pub mod shared_forms;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;
+#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
+pub mod shared_tui_virtual_terminal;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

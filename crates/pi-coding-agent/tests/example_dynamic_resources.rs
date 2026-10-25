@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/dynamic-resources/index.rs"]
 mod example;
-#[path = "support/extension_examples_e.rs"]
-mod harness;
+use crate::shared_extension_examples_e as harness;
 use pi_coding_agent::core::extensions::{ExtensionApi, HandlerError};
 use serde_json::json;
 

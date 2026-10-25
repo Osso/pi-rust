@@ -1,7 +1,6 @@
 //! Behavioral tests for `core/sdk.ts` and `core/agent-session-services.ts`.
 
-#[path = "support/extensions.rs"]
-mod extensions_support;
+use crate::shared_extensions as extensions_support;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -474,8 +473,7 @@ async fn create_agent_session_propagates_path_resolution_errors() {
     assert!(agent_dir_error.is_err(), "agent dir resolve errors must propagate");
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn stream_function_merges_auth_request_environment_headers_and_cwd_like_frozen() {
@@ -757,11 +755,11 @@ async fn create_agent_session_forwards_multi_agent_identity_to_extensions() {
     let context = result.session.extension_runner().create_context();
     assert_eq!(
         context.multi_agent_agent_id().expect("agent id"),
-        Some("agent_child".to_owned()).map(JsString::from)
+        Some(JsString::from("agent_child".to_owned()))
     );
     assert_eq!(
         context.multi_agent_parent_session_id().expect("parent session"),
-        (Some("parent-session".to_owned())).map(JsString::from)
+        Some(JsString::from("parent-session".to_owned()))
     );
     assert!(context.multi_agent_requires_agent_id().expect("requires agent id"));
 }
@@ -1003,5 +1001,12 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
     assert!(observed[1].contains(&format!(r#""headers":{}"#, observed[0])));
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

@@ -2,10 +2,8 @@ use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 #[path = "../examples/sdk/02_custom_model.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_oracle as oracle;
+use crate::shared_scripted_registry as scripted_registry;
 #[path = "support/sdk_examples.rs"]
 mod support;
 
@@ -187,3 +185,9 @@ async fn streaming_stops_after_first_writer_error() {
     assert_eq!(error.message, "first failure");
     assert_eq!(*writes.lock().unwrap(), ["first"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

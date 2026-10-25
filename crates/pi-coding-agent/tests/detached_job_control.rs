@@ -14,8 +14,7 @@ use pi_coding_agent::core::session_control_db::{
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use tempfile::TempDir;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[test]
 fn cancellation_matching_ignores_incarnation_like_frozen() {

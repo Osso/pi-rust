@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 
 use std::io;
 use std::sync::{Arc, Mutex};
@@ -588,3 +587,7 @@ async fn custom_write_receives_original_path_cwd_and_content_units() {
     };
     assert_eq!(text.text, expected["text"].as_string().unwrap().clone());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+pub mod shared_ai_oracle;

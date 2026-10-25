@@ -23,7 +23,7 @@ fn stop_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> R
     if let Some(task) = timer.lock().unwrap().take() {
         task.abort();
     }
-    ctx.ui()?.set_title(&JsString::from(read_base_title(pi)?))?;
+    ctx.ui()?.set_title(&read_base_title(pi)?)?;
     Ok(())
 }
 fn start_animation(timer: &Timer, pi: &ExtensionApi, ctx: &ExtensionContext) -> Result<(), HandlerError> {

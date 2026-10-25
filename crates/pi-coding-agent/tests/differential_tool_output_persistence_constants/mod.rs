@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_tool_output::{
     MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES as MODULE_MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES,

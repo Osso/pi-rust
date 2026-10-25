@@ -2,8 +2,7 @@
 //! behavior: durable artifact replay, lost runtimes, artifact collisions, and
 //! cancelling-job settlement through a real control database.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 #[path = "support/bundled_extensions.rs"]
 #[allow(dead_code)]
 mod support;
@@ -239,7 +238,7 @@ fn write_artifact(fixture: &Fixture, job_id: &str, tool_call_id: Option<&str>, c
                 ..Default::default()
             },
             runner_process_identity: process_identity(DEAD_PID),
-            session_path: fixture.session_path.clone().into(),
+            session_path: fixture.session_path.clone(),
             started_at: 1_700_000_000_000.0,
             supervisor_process_identity: process_identity(std::process::id()),
             tool_call_id: tool_call_id.map(JsString::from),
@@ -411,7 +410,7 @@ async fn ignores_an_incomplete_trailing_record_when_reporting_a_lost_runtime() {
     assert_eq!(result.is_error, Some(true));
     let text = content_text(&result);
     assert!(text.contains("preserved output"));
-    assert!(text.contains(&format!(
+    assert!(text.contains(format!(
         "Preserved output: {}",
         artifact.output_path.to_str().expect("utf-8 test path")
     )));
@@ -636,7 +635,7 @@ async fn requires_the_tool_lifecycle_start_timestamp() {
 
 fn spawn_live_runner(artifact: &Artifact, body: &str) -> std::process::Child {
     let script = artifact.directory.join("fake-runner");
-    let body = body.replace("OUTPUT_PATH", &artifact.output_path.to_str().expect("utf-8 test path"));
+    let body = body.replace("OUTPUT_PATH", artifact.output_path.to_str().expect("utf-8 test path"));
     executable_script::write_executable_script(&script, &format!("#!/usr/bin/env python3\n{body}"));
     std::process::Command::new(&script)
         .stdin(std::process::Stdio::null())

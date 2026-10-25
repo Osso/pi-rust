@@ -1,9 +1,7 @@
 //! Differential tests for the bundled `claude-bash-hook` extension.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 use std::path::PathBuf;

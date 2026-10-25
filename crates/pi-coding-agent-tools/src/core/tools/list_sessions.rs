@@ -100,19 +100,6 @@ fn format_session_line(session: &SessionDirectoryEntry) -> JsString {
     )
 }
 
-#[cfg(test)]
-mod native_output_tests {
-    use super::*;
-
-    #[test]
-    fn session_line_keeps_raw_identity_name_and_cwd_and_quotes_goal() {
-        let wire = js_json::parse_lossless(r#"{"sessionId":"id-\ud800","sessionPath":"/session","pid":null,"status":"idle","startedAt":"now","name":"name-\ud801","goal":"goal-\ud802","cwd":"cwd-\ud803","checkStatus":"never","agentGeneration":0,"eligibleToReceive":false}"#).unwrap();
-        let session: SessionDirectoryEntry = js_json::from_value(&wire).unwrap();
-        let expected = js_json::parse_lossless(r#""id-\ud800 status=idle check=never eligible=false pid=null name=name-\ud801 goal=\"goal-\\ud802\" cwd=cwd-\ud803""#).unwrap();
-        assert_eq!(format_session_line(&session), expected.as_string().unwrap().clone());
-    }
-}
-
 impl ContextTool<Option<ExtensionContext>> for ListSessionsTool {
     fn name(&self) -> &str {
         NAME
@@ -201,4 +188,17 @@ pub fn create_list_sessions_tool_definition() -> ToolDefinition {
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
+}
+
+#[cfg(test)]
+mod native_output_tests {
+    use super::*;
+
+    #[test]
+    fn session_line_keeps_raw_identity_name_and_cwd_and_quotes_goal() {
+        let wire = js_json::parse_lossless(r#"{"sessionId":"id-\ud800","sessionPath":"/session","pid":null,"status":"idle","startedAt":"now","name":"name-\ud801","goal":"goal-\ud802","cwd":"cwd-\ud803","checkStatus":"never","agentGeneration":0,"eligibleToReceive":false}"#).unwrap();
+        let session: SessionDirectoryEntry = js_json::from_value(&wire).unwrap();
+        let expected = js_json::parse_lossless(r#""id-\ud800 status=idle check=never eligible=false pid=null name=name-\ud801 goal=\"goal-\\ud802\" cwd=cwd-\ud803""#).unwrap();
+        assert_eq!(format_session_line(&session), expected.as_string().unwrap().clone());
+    }
 }

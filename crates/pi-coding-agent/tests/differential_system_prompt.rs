@@ -11,3 +11,7 @@ fn system_prompt_matches_the_pinned_typescript_source() {
 fn system_prompt_probe_child() {
     system_prompt_oracle::run_probe();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

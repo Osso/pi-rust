@@ -1,9 +1,5 @@
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::bundled_extensions::goal::goal_review_evidence::create_goal_review_evidence_controller;
 use pi_coding_agent::bundled_extensions::goal::goal_state::{clear_goal, load_or_migrate_active_goal, save_goal};

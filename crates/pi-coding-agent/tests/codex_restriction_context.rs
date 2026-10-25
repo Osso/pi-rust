@@ -1,5 +1,4 @@
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
 use pi_ai::InputSource;
 use pi_coding_agent::core::agent_session::PromptOptions;
 use pi_coding_agent::core::auth_storage::AuthStorage;

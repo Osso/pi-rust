@@ -1,13 +1,10 @@
+use crate::shared_extensions as fixture;
+use crate::shared_oracle as oracle;
+use crate::shared_ui_thread as ui_thread;
 use futures_util::FutureExt;
+use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
-#[path = "extensions.rs"]
-mod fixture;
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "ui_thread.rs"]
-mod ui_thread;
-use pi_coding_agent::core::{extensions::*, model_registry::ModelRegistry, session_manager::SessionManager};
 use serde_json::{Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
@@ -110,7 +107,8 @@ impl ExtensionUiContext for Ui {
         Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
-                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("theme/dark.json")
                         .to_str()
                         .expect("fixture path must be UTF-8"),
                 ),

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::{
     auth_storage::AuthStorage,
@@ -360,3 +359,7 @@ fn isolated_registry_live_map_probe() {
     let actual = js_json!({"mode":mode,"first":first,"second":second,"calls":*calls.lock().unwrap()});
     assert_eq!(actual, expected);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

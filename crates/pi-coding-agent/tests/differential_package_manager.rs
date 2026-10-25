@@ -1,7 +1,6 @@
 //! Differential tests for `core/package-manager.ts` against the pinned TypeScript module.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 #[path = "support/oracle.rs"]
 #[allow(dead_code)]
 mod oracle;

@@ -3,12 +3,8 @@
 use pi_js_compat::js_json::JsString;
 #[path = "support/bundled_extension_commands.rs"]
 mod command_support;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 #[path = "support/bundled_extension_tool.rs"]
 mod tool_support;
 
@@ -211,7 +207,7 @@ async fn session_archive_matches_typescript() {
     let manager = Arc::new(std::sync::Mutex::new(manager));
 
     let harness = Harness::load_full(
-        &temp.path().to_str().expect("utf-8 test path"),
+        temp.path().to_str().expect("utf-8 test path"),
         Arc::clone(&manager),
         Arc::new(RecordingUi::default()),
         Some(db_path.clone()),
@@ -452,7 +448,7 @@ impl pi_coding_agent::bundled_extensions::debug::DebugReplController for Recordi
                 .lock()
                 .unwrap()
                 .debug
-                .push(("enable".to_owned().into(), Some(session_id.clone().into())));
+                .push(("enable".to_owned().into(), Some(session_id.clone())));
             Ok(JsString::join([JsString::from("debug "), session_id], ""))
         })
     }
@@ -725,3 +721,11 @@ fn session_archive_shutdown_errors_match_frozen_stderr() {
         );
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled_extension_load.rs"]
+pub mod shared_bundled_extension_load;
+#[path = "support/bundled_extensions.rs"]
+pub mod shared_bundled_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

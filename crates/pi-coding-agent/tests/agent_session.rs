@@ -10,8 +10,7 @@ mod extension_sends;
 mod headless_lifecycle;
 #[path = "agent_session_html_renderers.rs"]
 mod html_renderers;
-#[path = "support/image_fixtures.rs"]
-mod image_fixtures;
+use crate::shared_image_fixtures as image_fixtures;
 #[path = "agent_session_management_lifecycle.rs"]
 mod management_lifecycle;
 #[path = "agent_session_manual_tool_compaction.rs"]
@@ -22,8 +21,7 @@ mod prompt_images;
 mod thinking_cycle;
 #[path = "agent_session_tool_relocation.rs"]
 mod tool_relocation;
-#[path = "support/oracle.rs"]
-mod tools_oracle;
+use crate::shared_oracle as tools_oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -1806,11 +1804,10 @@ async fn execute_bash_records_streams_and_commits() {
     let sink = Arc::clone(&updates);
     let committed = Arc::new(AtomicUsize::new(0));
     let committed_sink = Arc::clone(&committed);
-    fixture.session.subscribe(Arc::new(move |event| match event {
-        AgentSessionEvent::BashMessagesCommitted(_) => {
+    fixture.session.subscribe(Arc::new(move |event| {
+        if let AgentSessionEvent::BashMessagesCommitted(_) = event {
             committed_sink.fetch_add(1, Ordering::SeqCst);
         }
-        _ => {}
     }));
 
     let result = fixture
@@ -2698,9 +2695,9 @@ async fn update_compaction_summary_returns_the_persistence_error() {
         )
     };
     if std::path::Path::new(&encode_node_utf8(&session_file)).exists() {
-        std::fs::remove_file(&encode_node_utf8(&session_file)).expect("remove session file");
+        std::fs::remove_file(encode_node_utf8(&session_file)).expect("remove session file");
     }
-    std::fs::create_dir(&encode_node_utf8(&session_file)).expect("replace with directory");
+    std::fs::create_dir(encode_node_utf8(&session_file)).expect("replace with directory");
 
     let before = session.messages();
     let error = session
@@ -3971,8 +3968,7 @@ async fn persist_failures_are_uncaught_like_the_typescript_event_handler() {
     assert!(!error.message.is_empty());
 }
 
-#[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;
 
 async fn idle_fixture(api: &str, settings: serde_json::Value) -> Fixture {
     fixture_with_multi_agent(
@@ -5080,3 +5076,11 @@ async fn restriction_discards_late_validation_without_overwriting_new_tool_selec
         fixture.session.dispose();
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/image_fixtures.rs"]
+pub mod shared_image_fixtures;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

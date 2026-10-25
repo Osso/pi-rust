@@ -310,3 +310,7 @@ fn clipboard_image_is_a_plain_value() {
     };
     assert_eq!(image.bytes, vec![1, 2]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

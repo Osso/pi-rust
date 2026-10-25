@@ -198,8 +198,7 @@ impl ToolSelector {
 impl ExtensionUiComponent for ToolSelector {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut lines = vec![
-            self.theme
-                .fg(ThemeColor::Accent, &self.theme.bold("Tool Configuration")),
+            self.theme.fg(ThemeColor::Accent, self.theme.bold("Tool Configuration")),
             JsString::default(),
         ];
         lines.extend(self.list().render(width));

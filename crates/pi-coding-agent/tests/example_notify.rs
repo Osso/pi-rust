@@ -1,11 +1,9 @@
 #[path = "../examples/extensions/notify.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
+use crate::shared_extensions as extension_support;
 #[path = "support/extension_examples_a.rs"]
 mod harness;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::extensions::ExtensionFactory;
 use serde_json::json;
 use std::os::unix::fs::PermissionsExt;
@@ -118,3 +116,9 @@ async fn protocols_precedence_external_fixture_and_output_errors_match_ts() {
     assert_eq!(actual["trace"], json!([]));
     pi_js_compat::process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

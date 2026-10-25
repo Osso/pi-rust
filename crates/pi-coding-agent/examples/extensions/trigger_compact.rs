@@ -33,7 +33,7 @@ pub fn trigger_compact_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
         None,
         Arc::new(|args, ctx| {
             Box::pin(async move {
-                let instructions = (&args).trim();
+                let instructions = args.trim();
                 let instructions = (!instructions.is_empty()).then(|| instructions.to_owned());
                 trigger_compaction(ctx.context, instructions)
             })

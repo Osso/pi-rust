@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::{cell::RefCell, rc::Rc};
 
@@ -484,3 +483,7 @@ async fn extension_editor_real_process_order_focus_and_live_command_match_frozen
         })
         .await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

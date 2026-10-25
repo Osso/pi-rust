@@ -573,8 +573,7 @@ async fn child_runtime_rejects_orchestration_tools() {
     );
 }
 
-#[path = "support/oracle.rs"]
-mod repin_oracle;
+use crate::shared_oracle as repin_oracle;
 
 #[tokio::test]
 async fn child_response_ignores_inherited_text_and_fails_terminal_model_error() {
@@ -1361,7 +1360,7 @@ async fn steering_requests_reject_unknown_agents() {
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
             control_db_path: test.control_db_path.clone().into(),
-            session_id: test.session_path.clone().into(),
+            session_id: test.session_path.clone(),
         },
         None,
     )

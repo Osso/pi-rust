@@ -1,6 +1,5 @@
 //! Real SQLite + evaluator-lifetime differential at the frozen service boundary.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::{
     core::session_control_db::{

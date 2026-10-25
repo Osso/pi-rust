@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::runtime_message_markers::{
     RuntimeMessageMarker, is_duplicate_turn_assistant_message, is_duplicate_turn_guard_message,

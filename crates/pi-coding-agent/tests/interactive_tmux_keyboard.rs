@@ -4,8 +4,7 @@
 //! The host tmux is never consulted: the environment and the tmux program are
 //! injected, and the program is a recording script.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use pi_js_compat::js_json::JsString;
 use std::ffi::OsStr;
@@ -66,7 +65,7 @@ async fn warns_when_extended_keys_are_off() {
 
     assert_eq!(
         check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
-        Some(EXTENDED_KEYS_OFF_WARNING.to_owned()).map(JsString::from)
+        Some(JsString::from(EXTENDED_KEYS_OFF_WARNING.to_owned()))
     );
 }
 
@@ -78,7 +77,7 @@ async fn warns_when_the_format_is_xterm() {
 
     assert_eq!(
         check_tmux_keyboard_setup_with(tmux_env(), &JsString::from(&path.display().to_string())).await,
-        Some(EXTENDED_KEYS_FORMAT_WARNING.to_owned()).map(JsString::from)
+        Some(JsString::from(EXTENDED_KEYS_FORMAT_WARNING.to_owned()))
     );
 }
 

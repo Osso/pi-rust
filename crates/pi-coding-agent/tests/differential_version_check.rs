@@ -1,6 +1,5 @@
 //! Actual frozen semver comparison/newer proof. Release transport is in version_check_release.rs.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::version_check::{compare_package_versions, is_newer_package_version};
 use pi_js_compat::js_json::JsString;

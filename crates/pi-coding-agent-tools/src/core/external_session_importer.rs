@@ -518,6 +518,6 @@ mod native_error_tests {
             + JsString::from_utf16(vec![0xd800]);
         let error = read_json_lines(&path).unwrap_err();
         // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
-        assert!(error.message().contains(&JsString::from(encode_node_utf8(&path))));
+        assert!(error.message().contains(JsString::from(encode_node_utf8(&path))));
     }
 }

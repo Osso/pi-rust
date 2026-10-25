@@ -103,9 +103,8 @@ fn null_lines_and_invalid_timestamps_throw_like_the_source() {
     let home = TempDir::new().expect("home");
     let sessions = TempDir::new().expect("sessions");
     write_source(home.path(), ".claude/projects/p/n.jsonl", &["null"]);
-    let error = import_external_session_alias(&"claude/n".into(), &options(&home, &sessions))
-        .err()
-        .expect("null line throws");
+    let error =
+        import_external_session_alias(&"claude/n".into(), &options(&home, &sessions)).expect_err("null line throws");
     assert_eq!(error.message(), "Cannot read properties of null (reading 'sessionId')");
 
     write_source(
@@ -114,8 +113,7 @@ fn null_lines_and_invalid_timestamps_throw_like_the_source() {
         &[r#"{"timestamp":"not a date","message":{"role":"user","content":"hi"}}"#],
     );
     let error = import_external_session_alias(&"claude/t".into(), &options(&home, &sessions))
-        .err()
-        .expect("invalid timestamp throws");
+        .expect_err("invalid timestamp throws");
     assert_eq!(error.message(), "Invalid time value");
 }
 

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::empty_session_cleanup::{remove_abandoned_empty_session, sweep_abandoned_empty_sessions};
 use pi_coding_agent::core::session_control_db::{

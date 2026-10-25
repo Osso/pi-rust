@@ -3,8 +3,7 @@
 //! Runs one multi-turn scenario through the real TypeScript SDK and the Rust
 //! port, then compares event summaries and normalized session JSONL.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -101,7 +100,6 @@ fn faux() -> pi_ai::providers::faux::FauxProviderHandle {
             max: Some(1.0),
         }),
         tokens_per_second: Some(1_000_000.0),
-        ..Default::default()
     })
 }
 
@@ -231,7 +229,7 @@ async fn run_rust(dir: &str) -> Value {
             &std::path::Path::new(dir).join("export.jsonl").display().to_string(),
         )))
         .expect("export jsonl");
-    let export_lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&export_path))
+    let export_lines: Vec<Value> = std::fs::read_to_string(encode_node_utf8(&export_path))
         .expect("export file")
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -265,7 +263,7 @@ async fn run_rust(dir: &str) -> Value {
         .expect("navigate");
     let stats = session.get_session_stats();
     let session_file = session.session_file().expect("session file");
-    let lines: Vec<Value> = std::fs::read_to_string(&encode_node_utf8(&session_file))
+    let lines: Vec<Value> = std::fs::read_to_string(encode_node_utf8(&session_file))
         .expect("session file")
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -525,5 +523,10 @@ fn assert_json_seq(actual: &Value, expected: &Value, label: &str) {
     }
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

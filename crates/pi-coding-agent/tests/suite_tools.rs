@@ -113,3 +113,17 @@ pub mod tool_definition_wrapper;
 pub mod tool_detach_registry;
 #[path = "tool_detach_snapshot.rs"]
 pub mod tool_detach_snapshot;
+
+// Shared support is compiled once per integration target.
+#[path = "../../pi-ai/tests/support/oracle.rs"]
+pub mod shared_ai_oracle;
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

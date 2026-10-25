@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::extensions::types::{

@@ -2,8 +2,7 @@
 mod cases;
 #[path = "support/custom_anthropic_lifecycle.rs"]
 mod lifecycle;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/custom_anthropic_wire.rs"]
 mod wire;
 
@@ -374,3 +373,7 @@ fn pinned_example_valid_text_start_survives_native_event_boundary() {
         "valid source event must survive the Provider trait's typed output boundary unchanged"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

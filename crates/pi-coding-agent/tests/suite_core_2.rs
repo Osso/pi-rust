@@ -124,3 +124,19 @@ pub mod executable_script_race;
 pub mod exif_orientation;
 #[path = "fallible_notifications.rs"]
 pub mod fallible_notifications;
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/corpus.rs"]
+pub mod shared_corpus;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/image_fixtures.rs"]
+pub mod shared_image_fixtures;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

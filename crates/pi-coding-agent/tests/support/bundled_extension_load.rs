@@ -5,7 +5,7 @@ use std::sync::Arc;
 use pi_coding_agent::core::extensions::types::{ExtensionApi, HandlerError};
 use pi_coding_agent::core::session_manager::SessionManager;
 
-use super::support::{Harness, RecordingUi};
+use crate::shared_bundled_extensions::{Harness, RecordingUi};
 
 impl Harness {
     pub async fn load(

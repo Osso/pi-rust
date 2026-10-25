@@ -94,3 +94,17 @@ pub mod tool_execution_renderer_errors;
 pub mod tool_renderer;
 #[path = "tool_renderers.rs"]
 pub mod tool_renderers;
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/render_owner.rs"]
+pub mod shared_render_owner;
+#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
+pub mod shared_tui_virtual_terminal;

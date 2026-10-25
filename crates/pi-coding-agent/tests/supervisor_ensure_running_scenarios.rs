@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::resident_console_transport::{ResidentConsoleIdentity, ResidentConsoleManagedBy};
 use pi_coding_agent::supervisor::ensure_running::*;
 use pi_js_compat::js_json as json;

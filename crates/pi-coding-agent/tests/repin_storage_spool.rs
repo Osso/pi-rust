@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
 use pi_js_compat::abort::AbortReason;
@@ -247,3 +246,7 @@ fn spool_callback_and_worker_errors_match_frozen_cleanup_and_error_values() {
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

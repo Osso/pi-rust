@@ -1,14 +1,9 @@
 //! Frozen/default native provisioning against a private fake authsudo, never a live broker.
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
+use crate::shared_bundled_extensions as support;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -260,3 +255,13 @@ async fn ask_secret_default_process_probe() {
     )
     .unwrap();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled_extension_load.rs"]
+pub mod shared_bundled_extension_load;
+#[path = "support/bundled_extensions.rs"]
+pub mod shared_bundled_extensions;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

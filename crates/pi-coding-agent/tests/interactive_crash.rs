@@ -11,10 +11,8 @@ use std::time::Duration;
 
 use pi_coding_agent::modes::interactive::{is_dead_terminal_error, terminal_error_message};
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 #[path = "support/pty.rs"]
 mod pty;
 #[path = "support/resource_display_home.rs"]
@@ -512,3 +510,9 @@ fn session_path_render_home_failure_restores_terminal_before_crash_report() {
         "native crash must not print a Rust panic: {text}"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentToolResult;
 use pi_ai::types::{TextContent, TextOrImageContent};
@@ -54,8 +53,7 @@ fn result_cap_matches_frozen_for_json_details_and_raw_text() {
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 #[test]
 fn update_spill_failure_is_synchronous_and_catchable() {
@@ -86,12 +84,13 @@ fn spill_failure_probe() {
         let (_runner, context) = tool_context::TestContextBuilder::new("/tmp", session).build().await;
         let blocked = std::env::temp_dir();
         let mut oracle = oracle::TsOracle::spawn_with_environment("tool-definition-wrapper-oracle.ts", "packages/coding-agent/src/core/tools/tool-definition-wrapper.ts", &[("TMPDIR", blocked.parent().unwrap().as_os_str().to_owned())]);
+        let output_log_pattern = regex::Regex::new("pi-tool-[0-9a-f]{16}\\.log").unwrap();
         for catches in [true, false] {
             let expected = oracle.request(&pi_js_compat::js_json!({"id": 2, "operation": "spill-failure", "catch": catches, "tmpdir": blocked.to_str().unwrap()}));
             assert_eq!(expected["ok"], pi_js_compat::js_json!(true), "{expected:?}");
             let trace = Arc::new(Mutex::new(Vec::<String>::new()));
             let captured = Arc::clone(&trace);
-            let mut definition = create_tool_definition_from_agent_tool(pi_coding_agent::core::tools::read::create_read_tool(&JsString::from("/tmp"), Default::default()));
+            let mut definition = create_tool_definition_from_agent_tool(pi_coding_agent::core::tools::read::create_read_tool(JsString::from("/tmp"), Default::default()));
             definition.execute = Arc::new(move |_, _, _, update, _| {
                 let captured = Arc::clone(&captured);
                 Box::pin(async move {
@@ -108,7 +107,7 @@ fn spill_failure_probe() {
             let actual = tool.execute("call".into(), pi_js_compat::js_json!({}), None, Arc::new(|_| Ok(())), None).await;
             let mut actual = match actual { Ok(result) => pi_js_compat::js_json!({"result": result}), Err(error) => {
                 let message = encode_node_utf8(&error.message);
-                let normalized = regex::Regex::new("pi-tool-[0-9a-f]{16}\\.log").unwrap().replace_all(&message, "pi-tool-<id>.log").into_owned();
+                let normalized = output_log_pattern.replace_all(&message, "pi-tool-<id>.log").into_owned();
                 pi_js_compat::js_json!({"error": normalized})
             }};
             actual.as_object_mut().unwrap().insert("trace".into(), json::to_value(&*trace.lock().unwrap()).unwrap());
@@ -191,7 +190,7 @@ async fn timer_update_failure_probe() {
     }
     pi_coding_agent::utils::uncaught::install_uncaught_handler();
     let tool = create_bash_tool(
-        &JsString::from("/tmp"),
+        JsString::from("/tmp"),
         BashToolOptions {
             operations: Some(Arc::new(ScriptedBash)),
             ..Default::default()
@@ -224,3 +223,9 @@ async fn timer_update_failure_probe() {
         }
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

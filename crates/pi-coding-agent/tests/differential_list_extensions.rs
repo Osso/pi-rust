@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::sync::{Arc, Mutex};
 
@@ -38,7 +37,7 @@ async fn build_extension(spec: &ExtensionSpec) -> Extension {
             .expect("extension setup runs once");
         for index in 0..commands {
             api.register_command(
-                &format!("command{index}"),
+                format!("command{index}"),
                 None,
                 None,
                 Arc::new(|_args, _ctx| Box::pin(async { Ok(()) })),

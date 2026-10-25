@@ -101,13 +101,13 @@ impl EditorBehavior for BorderStatus {
             .expect("thinking level serializes");
         let state = self.state.lock().expect("spinner state");
         let top = if state.working {
-            theme.fg(ThemeColor::Accent, &format!(" {} ", FRAMES[state.index]))
+            theme.fg(ThemeColor::Accent, format!(" {} ", FRAMES[state.index]))
         } else {
             JsString::default()
         };
         let bottom_left = theme.fg(
             ThemeColor::Muted,
-            &format!(" {model} · {} ", thinking.as_str().expect("thinking level is a string")),
+            format!(" {model} · {} ", thinking.as_str().expect("thinking level is a string")),
         );
         let cwd = self.ctx.cwd().expect("live cwd");
         let cwd = match std::env::var("HOME") {
@@ -123,9 +123,9 @@ impl EditorBehavior for BorderStatus {
             &js_format!(" {} · {}{} ", format_context(&self.ctx), cwd, branch),
         );
         let border = editor.get_border_color();
-        lines[0] = JsString::from(fit_border(&top, &JsString::from(""), width, border.as_ref()));
+        lines[0] = fit_border(&top, &JsString::from(""), width, border.as_ref());
         let last = lines.len() - 1;
-        lines[last] = JsString::from(fit_border(&bottom_left, &bottom_right, width, border.as_ref()));
+        lines[last] = fit_border(&bottom_left, &bottom_right, width, border.as_ref());
         lines
     }
 }

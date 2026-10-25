@@ -41,7 +41,7 @@ impl Remote {
         pi_js_compat::string::replace(path, &self.local, &self.cwd)
     }
     fn quote_path(&self, path: &JsString) -> String {
-        quote(&self.path(path))
+        quote(self.path(path))
     }
     async fn run(&self, command: String) -> io::Result<Vec<u8>> {
         let output = command_for(&self.host, &JsString::from(&command))
@@ -108,7 +108,7 @@ impl WriteOperations for Remote {
         Box::pin(async move {
             self.run(format!(
                 "echo {} | base64 -d > {}",
-                quote(&buffer_to_base64(
+                quote(buffer_to_base64(
                     pi_js_compat::js_json::encode_node_utf8(content).as_bytes()
                 )),
                 self.quote_path(path)

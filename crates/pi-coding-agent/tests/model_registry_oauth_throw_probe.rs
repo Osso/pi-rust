@@ -1,6 +1,5 @@
 //! Actual frozen callback throws, including a throw from the request-auth catch itself.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::{
     js_json,
     js_json::{JsString, JsValue},

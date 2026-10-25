@@ -1,7 +1,6 @@
 //! Port of `packages/coding-agent/test/search-current-session-history-tool.test.ts`.
 
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 use std::sync::{Arc, Mutex};
 

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::tools::output_accumulator::{OutputAccumulator, OutputAccumulatorOptions};
 use serde_json::{Value, json};
@@ -26,7 +25,7 @@ fn last_error(output: &Output) -> Value {
         .filter(|line| line.contains("\"event\""))
         .map(|line| serde_json::from_str::<Value>(&line[line.find('{').unwrap()..]).unwrap())
         .filter_map(|frame| frame.get("error").cloned())
-        .last()
+        .fold(None, |_, error| Some(error))
         .expect("original native error frame");
     if let Some(path) = error["path"].as_str().map(str::to_owned) {
         assert!(path.contains("/pi-acc"), "{error}");
@@ -238,3 +237,7 @@ async fn accumulator_stream_failure_child() {
         panic!("expected an uncaught stream error before the bounded wait expired");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

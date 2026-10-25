@@ -22,7 +22,7 @@ pub fn hidden_thinking_label_extension(pi: &ExtensionApi) -> Result<(), HandlerE
         Arc::new(move |args, ctx| {
             let current = label.clone();
             Box::pin(async move {
-                let next = (&args).trim();
+                let next = args.trim();
                 let ui = ctx.ui()?;
                 if next.is_empty() {
                     *current.lock().unwrap() = DEFAULT_LABEL.into();
@@ -34,10 +34,7 @@ pub fn hidden_thinking_label_extension(pi: &ExtensionApi) -> Result<(), HandlerE
                 } else {
                     *current.lock().unwrap() = next.clone();
                     ui.set_hidden_thinking_label(Some(&next));
-                    ui.notify(
-                        &JsString::from(js_format!("Hidden thinking label set to: {}", next)),
-                        None,
-                    )?;
+                    ui.notify(&js_format!("Hidden thinking label set to: {}", next), None)?;
                 }
                 Ok(())
             })

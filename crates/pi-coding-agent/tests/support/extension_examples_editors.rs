@@ -1,12 +1,9 @@
+use crate::shared_extensions as extensions;
+use crate::shared_oracle as oracle;
+use crate::shared_tui_virtual_terminal as virtual_terminal;
 use futures_util::FutureExt;
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
-#[path = "extensions.rs"]
-mod extensions;
-#[path = "oracle.rs"]
-mod oracle;
-#[path = "../../../pi-tui/tests/support/virtual_terminal.rs"]
-mod virtual_terminal;
 
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::*;

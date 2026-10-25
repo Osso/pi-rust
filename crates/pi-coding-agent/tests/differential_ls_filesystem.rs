@@ -1,7 +1,6 @@
 #![cfg(unix)]
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;

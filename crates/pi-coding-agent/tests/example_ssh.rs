@@ -1,11 +1,8 @@
 #[path = "../examples/extensions/ssh.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
-#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
-mod virtual_terminal;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
+use crate::shared_tui_virtual_terminal as virtual_terminal;
 
 use pi_coding_agent::{
     core::{extensions::*, system_prompt::BuildSystemPromptOptions, tools::bash::BashExecOptions},
@@ -405,3 +402,11 @@ async fn ssh_fixture_remote_matches_pinned_example() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
+pub mod shared_tui_virtual_terminal;

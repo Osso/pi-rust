@@ -1,9 +1,7 @@
 #[path = "support/advisory_fixture.rs"]
 mod advisory_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 #[test]
 fn durable_advisory_roundtrip_uses_only_private_kb_and_resident_fixtures() {
@@ -166,3 +164,9 @@ async fn early_guards_match_frozen_without_project_or_service_access() {
     );
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

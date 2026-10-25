@@ -1,8 +1,7 @@
 //! Differential test: theme JSON loading, validation, and ANSI resolution
 //! against the pinned TypeScript module through `oracle/coding-agent-theme-oracle.ts`.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;
@@ -276,7 +275,7 @@ fn rust_load_theme(directory: &Path, case: &Value) -> Value {
     let path = directory.join(format!("{name}.json"));
     fs::write(&path, content).expect("write differential theme");
     match load_theme_from_path(
-        &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+        &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
         Some(mode),
     ) {
         Ok(theme) => json!({

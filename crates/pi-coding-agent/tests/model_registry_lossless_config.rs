@@ -1,6 +1,5 @@
 //! Surviving models.json/auth behavior, through the frozen registry rather than removed facades.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::{
     auth_storage::AuthStorage,
     model_registry::{ModelRegistry, ProviderConfigInput, ResolvedRequestAuth},
@@ -121,3 +120,7 @@ async fn unregister_removes_registered_models_and_auth_without_touching_builtins
     );
     assert_eq!(registry.find("anthropic", "claude-opus-4-8"), Some(builtin));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

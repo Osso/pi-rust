@@ -3,8 +3,7 @@ use pi_coding_agent::core::extensions::loader::{
 };
 use pi_js_compat::js_json::JsString;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[tokio::test]
 async fn loader_resolves_relative_entries_and_manifest_absolute_paths_like_frozen() {
@@ -185,7 +184,7 @@ fn disabled_extension_identity_preserves_unpaired_units() {
     let name = JsString::from_utf16(vec![b'x' as u16, 0xd800]);
     let inline = JsString::from("<first-party:") + &name + ">";
     assert_eq!(inline_extension_name(&inline), Some(name.clone()));
-    assert!(is_extension_factory_disabled(&[name.clone()], &inline));
+    assert!(is_extension_factory_disabled(std::slice::from_ref(&name), &inline));
     assert!(!is_extension_factory_disabled(&["x�".into()], &inline));
     let path = JsString::from("/extensions/") + &name;
     assert!(is_extension_path_disabled(&[name], &path, &path));

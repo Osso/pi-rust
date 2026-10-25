@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::agent::ToolError;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::bash_executor::{BashExecutorOptions, execute_bash_with_operations};

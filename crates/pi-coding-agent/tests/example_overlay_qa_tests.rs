@@ -1,11 +1,8 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "../examples/extensions/overlay_qa_tests.rs"]
 mod overlay_qa_tests;
-#[path = "support/extensions.rs"]
-mod support;
-#[path = "support/ui_thread.rs"]
-mod ui_thread;
+use crate::shared_extensions as support;
+use crate::shared_ui_thread as ui_thread;
 
 use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;
@@ -884,3 +881,11 @@ async fn stack_renders_clamped_fill_rows_at_width_three() {
     frame.extend([empty, truncated, "╰─╯"]);
     assert_eq!(frames, vec![frame; 6]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

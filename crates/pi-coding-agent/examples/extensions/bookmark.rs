@@ -15,7 +15,7 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(move |args, ctx| {
             let api = api.clone();
             Box::pin(async move {
-                let trimmed = (&args).trim();
+                let trimmed = args.trim();
                 let label = if trimmed.is_empty() {
                     pi_js_compat::js_format!("bookmark-{}", js_number_to_string(js_now_millis()))
                 } else {
@@ -27,7 +27,7 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 if let Some(id) = id {
                     api.set_label(&JsString::from(id), Some(&JsString::from(&label)))?;
                     ui.notify(
-                        &JsString::from(pi_js_compat::js_format!("Bookmarked as: {}", label)),
+                        &pi_js_compat::js_format!("Bookmarked as: {}", label),
                         Some(NotifyType::Info),
                     )?;
                 } else {
@@ -53,7 +53,7 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 if let Some((id, label)) = bookmark {
                     api.set_label(&JsString::from(&id), None)?;
                     ui.notify(
-                        &JsString::from(pi_js_compat::js_format!("Removed bookmark: {}", label)),
+                        &pi_js_compat::js_format!("Removed bookmark: {}", label),
                         Some(NotifyType::Info),
                     )?;
                 } else {

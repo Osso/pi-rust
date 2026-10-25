@@ -1,6 +1,5 @@
 //! Opt-in native port of `examples/extensions/question.ts`.
-#[path = "forms.rs"]
-mod forms;
+use crate::shared_forms as forms;
 use forms::{FormEditor, editor_lines, option_lines, wrap_prefixed};
 use pi_agent_core::{AgentToolResult, ToolExecutionMode};
 use pi_ai::types::TextOrImageContent;
@@ -11,7 +10,6 @@ use pi_coding_agent::{
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{
     Text,
@@ -33,7 +31,7 @@ pub fn question_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
 }
 fn result(message: JsString, details: Value) -> AgentToolResult {
     let mut result = AgentToolResult::text(message);
-    result.details = Some(JsValue::from(details));
+    result.details = Some(details);
     result
 }
 async fn execute(params: Value, ctx: ExtensionContext) -> Result<AgentToolResult, HandlerError> {
@@ -125,8 +123,7 @@ impl ExtensionUiComponent for QuestionForm {
                     state.editor.editor.set_text("");
                     self.refresh(&mut state);
                 } else {
-                    self.done
-                        .call(Some(JsValue::from(json!({"answer":trimmed,"wasCustom":true}))));
+                    self.done.call(Some(json!({"answer":trimmed,"wasCustom":true})));
                 }
             }
             self.refresh(&mut state);
@@ -147,10 +144,10 @@ impl ExtensionUiComponent for QuestionForm {
                 state.editing = true;
                 self.refresh(&mut state);
             } else {
-                self.done.call(Some(JsValue::from(json!({"answer":self.params["options"][state.option]["label"],"wasCustom":false,"index":state.option+1}))));
+                self.done.call(Some(json!({"answer":self.params["options"][state.option]["label"],"wasCustom":false,"index":state.option+1})));
             }
         } else if matches_key(data, "escape") {
-            self.done.call(Some(JsValue::from(Value::Null)));
+            self.done.call(Some(Value::Null));
         }
     }
     fn invalidate(&self) {
@@ -159,16 +156,16 @@ impl ExtensionUiComponent for QuestionForm {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut state = self.state.borrow_mut();
         if let Some(cache) = &state.cache {
-            return cache.clone().into_iter().map(JsString::from).collect::<Vec<_>>();
+            return cache.clone().into_iter().collect::<Vec<_>>();
         }
         let width = width.max(1);
         let theme = &self.theme;
-        let mut lines = vec![theme.fg(C::Accent, &"─".repeat(width))];
+        let mut lines = vec![theme.fg(C::Accent, "─".repeat(width))];
         wrap_prefixed(
             &mut lines,
             width,
             " ",
-            &theme.fg(C::Text, self.params["question"].as_string().unwrap()),
+            theme.fg(C::Text, self.params["question"].as_string().unwrap()),
         );
         lines.push(JsString::default());
         let mut options = self.params["options"]
@@ -193,7 +190,7 @@ impl ExtensionUiComponent for QuestionForm {
             &mut lines,
             width,
             " ",
-            &theme.fg(
+            theme.fg(
                 C::Dim,
                 if state.editing {
                     "Enter to submit • Esc to go back"
@@ -202,7 +199,7 @@ impl ExtensionUiComponent for QuestionForm {
                 },
             ),
         );
-        lines.push(theme.fg(C::Accent, &"─".repeat(width)));
+        lines.push(theme.fg(C::Accent, "─".repeat(width)));
         state.cache = Some(lines.clone());
         lines
     }
@@ -211,7 +208,7 @@ fn text(value: JsString) -> ComponentRef {
     component(Text::new(value, 0, 0))
 }
 fn render_call(args: &Value, theme: &Theme) -> JsString {
-    let mut text = theme.fg(C::ToolTitle, &theme.bold("question "))
+    let mut text = theme.fg(C::ToolTitle, theme.bold("question "))
         + &theme.fg(
             C::Muted,
             args["question"]

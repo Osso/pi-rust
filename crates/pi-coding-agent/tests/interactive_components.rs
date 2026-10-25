@@ -50,7 +50,7 @@ fn theme() -> Arc<Theme> {
 }
 
 fn plain(lines: &[JsString]) -> JsString {
-    JsString::join(lines.iter().map(|line| strip_terminal_sequences(line)), "\n")
+    JsString::join(lines.iter().map(strip_terminal_sequences), "\n")
 }
 
 struct PlainMarkdownTheme;
@@ -150,7 +150,7 @@ fn agent_selection_banner_renders_the_selected_agent() {
         banner.render(200),
         vec![theme.fg(
             ThemeColor::Accent,
-            &theme.bold("Agent agent-1: Scout (waiting for input)")
+            theme.bold("Agent agent-1: Scout (waiting for input)")
         )]
     );
 

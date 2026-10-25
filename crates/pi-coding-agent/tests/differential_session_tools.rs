@@ -1,11 +1,8 @@
 //! Differential tests: session directory and session/coordination tools against the pinned TypeScript source.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use std::path::Path;
 
@@ -62,9 +59,9 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
             "metadata" => write_session_metadata(
                 control_db_path,
                 &WritableSessionMetadata {
-                    session_path: step["sessionPath"].as_string().expect("sessionPath").to_owned().into(),
-                    id: step["id"].as_string().expect("id").to_owned().into(),
-                    cwd: step["cwd"].as_string().expect("cwd").to_owned().into(),
+                    session_path: step["sessionPath"].as_string().expect("sessionPath").to_owned(),
+                    id: step["id"].as_string().expect("id").to_owned(),
+                    cwd: step["cwd"].as_string().expect("cwd").to_owned(),
                     name: step["name"].as_string().cloned(),
                     parent_session_path: step["parentSessionPath"].as_string().cloned(),
                     archived_at: None,
@@ -77,19 +74,16 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
                     created_at: step["createdAt"]
                         .as_string()
                         .unwrap_or(&JsString::from("2026-01-01T00:00:00.000Z"))
-                        .to_owned()
-                        .into(),
+                        .to_owned(),
                     modified_at: step["modifiedAt"]
                         .as_string()
                         .unwrap_or(&JsString::from("2026-01-01T00:10:00.000Z"))
-                        .to_owned()
-                        .into(),
+                        .to_owned(),
                     message_count: step["messageCount"].as_f64().map(|value| value as i64).unwrap_or(1),
                     first_message: step["firstMessage"]
                         .as_string()
                         .unwrap_or(&JsString::from("hello"))
-                        .to_owned()
-                        .into(),
+                        .to_owned(),
                 },
             )
             .expect("write metadata"),
@@ -112,7 +106,7 @@ fn apply_setup(control_db_path: &str, setup: &[Value]) {
                     control_db_path,
                     &RuntimeMailboxAddress {
                         agent_id: step["agentId"].as_string().cloned(),
-                        session_id: step["sessionId"].as_string().expect("sessionId").to_owned().into(),
+                        session_id: step["sessionId"].as_string().expect("sessionId").to_owned(),
                     },
                     pid,
                     step["sessionPath"].as_string(),
@@ -481,7 +475,7 @@ fn session_directory_broadcast_differential() {
         let rust_results = broadcast_to_sessions(
             &JsString::from(&rust_db),
             &BroadcastSessionsInput {
-                message: broadcast["message"].as_string().expect("message").to_owned().into(),
+                message: broadcast["message"].as_string().expect("message").to_owned(),
                 filters: Some(BroadcastSessionFilters {
                     session_ids: broadcast["filters"]["sessionIds"]
                         .as_array()
@@ -493,13 +487,11 @@ fn session_directory_broadcast_differential() {
                 sender_session_id: broadcast["senderSessionId"]
                     .as_string()
                     .expect("senderSessionId")
-                    .to_owned()
-                    .into(),
+                    .to_owned(),
                 sender_session_path: broadcast["senderSessionPath"]
                     .as_string()
                     .expect("senderSessionPath")
-                    .to_owned()
-                    .into(),
+                    .to_owned(),
                 sender_agent_id: broadcast["senderAgentId"].as_string().cloned(),
             },
             &directory_options(&options),
@@ -1063,7 +1055,7 @@ fn session_fixture_root() -> tempfile::TempDir {
         "sessions/short.jsonl",
         &session_file(
             "019f8def-1111-7000-8000-000000000001",
-            &root.path().join("short").to_str().expect("utf-8 test path").to_owned(),
+            root.path().join("short").to_str().expect("utf-8 test path"),
             &[("user", "short work"), ("assistant", "short reply")],
             None,
         ),
@@ -2246,7 +2238,7 @@ async fn broadcast_tool_differential() {
         "sessions/sender.jsonl",
         &session_file(
             "sender-session",
-            &root.path().to_str().expect("utf-8 test path").to_owned(),
+            root.path().to_str().expect("utf-8 test path"),
             &[],
             None,
         ),
@@ -2286,7 +2278,7 @@ async fn broadcast_tool_differential() {
         )
         .expect("open sender session");
         let context = tool_context::TestContextBuilder::new(
-            &root.path().to_str().expect("utf-8 test path").to_owned(),
+            root.path().to_str().expect("utf-8 test path").to_owned(),
             Arc::new(Mutex::new(sender)),
         )
         .control_db_path(&rust_db)
@@ -2449,3 +2441,11 @@ async fn ask_questions_tool_differential() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

@@ -47,8 +47,7 @@ impl ExtensionUiTuiBackend for Backend {
     }
 }
 
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 #[tokio::test]
 async fn status_extension_registers_widget_on_session_start_only_with_supplied_store() {

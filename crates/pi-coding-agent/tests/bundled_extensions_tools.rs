@@ -1,12 +1,8 @@
 //! Differential coverage for the `ask-secret` and `browser-cli` bundled extensions.
 
+use crate::shared_bundled_extensions as support;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/bundled_extension_load.rs"]
-mod load_support;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/bundled_extensions.rs"]
-mod support;
 
 use std::sync::Arc;
 
@@ -82,7 +78,7 @@ async fn ask_secret_matches_typescript() {
         inputs: std::sync::Mutex::new(
             [JsString::from("rei-user"), JsString::from("super-secret")]
                 .into_iter()
-                .map(|text| Some(JsString::from(text)))
+                .map(Some)
                 .collect(),
         ),
     });

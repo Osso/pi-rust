@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::extensions::types::ToolRenderContext;
 use pi_coding_agent::core::tools::read;
@@ -126,3 +125,7 @@ fn classification_child() {
     };
     println!("RESULT:{output}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

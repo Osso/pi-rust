@@ -24,3 +24,11 @@ async fn every_handoff_command_branch_and_replacement_ui_matches() {
         harness::compare("handoff", example::handoff_extension, request).await;
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

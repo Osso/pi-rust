@@ -41,7 +41,7 @@ impl ExtensionUiComponent for CustomFooter {
         }
         let left = self.theme.fg(
             ThemeColor::Dim,
-            &format!(
+            format!(
                 "↑{} ↓{} ${}",
                 format_tokens(input),
                 format_tokens(output),

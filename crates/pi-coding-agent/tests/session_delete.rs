@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use oracle::TsOracle;
 use pi_coding_agent::core::session_delete::delete_session_tree;
 use serde_json::json;
@@ -326,3 +325,7 @@ fn trash_error_messages_match_frozen() {
         assert_eq!(actual, expected["output"], "{name}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

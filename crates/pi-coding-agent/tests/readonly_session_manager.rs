@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::readonly_session_manager::create_readonly_session_manager;
 use pi_coding_agent::core::session_manager::SessionManager;

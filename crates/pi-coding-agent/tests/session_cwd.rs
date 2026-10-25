@@ -9,8 +9,7 @@ use pi_coding_agent::core::session_cwd::{
 };
 use pi_coding_agent::core::session_manager::SessionManager;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 fn issue_wire(issue: &pi_coding_agent::core::session_cwd::SessionCwdIssue) -> serde_json::Value {
     serde_json::json!({"sessionFile":issue.session_file.as_ref().map(JsString::units),"sessionCwd":issue.session_cwd.units(),"fallbackCwd":issue.fallback_cwd.units()})
@@ -476,11 +475,11 @@ fn asserts_and_reopens_with_selected_cwd() {
     assert_eq!(*reopened.get_cwd(), fallback.to_str().expect("utf-8 path"));
     assert_eq!(
         reopened.get_metadata_control_db_path(),
-        Some(control_db_path.as_str()).map(JsString::from).as_ref()
+        Some(JsString::from(control_db_path.as_str())).as_ref()
     );
     let metadata = pi_coding_agent::core::session_control_db::read_session_metadata(
         &control_db_path,
-        &session_file.display().to_string(),
+        session_file.display().to_string(),
     )
     .unwrap()
     .expect("metadata snapshot written on reopen");

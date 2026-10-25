@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/12_full_control.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_prompt.rs"]
 mod prompt;
 #[path = "support/sdk_examples.rs"]
@@ -94,7 +93,7 @@ async fn defaults_use_private_runtime_paths_sonnet_and_environment_key() {
     if let Some(expected_key) = expected_key {
         assert_eq!(
             runtime.get_api_key_for_provider("anthropic").await.unwrap().as_ref(),
-            Some(expected_key.as_str()).map(JsString::from).as_ref()
+            Some(JsString::from(expected_key.as_str())).as_ref()
         );
     }
     assert_eq!(
@@ -146,3 +145,9 @@ async fn replaces_discovery_settings_prompt_and_tools() {
         "List files in the current directory."
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

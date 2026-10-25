@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::{
     core::{keybindings::KeybindingsManager, session_manager::SessionInfo},
     modes::interactive::{
@@ -333,3 +332,7 @@ fn session_home_probe() {
     assert_eq!(expected["ok"], true, "{expected}");
     assert_eq!(native(&request), expected["output"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

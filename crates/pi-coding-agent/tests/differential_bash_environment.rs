@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsString, JsValue};
 fn source_contract(cwd: &str, raw: &JsString) -> JsValue {
@@ -169,8 +168,7 @@ async fn environment_value_validation_retains_native_property_labels() {
     );
 }
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 #[tokio::test]
 async fn native_child_envp_is_sorted_and_frozen_own_key_order_is_preserved_as_evidence() {
     let root = tempfile::tempdir().unwrap();
@@ -314,3 +312,9 @@ async fn ordered_native_env_validation_matches_js_own_keys() {
         assert_eq!(actual, expected[index]);
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

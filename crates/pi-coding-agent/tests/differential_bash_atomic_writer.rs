@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::detached_bash_runner::write_detached_bash_activation;
 use pi_coding_agent::core::session_control_db::DetachedJobOwnershipIdentity;
 use pi_js_compat::js_json as json;
@@ -151,3 +150,7 @@ fn atomic_writer_child() {
         js_json::stringify_lossless(&json!({"result":result,"temporary":snapshot(&temporary),"final":snapshot(&path)}))
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

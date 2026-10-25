@@ -1,3 +1,4 @@
+use crate::shared_ui_thread as ui_thread;
 use crate::{extension_support as fixture, oracle};
 use futures_util::FutureExt;
 use pi_coding_agent::core::auth_storage::AuthStorage;
@@ -8,8 +9,6 @@ use pi_js_compat::js_json::JsValue;
 use serde_json::{Map, Value, json};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-#[path = "ui_thread.rs"]
-mod ui_thread;
 
 #[derive(Default)]
 struct Ui {
@@ -599,7 +598,7 @@ impl pi_tui::autocomplete::AutocompleteProvider for FixtureProvider {
         let mut lines = lines.to_vec();
         lines[line] = pi_js_compat::js_format!("{}{}", lines[line].slice(0, col - prefix.len()), item.value);
         pi_tui::autocomplete::CompletionResult {
-            lines: lines.into_iter().map(JsString::from).collect::<Vec<_>>(),
+            lines: lines.into_iter().collect::<Vec<_>>(),
             cursor_line: line,
             cursor_col: col - prefix.len() + item.value.len(),
         }
@@ -783,9 +782,8 @@ fn configure_faux(
         })
     });
     faux.set_responses((0..20).map(|_| FauxResponseStep::Factory(response.clone())).collect());
-    scripted_registry::register_scripted_provider(&runtime, faux.provider);
+    scripted_registry::register_scripted_provider(runtime, faux.provider);
     model
 }
 
-#[path = "scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;

@@ -350,3 +350,7 @@ async fn linux_termux_copy_uses_termux_clipboard_set() {
     .await
     .expect("copy");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

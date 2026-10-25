@@ -113,5 +113,4 @@ pub async fn fixture() -> Fixture {
     }
 }
 
-#[path = "scripted_registry.rs"]
-mod scripted_registry;
+use crate::shared_scripted_registry as scripted_registry;

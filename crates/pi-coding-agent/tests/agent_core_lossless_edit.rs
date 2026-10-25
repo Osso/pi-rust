@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 
 use pi_coding_agent::core::tools::edit_primitives::{
     Edit, apply_edits_to_normalized_content, generate_diff_string, generate_unified_patch,
@@ -100,12 +99,12 @@ fn raw_new_text_and_path_reach_diff_and_errors_without_utf8_projection() {
         old_text: "old".into(),
         new_text: replacement.clone(),
     }];
-    let result = apply_edits_to_normalized_content(&JsString::from("old"), &edits, &path).unwrap();
+    let result = apply_edits_to_normalized_content(JsString::from("old"), &edits, &path).unwrap();
     assert_eq!(result.new_content, replacement);
     let missing = [Edit {
         old_text: "missing".into(),
         new_text: "replacement".into(),
     }];
-    let error = apply_edits_to_normalized_content(&JsString::from("old"), &missing, &path).unwrap_err();
+    let error = apply_edits_to_normalized_content(JsString::from("old"), &missing, &path).unwrap_err();
     assert!(error.message.contains(&path));
 }

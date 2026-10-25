@@ -1,7 +1,6 @@
 #[path = "support/agent_session_fixture.rs"]
 mod agent_session_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::{agent::AgentMessage, harness::types::ThinkingLevel};
 use pi_ai::types::{AssistantMessage, Model, ToolResultMessage, ToolResultRole, Usage};
@@ -54,11 +53,13 @@ fn display_model(value: &Value, base: &Model) -> Option<Model> {
 }
 fn append(manager: &Arc<Mutex<SessionManager>>, value: &Value) {
     let values = value["usage"].as_array().unwrap();
-    let mut usage = Usage::default();
-    usage.input = number(&values[0]);
-    usage.output = number(&values[1]);
-    usage.cache_read = number(&values[2]);
-    usage.cache_write = number(&values[3]);
+    let mut usage = Usage {
+        input: number(&values[0]),
+        output: number(&values[1]),
+        cache_read: number(&values[2]),
+        cache_write: number(&values[3]),
+        ..Default::default()
+    };
     usage.cost.total = number(&values[4]);
     let message = if value["kind"] == "assistant" {
         let mut message = AssistantMessage::empty("faux", "faux", "faux-1", 0.0);
@@ -369,3 +370,9 @@ async fn footer_usage_override_truthiness_and_lifecycle_match_frozen() {
     process_env::clear();
     assert!(failed.is_empty(), "footer mismatches: {failed:?}");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

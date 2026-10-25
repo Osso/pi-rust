@@ -74,14 +74,14 @@ pub fn call(args: &Value, th: &Theme, _: &ToolRenderContext) -> ComponentRef {
     for (key, label) in [("chain", "steps"), ("tasks", "tasks")] {
         if let Some(items) = args[key].as_array().filter(|a| !a.is_empty()) {
             let mode = if key == "chain" { "chain" } else { "parallel" };
-            let mut s = th.fg(C::ToolTitle, &th.bold("subagent "))
+            let mut s = th.fg(C::ToolTitle, th.bold("subagent "))
                 + &th.fg(C::Accent, &js_format!("{} ({} {})", mode, items.len(), label))
                 + &th.fg(C::Muted, &js_format!(" [{}]", scope));
             for (i, item) in items.iter().take(3).enumerate() {
                 let task = if key == "chain" {
                     text(&item["task"]).replace("{previous}", "").trim()
                 } else {
-                    text(&item["task"]).into()
+                    text(&item["task"])
                 };
                 s.push_str("\n  ");
                 if key == "chain" {
@@ -111,7 +111,7 @@ pub fn call(args: &Value, th: &Theme, _: &ToolRenderContext) -> ComponentRef {
         .filter(|s| !s.is_empty())
         .map(|s| preview(s, 60))
         .unwrap_or_else(|| "...".into());
-    txt(th.fg(C::ToolTitle, &th.bold("subagent "))
+    txt(th.fg(C::ToolTitle, th.bold("subagent "))
         + &th.fg(C::Accent, agent)
         + &th.fg(C::Muted, &js_format!(" [{}]", scope))
         + &js_format!("\n  {}", th.fg(C::Dim, &task)))
@@ -153,7 +153,7 @@ fn tool(p: &Value, th: &Theme) -> JsString {
             th.fg(C::Muted, "$ ")
                 + &th.fg(
                     C::ToolOutput,
-                    &preview(
+                    preview(
                         &a["command"]
                             .as_string()
                             .filter(|s| !s.is_empty())
@@ -173,7 +173,7 @@ fn tool(p: &Value, th: &Theme) -> JsString {
                     .filter(|n| *n != 0.0)
                     .map(|n| js_format!("-{}", pi_js_compat::number::js_number_to_string(n)))
                     .unwrap_or_default();
-                s.push_str(&th.fg(
+                s.push_str(th.fg(
                     C::Warning,
                     &js_format!(":{}{}", pi_js_compat::number::js_number_to_string(start), end),
                 ));
@@ -184,7 +184,7 @@ fn tool(p: &Value, th: &Theme) -> JsString {
             let n = text(&a["content"]).split('\n').count();
             let mut s = th.fg(C::Muted, "write ") + &th.fg(C::Accent, &path);
             if n > 1 {
-                s.push_str(&th.fg(C::Dim, &js_format!(" ({} lines)", n)));
+                s.push_str(th.fg(C::Dim, &js_format!(" ({} lines)", n)));
             }
             s
         }
@@ -221,23 +221,23 @@ fn display(items: &[Value], limit: usize, expanded: bool, th: &Theme) -> JsStrin
     let skip = items.len().saturating_sub(limit);
     let mut s = JsString::default();
     if skip > 0 {
-        s.push_str(&th.fg(C::Muted, &js_format!("... {} earlier items\n", skip)));
+        s.push_str(th.fg(C::Muted, &js_format!("... {} earlier items\n", skip)));
     }
     for item in &items[skip..] {
         if item["type"] == pi_js_compat::js_json!("text") {
             let t = text(&item["text"]);
             let t = if expanded {
-                t.into()
+                t
             } else {
                 JsString::join(t.split('\n').take(3), "\n")
             };
-            s.push_str(&th.fg(C::ToolOutput, &t));
+            s.push_str(th.fg(C::ToolOutput, &t));
         } else {
             s.push_str(&(th.fg(C::Muted, "→ ") + &tool(item, th)));
         }
         s.push_str("\n");
     }
-    s.trim_end().into()
+    s.trim_end()
 }
 fn spacer(c: &mut Container) {
     c.add_child(component(Spacer::new(1)));
@@ -306,7 +306,7 @@ pub fn result(
         let icon = th.fg(if error { C::Error } else { C::Success }, if error { "✗" } else { "✓" });
         let mut header = icon
             + " "
-            + &th.fg(C::ToolTitle, &th.bold(text(&r["agent"])))
+            + &th.fg(C::ToolTitle, th.bold(text(&r["agent"])))
             + &th.fg(C::Muted, &js_format!(" ({})", text(&r["agentSource"])));
         if error && r["stopReason"].as_string().is_some_and(|s| !s.is_empty()) {
             header.push_str(&js_format!(
@@ -396,7 +396,7 @@ pub fn result(
     };
     let header = th.fg(role, icon)
         + " "
-        + &th.fg(C::ToolTitle, &th.bold(if chain { "chain " } else { "parallel " }))
+        + &th.fg(C::ToolTitle, th.bold(if chain { "chain " } else { "parallel " }))
         + &th.fg(C::Accent, &status);
     let stats = usage(&aggregate(rs), None);
     if options.expanded && running == 0 {

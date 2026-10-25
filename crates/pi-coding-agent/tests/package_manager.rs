@@ -1,7 +1,6 @@
 //! Behavioral tests for `core/package-manager.ts`.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;
@@ -613,7 +612,7 @@ fn installed_npm_packages_resolve_from_the_managed_root() {
                 pi_coding_agent::core::package_manager::InstalledScope::User
             )
             .unwrap(),
-        (Some(fixture.agent_path("npm/node_modules/my-pkg"))).map(JsString::from)
+        Some(JsString::from(fixture.agent_path("npm/node_modules/my-pkg")))
     );
 }
 

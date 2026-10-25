@@ -14,7 +14,7 @@ pub fn session_name_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(move |args, ctx| {
             let api = api.clone();
             Box::pin(async move {
-                let name = (&args).trim();
+                let name = args.trim();
                 let message = if !name.is_empty() {
                     api.set_session_name(&name)?;
                     js_format!("Session named: {}", name)

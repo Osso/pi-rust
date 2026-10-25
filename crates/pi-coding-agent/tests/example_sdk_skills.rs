@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/04_skills.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use serde_json::json;
@@ -96,3 +95,9 @@ async fn warning_diagnostics_use_literal_node_object_inspection() {
     assert_eq!(output.text(), expected["stdout"]);
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

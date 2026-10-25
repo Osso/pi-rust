@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::html::{decode_html_entity, decode_html_entity_at};
 use pi_coding_agent::utils::syntax_highlight::{

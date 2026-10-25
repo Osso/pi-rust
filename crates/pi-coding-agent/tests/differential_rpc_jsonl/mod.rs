@@ -1,6 +1,5 @@
 mod decoder;
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 mod serialization;
 
 pub(crate) fn run() {

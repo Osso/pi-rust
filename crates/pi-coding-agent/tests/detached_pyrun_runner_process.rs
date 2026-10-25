@@ -2,8 +2,7 @@
 //! behavior at the real process boundary: the runner owns the evaluation, writes
 //! the JSONL artifact, settles the control-db job, and answers control commands.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use indexmap::IndexMap;
 use std::fs;
@@ -229,7 +228,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
     let mut data = manifest(
         &fixture,
         &job_id,
-        &fixture
+        fixture
             .directory
             .path()
             .join("activation.json")
@@ -298,7 +297,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
 
     let revision = runner.await.expect("join").expect("run");
     assert_eq!(revision, Some(2));
-    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
+    let output = fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert_eq!(
         output,
         concat!(
@@ -339,7 +338,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let mut data = manifest(
         &fixture,
         &job_id,
-        &fixture
+        fixture
             .directory
             .path()
             .join("activation.json")
@@ -432,7 +431,7 @@ while True:
     let mut data = manifest(
         &fixture,
         &JsString::from(job_id),
-        &fixture
+        fixture
             .directory
             .path()
             .join("activation.json")
@@ -444,7 +443,7 @@ while True:
     wait_for(
         || {
             Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists()
-                && fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path))
+                && fs::read_to_string(encode_node_utf8(&data.artifacts.output_path))
                     .is_ok_and(|output| output.contains("working"))
         },
         "progress",
@@ -575,7 +574,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let data = manifest(
         &fixture,
         &JsString::from(job_id),
-        &fixture
+        fixture
             .directory
             .path()
             .join("activation.json")
@@ -609,7 +608,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let status = runner.wait().expect("reap runner");
     assert!(status.success(), "runner exited with {status}");
     assert!(!Path::new(&format!("{manifest_path}.runner-error")).exists());
-    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
+    let output = fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert_eq!(
         output,
         concat!(
@@ -637,7 +636,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let data = manifest(
         &fixture,
         &JsString::from(job_id),
-        &fixture
+        fixture
             .directory
             .path()
             .join("activation.json")
@@ -672,7 +671,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
     let agent = read_agent(&fixture, &JsString::from(job_id));
     assert_eq!(agent.lifecycle, AgentLifecycle::Completed);
     assert_eq!(agent.revision, 2);
-    let output = fs::read_to_string(&encode_node_utf8(&data.artifacts.output_path)).expect("output");
+    let output = fs::read_to_string(encode_node_utf8(&data.artifacts.output_path)).expect("output");
     assert!(output.contains(r#""value":42"#), "{output}");
 }
 
@@ -684,7 +683,7 @@ async fn pi_binary_reports_a_runner_failure_to_the_runner_error_file() {
     let output = std::process::Command::new(env!("CARGO_BIN_EXE_pi"))
         .args([
             DETACHED_PYRUN_RUNNER_MODE,
-            &manifest_path.to_str().expect("utf-8 test path"),
+            manifest_path.to_str().expect("utf-8 test path"),
         ])
         .current_dir(directory.path())
         .stdin(std::process::Stdio::null())
@@ -743,3 +742,7 @@ async fn terminal_commit_failure_uses_the_frozen_error_tag() {
         "{error:?}"
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

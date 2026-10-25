@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::bundled_extensions::agents_core::mailbox_runtime::SendAgentMessageParams;
 use pi_coding_agent::bundled_extensions::agents_core::session_message_route::{
     is_remote_session_message, session_message_route_error,

@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "../../pi-tui/tests/support/virtual_terminal.rs"]
-mod virtual_terminal;
+use crate::shared_oracle as oracle;
+use crate::shared_tui_virtual_terminal as virtual_terminal;
 
 use pi_coding_agent::modes::interactive::components::render_region_container::RenderRegionContainer;
 use pi_js_compat::js_json::JsString;

@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/11_sessions.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use pi_coding_agent::core::session_manager::SessionManager;
@@ -27,7 +26,7 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
         session.persist_for_recovery().unwrap();
         let file = std::fs::File::options()
             .write(true)
-            .open(encode_node_utf8(&session.get_session_file().unwrap()))
+            .open(encode_node_utf8(session.get_session_file().unwrap()))
             .unwrap();
         file.set_modified(std::time::SystemTime::now() - std::time::Duration::from_secs(10 - index))
             .unwrap();
@@ -100,3 +99,9 @@ async fn lists_only_three_of_four_persisted_sessions_and_reopens_latest() {
     assert!(a.requests.lock().unwrap().is_empty());
     let _homes = (a.home, b.home, c.home, d.home);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

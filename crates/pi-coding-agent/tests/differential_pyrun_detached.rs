@@ -2,8 +2,7 @@
 //! formats against the pinned TypeScript module: byte-identical files, read-back
 //! serialization, and identical validation errors.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::path::Path;
 
@@ -134,7 +133,7 @@ fn manifests_and_activations_match_the_typescript_bytes() {
     let mut oracle = oracle();
     for (name, code, tool_call_id, pid, incarnation) in variants {
         let case_dir = directory.path().join(name);
-        let data = manifest(&case_dir.to_str().expect("utf-8 test path"), code, tool_call_id);
+        let data = manifest(case_dir.to_str().expect("utf-8 test path"), code, tool_call_id);
         let case_identity = identity(pid, incarnation);
         let output = write_via_oracle(&mut oracle, &case_dir, &data, &case_identity);
 
@@ -187,7 +186,7 @@ fn invalid_manifests_throw_the_typescript_message() {
     let directory = TempDir::new().expect("temp dir");
     let case_dir = directory.path().join("invalid");
     let mut oracle = oracle();
-    let data = manifest(&case_dir.to_str().expect("utf-8 test path"), "6 * 7", Some("call-1"));
+    let data = manifest(case_dir.to_str().expect("utf-8 test path"), "6 * 7", Some("call-1"));
     let output = write_via_oracle(&mut oracle, &case_dir, &data, &identity(42, None));
     let valid = output["content"].as_string().expect("oracle manifest").clone();
 
@@ -227,7 +226,7 @@ fn truncated_manifests_throw_the_typescript_json_parse_error() {
     let directory = TempDir::new().expect("temp dir");
     let case_dir = directory.path().join("truncated");
     let mut oracle = oracle();
-    let data = manifest(&case_dir.to_str().expect("utf-8 test path"), "6 * 7", Some("call-1"));
+    let data = manifest(case_dir.to_str().expect("utf-8 test path"), "6 * 7", Some("call-1"));
     let output = write_via_oracle(&mut oracle, &case_dir, &data, &identity(42, None));
     let valid = output["content"].as_string().expect("oracle manifest");
     let truncated = valid.slice(0, valid.len() / 2);

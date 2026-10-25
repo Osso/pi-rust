@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::cli::args::{
     Args, Diagnostic, DiagnosticType, ExtensionFlag, ExtensionFlagType, ListModels, Mode, UnknownFlagValue,

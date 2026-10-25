@@ -308,7 +308,7 @@ fn session_names_live_only_in_session_metadata() {
     let (_dir, db) = temp_db();
     for (id, name) in [("session-a", "Alpha"), ("session-b", "Beta")] {
         write_session_metadata(&db, &metadata(&format!("/tmp/{id}.jsonl"), id, None)).expect("metadata");
-        write_session_name(&db, &format!("/tmp/{id}.jsonl"), Some(&JsString::from(name))).expect("name");
+        write_session_name(&db, format!("/tmp/{id}.jsonl"), Some(&JsString::from(name))).expect("name");
     }
     write_session_name(&db, "/tmp/session-a.jsonl", Some(&JsString::from("Alpha renamed"))).expect("rename");
 
@@ -1564,7 +1564,7 @@ fn session_name_migration_requires_runtime_quiescence() {
         "unexpected message: {message:?}"
     );
     assert!(
-        message.contains(&std::process::id().to_string()),
+        message.contains(std::process::id().to_string()),
         "message lists the live pid"
     );
 
@@ -1829,7 +1829,7 @@ fn health_record_round_trips_all_statuses() {
 fn control_db_path_joins_control_sqlite() {
     assert_eq!(
         pi_coding_agent::core::session_control_db::get_control_db_path(pi_js_compat::node_fs::decode_node_path(
-            (&PathBuf::from("/state")).as_os_str()
+            PathBuf::from("/state").as_os_str()
         ))
         .to_utf8()
         .expect("fixture control path is scalar"),

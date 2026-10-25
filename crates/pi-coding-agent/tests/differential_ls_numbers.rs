@@ -1,7 +1,5 @@
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::AgentTool;
 use pi_ai::request::BoxFuture;
@@ -204,3 +202,9 @@ async fn rtk_ls_preserves_js_slice_limits_and_number_notices() {
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

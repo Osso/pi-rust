@@ -13,7 +13,6 @@ use pi_coding_agent::core::{
 };
 use pi_coding_agent::modes::interactive::components::bordered_loader::{BorderedLoader, BorderedLoaderOptions};
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
 use std::{rc::Rc, sync::Arc};
@@ -103,10 +102,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     AssistantText::Text(text) => text,
                     AssistantText::Incomplete(reason) => {
                         ui.notify(
-                            &JsString::from(pi_js_compat::js_format!(
-                                "Last assistant message incomplete ({})",
-                                reason
-                            )),
+                            &pi_js_compat::js_format!("Last assistant message incomplete ({})", reason),
                             Some(NotifyType::Error),
                         )?;
                         return Ok(());
@@ -156,7 +152,7 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                                     }
                                     Ok(_) | Err(_) => Value::Null,
                                 };
-                                done.call(Some(JsValue::from(value)));
+                                done.call(Some(value));
                             });
                             context.tui.request_render();
                             pi_coding_agent::core::extensions::ready_custom_component(Box::new(loader))
@@ -244,7 +240,7 @@ impl QnaLoader {
         let done = self.done.clone();
         loader.set_on_abort(Some(Rc::new(move || {
             controller_signal.abort(None);
-            done.call(Some(JsValue::from(Value::Null)));
+            done.call(Some(Value::Null));
         })));
         loader
     }

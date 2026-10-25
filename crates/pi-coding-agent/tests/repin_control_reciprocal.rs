@@ -1,8 +1,7 @@
 //! Fresh Rust public producer → same frozen TS initializes → Rust mutates → same TS reads.
-use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::{js_json, js_json as json};
 fn call(ts: &mut oracle::TsOracle, name: &str, args: Value) -> Value {

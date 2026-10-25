@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/render_owner.rs"]
-pub mod render_owner;
+use crate::shared_oracle as oracle;
+pub use crate::shared_render_owner as render_owner;
 
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_coding_agent::core::export_html::RenderedToolResult;

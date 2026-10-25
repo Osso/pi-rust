@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsValue;
 use std::fs;
@@ -62,8 +61,8 @@ fn run_scenario(oracle: &mut oracle::TsOracle, index: usize, scenario: &Scenario
     let rust_project_dir = rust_temp.path().join("project");
 
     let mut manager = SettingsManager::create(
-        &JsString::from((&rust_project_dir.to_string_lossy()).as_ref()),
-        Some(&JsString::from((&rust_agent_dir).to_string_lossy().as_ref())),
+        &JsString::from(rust_project_dir.to_string_lossy().as_ref()),
+        Some(&JsString::from(rust_agent_dir.to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .expect("settings manager");
@@ -246,36 +245,36 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
             return result.is_err();
         }
         "set_extension_paths" => {
-            manager.set_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+            manager.set_extension_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>())
         }
         "set_project_extension_paths" => {
             let result = manager
-                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
+                .set_project_extension_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
         "set_skill_paths" => {
-            manager.set_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+            manager.set_skill_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>())
         }
         "set_project_skill_paths" => {
-            let result = manager
-                .set_project_skill_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
+            let result =
+                manager.set_project_skill_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
         "set_prompt_template_paths" => {
-            manager.set_prompt_template_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+            manager.set_prompt_template_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>())
         }
         "set_project_prompt_template_paths" => {
             let result = manager.set_project_prompt_template_paths(
-                &(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>(),
+                &parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>(),
             );
             return result.is_err();
         }
         "set_theme_paths" => {
-            manager.set_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+            manager.set_theme_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>())
         }
         "set_project_theme_paths" => {
-            let result = manager
-                .set_project_theme_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>());
+            let result =
+                manager.set_project_theme_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>());
             return result.is_err();
         }
         "set_enable_skill_commands" => manager.set_enable_skill_commands(value.as_bool().unwrap()),
@@ -324,7 +323,7 @@ fn apply_step(manager: &mut SettingsManager, step: &Value, agent_dir: &Path, pro
         "flush" => manager.flush(),
         "project_write_then_revoke_same_turn" => {
             manager
-                .set_project_extension_paths(&(&parse_strings(value)).iter().map(JsString::from).collect::<Vec<_>>())
+                .set_project_extension_paths(&parse_strings(value).iter().map(JsString::from).collect::<Vec<_>>())
                 .unwrap();
             manager.set_project_trusted(false);
             manager.flush();
@@ -772,8 +771,8 @@ pub(crate) fn bidirectional() {
         ],
     );
     let mut rust = SettingsManager::create(
-        &JsString::from((&project.to_string_lossy()).as_ref()),
-        Some(&JsString::from((&agent).to_string_lossy().as_ref())),
+        &JsString::from(project.to_string_lossy().as_ref()),
+        Some(&JsString::from(agent.to_string_lossy().as_ref())),
         SettingsManagerCreateOptions::default(),
     )
     .unwrap();

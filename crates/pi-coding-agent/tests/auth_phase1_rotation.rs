@@ -1,4 +1,5 @@
 //! Source public refresh provenance, callback-return cancellation/write failure/rescue ordering.
+use crate::shared_oracle as oracle;
 use pi_ai::{
     auth::{AuthError, OAuthCredential},
     oauth::*,
@@ -19,8 +20,6 @@ use std::{
     },
     time::SystemTime,
 };
-#[path = "support/oracle.rs"]
-mod oracle;
 static SERIAL: Mutex<()> = Mutex::new(());
 struct Fake {
     count: Arc<AtomicUsize>,
@@ -316,3 +315,7 @@ fn locked_auth_delta() -> String {
     );
     path.to_str().unwrap().to_owned()
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

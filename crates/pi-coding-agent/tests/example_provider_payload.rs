@@ -1,9 +1,7 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "../examples/extensions/provider_payload.rs"]
 mod provider_payload;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;

@@ -1,7 +1,6 @@
+use crate::shared_oracle as oracle;
 use pi_coding_agent::utils::git::parse_git_url;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 #[test]
 fn generic_git_reference_retains_unpaired_units() {
     let raw = JsString::from_utf16(vec![0xd800]);

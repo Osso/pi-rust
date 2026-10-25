@@ -1,7 +1,6 @@
 //! Differential tests: the pinned TypeScript core leaf modules versus the Rust port.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 
@@ -301,7 +300,7 @@ fn approval_presets_match_typescript() {
 
 #[test]
 fn preset_membership_matches_frozen_for_raw_utf16() {
-    let cases = vec![
+    let cases = [
         JsString::from_utf16(vec![0xd800]),
         JsString::from_utf16(vec![0xdc00]),
         JsString::from("read-only") + JsString::from_utf16(vec![0xd800]),

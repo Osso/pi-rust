@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::export_html::ansi_to_html::{ansi_lines_to_html, ansi_to_html};
 use pi_js_compat::js_json::JsString;

@@ -1,7 +1,5 @@
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::{AgentTool, AgentToolResult, ToolError};
 use pi_coding_agent::core::tools::find::FindTool;
@@ -198,3 +196,9 @@ fn abort_during_git_discovery_does_not_retroactively_kill_the_later_source_child
         assert_eq!(actual, expected["output"]);
     });
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

@@ -1,11 +1,9 @@
-use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::encode_node_utf8;
-#[path = "support/repin_fixture_process.rs"]
-mod fixture_process;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
+use crate::shared_repin_fixture_process as fixture_process;
 use pi_coding_agent::core::session_control_db::*;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
+use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::{js_json, js_json as json};
 fn step(ts: &mut oracle::TsOracle, op: &str, args: Value) -> Value {
     let r = ts.request(&json!({"id":1,"steps":[{"op":op,"args":args}]}));
@@ -466,7 +464,7 @@ fn malformed_complete_receipt_after_matching_ref_aborts_recovery_before_delete()
     step(&mut ts, "registerSelf", json!([db, address(), path]));
     std::fs::OpenOptions::new()
         .append(true)
-        .open(encode_node_utf8(&path.as_string().unwrap()))
+        .open(encode_node_utf8(path.as_string().unwrap()))
         .unwrap()
         .write_all(b"{malformed\n")
         .unwrap();

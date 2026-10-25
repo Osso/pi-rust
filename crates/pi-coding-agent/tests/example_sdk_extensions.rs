@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/06_extensions.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use pi_js_compat::js_json::encode_node_utf8;
@@ -16,7 +15,7 @@ async fn native_inline_extension_runs_before_streaming() {
     let mut registry = pi_coding_agent::core::extensions::loader::ExtensionRegistry::new();
     let loaded = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
     for id in ["my-logging-extension.ts", "my-safety-extension.ts"] {
-        let path = std::path::Path::new(&encode_node_utf8(&fixture.options.cwd.as_ref().unwrap()))
+        let path = std::path::Path::new(&encode_node_utf8(fixture.options.cwd.as_ref().unwrap()))
             .join(id)
             .display()
             .to_string();
@@ -50,3 +49,9 @@ async fn native_inline_extension_runs_before_streaming() {
         "List files in the current directory."
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

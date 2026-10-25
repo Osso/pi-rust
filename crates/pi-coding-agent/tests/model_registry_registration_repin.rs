@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::{CompatFields, Model};
 use pi_coding_agent::core::auth_storage::AuthStorage;
@@ -258,3 +257,7 @@ async fn dynamic_validation_order_and_empty_model_guards_match_frozen() {
         assert_eq!(actual, response["output"], "{name}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

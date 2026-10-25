@@ -1,5 +1,4 @@
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::CURRENT_SESSION_VERSION;
 use pi_coding_agent::core::session_manager::CURRENT_SESSION_VERSION as MODULE_CURRENT_SESSION_VERSION;

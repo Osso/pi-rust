@@ -1,7 +1,6 @@
 #![cfg(unix)]
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::config::{self, InstallContext};
 use pi_js_compat::js_json as json;
@@ -156,7 +155,7 @@ fn install_paths_preserve_posix_cwd_and_entrypoint_semantics() {
 #[test]
 #[ignore = "isolated real cwd mutation"]
 fn install_path_child() {
-    let request = js_json::parse_lossless(&std::env::var("PI_CONFIG_INSTALL_PATH_REQUEST").unwrap()).unwrap();
+    let request = js_json::parse_lossless(std::env::var("PI_CONFIG_INSTALL_PATH_REQUEST").unwrap()).unwrap();
     let previous = std::env::current_dir().unwrap();
     let cwd = request["cwd"].as_string().unwrap().to_utf8().unwrap();
     pi_js_compat::process_cwd::chdir(&pi_js_compat::node_fs::decode_node_path(std::ffi::OsStr::new(&(&cwd)))).unwrap();
@@ -170,3 +169,7 @@ fn install_path_child() {
     .unwrap();
     println!("RESULT:{}", js_json::stringify_lossless(&result));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

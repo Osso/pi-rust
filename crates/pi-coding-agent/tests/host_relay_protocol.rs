@@ -1,6 +1,5 @@
 //! Protocol differential: frozen runHostRelay, in-memory inputs only.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::host_relay::{HostRelayOptions, run_host_relay};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::JsString;

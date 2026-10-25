@@ -34,13 +34,13 @@ fn shorten_path_replaces_the_home_prefix() {
 fn str_value_maps_types_like_the_source() {
     assert_eq!(
         str_value(Some(&JsValue::from(json!("text").clone()))),
-        Some("text".to_owned()).map(JsString::from)
+        Some(JsString::from("text".to_owned()))
     );
     assert_eq!(
         str_value(Some(&JsValue::from(json!(null).clone()))),
-        Some(String::new()).map(JsString::from)
+        Some(JsString::from(String::new()))
     );
-    assert_eq!(str_value(None), Some(String::new()).map(JsString::from));
+    assert_eq!(str_value(None), Some(JsString::from(String::new())));
     assert_eq!(str_value(Some(&JsValue::from(json!(4).clone()))), None);
     assert_eq!(str_value(Some(&JsValue::from(json!(true).clone()))), None);
 }

@@ -1,7 +1,5 @@
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::{
     package_manager::{DefaultPackageManager, SettingsManagerStore},
     settings_manager::{Settings, SettingsManager, SettingsManagerCreateOptions},

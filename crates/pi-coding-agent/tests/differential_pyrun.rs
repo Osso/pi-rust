@@ -2,8 +2,7 @@
 //! binary: the pinned TypeScript `PyrunRunnerClient` and the Rust client run
 //! identical inputs and must return identical result JSON.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::bundled_extensions::pyrun::runner::{
     CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerOptions,
@@ -116,3 +115,7 @@ async fn matches_typescript_runner_results_against_real_pyrun_jsonl() {
     }
     runner.dispose();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

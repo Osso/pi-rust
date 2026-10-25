@@ -3,6 +3,7 @@
 use pi_js_compat::js_json::{self, JsString};
 use std::sync::Arc;
 
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::lifecycle_coordinator::{
     DetachedCancellationCommandInput, FinalizeChildCommandInput, LifecycleCommandResult, LifecycleCoordinator,
     LifecycleCoordinatorOptions, OwnedLifecycleCommandInput, PrepareChildCommandInput, RecoverDeadChildCommandInput,
@@ -16,8 +17,6 @@ use pi_coding_agent::core::session_control_db::{
     register_runtime_mailbox_listener,
 };
 use tempfile::TempDir;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 const NOW: &str = "2026-07-11T20:00:00.000Z";
 const SESSION_PATH: &str = "/tmp/supervisor.jsonl";

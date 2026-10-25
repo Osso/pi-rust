@@ -1,6 +1,5 @@
 #![cfg(target_os = "linux")]
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::tools::bash::{
     BashDetachOptions, BashExecOptions, BashOperations, DetachedJobArtifacts, create_local_bash_operations,
 };
@@ -29,7 +28,7 @@ fn local_pipe_and_durable_poll_failures_remain_uncaught_native_errors() {
         "{}",
         String::from_utf8_lossy(&compiler.stderr)
     );
-    let cases = vec!["stdout", "stderr", "poll", "prepoll", "detachpoll"];
+    let cases = ["stdout", "stderr", "poll", "prepoll", "detachpoll"];
     let expected: Vec<JsValue> = cases
         .iter()
         .map(|mode| {
@@ -167,3 +166,7 @@ fn bash_uncaught_child() {
     };
     println!("BASH_UNCAUGHT:{}", js_json::stringify_lossless(&record));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

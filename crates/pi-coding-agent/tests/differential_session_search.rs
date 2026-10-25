@@ -1,8 +1,7 @@
 //! Differential test: `session-selector-search` filtering, scoring, and sorting
 //! against the pinned TypeScript module.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use oracle::TsOracle;
 use pi_coding_agent::core::session_manager::SessionInfo;

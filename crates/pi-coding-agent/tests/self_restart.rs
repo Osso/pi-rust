@@ -18,8 +18,7 @@ use pi_coding_agent::core::self_restart::{
 };
 use pi_coding_agent::core::session_manager::{SessionManager, load_entries_from_file};
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use tempfile::TempDir;
 
 const TEST_EXEC_MARKER: &str = "PI_TEST_SELF_RESTART_EXEC_DIR";
@@ -145,7 +144,7 @@ fn appends_a_restarted_notice_with_the_current_pid_after_an_exec_in_place_restar
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: JsString::from(session_file),
+            session_file,
             prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(current_pid),
         }),
@@ -171,7 +170,7 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: JsString::from(session_file),
+            session_file,
             prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(1234),
         }),
@@ -231,7 +230,7 @@ fn skips_the_notice_without_a_prompt() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: JsString::from(session_file),
+            session_file,
             prompt: None,
             old_pid: None,
         }),
@@ -560,3 +559,7 @@ async fn can_return_immediately_after_spawning_the_restarted_child() {
     }
     assert_eq!(fs::read_to_string(&marker).expect("restarted child marker"), "done");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

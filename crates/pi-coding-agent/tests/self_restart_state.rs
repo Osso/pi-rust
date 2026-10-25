@@ -1,6 +1,5 @@
 //! Common-pin self-restart.ts:97-160 argument/environment boundary differential.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::cli::args::Args;
 use pi_coding_agent::core::self_restart::*;
 use pi_js_compat::js_json::JsString;

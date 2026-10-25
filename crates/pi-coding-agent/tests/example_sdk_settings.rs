@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/10_settings.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use pi_js_compat::js_json::JsValue;
@@ -65,3 +64,9 @@ async fn reports_real_pinned_parse_errors_on_stderr_without_rewriting_corrupt_se
     assert!(a.requests.lock().unwrap().is_empty());
     let _homes = (a.home, b.home);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

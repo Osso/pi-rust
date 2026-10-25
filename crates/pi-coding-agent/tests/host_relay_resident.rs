@@ -1,6 +1,5 @@
 //! Resident/client process boundaries, sandbox-owned files/processes and an executable fake SSH only.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::host_relay_resident::*;
 use pi_coding_agent::core::runtime_process::{is_process_identity_alive, read_process_identity};
 use pi_coding_agent::core::session_control_db::*;

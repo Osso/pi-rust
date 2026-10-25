@@ -4,8 +4,7 @@ use std::sync::Arc;
 
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashOperations, create_local_bash_operations};
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 #[test]
 fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
@@ -56,3 +55,7 @@ fn sends_commands_over_stdin_for_the_legacy_wsl_shim() {
     let output = String::from_utf8(chunks.lock().expect("chunks").clone()).expect("utf8");
     assert_eq!(output, command);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;

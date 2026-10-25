@@ -73,7 +73,7 @@ fn image(block: &Value) -> Value {
 }
 fn content_block(block: &Value) -> Value {
     if block["type"] == json!("text") {
-        json!({"type":"text","text":sanitize(&JsString::from(text(&block["text"])))})
+        json!({"type":"text","text":sanitize(&text(&block["text"]))})
     } else {
         image(block)
     }
@@ -94,10 +94,10 @@ fn tool_result_content(blocks: &[Value]) -> Value {
 fn assistant_blocks(message: &Value, oauth: bool) -> Vec<Value> {
     message["content"].as_array().expect("typed assistant content").iter().filter_map(|block| {
         match text(&block["type"]) {
-            kind if kind == "text" && !text(&block["text"]).trim().is_empty()=>Some(json!({"type":"text","text":sanitize(&JsString::from(text(&block["text"])))})),
+            kind if kind == "text" && !text(&block["text"]).trim().is_empty()=>Some(json!({"type":"text","text":sanitize(&text(&block["text"]))})),
             kind if kind == "thinking" && !text(&block["thinking"]).trim().is_empty()=> {
-                if truthy(&block["thinkingSignature"]) { Some(json!({"type":"thinking","thinking":sanitize(&JsString::from(text(&block["thinking"]))),"signature":block["thinkingSignature"]})) }
-                else { Some(json!({"type":"text","text":sanitize(&JsString::from(text(&block["thinking"])))})) }
+                if truthy(&block["thinkingSignature"]) { Some(json!({"type":"thinking","thinking":sanitize(&text(&block["thinking"])),"signature":block["thinkingSignature"]})) }
+                else { Some(json!({"type":"text","text":sanitize(&text(&block["thinking"]))})) }
             }
             kind if kind == "toolCall" =>Some(json!({"type":"tool_use","id":block["id"],"name":tool_name(&text(&block["name"]),oauth),"input":block["arguments"]})),
             _=>None,

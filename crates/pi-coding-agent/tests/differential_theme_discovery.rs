@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::modes::interactive::theme::{self, ColorMode, REQUIRED_COLORS, Theme};
 use pi_js_compat::{
     js_json,
@@ -101,3 +100,7 @@ fn custom_theme_discovery_order_truthiness_and_precedence_match_frozen() {
     );
     process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

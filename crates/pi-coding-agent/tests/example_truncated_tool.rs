@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/truncated_tool.rs"]
 mod example;
-#[path = "support/extensions.rs"]
-mod extension_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_extensions as extension_support;
+use crate::shared_oracle as oracle;
 #[path = "support/extension_examples_b.rs"]
 mod support;
 use pi_coding_agent::core::extensions::*;
@@ -70,3 +68,13 @@ async fn enforces_pinned_execsync_hundred_megabyte_buffer() {
     });
     support::compare("truncated-tool",factory,json!({"cwd":temp.path(),"cases":[{"event":"execute","toolName":"rg","params":{"pattern":"needle","path":"buffer.txt"}}]})).await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;
+#[path = "support/ui_thread.rs"]
+pub mod shared_ui_thread;

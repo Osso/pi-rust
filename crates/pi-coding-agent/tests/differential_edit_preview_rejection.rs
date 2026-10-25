@@ -1,7 +1,5 @@
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/render_owner.rs"]
-pub mod render_owner;
+use crate::shared_oracle as oracle;
+pub use crate::shared_render_owner as render_owner;
 
 use pi_coding_agent::core::extensions::types::{ToolRenderContext, ToolRenderState};
 use pi_coding_agent::core::tools::edit::render_call;
@@ -154,3 +152,9 @@ fn default_preview_rejection_crashes_after_the_sync_turn_with_node_stderr() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/render_owner.rs"]
+pub mod shared_render_owner;

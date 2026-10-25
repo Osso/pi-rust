@@ -1,9 +1,8 @@
 //! Differential: supervisor prompt building and response parsing against the pinned TypeScript module.
 
-use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 pub(crate) use oracle::TsOracle;
+use pi_js_compat::js_json::JsString;
 
 use pi_coding_agent::core::session_control_db::{
     SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,

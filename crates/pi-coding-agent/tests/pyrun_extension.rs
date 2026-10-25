@@ -1,7 +1,6 @@
 //! Behavioral tests for the bundled Pyrun runner, eval tool, and extension.
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};

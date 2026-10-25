@@ -1,9 +1,7 @@
 #[path = "../examples/extensions/minimal_mode.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::extensions::*;
 use pi_coding_agent::modes::interactive::theme::{ColorMode, load_theme_from_path};
 use pi_js_compat::js_json::JsString;
@@ -51,7 +49,8 @@ async fn all_seven_tools_render_and_execute_like_pinned_extension() {
     support::bind(&mut runner);
     let theme = load_theme_from_path(
         &JsString::from(
-            (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("theme/dark.json")
                 .to_str()
                 .expect("fixture path must be UTF-8"),
         ),

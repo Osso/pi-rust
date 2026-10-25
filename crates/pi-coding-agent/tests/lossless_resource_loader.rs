@@ -1,9 +1,8 @@
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::resource_loader::{
     ResourceLoader, StaticResourceLoader, inline_extension_name, resolve_prompt_input,
 };
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 #[test]
 fn frozen_context_loading_ignores_override_files() {

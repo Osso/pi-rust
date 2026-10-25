@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::bundled_extensions::goal::goal_idle_selection::{GoalIdleSelection, select_goal_for_idle_review};
 use pi_coding_agent::bundled_extensions::goal::goal_types::Goal;

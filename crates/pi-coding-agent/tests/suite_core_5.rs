@@ -44,3 +44,7 @@ pub mod thinking_level_validator;
 pub mod usage_totals;
 #[path = "windows_self_update.rs"]
 pub mod windows_self_update;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

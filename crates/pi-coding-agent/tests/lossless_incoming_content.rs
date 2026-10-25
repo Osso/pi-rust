@@ -1,6 +1,5 @@
 //! Native incoming content survives DTO ingress; SQLite applies the frozen Node bind semantics.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_control_db::{
     IncomingControlMessage, claim_latest_incoming_message, complete_incoming_message, enqueue_incoming_message,

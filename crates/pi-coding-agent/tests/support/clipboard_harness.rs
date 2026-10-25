@@ -3,8 +3,7 @@
 //! under test sees a PATH containing only fake clipboard tools, exactly like
 //! the TypeScript tests mock `child_process`.
 
-#[path = "executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;

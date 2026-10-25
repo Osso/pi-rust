@@ -1,7 +1,6 @@
 #[path = "support/model_selector_modifier_rejection.rs"]
 mod modifier_rejection;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::{
     core::{auth_storage::AuthStorage, model_registry::ModelRegistry},
@@ -97,3 +96,7 @@ async fn model_selector_nss_child() {
         })
         .await;
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

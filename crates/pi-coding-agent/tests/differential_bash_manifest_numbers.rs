@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::detached_bash_runner::{
     DetachedBashLaunchManifestData, write_detached_bash_launch_manifest,
 };
@@ -46,7 +45,7 @@ fn detached_bash_manifest_preserves_fractional_and_existing_integer_timeouts() {
             .into();
         write_detached_bash_launch_manifest(&path, &data).unwrap();
         let text = std::fs::read_to_string(path.to_utf8().unwrap()).unwrap();
-        if JsString::from(text.clone()) != *expected["output"][index].as_string().unwrap() {
+        if expected["output"][index].as_string().unwrap() != text.as_str() {
             failures.push(json!({"case":index,"actual":text,"expected":expected["output"][index]}));
         }
     }

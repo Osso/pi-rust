@@ -226,7 +226,7 @@ console.log('ready');
     assert_eq!(ready, "ready\n");
     send_and_disconnect(&path).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
-    let expected = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&done).unwrap()).unwrap();
+    let expected = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&done).unwrap()).unwrap();
     assert_eq!(expected, json!(["one", "two", "three"]));
     child.kill().await.unwrap();
     child.wait().await.unwrap();

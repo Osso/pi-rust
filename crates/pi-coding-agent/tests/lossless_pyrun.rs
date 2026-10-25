@@ -28,10 +28,7 @@ fn canonical_console_approval_and_progress_metadata_keep_raw_units() {
         raw: js_json::parse_lossless(r#"{"type":"type-\ud800","method":"method-\ud801","status":"status-\ud802"}"#)
             .unwrap(),
     };
-    assert_eq!(
-        JsString::from(update.message_type()),
-        update.raw["type"].as_string().unwrap().clone()
-    );
+    assert_eq!(update.message_type(), update.raw["type"].as_string().unwrap().clone());
     assert_eq!(
         update.method().map(JsString::from),
         update.raw["method"].as_string().cloned()
@@ -53,7 +50,7 @@ fn activation_file_round_trips_raw_identity_at_raw_path() {
     assert_eq!(read_detached_pyrun_activation(&path).unwrap(), Some(identity));
     let bytes = std::fs::read(encode_node_utf8(&path)).unwrap();
     assert_eq!(
-        js_json::parse_lossless(&String::from_utf8(bytes).unwrap()).unwrap(),
+        js_json::parse_lossless(String::from_utf8(bytes).unwrap()).unwrap(),
         value
     );
 }

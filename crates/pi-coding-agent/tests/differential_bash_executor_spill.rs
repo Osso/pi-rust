@@ -1,6 +1,5 @@
 #![cfg(target_os = "linux")]
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::agent::ToolError;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::core::bash_executor::{BashExecutorOptions, BashResult, execute_bash_with_operations};
@@ -260,7 +259,7 @@ fn summarize(
 #[ignore = "isolated reentrant callback/process-hook/stream syscall fixture"]
 fn bash_executor_spill_child() {
     let input =
-        js_json::parse_lossless(&std::fs::read_to_string(std::env::var("PI_BASH_SPILL_CASE_PATH").unwrap()).unwrap())
+        js_json::parse_lossless(std::fs::read_to_string(std::env::var("PI_BASH_SPILL_CASE_PATH").unwrap()).unwrap())
             .unwrap();
     if let Some(env) = input["env"].as_object() {
         for name in ["TMPDIR", "TMP", "TEMP"] {
@@ -343,3 +342,7 @@ fn bash_executor_spill_child() {
     let record = summarize(result, &chunks.lock().unwrap(), &before, &temp_root);
     println!("BASH_SPILL:{}", js_json::stringify_lossless(&record));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

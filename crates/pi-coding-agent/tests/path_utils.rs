@@ -27,7 +27,7 @@ fn expand_path_normalizes_unicode_spaces() {
 fn resolve_to_cwd_handles_absolute_relative_and_tilde_prefixed_paths() {
     let temp = std::env::temp_dir();
     let absolute = join(&temp, "absolute/path/file.txt");
-    assert_eq!(resolve_to_cwd(&absolute, &join(&temp, "some/cwd")).unwrap(), absolute);
+    assert_eq!(resolve_to_cwd(&absolute, join(&temp, "some/cwd")).unwrap(), absolute);
     assert_eq!(
         resolve_to_cwd("relative/file.txt", "/some/cwd").unwrap(),
         "/some/cwd/relative/file.txt"

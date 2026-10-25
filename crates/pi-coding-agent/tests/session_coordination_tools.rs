@@ -2,10 +2,8 @@
 
 #[path = "support/advisory_fixture.rs"]
 mod advisory_fixture;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_oracle as oracle;
+use crate::shared_tool_context as tool_context;
 
 use pi_coding_agent::core::extensions::ExtensionContext;
 use pi_coding_agent::core::extensions::types::ContextTool;
@@ -68,7 +66,7 @@ async fn context(control_db_path: &str, session_id: &str, persisted: bool) -> Ex
         let dir = tempfile::tempdir().expect("session dir");
         tool_context::persisted_session(
             "/repo",
-            &dir.path()
+            dir.path()
                 .join("sessions")
                 .to_str()
                 .expect("utf-8 test path")
@@ -478,3 +476,9 @@ fn coordination_tools_expose_their_source_metadata() {
     assert_eq!(AskSupervisorTool::new().name(), "ask_supervisor");
     assert_eq!(AskArchitectTool::new().name(), "ask_architect");
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

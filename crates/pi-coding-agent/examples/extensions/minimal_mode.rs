@@ -105,9 +105,9 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
         } else {
             JsString::default()
         };
-        return theme.fg(ToolTitle, &theme.bold(&js_format!("$ {}", command))) + &suffix;
+        return theme.fg(ToolTitle, theme.bold(&js_format!("$ {}", command))) + &suffix;
     }
-    let title = theme.fg(ToolTitle, &theme.bold(name));
+    let title = theme.fg(ToolTitle, theme.bold(name));
     let default = if ["find", "grep", "ls"].contains(&name) {
         "."
     } else {
@@ -129,7 +129,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
                 .filter(|n| *n != 0.0)
                 .map(|n| js_format!("-{}", js_number_to_string(n)))
                 .unwrap_or_default();
-            output.push_str(&theme.fg(Warning, &js_format!(":{}{}", js_number_to_string(start), end)));
+            output.push_str(theme.fg(Warning, &js_format!(":{}{}", js_number_to_string(start), end)));
         }
         "write" => {
             let count = args["content"]
@@ -137,7 +137,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
                 .filter(|s| !s.is_empty())
                 .map_or(0, |s| s.split('\n').count());
             if count > 0 {
-                output.push_str(&theme.fg(Muted, &js_format!(" ({} lines)", count)));
+                output.push_str(theme.fg(Muted, &js_format!(" ({} lines)", count)));
             }
         }
         "find" | "grep" => {
@@ -145,7 +145,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
             let pattern = if name == "grep" {
                 js_format!("/{}/", pattern)
             } else {
-                pattern.into()
+                pattern
             };
             output = js_format!(
                 "{} {}{}",
@@ -156,7 +156,7 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
             if name == "grep"
                 && let Some(glob) = args["glob"].as_string().filter(|s| !s.is_empty())
             {
-                output.push_str(&theme.fg(ToolOutput, &js_format!(" ({})", glob)));
+                output.push_str(theme.fg(ToolOutput, &js_format!(" ({})", glob)));
             }
             if let Some(limit) = args.get("limit") {
                 let limit = number_text(limit);
@@ -165,12 +165,12 @@ fn render_call(name: &str, args: &Value, theme: &Theme) -> JsString {
                 } else {
                     js_format!(" limit {}", limit)
                 };
-                output.push_str(&theme.fg(ToolOutput, &suffix));
+                output.push_str(theme.fg(ToolOutput, &suffix));
             }
         }
         "ls" => {
             if let Some(limit) = args.get("limit") {
-                output.push_str(&theme.fg(ToolOutput, &js_format!(" (limit {})", number_text(limit))));
+                output.push_str(theme.fg(ToolOutput, &js_format!(" (limit {})", number_text(limit))));
             }
         }
         _ => {}

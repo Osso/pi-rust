@@ -1,7 +1,6 @@
 #[path = "../examples/sdk/07_context_files.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 #[path = "support/sdk_examples.rs"]
 mod support;
 use serde_json::json;
@@ -42,3 +41,9 @@ async fn merges_context_and_preserves_utf16_lengths_and_source_count_bug() {
     assert!(output.text().ends_with("Session created with 3 context files\n"));
     assert!(fixture.requests.lock().unwrap().is_empty());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/scripted_registry.rs"]
+pub mod shared_scripted_registry;

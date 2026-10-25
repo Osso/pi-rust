@@ -1,8 +1,7 @@
 //! Differential tests: the pinned TypeScript coding-agent compaction modules
 //! versus the Rust port.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 pub(crate) use oracle::TsOracle;
 
 use pi_js_compat::js_json::{JsString, JsValue};

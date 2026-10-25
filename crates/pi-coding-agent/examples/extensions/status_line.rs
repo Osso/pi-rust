@@ -34,7 +34,7 @@ pub fn status_line_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let ui = ctx.ui()?;
                 let theme = ui.theme()?;
                 let spinner = theme.fg(ThemeColor::Accent, "●");
-                let text = theme.fg(ThemeColor::Dim, &format!(" Turn {count}..."));
+                let text = theme.fg(ThemeColor::Dim, format!(" Turn {count}..."));
                 ui.set_status(
                     &JsString::from("status-demo"),
                     Some(ExtensionStatus::Text(js_format!("{}{}", spinner, text))),
@@ -51,7 +51,7 @@ pub fn status_line_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 let ui = ctx.ui()?;
                 let theme = ui.theme()?;
                 let check = theme.fg(ThemeColor::Success, "✓");
-                let text = theme.fg(ThemeColor::Dim, &format!(" Turn {count} complete"));
+                let text = theme.fg(ThemeColor::Dim, format!(" Turn {count} complete"));
                 ui.set_status(
                     &JsString::from("status-demo"),
                     Some(ExtensionStatus::Text(js_format!("{}{}", check, text))),

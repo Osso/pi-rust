@@ -4,10 +4,8 @@
 //! `discoverAndLoadExtensions`/`ExtensionRunner`; the Rust side registers the
 //! same handlers through the Rust extension API.
 
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -1835,7 +1833,7 @@ fn discovers_direct_files_and_index_entries() {
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
-            Path::new(&encode_node_utf8(&path))
+            Path::new(&encode_node_utf8(path))
                 .strip_prefix(&dir)
                 .unwrap()
                 .to_string_lossy()
@@ -1877,7 +1875,7 @@ fn package_manifest_entries_keep_declared_order() {
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
-            Path::new(&encode_node_utf8(&path))
+            Path::new(&encode_node_utf8(path))
                 .file_name()
                 .unwrap()
                 .to_string_lossy()
@@ -1908,7 +1906,7 @@ fn configured_directories_use_manifest_or_index() {
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
-            Path::new(&encode_node_utf8(&path))
+            Path::new(&encode_node_utf8(path))
                 .strip_prefix(&dir)
                 .unwrap()
                 .to_string_lossy()
@@ -1951,11 +1949,11 @@ fn disabled_extension_names_filter_paths_and_inline_ids() {
     ));
     assert_eq!(
         inline_extension_name(&JsString::from("<first-party:goal>")),
-        Some("goal".to_owned()).map(JsString::from)
+        Some(JsString::from("goal".to_owned()))
     );
     assert_eq!(
         inline_extension_name(&JsString::from("<inline:1>")),
-        Some("inline:1".to_owned()).map(JsString::from)
+        Some(JsString::from("inline:1".to_owned()))
     );
     assert_eq!(inline_extension_name(&JsString::from("/tmp/a.ts")), None);
 }
@@ -2101,7 +2099,7 @@ async fn context_session_manager_is_a_live_readonly_view() {
         lock_session_manager(&manager)
             .get_session_goal_json()
             .expect("session goal read"),
-        (Some("{\"objective\":\"shared\"}".to_owned())).map(JsString::from)
+        Some(JsString::from("{\"objective\":\"shared\"}".to_owned()))
     );
 
     lock_session_manager(&manager)
@@ -2412,3 +2410,9 @@ async fn handlers_appended_during_dispatch_run_in_the_same_event() {
     runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
     assert_eq!(*observed.lock().unwrap(), ["first", "appended"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

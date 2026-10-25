@@ -1,7 +1,6 @@
 #[path = "../examples/rpc_extension_ui.rs"]
 mod client;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
 use pi_tui::{
     terminal::*,
@@ -353,3 +352,7 @@ fn utf16_clipping_preserves_split_surrogate_like_frozen() {
         );
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

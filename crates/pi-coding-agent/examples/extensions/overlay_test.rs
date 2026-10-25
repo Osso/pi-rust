@@ -4,7 +4,6 @@ use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::CURSOR_MARKER;
 use pi_tui::{matches_key, visible_width};
 use std::sync::{
@@ -95,7 +94,7 @@ impl OverlayTest {
         self.row(&js_format!(
             "{}{} {}",
             prefix,
-            self.theme.fg(color, &format!("{}:", item.label)),
+            self.theme.fg(color, format!("{}:", item.label)),
             input
         ))
     }
@@ -126,7 +125,7 @@ impl ExtensionUiComponent for OverlayTest {
                 json!({"action":current.label})
             };
             drop(state);
-            self.done.call(Some(JsValue::from(result)));
+            self.done.call(Some(result));
             return;
         }
         if matches_key(data, "up") {
@@ -140,21 +139,21 @@ impl ExtensionUiComponent for OverlayTest {
     fn render(&self, _width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let th = &self.theme;
         let mut lines = vec![
-            th.fg(ThemeColor::Border, &format!("╭{}╮", "─".repeat(68))),
-            JsString::from(self.row(&js_format!(" {}", th.fg(ThemeColor::Accent, "🧪 Overlay Test")))),
-            JsString::from(self.row(&JsString::from(""))),
-            JsString::from(self.row(&js_format!(
+            th.fg(ThemeColor::Border, format!("╭{}╮", "─".repeat(68))),
+            self.row(&js_format!(" {}", th.fg(ThemeColor::Accent, "🧪 Overlay Test"))),
+            self.row(&JsString::from("")),
+            self.row(&js_format!(
                 " {}",
                 th.fg(ThemeColor::Dim, "─── Edge Cases (borders should align) ───")
-            ))),
-            JsString::from(self.row(&js_format!(
+            )),
+            self.row(&js_format!(
                 " Wide: {}",
                 th.fg(
                     ThemeColor::Warning,
                     "中文日本語한글テスト漢字繁體简体ひらがなカタカナ가나다라마바"
                 )
-            ))),
-            JsString::from(self.row(&js_format!(
+            )),
+            self.row(&js_format!(
                 " Styled: {} {} {} {} {} {} {}",
                 th.fg(ThemeColor::Error, "RED"),
                 th.fg(ThemeColor::Success, "GREEN"),
@@ -163,16 +162,16 @@ impl ExtensionUiComponent for OverlayTest {
                 th.fg(ThemeColor::Dim, "DIM"),
                 th.fg(ThemeColor::Error, "more"),
                 th.fg(ThemeColor::Success, "colors")
-            ))),
-            JsString::from(self.row(&JsString::from(
+            )),
+            self.row(&JsString::from(
                 " Emoji: 👨‍👩‍👧‍👦 🇯🇵 🚀 💻 🎉 🔥 😀 🎯 🌟 💡 🎨 🔧 📦 🏆 🌈 🎪 🎭 🎬 🎮 🎲",
-            ))),
+            )),
             self.row(&JsString::from("")),
             self.row(&js_format!(" {}", th.fg(ThemeColor::Dim, "─── Actions ───"))),
         ];
         let state = self.state.lock().expect("overlay state");
         for (i, item) in state.items.iter().enumerate() {
-            lines.push(JsString::from(self.menu_row(item, i == state.selected)));
+            lines.push(self.menu_row(item, i == state.selected));
         }
         lines.push(self.row(&JsString::from("")));
         lines.push(self.row(&js_format!(
@@ -182,7 +181,7 @@ impl ExtensionUiComponent for OverlayTest {
                 "↑↓ navigate • type to input • Enter select • Esc cancel"
             )
         )));
-        lines.push(th.fg(ThemeColor::Border, &format!("╰{}╯", "─".repeat(68))));
+        lines.push(th.fg(ThemeColor::Border, format!("╰{}╯", "─".repeat(68))));
         lines
     }
 }

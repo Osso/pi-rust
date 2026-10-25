@@ -1,7 +1,6 @@
 #![cfg(unix)]
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 use std::os::unix::fs::symlink;

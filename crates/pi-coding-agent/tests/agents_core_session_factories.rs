@@ -1,8 +1,7 @@
 //! Behavioral tests for `extensions/agents-core/src/session-factories.ts`
 //! production child and attached session factories.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -1348,5 +1347,10 @@ async fn agent_session_child_adapter_forwards_prompt_and_transcript_state() {
     adapter.bind_extensions().await.expect("bind extensions");
 }
 
+use crate::shared_scripted_registry as scripted_registry;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
 #[path = "support/scripted_registry.rs"]
-mod scripted_registry;
+pub mod shared_scripted_registry;

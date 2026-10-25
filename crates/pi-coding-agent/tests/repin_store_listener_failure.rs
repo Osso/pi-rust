@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::multi_agent_store::{AgentNode, MultiAgentStore, MultiAgentStoreOptions};
 use pi_js_compat::abort::AbortReason;
@@ -110,3 +109,7 @@ fn listener_failure_child() {
         json!({"observed":*observed.lock().unwrap(),"agent":store.get_agent(&"child".into())})
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

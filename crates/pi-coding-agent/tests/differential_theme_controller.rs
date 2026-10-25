@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::settings_manager::{SettingsManager, SettingsManagerCreateOptions, lock_settings_manager};
 use pi_coding_agent::modes::interactive::theme::{
     InteractiveThemeController, TerminalTheme, ThemeQueryError, ThemeUi, current_theme, get_theme_by_name,

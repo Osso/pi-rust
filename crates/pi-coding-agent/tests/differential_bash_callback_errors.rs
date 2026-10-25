@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::agent::{AgentTool, ToolError};
 use pi_ai::request::BoxFuture;
@@ -188,3 +187,7 @@ fn bash_callback_error_child() {
         );
     });
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

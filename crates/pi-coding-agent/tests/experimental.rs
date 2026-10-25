@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::ffi::OsString;
 
@@ -56,3 +55,7 @@ fn experimental_probe_child() {
     }
     println!("{PREFIX}{}", are_experimental_features_enabled());
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

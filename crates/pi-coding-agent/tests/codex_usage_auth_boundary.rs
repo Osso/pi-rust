@@ -1,8 +1,6 @@
 //! Usage may read stored/runtime credentials, never environment fallback credentials.
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 use pi_coding_agent::bundled_extensions::codex_usage::{CodexUsageOptions, codex_usage_extension};
 use pi_coding_agent::core::extensions::create_extension_runtime;
 use std::sync::Arc;
@@ -33,3 +31,9 @@ async fn usage_does_not_use_environment_api_key_fallback() {
     assert!(fetch.requests.lock().unwrap().is_empty());
     pi_js_compat::process_env::clear();
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;

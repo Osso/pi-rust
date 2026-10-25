@@ -1,9 +1,7 @@
 //! Behavioral tests for the bundled `default-footer` extension.
 
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -179,7 +177,7 @@ async fn renders_stats_without_cache_or_auto_fields() {
     assert!(!stats.contains("CH99.6%"));
     assert!(!stats.contains("auto"));
     let theme = current_theme_if_initialized().expect("theme");
-    assert!(lines[1].contains(&theme.fg(ThemeColor::Dim, "in 412k")));
+    assert!(lines[1].contains(theme.fg(ThemeColor::Dim, "in 412k")));
     assert!(lines[1].contains(&js_format!(
         "{}60.9%{}",
         theme.fg(ThemeColor::Dim, "ctx "),
@@ -228,7 +226,7 @@ async fn unknown_context_usage_is_fully_dimmed() {
     let footer = component(&fixture, None);
     let line = &footer.render(160)[1];
     let theme = current_theme_if_initialized().expect("theme");
-    assert!(line.contains(&theme.fg(ThemeColor::Dim, "ctx ?/272k")));
+    assert!(line.contains(theme.fg(ThemeColor::Dim, "ctx ?/272k")));
     assert!(strip_ansi(line).contains("ctx ?/272k"));
 }
 
@@ -574,8 +572,7 @@ async fn default_footer_checked_render_preserves_callable_status_throw() {
     assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected["error"]));
 }
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 #[derive(Default)]
 struct LifecycleUi {
@@ -640,3 +637,11 @@ async fn background_compaction_status_lifecycle_matches_frozen() {
     }
     assert_eq!(js_json!(ui.calls.lock().unwrap().clone()), expected["output"]);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

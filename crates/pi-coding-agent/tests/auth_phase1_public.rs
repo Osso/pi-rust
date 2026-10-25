@@ -1,10 +1,9 @@
 //! Frozen public APIs and bidirectional files, with synthetic credentials only.
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::auth_storage::{AuthStorage, GetApiKeyOptions};
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};
 use std::{fs, time::SystemTime};
-#[path = "support/oracle.rs"]
-mod oracle;
 fn fixture() -> std::path::PathBuf {
     let p = std::env::temp_dir().join(format!(
         "public-auth-{}-{}",

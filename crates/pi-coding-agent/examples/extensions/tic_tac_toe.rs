@@ -229,19 +229,14 @@ impl ExtensionUiComponent for GameComponent {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut data = self.data.lock().unwrap();
         if data.cached_width == width && data.cached_version == Some(data.version) {
-            return data
-                .cached_lines
-                .clone()
-                .into_iter()
-                .map(JsString::from)
-                .collect::<Vec<_>>();
+            return data.cached_lines.clone().into_iter().collect::<Vec<_>>();
         }
         let state = data.state.lock().unwrap().clone();
         let lines = render_game(&state, width);
         data.cached_width = width;
         data.cached_version = Some(data.version);
         data.cached_lines = lines.clone();
-        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
+        lines.into_iter().collect::<Vec<_>>()
     }
     fn handle_input(&self, key: &pi_js_compat::js_json::JsString) {
         if matches_key(key, "escape") || (key == "q" || key == "Q") {
@@ -474,13 +469,13 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 .filter(|v| !v.is_null())
                 .map(|v| pi_js_compat::js_json::from_value::<Details>(v).expect("persisted board details"));
             let turn = if d.as_ref().is_some_and(|d| d.current_turn == 'O') {
-                js_format!("{} (Agent)", theme.fg(C::Warning, &theme.bold("O")))
+                js_format!("{} (Agent)", theme.fg(C::Warning, theme.bold("O")))
             } else {
-                js_format!("{} (You)", theme.fg(C::Accent, &theme.bold("X")))
+                js_format!("{} (You)", theme.fg(C::Accent, theme.bold("X")))
             };
             let title = js_format!(
                 "{}  {}  next: {}",
-                theme.fg(C::Accent, &theme.bold("Player X played")),
+                theme.fg(C::Accent, theme.bold("Player X played")),
                 theme.fg(C::Dim, "→"),
                 turn
             );
@@ -565,7 +560,7 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         parameters:json!({"type":"object","properties":{"action":{"type":"string","enum":["move_up","move_down","move_left","move_right","play"],"description":"The single action to perform this call. Emit multiple tic_tac_toe calls in one response to string actions together."}},"required":["action"]}),
         approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
         execute:Arc::new(move|_,params,_,_,_| {let game=state.clone();let api=api.clone();Box::pin(async move{execute_action(&api,&game,params["action"].as_string().expect("validated action")).await})}),
-        render_call:Some(infallible_render_call(|args,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe "))+&theme.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("")))))),
+        render_call:Some(infallible_render_call(|args,theme,_|text_component(theme.fg(C::ToolTitle,theme.bold("tic_tac_toe "))+&theme.fg(C::Muted,args["action"].as_string().unwrap_or(&JsString::from("")))))),
         render_result:Some(infallible_render_result(|result,options,theme,context| {
             let prefix=if context.is_error {theme.fg(C::Error,"✗ ")} else {theme.fg(C::Success,"✓ ")};
             let summary=prefix+&theme.fg(C::Muted,first_text(result));
@@ -577,11 +572,11 @@ pub fn tic_tac_toe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prompt_snippet:Some("Inspect the tic-tac-toe board and your cursor".into()),prompt_guidelines:None,
         parameters:json!({"type":"object","properties":{}}),approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:None,
         execute:Arc::new(move|_,_,_,_,_| {let game=game.clone();Box::pin(async move{Ok(see_board(&game))})}),
-        render_call:Some(infallible_render_call(|_,theme,_|text_component(theme.fg(C::ToolTitle,&theme.bold("tic_tac_toe_see_board"))))),
+        render_call:Some(infallible_render_call(|_,theme,_|text_component(theme.fg(C::ToolTitle,theme.bold("tic_tac_toe_see_board"))))),
         render_result:Some(infallible_render_result(|result,options,theme,_| {
             let d=result_details(result);
             let (r,c)=d.as_ref().map_or((0,0),|d|(d.agent_cursor_row,d.agent_cursor_col));
-            let summary=theme.fg(C::Success,"✓ ")+&theme.fg(C::Muted,&format!("cursor ({r},{c})"));
+            let summary=theme.fg(C::Success,"✓ ")+&theme.fg(C::Muted,format!("cursor ({r},{c})"));
             render_tool_result(summary,result,options.expanded,theme)
         })),
     })
@@ -818,9 +813,9 @@ impl Component for Banner {
         let fill = width.saturating_sub(visible_width(&self.title) + 2);
         let mut lines = vec![js_format!(
             "{} {} {}",
-            self.theme.fg(C::Dim, &"─".repeat(fill / 2)),
+            self.theme.fg(C::Dim, "─".repeat(fill / 2)),
             self.title,
-            self.theme.fg(C::Dim, &"─".repeat(fill - fill / 2))
+            self.theme.fg(C::Dim, "─".repeat(fill - fill / 2))
         )];
         if let Some(d) = self.details.as_ref().filter(|_| self.expanded) {
             lines.push("".into());
@@ -837,24 +832,22 @@ struct GameOver {
 impl Component for GameOver {
     fn invalidate(&mut self) {}
     fn render(&mut self, width: usize) -> Vec<JsString> {
-        let hr = self.theme.fg(C::Dim, &"─".repeat(width));
+        let hr = self.theme.fg(C::Dim, "─".repeat(width));
         let (title, sub) = match self.status.as_str() {
             "win_X" => (
-                self.theme.bold(&self.theme.fg(C::Accent, "★ Player X wins ★")),
+                self.theme.bold(self.theme.fg(C::Accent, "★ Player X wins ★")),
                 "You beat the agent.",
             ),
             "win_O" => (
-                self.theme.bold(&self.theme.fg(C::Warning, "★ Player O wins ★")),
+                self.theme.bold(self.theme.fg(C::Warning, "★ Player O wins ★")),
                 "The agent beat you.",
             ),
-            "draw" => (self.theme.bold(&self.theme.fg(C::Muted, "— Draw —")), "No winner."),
+            "draw" => (self.theme.bold(self.theme.fg(C::Muted, "— Draw —")), "No winner."),
             _ => (self.theme.bold("Game over"), ""),
         };
         let mut lines = vec![hr.clone(), "".into()];
         for text in [title, self.theme.fg(C::Dim, sub)] {
-            lines.push(JsString::from(
-                JsString::from(" ".repeat(width.saturating_sub(visible_width(&text)) / 2)) + &text,
-            ));
+            lines.push(JsString::from(" ".repeat(width.saturating_sub(visible_width(&text)) / 2)) + &text);
         }
         lines.push("".into());
         if let Some(d) = &self.details {

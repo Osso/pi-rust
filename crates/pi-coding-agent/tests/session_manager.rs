@@ -482,7 +482,7 @@ fn finds_most_recent_session_by_mtime_and_cwd() {
     write_jsonl(&newer, &[header_json("new", "/tmp")]);
     assert_eq!(
         find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap(),
-        Some(newer.display().to_string()).map(JsString::from)
+        Some(JsString::from(newer.display().to_string()))
     );
 
     let project_a = dir.join("project-a");
@@ -499,7 +499,7 @@ fn finds_most_recent_session_by_mtime_and_cwd() {
             Some(&JsString::from(&project_a.display().to_string()))
         )
         .unwrap(),
-        Some(file_a.display().to_string()).map(JsString::from)
+        Some(JsString::from(file_a.display().to_string()))
     );
 }
 
@@ -1016,7 +1016,7 @@ fn relocation_preserves_the_complete_jsonl() {
             .to_string()
     );
     assert!(!source_file.exists());
-    assert_eq!(fs::read_to_string(&encode_node_utf8(&moved)).unwrap(), original);
+    assert_eq!(fs::read_to_string(encode_node_utf8(&moved)).unwrap(), original);
     assert_eq!(
         ids(&SessionManager::open(&moved, None, None).unwrap().get_entries()),
         ["kept-1", "compaction-1", "after-1"]
@@ -1050,7 +1050,7 @@ fn forks_only_the_active_compacted_slice() {
     )
     .unwrap();
     let forked_file = forked.get_session_file().unwrap().to_owned();
-    let serialized_ids: Vec<String> = fs::read_to_string(&encode_node_utf8(&forked_file))
+    let serialized_ids: Vec<String> = fs::read_to_string(encode_node_utf8(&forked_file))
         .unwrap()
         .lines()
         .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
@@ -1221,7 +1221,7 @@ fn branched_session_does_not_duplicate_entries() {
         .unwrap();
     session.append_message(assistant_message("new answer", 5)).unwrap();
     assert!(Path::new(&encode_node_utf8(&new_file)).exists());
-    let records: Vec<serde_json::Value> = fs::read_to_string(&encode_node_utf8(&new_file))
+    let records: Vec<serde_json::Value> = fs::read_to_string(encode_node_utf8(&new_file))
         .unwrap()
         .lines()
         .filter(|line| !line.trim().is_empty())
@@ -1299,7 +1299,6 @@ fn update_compaction_summary_rewrites_and_restores_on_failure() {
                 from_hook: Some(true),
                 duration_ms: Some(321.0),
                 provider_native: Some(provider_native),
-                ..Default::default()
             },
         )
         .unwrap();
@@ -1344,8 +1343,8 @@ fn update_compaction_summary_restores_when_persistence_fails() {
         )
         .unwrap();
     let file = session.get_session_file().unwrap().to_owned();
-    fs::remove_file(&encode_node_utf8(&file)).unwrap();
-    fs::create_dir(&encode_node_utf8(&file)).unwrap();
+    fs::remove_file(encode_node_utf8(&file)).unwrap();
+    fs::create_dir(encode_node_utf8(&file)).unwrap();
     assert!(
         session
             .update_compaction_summary(&id, &JsString::from("edited summary"))
@@ -1727,7 +1726,7 @@ fn metadata_backed_listing_prefers_control_db_and_excludes_subagents() {
 
     let dir = temp_dir("session-metadata-list");
     let session_dir = dir.join("sessions");
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dir).as_os_str()))
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path(dir.as_os_str()))
         .to_utf8()
         .expect("fixture control path is scalar");
     let cwd = dir.display().to_string();
@@ -1829,7 +1828,7 @@ fn metadata_listing_scopes_by_cwd_and_returns_control_db_order() {
     use pi_coding_agent::core::session_control_db::get_control_db_path;
 
     let dir = temp_dir("session-metadata-scope");
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((&dir).as_os_str()))
+    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path(dir.as_os_str()))
         .to_utf8()
         .expect("fixture control path is scalar");
     let sessions_a = dir.join("sessions-a");
@@ -1993,7 +1992,7 @@ fn relocation_moves_control_db_rows() {
     assert_ne!(old_path, new_path);
     assert_eq!(
         read_session_goal(&control_db, &new_path).expect("read moved goal"),
-        (Some("{\"goal\":\"moved\"}".to_owned())).map(JsString::from)
+        Some(JsString::from("{\"goal\":\"moved\"}".to_owned()))
     );
     assert_eq!(
         read_session_goal(&control_db, &old_path).expect("read old goal"),

@@ -50,7 +50,7 @@ pub fn map_key_to_doom(input: &JsString) -> Vec<u32> {
         if data == raw || matches_key(data, raw) {
             return vec![code];
         }
-        if data == shifted || matches_key(data, &format!("shift+{raw}")) {
+        if data == shifted || matches_key(data, format!("shift+{raw}")) {
             return vec![code, 0xb6];
         }
     }
@@ -100,5 +100,5 @@ pub fn map_key_to_doom(input: &JsString) -> Vec<u32> {
 }
 
 fn matches_letter(data: &str, lower: &str, upper: &str) -> bool {
-    data == lower || data == upper || matches_key(data, lower) || matches_key(data, &format!("shift+{lower}"))
+    data == lower || data == upper || matches_key(data, lower) || matches_key(data, format!("shift+{lower}"))
 }

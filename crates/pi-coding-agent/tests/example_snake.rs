@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/snake.rs"]
 mod example;
-#[path = "support/extension_examples_l_games.rs"]
-mod support;
+use crate::shared_extension_examples_l_games as support;
 use pi_coding_agent::core::extensions::ExtensionFactory;
 use serde_json::{Value, json};
 use std::sync::{Arc, Mutex};

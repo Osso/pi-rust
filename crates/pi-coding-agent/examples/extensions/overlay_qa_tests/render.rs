@@ -107,7 +107,7 @@ pub(super) fn render(m: &Model, width: usize) -> Vec<JsString> {
         Demo::MaxHeight => {
             let mut lines = vec![
                 fg(m, ThemeColor::Warning, " ⚠ Rendering 21 lines, maxHeight: 10"),
-                JsString::from(dim(m, " Lines 11-21 truncated (no bottom border)")),
+                dim(m, " Lines 11-21 truncated (no bottom border)"),
                 "".into(),
             ];
             lines.extend((1..=14).map(|i| js_format!(" Line {} of 14", i)));
@@ -152,7 +152,7 @@ pub(super) fn render(m: &Model, width: usize) -> Vec<JsString> {
                     "".into(),
                     js_format!(
                         " {}",
-                        dim(m, &format!("focused={} inputs={}", m.focused.get(), s.inputs))
+                        dim(m, format!("focused={} inputs={}", m.focused.get(), s.inputs))
                     ),
                     js_format!(
                         " {}",
@@ -246,7 +246,7 @@ fn sidepanel(m: &Model, s: &State, width: usize) -> Vec<JsString> {
             inner,
             ThemeColor::Border,
         ),
-        JsString::from(separator.clone()),
+        separator.clone(),
     ];
     for (i, item) in ["Dashboard", "Messages", "Settings", "Help", "About"]
         .iter()
@@ -348,7 +348,7 @@ fn streaming(m: &Model, s: &State, width: usize) -> Vec<JsString> {
                 .to_string(),
         )
     };
-    let separator = dim(m, &" ─".repeat(width.saturating_sub(2) / 2));
+    let separator = dim(m, " ─".repeat(width.saturating_sub(2) / 2));
     let mut lines = vec![
         "".into(),
         js_format!(" Current focus: {}", accent(m, focused)),

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::sqlite::{create_read_only_sqlite_database, create_sqlite_database};
 use pi_js_compat::{callback_error::CallbackError, js_json as json, js_json::JsValue};

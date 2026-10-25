@@ -1,7 +1,6 @@
 //! Run the actual native retention module against source-created SQLite with an
 //! explicit relative clock, without adding production runtime clock flags.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::ControlDbError;
 use pi_coding_agent::utils;
 use pi_js_compat::js_json::JsString;
@@ -130,3 +129,7 @@ fn exact_creation_boundary_and_invalid_birth_match_frozen_sqlite_cleanup() {
     let after = pi_js_compat::date::js_now_millis() as i64;
     assert!((before - 86_400_000..=after - 86_400_000).contains(&cutoff));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

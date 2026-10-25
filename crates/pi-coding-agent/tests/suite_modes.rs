@@ -64,3 +64,7 @@ pub mod rpc_types;
 pub mod supervisor_client;
 #[path = "supervisor_client_cancellation.rs"]
 pub mod supervisor_client_cancellation;
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

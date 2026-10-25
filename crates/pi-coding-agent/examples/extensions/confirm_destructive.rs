@@ -18,7 +18,7 @@ pub fn confirm_destructive_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
             let ui = ctx.ui()?;
             let choice = ui
                 .select(
-                    &JsString::from(js_format!("Fork from entry {}?", prefix)),
+                    &js_format!("Fork from entry {}?", prefix),
                     &["Yes, create fork".into(), "No, stay in current session".into()],
                     None,
                 )

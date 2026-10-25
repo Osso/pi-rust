@@ -108,3 +108,17 @@ pub mod differential_codex_hosted_abort;
 pub mod differential_codex_quota;
 #[path = "session_message_route.rs"]
 pub mod session_message_route;
+
+// Shared support is compiled once per integration target.
+#[path = "support/bundled.rs"]
+pub mod shared_bundled;
+#[path = "support/catalog_fetch.rs"]
+pub mod shared_catalog_fetch;
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
+#[path = "support/tool_context.rs"]
+pub mod shared_tool_context;

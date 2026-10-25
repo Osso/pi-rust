@@ -1,7 +1,6 @@
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::{
     core::{
         session_control_db::{WritableSessionMetadata, read_session_metadata, write_session_metadata},
@@ -110,7 +109,7 @@ async fn native(request: &Value) -> Value {
     let metadata: Vec<_> = paths
         .iter()
         .map(|p| {
-            read_session_metadata(&db, &JsString::from(p)).unwrap().map(|row| {
+            read_session_metadata(&db, JsString::from(p)).unwrap().map(|row| {
                 json!([
                     row.session_path,
                     row.is_archived.unwrap_or(false),
@@ -178,3 +177,7 @@ async fn mutation_probe() {
         }
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

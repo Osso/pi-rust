@@ -26,9 +26,9 @@ pub fn truncated_tool_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         execute:Arc::new(|_,params,_,_,ctx|Box::pin(async move {
 let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;execute(&params,&ctx.cwd()?).await})),
         render_call:Some(infallible_render_call(|args,theme,_|{
-            let mut text=theme.fg(C::ToolTitle,&theme.bold("rg "))+&theme.fg(C::Accent,&js_format!("\"{}\"", args["pattern"].as_string().unwrap_or(&JsString::from("undefined"))));
-            if let Some(path)=nonempty(args,"path"){text.push_str(&theme.fg(C::Muted,&js_format!(" in {}", path)));}
-            if let Some(glob)=nonempty(args,"glob"){text.push_str(&theme.fg(C::Dim,&js_format!(" --glob {}", glob)));}
+            let mut text=theme.fg(C::ToolTitle,theme.bold("rg "))+&theme.fg(C::Accent,&js_format!("\"{}\"", args["pattern"].as_string().unwrap_or(&JsString::from("undefined"))));
+            if let Some(path)=nonempty(args,"path"){text.push_str(theme.fg(C::Muted,&js_format!(" in {}", path)));}
+            if let Some(glob)=nonempty(args,"glob"){text.push_str(theme.fg(C::Dim,&js_format!(" --glob {}", glob)));}
             text_component(text)
         })),
         render_result:Some(infallible_render_result(|result,options,theme,_|text_component(render_result(result,options,theme)))),
@@ -78,7 +78,7 @@ async fn execute(params: &Value, cwd: &JsString) -> Result<AgentToolResult, Hand
         return Ok(result("No matches found".into(), details));
     }
     let truncation = truncate_head(
-        &JsString::from(output.as_ref()),
+        JsString::from(output.as_ref()),
         TruncationOptions {
             max_lines: DEFAULT_MAX_LINES as f64,
             max_bytes: DEFAULT_MAX_BYTES as f64,
@@ -114,7 +114,7 @@ async fn execute(params: &Value, cwd: &JsString) -> Result<AgentToolResult, Hand
 fn result(text: JsString, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(JsValue::from(details)),
+        details: Some(details),
         is_error: None,
         terminate: None,
     }
@@ -141,7 +141,7 @@ fn render_result(result: &AgentToolResult, options: &ToolRenderResultOptions, th
         ),
     );
     if details["truncation"]["truncated"] == pi_js_compat::js_json!(true) {
-        text.push_str(&theme.fg(C::Warning, " (truncated)"));
+        text.push_str(theme.fg(C::Warning, " (truncated)"));
     }
     if !options.expanded {
         return text;

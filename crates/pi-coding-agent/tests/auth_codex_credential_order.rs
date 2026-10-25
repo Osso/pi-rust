@@ -1,7 +1,6 @@
 #[path = "../../pi-ai/tests/support/oauth.rs"]
 mod oauth_support;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use oauth_support::recording_fetch::{RecordingFetch, ScriptedResponse};
 use pi_ai::auth::oauth::openai_codex::OpenAICodexOAuth;
@@ -127,3 +126,7 @@ fn typed_oauth_credential_roundtrip_keeps_interleaved_known_and_extra_keys() {
         Some(&JsValue::String("t".into()))
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

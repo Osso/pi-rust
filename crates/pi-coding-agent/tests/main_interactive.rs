@@ -12,8 +12,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
-#[path = "support/executable_script.rs"]
-mod executable_script;
+use crate::shared_executable_script as executable_script;
 
 use executable_script::write_executable_script;
 
@@ -330,7 +329,7 @@ fn quit_prints_the_resume_command() {
         Some(&JsString::from(&fixture.agent_dir.display().to_string())),
     )
     .expect("session dir");
-    std::fs::create_dir_all(&&encode_node_utf8(&session_dir)).expect("session dir");
+    std::fs::create_dir_all(encode_node_utf8(&session_dir)).expect("session dir");
     let session_file = Path::new(&encode_node_utf8(&session_dir)).join("quit-hint.jsonl");
     let entries = [
         serde_json::json!({"type":"session","version":3,"id":"quit-hint","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
@@ -367,7 +366,7 @@ fn resume_flag_selects_a_session_and_starts_interactive_mode() {
         Some(&JsString::from(&fixture.agent_dir.display().to_string())),
     )
     .expect("session dir");
-    std::fs::create_dir_all(&&encode_node_utf8(&session_dir)).expect("session dir");
+    std::fs::create_dir_all(encode_node_utf8(&session_dir)).expect("session dir");
     let entries = [
         serde_json::json!({"type":"session","version":3,"id":"resume-pick","timestamp":"2026-08-04T00:00:00.000Z","cwd":work}),
         serde_json::json!({"type":"message","id":"m-1","parentId":null,"timestamp":"2026-08-04T00:00:01.000Z","message":{"role":"user","content":"resume-pick-test","timestamp":1}}),

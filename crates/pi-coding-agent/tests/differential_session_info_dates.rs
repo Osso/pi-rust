@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_manager::{SessionInfo, build_session_info};
 use pi_js_compat::js_json::JsString;
 use serde_json::{Value, json};

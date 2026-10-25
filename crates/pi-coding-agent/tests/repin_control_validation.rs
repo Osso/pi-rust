@@ -1,8 +1,7 @@
-use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::session_control_db::*;
 use pi_js_compat::js_json as json;
+use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue as Value;
 fn node(id: &str) -> Value {
     let now = pi_coding_agent::utils::iso_time::now_iso_string();

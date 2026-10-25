@@ -9,8 +9,7 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -723,7 +722,7 @@ fn components_probe_child() {
     });
     let theme_path = PathBuf::from(std::env::var("PI_PACKAGE_DIR").expect("PI_PACKAGE_DIR")).join("theme/dark.json");
     let theme = pi_coding_agent::modes::interactive::theme::load_theme_from_path(
-        &JsString::from((&theme_path).to_str().expect("fixture path must be UTF-8")),
+        &JsString::from(theme_path.to_str().expect("fixture path must be UTF-8")),
         None,
     )
     .expect("fixture theme must load");
@@ -803,9 +802,9 @@ fn run_component_case(case: &Value) -> Value {
             let cancel_sink = Rc::clone(&events);
             let mut selector = ThemeSelectorComponent::new(
                 &JsString::from(props["currentTheme"].as_str().unwrap()),
-                Rc::new(move |name| event_sink.borrow_mut().push(js_format!("select:{}", name).into())),
+                Rc::new(move |name| event_sink.borrow_mut().push(js_format!("select:{}", name))),
                 Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
-                Rc::new(move |name| preview_sink.borrow_mut().push(js_format!("preview:{}", name).into())),
+                Rc::new(move |name| preview_sink.borrow_mut().push(js_format!("preview:{}", name))),
             );
             let list = selector.get_select_list();
             renders.push(selector.render(width));
@@ -852,8 +851,8 @@ fn run_component_case(case: &Value) -> Value {
             let toggle_sink = Rc::clone(&events);
             let mut selector = ExtensionSelectorComponent::new(
                 &JsString::from(props["title"].as_str().unwrap()),
-                options.into_iter().map(JsString::from).collect::<Vec<_>>(),
-                Rc::new(move |option| event_sink.borrow_mut().push(js_format!("select:{}", option).into())),
+                options.into_iter().collect::<Vec<_>>(),
+                Rc::new(move |option| event_sink.borrow_mut().push(js_format!("select:{}", option))),
                 Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 ExtensionSelectorOptions {
                     on_toggle_tools_expanded: Some(Rc::new(move || {
@@ -1120,9 +1119,11 @@ fn run_component_case(case: &Value) -> Value {
                 Rc::new(move || render_sink.borrow_mut().push("render".to_owned().into())),
                 props["providerId"].as_str().unwrap(),
                 Rc::new(move |success, message| {
-                    event_sink
-                        .borrow_mut()
-                        .push(js_format!("complete:{}:{}", success.to_string(), message.unwrap_or_default()).into());
+                    event_sink.borrow_mut().push(js_format!(
+                        "complete:{}:{}",
+                        success.to_string(),
+                        message.unwrap_or_default()
+                    ));
                 }),
                 props["providerNameOverride"].as_str().map(JsString::from).as_ref(),
                 props["titleOverride"].as_str().map(JsString::from).as_ref(),
@@ -1188,12 +1189,10 @@ fn run_component_case(case: &Value) -> Value {
             let mut selector = AgentSwitcherComponent::new(
                 agents,
                 props["selectedAgentId"].as_str().map(str::to_owned).map(JsString::from),
-                Rc::new(move |agent_id| event_sink.borrow_mut().push(js_format!("select:{}", agent_id).into())),
+                Rc::new(move |agent_id| event_sink.borrow_mut().push(js_format!("select:{}", agent_id))),
                 Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 Rc::new(move |agent: AgentSnapshot| {
-                    inactive_sink
-                        .borrow_mut()
-                        .push(js_format!("inactive:{}", agent.id).into());
+                    inactive_sink.borrow_mut().push(js_format!("inactive:{}", agent.id));
                 }),
             );
             renders.push(selector.render(width));
@@ -1222,7 +1221,7 @@ fn run_component_case(case: &Value) -> Value {
             let cancel_sink = Rc::clone(&events);
             let mut selector = UserMessageSelectorComponent::new(
                 messages,
-                Rc::new(move |id| event_sink.borrow_mut().push(js_format!("select:{}", id).into())),
+                Rc::new(move |id| event_sink.borrow_mut().push(js_format!("select:{}", id))),
                 Rc::new(move || cancel_sink.borrow_mut().push("cancel".to_owned().into())),
                 props["initialSelectedId"].as_str().map(JsString::from).as_ref(),
             );
@@ -1258,3 +1257,7 @@ fn apply_step(
     }
     renders.push(component.render(*width));
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

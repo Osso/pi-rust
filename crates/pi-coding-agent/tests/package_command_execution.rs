@@ -229,7 +229,7 @@ impl PackageCommandEffects for FakeEffects {
             .unwrap()
             .push(pi_js_compat::js_format!("install:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
-            progress(message.clone().into());
+            progress(message.clone());
         }
         let result = self.install.clone();
         Box::pin(async move { result })
@@ -247,7 +247,7 @@ impl PackageCommandEffects for FakeEffects {
             .unwrap()
             .push(pi_js_compat::js_format!("remove:{}:{}", source, local.to_string()));
         for message in &self.progress_messages {
-            progress(message.clone().into());
+            progress(message.clone());
         }
         let result = self.remove.clone();
         Box::pin(async move { result })
@@ -274,7 +274,7 @@ impl PackageCommandEffects for FakeEffects {
             source.cloned().unwrap_or_else(|| "<all>".into())
         ));
         for message in &self.progress_messages {
-            progress(message.clone().into());
+            progress(message.clone());
         }
         let result = self.update.clone();
         Box::pin(async move { result })
@@ -454,13 +454,13 @@ async fn default_update_notes_skipped_extensions_and_runs_self_update() {
     assert_eq!(
         outcome.stdout,
         vec![
-            chalk.dim(&format!(
+            chalk.dim(format!(
                 "Extensions are skipped. Run {app} update --extensions to update extensions."
             )),
-            chalk.dim(&format!(
+            chalk.dim(format!(
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@9.9.9..."
             )),
-            chalk.green(&format!("Updated {app} from {} to 9.9.9", current_version())),
+            chalk.green(format!("Updated {app} from {} to 9.9.9", current_version())),
         ]
     );
     assert_eq!(outcome.exit_code, None);
@@ -488,10 +488,10 @@ async fn up_to_date_release_prints_the_up_to_date_line() {
     assert_eq!(
         outcome.stdout,
         vec![
-            Chalk::stdout().dim(&format!(
+            Chalk::stdout().dim(format!(
                 "Extensions are skipped. Run {app} update --extensions to update extensions."
             )),
-            Chalk::stdout().green(&format!("{app} is already up to date (v{})", current_version())),
+            Chalk::stdout().green(format!("{app} is already up to date (v{})", current_version())),
         ]
     );
     assert_eq!(effects.calls(), vec!["latest_release"]);
@@ -519,11 +519,11 @@ async fn force_runs_the_self_update_even_when_current() {
     assert_eq!(
         outcome.stdout,
         vec![
-            Chalk::stdout().dim(&format!(
+            Chalk::stdout().dim(format!(
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@{}...",
                 current_version()
             )),
-            Chalk::stdout().green(&format!("Updated {app} from {0} to {0}", current_version())),
+            Chalk::stdout().green(format!("Updated {app} from {0} to {0}", current_version())),
         ]
     );
 }
@@ -555,7 +555,7 @@ async fn self_update_failure_prints_the_fallback_hint() {
     );
     assert_eq!(
         outcome.stdout,
-        vec![Chalk::stdout().dim(&format!(
+        vec![Chalk::stdout().dim(format!(
             "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@9.9.9..."
         ))]
     );
@@ -644,10 +644,10 @@ async fn all_updates_extensions_then_self() {
         outcome.stdout,
         vec![
             Chalk::stdout().green("Updated packages"),
-            Chalk::stdout().dim(&format!(
+            Chalk::stdout().dim(format!(
                 "Updating {app} with bun install -g --ignore-scripts --minimum-release-age=0 @earendil-works/pi-coding-agent@9.9.9..."
             )),
-            Chalk::stdout().green(&format!("Updated {app} from {} to 9.9.9", current_version())),
+            Chalk::stdout().green(format!("Updated {app} from {} to 9.9.9", current_version())),
         ]
     );
 }
@@ -753,18 +753,19 @@ async fn config_command_passes_one_resolved_resource_set_and_ignores_old_local_f
         let outcome = execute_config_command(&args(&flags), &effects).await.unwrap().unwrap();
         assert_eq!(outcome.exit_code, Some(0));
     }
-    let requests = effects.config_requests.lock().unwrap();
-    assert_eq!(requests.len(), 2);
-    assert_eq!(requests[0], requests[1]);
-    let mut paths: Vec<_> = requests[0].extensions.iter().map(|r| r.path.clone()).collect();
-    paths.sort();
-    let mut expected: Vec<JsString> = vec![
-        global_path.display().to_string().into(),
-        project_path.display().to_string().into(),
-    ];
-    expected.sort();
-    assert_eq!(paths, expected);
-    drop(requests);
+    {
+        let requests = effects.config_requests.lock().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert_eq!(requests[0], requests[1]);
+        let mut paths: Vec<_> = requests[0].extensions.iter().map(|r| r.path.clone()).collect();
+        paths.sort();
+        let mut expected: Vec<JsString> = vec![
+            global_path.display().to_string().into(),
+            project_path.display().to_string().into(),
+        ];
+        expected.sort();
+        assert_eq!(paths, expected);
+    }
     assert!(
         execute_config_command(&args(&["install", "x"]), &effects)
             .await

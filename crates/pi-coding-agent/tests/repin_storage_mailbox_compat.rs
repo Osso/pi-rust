@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::runtime_mailbox_acceptance::{RuntimeMailboxAcceptance, RuntimeMailboxAcceptanceRef};
 use pi_coding_agent::core::runtime_mailbox_transcript::read_accepted_runtime_mailbox_store_refs;
 use pi_coding_agent::core::session_control_db::{

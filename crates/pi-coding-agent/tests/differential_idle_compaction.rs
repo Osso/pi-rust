@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::AssistantMessage;
 use pi_coding_agent::core::idle_compaction::compute_idle_compaction_due_at;

@@ -1,7 +1,5 @@
-#[path = "executable_script.rs"]
-mod executable_script;
-#[path = "oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 
 use pi_ai::auth::AuthError;
 use pi_ai::oauth::*;

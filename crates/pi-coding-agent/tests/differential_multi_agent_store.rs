@@ -1,7 +1,6 @@
 //! Differential proof for the in-memory multi-agent store over operation scripts.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::sync::Arc;
 

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::types::{Modality, Model, ModelCost};
 use pi_coding_agent::{
@@ -76,10 +75,8 @@ fn emit(events: &RefCell<Vec<Value>>, kind: &str, mut ids: EnabledIds, mutate: b
     events.borrow_mut().push(
         json!({"kind":kind,"ids":ids.as_ref().map(|ids| ids.iter().map(|id| id.units().to_vec()).collect::<Vec<_>>())}),
     );
-    if mutate {
-        if let Some(ids) = &mut ids {
-            ids.push("callback/mutation".into());
-        }
+    if mutate && let Some(ids) = &mut ids {
+        ids.push("callback/mutation".into());
     }
     if fail {
         pi_coding_agent::utils::uncaught::throw_uncaught("Error", pi_js_compat::js_format!("callback {}", kind));
@@ -176,7 +173,7 @@ fn native(request: &Value, uncaught: bool) -> Value {
                 selector
                     .get_search_input()
                     .borrow_mut()
-                    .set_value(&units(&step["units"]));
+                    .set_value(units(&step["units"]));
             }
             "focus" => selector
                 .as_focusable_mut()
@@ -463,3 +460,7 @@ fn filtered_reorder_uncaught_failure_matches_frozen_process_boundary() {
     );
     assert_eq!(std::str::from_utf8(&native_output.stderr).unwrap().trim(), diagnostic);
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

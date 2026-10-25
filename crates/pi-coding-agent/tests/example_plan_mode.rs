@@ -76,3 +76,9 @@ async fn truncated_astral_todo_retains_surrogate_in_ui_and_persistence() {
             + "...")
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/extensions.rs"]
+pub mod shared_extensions;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

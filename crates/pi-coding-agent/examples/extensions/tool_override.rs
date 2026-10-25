@@ -9,7 +9,6 @@ use pi_coding_agent::{
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::encode_node_utf8;
 use pi_js_compat::{date, node_fs::node_fs_error_record, string::js_trim};
@@ -106,7 +105,7 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
 fn result(text: impl Into<JsString>, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(JsValue::from(details)),
+        details: Some(details),
         is_error: None,
         terminate: None,
     }

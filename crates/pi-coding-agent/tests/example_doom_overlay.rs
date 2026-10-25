@@ -1,11 +1,8 @@
 #[path = "../examples/extensions/doom_overlay/index.rs"]
 mod example;
-#[path = "support/oracle.rs"]
-mod oracle;
-#[path = "support/extensions.rs"]
-mod support;
-#[path = "support/ui_thread.rs"]
-mod ui_thread;
+use crate::shared_extensions as support;
+use crate::shared_oracle as oracle;
+use crate::shared_ui_thread as ui_thread;
 
 use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;
@@ -183,7 +180,8 @@ impl ExtensionUiContext for Ui {
         Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
-                    (&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"))
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("theme/dark.json")
                         .to_str()
                         .expect("fixture path must be UTF-8"),
                 ),

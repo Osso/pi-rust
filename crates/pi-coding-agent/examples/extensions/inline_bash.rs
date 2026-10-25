@@ -54,7 +54,7 @@ pub fn inline_bash_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             (js_trim(output).to_owned(), error)
                         }
                         Err(error) => {
-                            result = replace(&result, &full, &format!("[error: {error}]"));
+                            result = replace(&result, &full, format!("[error: {error}]"));
                             summaries.push(pi_js_compat::js_format!(
                                 "{}{}{} ({}) -> \"\"",
                                 "!{",

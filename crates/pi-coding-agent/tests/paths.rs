@@ -25,18 +25,18 @@ fn canonicalizes_regular_files_and_symlinks() {
     let file = dir.path().join("file.txt");
     fs::write(&file, "hello").expect("write file");
 
-    assert_eq!(canonicalize_path(&text(&file)), text(fs::canonicalize(&file).unwrap()));
+    assert_eq!(canonicalize_path(text(&file)), text(fs::canonicalize(&file).unwrap()));
 
     let link = dir.path().join("link.txt");
     symlink(&file, &link).expect("symlink");
-    assert_eq!(canonicalize_path(&text(&link)), text(fs::canonicalize(&file).unwrap()));
+    assert_eq!(canonicalize_path(text(&link)), text(fs::canonicalize(&file).unwrap()));
 
     let target_dir = dir.path().join("target-dir");
     fs::create_dir(&target_dir).expect("create dir");
     let link_dir = dir.path().join("link-dir");
     symlink(&target_dir, &link_dir).expect("symlink dir");
     assert_eq!(
-        canonicalize_path(&text(&link_dir)),
+        canonicalize_path(text(&link_dir)),
         text(fs::canonicalize(&target_dir).unwrap())
     );
 }
@@ -49,7 +49,7 @@ fn falls_back_to_the_raw_path_for_missing_targets_and_dangling_links() {
 
     let link = dir.path().join("link.txt");
     symlink(dir.path().join("missing-target"), &link).expect("dangling symlink");
-    assert_eq!(canonicalize_path(&text(&link)), text(&link));
+    assert_eq!(canonicalize_path(text(&link)), text(&link));
 }
 
 #[test]

@@ -11,8 +11,7 @@ use pi_js_compat::js_json::{JsString, JsValue};
 use pi_js_compat::{js_json, js_json as json};
 use tempfile::TempDir;
 
-#[path = "support/tool_context.rs"]
-mod tool_context;
+use crate::shared_tool_context as tool_context;
 
 fn seed_message(text: &str, timestamp: i64) -> pi_agent_core::AgentMessage {
     js_json::from_value(&json!({ "role": "user", "content": text, "timestamp": timestamp })).expect("seed user message")

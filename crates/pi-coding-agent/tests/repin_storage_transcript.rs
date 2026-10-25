@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_transcript::{
     create_session_transcript_read_stream, read_session_transcript_bytes, read_session_transcript_text,

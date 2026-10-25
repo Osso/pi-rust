@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_ai_oracle as oracle;
 use pi_coding_agent::core::resident_console_transport::{
     ResidentConsoleClient, ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions,
     ResidentConsoleService, ResidentConsoleSnapshot, Unsubscribe,

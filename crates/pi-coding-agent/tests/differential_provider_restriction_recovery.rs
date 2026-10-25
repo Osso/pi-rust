@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_ai::{AssistantContent, AssistantMessage, StopReason, TextContent};
 use pi_coding_agent::core::provider_restriction_recovery::*;

@@ -1,7 +1,6 @@
 #[path = "../support/env_probe.rs"]
 mod env_probe;
-#[path = "../support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::Model;
@@ -159,7 +158,7 @@ fn compare_scope(oracle: &mut oracle::TsOracle, models: &[Model]) {
         let expected = oracle.request(&request);
         assert!(expected["ok"].as_bool().unwrap(), "{expected}");
         let owned: Vec<String> = patterns.iter().map(|pattern| (*pattern).to_owned()).collect();
-        let result = resolve_model_scope_from_models(&(&owned).iter().map(JsString::from).collect::<Vec<_>>(), models);
+        let result = resolve_model_scope_from_models(&owned.iter().map(JsString::from).collect::<Vec<_>>(), models);
         let actual = json!({
             "scopedModels": result
                 .scoped_models

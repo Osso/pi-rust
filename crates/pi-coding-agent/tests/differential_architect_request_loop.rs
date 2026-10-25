@@ -1,8 +1,7 @@
 //! Differential: `architect/main.ts` cycle and request completion against the pinned TypeScript module.
 
+use crate::shared_oracle as oracle;
 use pi_js_compat::js_json::JsString;
-#[path = "support/oracle.rs"]
-mod oracle;
 
 use std::sync::{Arc, Mutex};
 
@@ -54,7 +53,7 @@ fn normalize_prompt(prompt: &JsString) -> JsString {
     let chars = prompt.units();
     let mut index = 0;
     while index < chars.len() {
-        if is_iso_timestamp_start(&chars, index) {
+        if is_iso_timestamp_start(chars, index) {
             let mut end = index;
             while end < chars.len() && chars[end] != u16::from(b'Z') {
                 end += 1;
@@ -65,7 +64,7 @@ fn normalize_prompt(prompt: &JsString) -> JsString {
                 continue;
             }
         }
-        if is_uuid_start(&chars, index) {
+        if is_uuid_start(chars, index) {
             normalized.push_str("<uuid>");
             index += 36;
             continue;

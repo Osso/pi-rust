@@ -1,7 +1,6 @@
 #[path = "support/agent_session_fixture.rs"]
 mod agent_session_fixture;
-#[path = "support/extensions.rs"]
-mod support;
+use crate::shared_extensions as support;
 
 use pi_coding_agent::core::extensions::ExtensionRunner;
 use std::sync::atomic::{AtomicUsize, Ordering};

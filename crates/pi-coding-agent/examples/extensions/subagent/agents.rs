@@ -82,7 +82,7 @@ fn load_agents(dir: &Path, source: &str) -> Result<Vec<AgentConfig>, JsString> {
             continue;
         };
         let parsed =
-            parse_frontmatter(&JsString::from(String::from_utf8_lossy(&bytes).as_ref())).map_err(|e| e.to_string())?;
+            parse_frontmatter(JsString::from(String::from_utf8_lossy(&bytes).as_ref())).map_err(|e| e.to_string())?;
         let f = parsed.frontmatter;
         let (Some(name), Some(description)) = (
             f["name"].as_string().filter(|s| !s.is_empty()),

@@ -5,8 +5,7 @@
 //! - Worker operations are compared with the real Node `fs-worker.cjs` on the
 //!   same fixtures.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::path::Path;
 use std::process::Command;
@@ -150,14 +149,14 @@ fn matches_typescript_bwrap_invocation_arguments() {
             )
             .unwrap();
             let invocation = build_bwrap_invocation(&BwrapInvocationOptions {
-                bwrap_command: case["bwrapCommand"].as_string().unwrap().to_owned().into(),
+                bwrap_command: case["bwrapCommand"].as_string().unwrap().to_owned(),
                 command: case["command"]
                     .as_array()
                     .unwrap()
                     .iter()
                     .map(|value| value.as_string().unwrap().clone())
                     .collect(),
-                cwd: case["cwd"].as_string().unwrap().to_owned().into(),
+                cwd: case["cwd"].as_string().unwrap().to_owned(),
                 env,
                 extra_read_only_paths: case
                     .get("extraReadOnlyPaths")

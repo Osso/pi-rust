@@ -1,10 +1,8 @@
 //! Behavioral tests for the bundled `loop`, `codex-fast`, and `effort` extensions.
 
+use crate::shared_bundled as bundled;
+use crate::shared_extensions as support;
 use pi_js_compat::js_json::JsString;
-#[path = "support/bundled.rs"]
-mod bundled;
-#[path = "support/extensions.rs"]
-mod support;
 
 use std::sync::Arc;
 

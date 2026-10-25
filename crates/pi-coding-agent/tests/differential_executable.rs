@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::utils::executable::{ExecutableAvailabilityOptions, is_executable_available};
 use pi_js_compat::js_json::{JsString, JsValue, from_value};
@@ -87,3 +86,7 @@ fn executable_probe() {
         assert_eq!(JsValue::Bool(actual), *expected, "case {index}: {case:?}");
     }
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

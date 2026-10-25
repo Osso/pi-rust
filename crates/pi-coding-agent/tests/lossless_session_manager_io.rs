@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_coding_agent::core::session_manager::{ForkEntrySelection, SessionManager, load_entries_from_file};
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
@@ -80,7 +79,7 @@ fn ts_file_load_lookup_tree_context_fork_and_write_remain_lossless() {
     );
     let actual = JsValue::Object(actual);
     let ts_context = pi_js_compat::js_json::parse_lossless(
-        &expected
+        expected
             .get("context")
             .and_then(JsValue::as_string)
             .unwrap()
@@ -220,7 +219,7 @@ fn raw_provider_native_survives_compaction_context_and_rewrite_and_typed_derivat
     let mut manager = SessionManager::open(&path, Some(&dir), None).unwrap();
     let context = manager.build_session_context();
     let expected_context = pi_js_compat::js_json::parse_lossless(
-        &expected
+        expected
             .get("context")
             .and_then(JsValue::as_string)
             .unwrap()
@@ -292,3 +291,7 @@ fn mutation_rejects_noncompaction_before_testing_empty_summary() {
         &(JsString::from("Entry ") + &id + " is not a compaction")
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;

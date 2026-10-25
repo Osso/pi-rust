@@ -1,7 +1,5 @@
-#[path = "support/executable_script.rs"]
-mod executable_script;
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_executable_script as executable_script;
+use crate::shared_oracle as oracle;
 use pi_coding_agent::core::tools::bash::{BashExecOptions, BashOperations, create_local_bash_operations};
 use pi_js_compat::abort::AbortController;
 use pi_js_compat::js_json as json;
@@ -147,3 +145,9 @@ fn stdin_write_child() {
         )
     );
 }
+
+// Shared support is compiled once per integration target.
+#[path = "support/executable_script.rs"]
+pub mod shared_executable_script;
+#[path = "support/oracle.rs"]
+pub mod shared_oracle;
