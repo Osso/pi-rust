@@ -402,7 +402,7 @@ fn parses_response_lines() {
     )
     .expect("response must parse");
     assert_eq!(response.id.as_ref(), Some(&JsString::from("req_1")));
-    assert_eq!(response.command.as_deref(), Some("get_state"));
+    assert_eq!(response.command.as_ref(), Some(&JsString::from("get_state")));
     assert!(!response.success);
     assert_eq!(response.error.as_ref(), Some(&JsString::from("nope")));
     assert_eq!(response.kind, pi_coding_agent::modes::rpc::RpcResponseTag::Response);
