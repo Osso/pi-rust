@@ -1,4 +1,3 @@
-
 #[path = "differential_settings_manager/mod.rs"]
 mod settings_manager_oracle;
 

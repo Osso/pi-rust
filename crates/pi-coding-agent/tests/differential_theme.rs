@@ -1,4 +1,3 @@
-
 //! Differential test: theme JSON loading, validation, and ANSI resolution
 //! against the pinned TypeScript module through `oracle/coding-agent-theme-oracle.ts`.
 
