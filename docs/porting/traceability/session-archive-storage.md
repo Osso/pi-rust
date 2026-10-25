@@ -1,3 +1,7 @@
 # session-archive-storage.ts
 
+## Storage-3 original error records (2026-10-25)
+
+New `suite_session_1 repin_storage_archive` fixtures invoke the actual frozen four operational exports and compare public Error values, constructor identity and unchanged/rolled-back files. RED `/tmp/storage3-archive-records-red.log` proved directory reads used OS Display text and DB failures lost their original filesystem properties; `/tmp/storage3-archive-codec-red.log` proved corrupted frames lost code/errno. Native archive reads now reuse Node read records and the existing decoder-error authority. Metadata wrappers reuse the existing manager control_db_error adapter (pub(super) only) rather than flattening it. The source-created recipient JSONL is restored after archive DB failure and rearchived after restore DB failure. No new carriers, dependencies or fallback.
+
 Frozen 4f9e6f8a4. Six exports ported to `session_archive_storage`: suffix/predicate/file archive/file restore/persisted archive/persisted restore. Uses foundation public atomic relocation, no SQL. Validation and mode/exclusive temporary/publication/rollback follow source. `repin_session_storage::rust_archive_restores_with_frozen_ts_and_exact_bytes` covers both producer directions. Recorded DB-failure rollback in both directions, surviving-plain precedence, corruption, modes and rollback-mutant proofs: [integration ledger](session-storage-integration.md). Unlink/publication cleanup-error injection remains unproved; whole module remains todo.

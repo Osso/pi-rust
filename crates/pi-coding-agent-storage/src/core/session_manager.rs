@@ -183,7 +183,7 @@ fn format_session_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
 }
 
-fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManagerError {
+pub(super) fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManagerError {
     SessionManagerError {
         name: cause
             .native_error()
