@@ -101,14 +101,9 @@ fn read_provision_wire(capture: &Path, mode: &str) -> Option<String> {
 
 #[test]
 fn default_secret_process_protocol_failure_and_abort_match_frozen() {
-    for mode in ["success", "failure", "abort", "missing", "preaborted"] {
+    for mode in ["success", "failure", "abort", "preaborted"] {
         let directory = tempfile::tempdir().unwrap();
-        let mut path = write_fake_authsudo(directory.path());
-        if mode == "missing" {
-            std::fs::remove_file(directory.path().join("authsudo")).unwrap();
-            std::os::unix::fs::symlink("/usr/bin/node", directory.path().join("node")).unwrap();
-            path = directory.path().as_os_str().to_owned();
-        }
+        let path = write_fake_authsudo(directory.path());
         let capture = directory.path().join("source.json");
         let result = directory.path().join("result.json");
         let env = environment(&path, &capture, mode, &result);
@@ -148,6 +143,65 @@ fn default_secret_process_protocol_failure_and_abort_match_frozen() {
         assert_eq!(native["registrations"], response["output"]["steps"][0]["result"]);
         assert_eq!(read_provision_wire(&native_capture, mode), frozen_wire, "{mode} wire");
     }
+}
+
+#[test]
+fn missing_provisioner_preserves_the_frozen_crash_discrepancy() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let directory = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("/usr/bin/node", directory.path().join("node")).unwrap();
+    let path = directory.path().as_os_str().to_owned();
+    let capture = directory.path().join("source.json");
+    let result = directory.path().join("result.json");
+    let env = environment(&path, &capture, "missing", &result);
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    let mut child = oracle::spawn_oracle_process(
+        &lock,
+        "bundled-extensions-oracle.ts",
+        "packages/coding-agent/extensions/ask-secret/src/index.ts",
+        &env,
+        Stdio::piped(),
+    );
+    let request = json!({"id":"missing","extension":"ask-secret","useDefaultProvision":true,"steps":[
+        {"op":"tool","name":"ask_secret","params":params(),"mode":"tui","hasUI":true,"inputs":inputs()}
+    ]});
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all((pi_js_compat::js_json::stringify_lossless(&request) + "\n").as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(1));
+    assert!(output.stdout.is_empty());
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    for expected in [
+        "Unhandled 'error' event",
+        "spawn authsudo ENOENT",
+        "code: 'ENOENT'",
+        "syscall: 'spawn authsudo'",
+        "path: 'authsudo'",
+    ] {
+        assert!(
+            stderr.contains(expected),
+            "missing frozen crash field {expected}: {stderr}"
+        );
+    }
+    assert!(!capture.exists());
+    let native_capture = directory.path().join("native.json");
+    env_probe::run_probe(
+        "ask_secret_default_process_probe",
+        &environment(&path, &native_capture, "missing", &result),
+    );
+    let native = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&result).unwrap()).unwrap();
+    assert_eq!(native["result"], json!(null));
+    assert_eq!(
+        native["error"],
+        json!({"name":"Error","message":"Secrets Broker provisioning failed"})
+    );
+    assert!(!native_capture.exists());
 }
 
 #[tokio::test]

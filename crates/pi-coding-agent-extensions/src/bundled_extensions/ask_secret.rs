@@ -81,7 +81,6 @@ enum SecretRequest {
 
 pub fn ask_secret_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(create_ask_secret_tool_definition(AskSecretToolOptions::default()))
-        .map_err(HandlerError::from)
 }
 
 pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolDefinition {
