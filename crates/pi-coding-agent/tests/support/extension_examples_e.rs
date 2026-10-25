@@ -98,7 +98,10 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
             .push(json!(["compact", options.custom_instructions]));
         if outcome == "error" {
             if let Some(callback) = options.on_error {
-                callback(&JsString::from("fixture compaction failure"));
+                callback(&pi_js_compat::callback_error::CallbackError::new(
+                    "fixture compaction failure",
+                ))
+                .expect("fixture error callback");
             }
         } else if let Some(callback) = options.on_complete {
             callback(
@@ -106,7 +109,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
                     json!({"summary":"fixture summary","firstKeptEntryId":"kept","tokensBefore":120001}),
                 )
                 .unwrap(),
-            );
+            )
+            .expect("fixture completion callback");
         }
     });
     runner.bind_core(support::actions(), context, None);
