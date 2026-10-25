@@ -78,15 +78,17 @@ pub struct ProjectTrustOption {
 }
 
 /// Failure reading or writing the trust store.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct TrustError {
     message: JsString,
+    callback: Option<Box<pi_ai::request::CallbackError>>,
 }
 
 impl TrustError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            callback: None,
         }
     }
 
@@ -107,7 +109,20 @@ impl std::fmt::Display for TrustError {
     }
 }
 
-impl std::error::Error for TrustError {}
+impl From<pi_ai::request::CallbackError> for TrustError {
+    fn from(error: pi_ai::request::CallbackError) -> Self {
+        Self {
+            message: error.message.clone(),
+            callback: Some(Box::new(error)),
+        }
+    }
+}
+
+impl std::error::Error for TrustError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.callback.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
 
 /// `resolvePath(path)` against `process.cwd()`.
 fn resolve_from_process_cwd(path: &JsString) -> Result<JsString, PathError> {
