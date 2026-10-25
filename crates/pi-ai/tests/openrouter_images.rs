@@ -31,7 +31,6 @@ fn model() -> ImagesModel {
                 cache_read: 0.003,
                 cache_write: 0.01,
             },
-            tiers: None,
         },
         auto_compaction_threshold: None,
         headers: Some(indexmap::IndexMap::from([(
