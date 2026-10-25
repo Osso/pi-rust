@@ -57,6 +57,10 @@ Actual frozen SDK + faux provider differential found native overwrote request he
 
 Parent requested an absent-model representation only if actual frozen startup/persistence differed. Frozen agent.ts:85 substitutes DEFAULT_MODEL even when SDK's local model is undefined; AgentSession.model returns that state directly. The real frozen SDK/runtime and native SDK/runtime both report unknown/unknown, leave entry arrays empty, and persist unknown/unknown + thinking off before an injected post-persistence stop hook. Only the established source-package/binary-package root in the full startup guidance text is normalized. `/tmp/ext-api2-no-model-probe2.log` records the initial package-root-only mismatch, not an absent-model RED. No Option<Model> state migration is justified or implemented. Final focused proof pending at commit.
 
+## Startup ordering audit (2026-10-25)
+
+Frozen reloads default resources, builds existing-session context, then restores persisted settings. Native restored settings before extension factories ran, so factories saw an already-cleared session sandbox override. Moved the existing restoration block to frozen order. RED `/tmp/ext-api2-sdk-order-red2.log`: native factory sees null, frozen sees full-access; both end at null. The actual default resource loader and inline extension factory are exercised, not a mock ordering assertion. GREEN pending.
+
 ## Gaps
 
 - `base_tools` remains the injected tool override seam; when empty, `AgentSession`
