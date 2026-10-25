@@ -16,9 +16,9 @@ The existing `CallbackError` crosses UI and queue boundaries. The exported facto
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/extensions/types.rs`: custom rejection contract.
-- `crates/pi-coding-agent-core/src/core/tools/ask_questions.rs`: queue and shared execution helper/direct factory.
-- `crates/pi-coding-agent-core/src/core/tools/tool_definition_wrapper.rs`: one execute-rejection projection and its shared helper.
+- `crates/pi-coding-agent-tools/src/core/extensions/types.rs`: custom rejection contract.
+- `crates/pi-coding-agent-tools/src/core/tools/ask_questions.rs`: queue and shared execution helper/direct factory.
+- `crates/pi-coding-agent-tools/src/core/tools/tool_definition_wrapper.rs`: one execute-rejection projection and its shared helper.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: matching custom response channel; other custom hosts/callers receive mechanical adaptation only.
 
 ## Tests asserting this spec
@@ -36,4 +36,4 @@ The actual unmodified-source probe invokes real `Agent.prompt()` with `{toString
 
 ## Out of scope
 
-Other UI API/factory error contracts, shared ToolError representation, provider behavior, DB semantics, unrelated wrapper changes, deployment and live state. Final all-consumer/static gates remain pending until the prerequisite checkpoint.
+Other UI API/factory error contracts, shared ToolError representation, provider behavior, DB semantics, unrelated wrapper changes, deployment and live state. Final all-consumer/static gates pass after the round-2 merge: [whole-question checkpoint](../porting/question-tools-proof.md).
