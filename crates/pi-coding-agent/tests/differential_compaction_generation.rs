@@ -1,5 +1,5 @@
 //! Frozen injected-stream request/result contracts; no live provider access.
-use super::differential_compaction::oracle;
+use super::differential_compaction::TsOracle;
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
 use pi_ai::types::{AssistantMessage, Model, ProviderEnv, ProviderHeaders, StopReason};
@@ -79,10 +79,10 @@ fn outcome<T: Serialize, E: std::fmt::Display>(result: Result<T, E>) -> Value {
         Err(error) => json!({"ok": false, "error": {"name": "Error", "message": error.to_string()}}),
     }
 }
-fn oracle() -> oracle::TsOracle {
-    oracle::TsOracle::spawn("coding-agent-compaction-oracle.ts", "packages/coding-agent/src")
+fn oracle() -> TsOracle {
+    TsOracle::spawn("coding-agent-compaction-oracle.ts", "packages/coding-agent/src")
 }
-fn compare(oracle: &mut oracle::TsOracle, request: Value, result: Value, requests: &Arc<Mutex<Vec<Value>>>) {
+fn compare(oracle: &mut TsOracle, request: Value, result: Value, requests: &Arc<Mutex<Vec<Value>>>) {
     let expected = oracle.request(&request);
     assert_eq!(expected["ok"], true, "oracle: {expected}");
     let actual = json!({"result": result, "requests": *requests.lock().unwrap()});
