@@ -1106,11 +1106,11 @@ pub fn archive_sessions_older_than(
         )?;
         let mut rows = statement
             .query_map(params![cutoff_iso], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                Ok((row.get::<_, JsString>(0)?, row.get::<_, JsString>(1)?))
             })?
             .collect::<Result<Vec<_>, _>>()?;
         rows.sort_by(|left, right| left.1.cmp(&right.1).then_with(|| left.0.cmp(&right.0)));
-        Ok(rows.into_iter().map(|(session_path, _)| session_path.into()).collect())
+        Ok(rows.into_iter().map(|(session_path, _)| session_path).collect())
     })
 }
 

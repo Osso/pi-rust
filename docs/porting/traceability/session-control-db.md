@@ -1,8 +1,12 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Archive-candidate Unicode tie ordering (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-archive-order-red.log` orders ordinary `𠮷野` and fullwidth `Ａ` filenames differently from native UTF-8 sorting. Candidate timestamps/paths now use the existing JsString SQL reader and UTF-16 ordering. The real-source fixture supplies Date to the exported selector; the native test covers date priority, equal-date filename order, cutoff equality, archived/subagent filtering and verifies selection does not archive rows. No new carrier or locale sort.
+
 ## Prompt-history migration return limits (2026-10-25)
 
-Actual source/native RED `/tmp/storage3-control-history-red.log` shows ordinary negative migration limits returned every native legacy entry instead of frozen `slice(0, limit)`. Both prepared-empty and successful-insert returns now use the existing JS slice-index authority; persisted rows and subsequent SQLite LIMIT behavior remain unchanged. `repin_storage_control_history` covers six limits on four nonempty entries and four whitespace-only entries, comparing first return, complete stored rows and second return. Four entries prove the positive two-entry limit is not a single-page-only check. No new carrier or fallback.
+Actual source/native RED `/tmp/storage3-control-history-red.log` shows ordinary negative migration limits returned every native legacy entry instead of frozen `slice(0, limit)`. Both prepared-empty and successful-insert returns now use the existing JS slice-index authority; persisted rows and subsequent SQLite LIMIT behavior remain unchanged. `repin_storage_control_history` covers six limits on four nonempty entries and four whitespace-only entries, comparing first return, complete stored rows and second return. Four entries prove the positive two-entry limit is not a single-page-only check. No new carrier or fallback. All12 source/native limit/history groups pass atde74f64e0 (`/tmp/storage3-control-history-green.log`); precommit workspace all-target check passes.
 
 ## Original callback throws (2026-10-25)
 
