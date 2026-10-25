@@ -30,6 +30,7 @@ fn cases(witness: &Path) -> Vec<JsValue> {
         js_json!({"name":"present-env","envValue":"fixture-env-key","config":{"apiKey":"$PI_REGISTRY_PROVIDER_KEY","authHeader":true}}),
         js_json!({"name":"empty-env","envValue":"","config":{"apiKey":"$PI_REGISTRY_PROVIDER_KEY"}}),
         js_json!({"name":"stored-key","auth":{PROVIDER:{"type":"api_key","key":raw}},"config":{"apiKey":"config-key","authHeader":true}}),
+        js_json!({"name":"empty-stored-key","auth":{PROVIDER:{"type":"api_key","key":""}},"config":{"apiKey":"config-key","authHeader":true}}),
         js_json!({"name":"runtime-key","runtimeKey":"runtime-key","config":{"apiKey":"config-key","authHeader":true}}),
         js_json!({"name":"empty-runtime-key","runtimeKey":"","config":{"apiKey":"config-key","authHeader":true}}),
         js_json!({"name":"unknown-oauth-provider","auth":{PROVIDER:{"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}},"config":{"apiKey":"config-key","authHeader":true}}),
