@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 456, `gap` 19, `partial` 46, `todo` 165.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 457, `gap` 19, `partial` 46, `todo` 164.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -650,7 +650,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/json.ts` | 6 | 0 | done | `crates/pi-coding-agent-base/src/utils/json.rs` | Differential 26003; focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/mime.ts` | 116 | 0 | done | `crates/pi-coding-agent-base/src/utils/mime.rs` | Differential 26010 (33 buffers); focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/open-browser.ts` | 24 | 0 | done | `crates/pi-coding-agent-base/src/utils/open_browser.rs` | Pure launcher mapping and failure tests; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/utils/paths.ts` | 118 | 1 | todo | `crates/pi-coding-agent-base/src/utils/paths.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-base/src/utils/paths.rs`; Differential 26009 (76 cases); focused tests |
+| `coding-agent/src/utils/paths.ts` | 118 | 1 | done | `crates/pi-coding-agent-base/src/utils/paths.rs` | Whole common-pin export/branch audit; native normalization/POSIX/realpath/URL/cloud-process proofs. New shared Node file-URL path authority, exact native error properties and spawn validation. 1,250 adversarial URLs +29 fixed,18 filesystem histories,3 real cloud-process states; retained15 tests GREEN. Workspace all-target0/0, changed-line Clippy0. Windows/macOS proof and NSS gaps explicit. [Traceability](traceability/paths.md). |
 | `coding-agent/src/utils/photon.ts` | 139 | 0 | done | `crates/pi-coding-agent-base/src/utils/photon.rs` | photon-rs =0.3.3 pinned; differential 27102-27106; WASM loader/patch is an explicit gap; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/pi-user-agent.ts` | 4 | 0 | done | `crates/pi-coding-agent-base/src/utils/pi_user_agent.rs` | Differential 26005; runtime token is `rust`; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/shell.ts` | 225 | 3 | done | `crates/pi-coding-agent-base/src/utils/shell.rs` | Shell resolution, PATH env, output sanitization, tracked process-group kill; behavioral tests; re-run vs 4f9e6f8a4 pending |
