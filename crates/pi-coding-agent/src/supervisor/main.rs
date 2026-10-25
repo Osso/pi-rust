@@ -723,8 +723,7 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
         crate::core::auth_storage::AuthStorage::create(Some(&node_join(&agent_dir, "auth.json")))
             .map_err(pi_ai::request::CallbackError::from)?,
         Some(node_join(&agent_dir, "models.json")),
-    )
-    .map_err(pi_ai::request::CallbackError::from)?;
+    )?;
     let settings_manager = Arc::new(Mutex::new(create_supervisor_settings_manager()));
     let resource_loader = create_supervisor_resource_loader(&agent_dir, &kb_dir, Arc::clone(&settings_manager)).await?;
     let session = create_supervisor_session(CreateSupervisorSessionOptions {
