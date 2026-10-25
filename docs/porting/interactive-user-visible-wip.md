@@ -26,13 +26,23 @@ Proof ledger root: `/tmp/repin-interactive-2-proof/`. Rust source scope is `aa2a
 
 Changed-line readability review: fixture ownership is explicit; expansion is a short ordered sequence and one bounded native-type dispatcher; oracle frame capture names each surface and transition. No new warning suppression, dependency, alternate provider path or carrier is added.
 
-## Next startup slice
+## Actual startup checkpoint (2026-10-25)
 
-Frozen init :985–1112 still differs from native init:
+`4d0769bf5` invokes the full init/rebind/resource-discovery path before resource listing and restored messages, registers resource themes after binding and prints the missing scoped-model console line. `96de499d3` installs theme invalidate/border/render and footer branch-change callbacks; `da4b17ada` names the cycle-hint formatter. The real frozen SDK/AgentSession/runtime/InteractiveMode and real native DefaultResourceLoader/runtime/mode match seven complete header/resource/chat/title/stdout/provider-count/discovered-skill snapshots. Private theme and Git HEAD changes additionally prove repaint side effects and full post-theme editor frames. The ignored process helper is always invoked by its unignored parent; no scenario is ignored.
 
-- Emit the configured model-scope console line before mounting the UI.
-- Invoke the complete rebind path (provider count, editor border, title and cwd), not just extension binding.
-- Register resource themes and show resources/startup notices after extension binding; restored messages remain after resources.
-- Subscribe footer branch-change renders and prove current startup/restored-session frames.
+Current Rust proof scope: `da4b17ada`; artifacts remain under `/tmp/repin-interactive-2-proof/`.
 
-These are observed source/control-flow differences, not yet behavioral REDs. Add representative normal/quiet/scoped/restored actual-source initialization/rebind proofs before production changes. Existing header/reload/session-option oracles remain available. No whole-mode/runtime/restart/keybindings acceptance is claimed.
+| Command / scope | Result | Artifact |
+|---|---|---|
+| `cargo test -j4 -p pi-coding-agent-interactive --lib --` with baseline regressions, actual startup, header, reload, rebind and loaded-resource filters | 12/12 parallel; 7 startup process scenarios; 9.42s | `startup-integration.log` |
+| `cargo check -j4 -p pi-coding-agent-interactive --lib` | PASS, zero warnings/errors | `startup-check.log` |
+| Scoped clippy command above, after startup edits | PASS; 102 existing diagnostics, zero changed-line primary spans | `startup-clippy.{jsonl,stderr}` |
+| Strict source-selected startup oracle typecheck, ES2024 as approved | PASS | `startup-final-typecheck.log` |
+| Frozen Biome startup oracle + Rust formatting | PASS, no suppressions | final command output; `cargo fmt --all --check` before each commit |
+| Source inventory | PASS, 686 / 186679; 467 done / 19 gap / 48 partial / 152 todo | interactive-mode now honestly partial |
+
+Readability: source scope printing and cycle-hint formatting are separate short steps; callback subscription and UI-owner delivery use existing carriers; fixtures use private state/processes and actual resource discovery. No new dependency, public carrier, unapproved semantic gap or cross-lane algorithm change.
+
+## Next work
+
+Audit the whole 444-line coding-agent keybindings module against the new pin (the existing differential still reports old catalog entries), then continue realistic interactive command/event slices and remaining runtime/restart coverage. Existing header/reload/session-option oracles remain available. No whole-mode/runtime/restart/keybindings acceptance is claimed.

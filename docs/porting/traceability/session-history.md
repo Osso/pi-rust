@@ -1,5 +1,9 @@
 # session-history.ts
 
+## Storage-3 open failure (2026-10-25)
+
+`repin_storage_history::missing_compacted_transcript_preserves_frozen_open_error` opens the same TS-created compacted transcript in both managers before frozen removes it. Both emit the three retained branch entries before reading ancestors; native now retains the original Node ENOENT open error and then exhausts the iterator. Source/native RED `/tmp/storage3-history-open-red.log` proved the former OS Display message differed. The shared Node filesystem record carries constructor/code/errno/syscall/path through SessionManagerError. Archive decoding and whole-module acceptance remain separate.
+
 ## Storage re-pin falsy-parent correction (2026-10-25)
 
 `repin_storage_history::empty_parent_does_not_open_removed_transcript` uses a frozen-TS-created compacted session whose first retained entry has `parentId:""`. Both implementations open the same JSONL before the source reader removes it. Frozen `session-history.ts:75-76` returns the three retained entries without opening the removed transcript; native previously returned an ENOENT error. The native initial parent/path and subsequent parent updates now use the frozen string-truthiness guards. Actual-source RED/GREEN logs: `/tmp/pi-rust-repin-storage/history-empty-parent-{valid-red,green}.log`. The initial non-compacted probe was rejected at the manager loader by both implementations, so it is not history RED evidence. Whole-module acceptance is still pending.
