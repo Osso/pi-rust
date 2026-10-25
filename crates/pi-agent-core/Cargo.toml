@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "pi-agent-core"
 version = "0.0.0"
 description = "Rust port of Pi's agent core runtime"
@@ -27,3 +28,43 @@ tokio = { version = "=1.53.3", features = ["fs", "io-util", "macros", "process",
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite_core"
+path = "tests/suite_core.rs"
+
+[[test]]
+name = "suite_modes"
+path = "tests/suite_modes.rs"
+
+[[test]]
+name = "suite_session"
+path = "tests/suite_session.rs"
+
+[[test]]
+name = "suite_tools"
+path = "tests/suite_tools.rs"
+
+[[test]]
+name = "differential_node_env"
+path = "tests/differential_node_env.rs"
+
+[[test]]
+name = "process_env_reads"
+path = "tests/process_env_reads.rs"
+
+[[test]]
+name = "proxy"
+path = "tests/proxy.rs"
+
+[[test]]
+name = "repin_node_discovery"
+path = "tests/repin_node_discovery.rs"
+
+[[test]]
+name = "repin_node_legacy_wsl"
+path = "tests/repin_node_legacy_wsl.rs"
+
+[[test]]
+name = "session_cycle_characterization"
+path = "tests/session_cycle_characterization.rs"

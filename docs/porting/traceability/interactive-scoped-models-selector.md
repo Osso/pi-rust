@@ -1,6 +1,6 @@
 # `components/scoped-models-selector.ts`
 
-Authority: whole 359-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/scoped_models_selector.rs`. [Contract](../../specs/scoped-models-selector.md).
+Authority: whole 359-line [common-pin](../source-lock.json) module. Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/scoped_models_selector.rs`. [Contract](../../specs/scoped-models-selector.md).
 
 | Export / helper / branch | Native mapping | Behavioral proof |
 |---|---|---|

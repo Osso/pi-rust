@@ -1,12 +1,10 @@
 //! Ported from `packages/coding-agent/src/modes/interactive/`.
 
-pub mod components;
+pub use pi_coding_agent_ui::modes::interactive::{components, login_options, model_search};
 pub mod coordination_visibility;
 pub mod editor_dialog_restore;
 pub mod interactive_mode;
 pub mod interactive_root_compositor;
-pub mod login_options;
-pub mod model_search;
 pub use pi_coding_agent_core::modes::interactive::theme;
 pub mod working_editor;
 

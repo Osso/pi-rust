@@ -1,7 +1,7 @@
-# Overrides the user-level `build.incremental = true`: incremental state for
-# ~460 test binaries is the largest part of target/.
+# Reuse workspace compilation state for fast edit/check/build/test loops.
+# Integration-test consolidation bounds the number of incremental caches.
 [build]
-incremental = false
+incremental = true
 
 [alias]
 # `cargo pi -- <args>` runs the coding-agent CLI.

@@ -1,7 +1,7 @@
 # render-region-container.ts
 
 Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/components/render-region-container.ts:1–98`.
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/render_region_container.rs`.
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/render_region_container.rs`.
 
 | Frozen branches | Rust | Proof |
 |---|---|---|

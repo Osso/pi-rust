@@ -4,8 +4,7 @@
 //! with the faux provider and compares every response/event line byte-for-byte
 //! after substituting ids, timestamps, durations, and temp paths.
 
-#[path = "support/mode_harness.rs"]
-mod mode_harness;
+use crate::mode_harness;
 
 use std::path::{Path, PathBuf};
 

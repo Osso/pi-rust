@@ -1,4 +1,5 @@
 [package]
+autotests = false
 name = "pi-ai"
 version = "0.0.0"
 description = "Rust port of Pi's LLM provider abstraction"
@@ -38,3 +39,75 @@ tokio = { version = "=1.53.3", features = ["io-util", "macros", "net", "rt-multi
 
 [lints]
 workspace = true
+
+[[test]]
+name = "suite_core_1"
+path = "tests/suite_core_1.rs"
+
+[[test]]
+name = "suite_core_2"
+path = "tests/suite_core_2.rs"
+
+[[test]]
+name = "suite_modes"
+path = "tests/suite_modes.rs"
+
+[[test]]
+name = "suite_tools"
+path = "tests/suite_tools.rs"
+
+[[test]]
+name = "auth_types_contract"
+path = "tests/auth_types_contract.rs"
+
+[[test]]
+name = "compat"
+path = "tests/compat.rs"
+
+[[test]]
+name = "differential_compat"
+path = "tests/differential_compat.rs"
+
+[[test]]
+name = "oracle_process_lifetime"
+path = "tests/oracle_process_lifetime.rs"
+
+[[test]]
+name = "process_env_reads"
+path = "tests/process_env_reads.rs"
+
+[[test]]
+name = "public_index"
+path = "tests/public_index.rs"
+
+[[test]]
+name = "bedrock_provider"
+path = "tests/bedrock_provider.rs"
+
+[[test]]
+name = "differential_openai_codex_responses"
+path = "tests/differential_openai_codex_responses.rs"
+
+[[test]]
+name = "images_api_registry"
+path = "tests/images_api_registry.rs"
+
+[[test]]
+name = "oauth_abort_wrapper"
+path = "tests/oauth_abort_wrapper.rs"
+
+[[test]]
+name = "oauth_registry"
+path = "tests/oauth_registry.rs"
+
+[[test]]
+name = "openai_codex_responses"
+path = "tests/openai_codex_responses.rs"
+
+[[test]]
+name = "session_resources"
+path = "tests/session_resources.rs"
+
+[[test]]
+name = "anthropic_oauth"
+path = "tests/anthropic_oauth.rs"

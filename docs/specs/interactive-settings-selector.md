@@ -16,7 +16,7 @@ Port the frozen `coding-agent/src/modes/interactive/components/settings-selector
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-interactive/src/modes/interactive/components/settings_selector.rs`: settings, select, warning and theme components.
+- `crates/pi-coding-agent-ui/src/modes/interactive/components/settings_selector.rs`: settings, select, warning and theme components.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: settings construction and persistence callbacks.
 - `crates/pi-coding-agent-settings/src/core/http_dispatcher.rs`: single f64 timeout-display helper.
 
