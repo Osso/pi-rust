@@ -45,11 +45,11 @@ fn package_metadata_and_derived_outputs_keep_frozen_utf16() {
         if name == "nul-name" {
             // Approved runtime gap: Node truncates environment names at NUL.
             assert_eq!(
-                actual.as_object_mut().unwrap().remove("override"),
+                actual.as_object_mut().unwrap().shift_remove("override"),
                 Some(json!("/fixture-home/.config/PI_PACKAGE_ENV\0name/agent"))
             );
             assert_eq!(
-                expected.as_object_mut().unwrap().remove("override"),
+                expected.as_object_mut().unwrap().shift_remove("override"),
                 Some(json!("/environment-agent"))
             );
         }
