@@ -41,9 +41,11 @@ matrices exposed a test recorder omission: it discarded signal/timeout dialog
 options. The recorder now preserves present fields, with AbortSignal's actual
 JSON representation `{}`; comparisons remain exact.
 
-Logs: `/tmp/triage-ask-secret-{green,matrix,negative-green}.log`,
-`/tmp/triage-ask-secret-process-{red2,green,final}.log`. Proof revisions and later
-invalidation are tracked in `/tmp/repin-baseline-triage-ledger.md`.
+Final runtime logs: `/tmp/triage-final-suite_extensions-ask-secret.log` and
+`/tmp/triage-final-ask_secret_process-ask-secret.log`. The earlier process
+`red2` log proves SIGKILL drift; `triage-ask-secret-process-final.log` records
+the frozen missing-executable crash before its approved classification.
+Revisions and invalidation: `/tmp/repin-baseline-triage-ledger.md`.
 
 - gap / DISCREPANCY (approved 2026-10-25): frozen crashes on unhandled ChildProcess `error` when authsudo is absent; native reports `Secrets Broker provisioning failed`; both outcomes have explicit real-process assertions.
 - gap: Wrong-typed/exotic JSON, close/combined-cleanup OS faults and independent scheduling races follow the project parity exclusions; ordinary validation, persistence and process failures stay explicit.
@@ -57,7 +59,8 @@ At `0929b3053` (includes requested parent `561184afa`), the five tool/UI/file
 matrix tests and both default-process/crash tests pass; the ignored probe is
 invoked by its parent. Warning-mode clippy for the changed modules reports zero
 changed-line warnings. Two needless borrows in the new process fixture were
-removed; its focused warning-mode clippy is the remaining checkpoint check.
+removed; its final focused warning-mode clippy also exits 0 with zero fixture
+warnings (`/tmp/triage-secret-process-warning-final.jsonl`).
 The earlier `-D warnings` attempts are not green evidence: they stopped on
 pre-existing unrelated diagnostics. No warnings were suppressed. Automated
 readability CLI was unavailable; manual audit found no deep nesting or opaque
