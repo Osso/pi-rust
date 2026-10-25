@@ -57,10 +57,7 @@ fn read_stdin_lines() -> Result<Vec<JsString>, JsString> {
         .read_to_end(&mut bytes)
         .map_err(|error| JsString::from(error.to_string()))?;
     let text = String::from_utf8_lossy(&bytes);
-    Ok(text
-        .split('\n')
-        .map(|line| JsString::from(line.strip_suffix('\r').unwrap_or(line)))
-        .collect())
+    Ok(text.replace("\r\n", "\n").split('\n').map(JsString::from).collect())
 }
 impl LoginIo for StdioLoginIo {
     fn stdout(&self, message: &JsString) {
@@ -264,7 +261,7 @@ pub async fn run_login_command(options: RunLoginCommandOptions) -> i32 {
     let Some(provider) = pi_ai::oauth::get_oauth_provider(&options.provider_id) else {
         options
             .io
-            .stderr(&(Chalk::stderr().red(js_format!("Unknown OAuth provider: {}", options.provider_id)) + "\n"));
+            .stderr(&(Chalk::stdout().red(js_format!("Unknown OAuth provider: {}", options.provider_id)) + "\n"));
         options
             .io
             .stderr(&js_format!("Available OAuth providers:\n{}\n", format_provider_list()));
@@ -290,7 +287,7 @@ pub async fn run_login_command(options: RunLoginCommandOptions) -> i32 {
         }
         Err(message) => {
             options.io.stderr(
-                &(Chalk::stderr().red(js_format!("Failed to login to {}: {}", provider.name(), message)) + "\n"),
+                &(Chalk::stdout().red(js_format!("Failed to login to {}: {}", provider.name(), message)) + "\n"),
             );
             1
         }
@@ -354,7 +351,7 @@ fn is_login_help_flag(argument: Option<&str>) -> bool {
     matches!(argument, Some("--help" | "-h"))
 }
 fn parse_login_arguments(args: &[String]) -> ParsedLoginArguments {
-    let provider_id = args.get(1).cloned();
+    let provider_id = args.get(1).filter(|provider| !provider.is_empty()).cloned();
     let flags = args.get(2..).unwrap_or_default();
     ParsedLoginArguments {
         has_help_flag: is_login_help_flag(provider_id.as_deref())
