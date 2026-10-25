@@ -240,7 +240,7 @@ pub async fn show_first_time_setup(
     };
     if let Some(result) = result {
         settings_manager.set_theme(&result.theme.as_str().into());
-        settings_manager.set_enable_analytics(result.share_analytics);
+        settings_manager.set_enable_analytics(result.share_analytics)?;
         settings_manager.flush();
     }
     clear_startup_tui(&ui);

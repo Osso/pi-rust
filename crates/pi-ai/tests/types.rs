@@ -350,7 +350,10 @@ fn assistant_message_defaults_omit_optional_fields() {
 #[test]
 fn cached_nonfinite_optional_number_remains_present_like_the_frozen_module() {
     use pi_js_compat::js_json::{self, JsValue};
-    let directory = std::env::temp_dir().join(format!("pi-model-native-{}", pi_ai::utils::random_uuid::random_uuid()));
+    let directory = std::env::temp_dir().join(format!(
+        "pi-model-native-{}",
+        pi_ai::utils::random_uuid::random_uuid().unwrap()
+    ));
     let path = directory.join("pi/models/openrouter.json");
     std::fs::create_dir_all(path.parent().unwrap()).unwrap();
     let model = r#"{"id":"q15-infinite-model","name":"Probe","api":"openai-completions","provider":"openrouter","baseUrl":"https://openrouter.ai/api/v1","reasoning":false,"input":["text"],"autoCompactionThreshold":1e400,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":4096,"maxTokens":2048}"#;

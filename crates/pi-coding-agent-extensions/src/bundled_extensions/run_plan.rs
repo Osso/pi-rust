@@ -234,7 +234,7 @@ async fn run_plan(
 
     export_plan_environment(&plan);
     persist_active_plan(pi, Some(&plan))?;
-    ctx.ui()?.set_editor_text(&"".into());
+    ctx.ui()?.set_editor_text(&"".into())?;
     Ok(Some(plan))
 }
 

@@ -110,7 +110,7 @@ impl ExtensionUiContext for RecordingUi {
         _title: &JsString,
         options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         let labels = options.to_vec();
         let selection = self.selection.clone();
         Box::pin(async move {

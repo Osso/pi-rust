@@ -41,8 +41,8 @@ pub struct EnqueueDetachedPyrunBridgeRequestInput {
 /// `enqueueDetachedPyrunBridgeRequest`.
 pub fn enqueue_detached_pyrun_bridge_request(
     input: EnqueueDetachedPyrunBridgeRequestInput,
-) -> Result<JsString, JsString> {
-    let request_id = JsString::from(random_uuid());
+) -> Result<JsString, pi_ai::request::CallbackError> {
+    let request_id = JsString::from(random_uuid()?);
     let body = DetachedPyrunBridgeRequest {
         command: "request".into(),
         identity: input.identity.clone(),

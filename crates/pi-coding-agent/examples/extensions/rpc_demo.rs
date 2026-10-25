@@ -40,7 +40,7 @@ pub fn rpc_demo_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         Arc::new(|_, ctx| {
             Box::pin(async move {
                 let ui = ctx.ui()?;
-                ui.set_editor_text(&"This text was set by the rpc-demo extension.".into());
+                ui.set_editor_text(&"This text was set by the rpc-demo extension.".into())?;
                 ui.notify(&"Editor prefilled".into(), Some(NotifyType::Info))?;
                 Ok(())
             })
@@ -59,12 +59,12 @@ fn register_lifecycle(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 "pi RPC Demo (new session)"
             } else {
                 "pi RPC Demo"
-            }));
+            }))?;
             ui.set_widget(
                 &"rpc-demo".into(),
                 Some(&["--- RPC Extension UI Demo ---".into(), "Loaded and ready.".into()]),
                 None,
-            );
+            )?;
             ui.set_status(
                 &"rpc-demo".into(),
                 Some(ExtensionStatus::Text(js_format!(

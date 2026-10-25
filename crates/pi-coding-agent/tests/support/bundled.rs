@@ -124,7 +124,7 @@ impl ExtensionUiContext for RecordingUi {
         title: &JsString,
         options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         let title = title.to_owned();
         let options = options.to_vec();
         self.select_calls.lock().unwrap().push((title, options));
@@ -137,7 +137,7 @@ impl ExtensionUiContext for RecordingUi {
         _title: &JsString,
         _message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, pi_ai::request::CallbackError>> {
         let result = *self.confirm_result.lock().unwrap();
         Box::pin(async move { Ok(result) })
     }
@@ -165,8 +165,9 @@ impl ExtensionUiContext for RecordingUi {
         Ok(())
     }
 
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.editor_texts.lock().unwrap().push(text.to_owned());
+        Ok(())
     }
 
     fn set_default_footer(&self, factory: Option<ExtensionUiFooterFactory>) {

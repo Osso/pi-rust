@@ -516,13 +516,13 @@ fn analytics_generates_a_tracking_id_on_first_opt_in() {
     let workspace = Workspace::new();
     let mut manager = workspace.manager();
     assert!(!manager.get_enable_analytics());
-    manager.set_enable_analytics(true);
+    manager.set_enable_analytics(true).unwrap();
     manager.flush();
     assert!(manager.get_enable_analytics());
     let tracking_id = manager.get_tracking_id().unwrap().to_owned();
     assert_eq!(tracking_id.len(), 36);
 
-    manager.set_enable_analytics(true);
+    manager.set_enable_analytics(true).unwrap();
     manager.flush();
     assert_eq!(manager.get_tracking_id(), Some(&tracking_id));
 }

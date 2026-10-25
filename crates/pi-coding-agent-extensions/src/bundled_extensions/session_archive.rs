@@ -107,7 +107,7 @@ async fn confirm_delete(ctx: &ExtensionCommandContext) -> Result<bool, HandlerEr
             None,
         )
         .await
-        .map_err(HandlerError::new)
+        .map_err(HandlerError::from)
 }
 
 async fn run_quit_action(action: QuitAction) -> Result<(), JsString> {

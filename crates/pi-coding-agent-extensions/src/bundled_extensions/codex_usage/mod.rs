@@ -551,7 +551,7 @@ async fn consume_codex_usage_reset_credit(
 ) -> Result<ConsumeResetCreditResponse, HandlerError> {
     let token = read_codex_access_token(ctx).await?;
     let body = serde_json::to_vec(&json!({
-        "redeem_request_id": pi_ai::utils::random_uuid::random_uuid(),
+        "redeem_request_id": pi_ai::utils::random_uuid::random_uuid()?,
     }))
     .expect("reset request body serializes");
     let response = fetch
@@ -611,7 +611,7 @@ async fn reset_codex_usage_and_send_result(
             None,
         )
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     if !reset_confirmed {
         return Ok(());
     }

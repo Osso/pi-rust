@@ -293,7 +293,7 @@ async fn edit_draft_and_replace(
     let Some(edited) = ui
         .editor(&JsString::from("Edit handoff prompt"), Some(&JsString::from(&draft)))
         .await
-        .map_err(HandlerError::new)?
+        .map_err(HandlerError::from)?
     else {
         ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
         return Ok(());
@@ -305,7 +305,7 @@ async fn edit_draft_and_replace(
                 let edited = edited.clone();
                 Box::pin(async move {
                     let ui = replacement.ui()?;
-                    ui.set_editor_text(&edited);
+                    ui.set_editor_text(&edited)?;
                     ui.notify(
                         &JsString::from("Handoff ready. Submit when ready."),
                         Some(NotifyType::Info),

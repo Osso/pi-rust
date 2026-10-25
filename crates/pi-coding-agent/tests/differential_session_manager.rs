@@ -26,7 +26,7 @@ const REQUEST_BASE: u64 = 41_000;
 fn temp_dir(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
         "pi-rust-diff-{name}-{}",
-        pi_ai::utils::random_uuid::random_uuid()
+        pi_ai::utils::random_uuid::random_uuid().unwrap()
     ));
     fs::create_dir_all(&dir).unwrap();
     dir
@@ -509,7 +509,7 @@ fn migration_matches_typescript_structure() {
         .iter()
         .map(|value| serde_json::from_value(value.clone()).unwrap())
         .collect();
-    pi_coding_agent::core::session_manager::migrate_session_entries(&mut rust_entries);
+    pi_coding_agent::core::session_manager::migrate_session_entries(&mut rust_entries).unwrap();
     let rust: Value = serde_json::to_value(&rust_entries).unwrap();
     let ts = &response["output"]["entries"];
 

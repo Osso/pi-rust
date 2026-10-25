@@ -46,7 +46,7 @@ fn pinned_parse_migrate_and_persistence_match_raw_record_lines() {
         assert_eq!(expected["ok"], true, "{expected:?}");
         let mut entries = parse_session_entries(content);
         if *operation == "migrate" {
-            migrate_session_entries(&mut entries);
+            migrate_session_entries(&mut entries).unwrap();
         }
         let actual: Vec<String> = entries
             .iter()
@@ -76,7 +76,7 @@ fn v1_migration_uses_target_record_identity_at_the_time_of_mutation() {
     let expected = source.request(&serde_json::json!({"id":91010,"operation":"migrate","content":content}));
     assert_eq!(expected["ok"], true, "{expected:?}");
     let mut entries = parse_session_entries(content);
-    migrate_session_entries(&mut entries);
+    migrate_session_entries(&mut entries).unwrap();
     let actual = parse_lossless(&serde_json::to_string(&entries[1]).unwrap()).unwrap();
     let ts = parse_lossless(expected["output"][1].as_str().unwrap()).unwrap();
     assert_eq!(actual.get("firstKeptEntryId"), ts.get("firstKeptEntryId"));

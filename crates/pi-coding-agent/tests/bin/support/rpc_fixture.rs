@@ -92,7 +92,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                             &"text".into(),
                             Some(ExtensionStatus::Text(JsString::from("status-") + &low)),
                         )?;
-                        ui.set_widget(&"clear".into(), None, None);
+                        ui.set_widget(&"clear".into(), None, None)?;
                         let options = pi_coding_agent::core::extensions::types::ExtensionWidgetOptions {
                             placement: Some(pi_coding_agent::core::extensions::types::WidgetPlacement::BelowEditor),
                         };
@@ -100,10 +100,10 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                             &"lines".into(),
                             Some(&["one".into(), JsString::from("two-") + &high]),
                             Some(&options),
-                        );
-                        ui.set_title(&(JsString::from("title-") + &low));
-                        ui.set_editor_text(&(JsString::from("editor-") + &high));
-                        ui.paste_to_editor(&(JsString::from("paste-") + &low));
+                        )?;
+                        ui.set_title(&(JsString::from("title-") + &low))?;
+                        ui.set_editor_text(&(JsString::from("editor-") + &high))?;
+                        ui.paste_to_editor(&(JsString::from("paste-") + &low))?;
                         std::fs::write(
                             root.join("fire-report.json"),
                             stringify_lossless(&pi_js_compat::js_json!({"editor":ui.get_editor_text()?})),
@@ -132,7 +132,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                         let selected = ui
                             .select(&"select".into(), &["one".into(), "two".into()], Some(&options))
                             .await
-                            .map_err(HandlerError::new)?;
+                            .map_err(HandlerError::from)?;
                         std::fs::write(
                             root.join("ui-selected.json"),
                             stringify_lossless(&pi_js_compat::js_json!({"value":selected})),
@@ -141,9 +141,12 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                         let confirmed = ui
                             .confirm(&"confirm".into(), &"message".into(), None)
                             .await
-                            .map_err(HandlerError::new)?;
-                        let input = ui.input(&"input".into(), None, None).await.map_err(HandlerError::new)?;
-                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::new)?;
+                            .map_err(HandlerError::from)?;
+                        let input = ui
+                            .input(&"input".into(), None, None)
+                            .await
+                            .map_err(HandlerError::from)?;
+                        let editor = ui.editor(&"editor".into(), None).await.map_err(HandlerError::from)?;
                         let report = pi_js_compat::js_json!({"values":[selected,confirmed,input,editor]});
                         std::fs::write(root.join("ui-report.json"), stringify_lossless(&report)).unwrap();
                         Ok(())

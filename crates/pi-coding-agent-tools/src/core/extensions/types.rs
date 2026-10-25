@@ -532,7 +532,7 @@ pub trait ExtensionUiContext: Send + Sync {
         _title: &JsString,
         _options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -541,7 +541,7 @@ pub trait ExtensionUiContext: Send + Sync {
         _title: &JsString,
         _message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, CallbackError>> {
         Box::pin(async { Ok(false) })
     }
 
@@ -550,7 +550,7 @@ pub trait ExtensionUiContext: Send + Sync {
         _title: &JsString,
         _placeholder: Option<&JsString>,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 
@@ -578,7 +578,14 @@ pub trait ExtensionUiContext: Send + Sync {
 
     /// String-array widget overload. The component-factory overload is
     /// [`ExtensionUiContext::set_widget_component`].
-    fn set_widget(&self, _key: &JsString, _content: Option<&[JsString]>, _options: Option<&ExtensionWidgetOptions>) {}
+    fn set_widget(
+        &self,
+        _key: &JsString,
+        _content: Option<&[JsString]>,
+        _options: Option<&ExtensionWidgetOptions>,
+    ) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
     /// Component-factory `setWidget` overload.
     fn set_widget_component(
@@ -609,11 +616,17 @@ pub trait ExtensionUiContext: Send + Sync {
         Box::pin(async { Ok(None) })
     }
 
-    fn set_title(&self, _title: &JsString) {}
+    fn set_title(&self, _title: &JsString) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
-    fn paste_to_editor(&self, _text: &JsString) {}
+    fn paste_to_editor(&self, _text: &JsString) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
-    fn set_editor_text(&self, _text: &JsString) {}
+    fn set_editor_text(&self, _text: &JsString) -> Result<(), CallbackError> {
+        Ok(())
+    }
 
     fn get_editor_text(&self) -> Result<JsString, CallbackError> {
         Ok(JsString::default())
@@ -623,7 +636,7 @@ pub trait ExtensionUiContext: Send + Sync {
         &'a self,
         _title: &JsString,
         _prefill: Option<&JsString>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         Box::pin(async { Ok(None) })
     }
 

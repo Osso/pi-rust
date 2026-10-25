@@ -450,7 +450,7 @@ fn send_broadcast(
     input: &BroadcastSessionsInput,
     entry: &SessionDirectoryEntry,
 ) -> Result<(), ControlDbError> {
-    let message_id = format!("broadcast_{}", random_uuid());
+    let message_id = format!("broadcast_{}", random_uuid()?);
     enqueue_stored_runtime_mailbox_message(
         control_db_path,
         &EnqueueStoredRuntimeMailboxMessageInput {

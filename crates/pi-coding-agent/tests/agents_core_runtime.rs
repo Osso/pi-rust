@@ -134,8 +134,9 @@ impl ExtensionUiContext for RecordingUi {
         Ok(())
     }
 
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         *self.editor_text.lock().expect("editor text") = text.to_owned();
+        Ok(())
     }
 }
 

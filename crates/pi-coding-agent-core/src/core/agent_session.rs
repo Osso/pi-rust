@@ -173,6 +173,14 @@ fn error(message: impl Into<JsString>) -> AgentSessionError {
     AgentSessionError::new(message)
 }
 
+fn handler_error_to_agent_error(error: crate::core::extensions::types::HandlerError) -> AgentError {
+    let callback = pi_ai::request::CallbackError::from(error);
+    match callback.error_or_string_message() {
+        Ok(message) => AgentError::new(message).with_original(Arc::new(callback)),
+        Err(error) => AgentError::from(error),
+    }
+}
+
 /// Frozen `beforeRun`: optionally replace the session before starting work.
 pub type BeforeWorkingDirectoryRecoveryRun =
     Arc<dyn Fn() -> BoxFuture<'static, Result<Option<AgentSession>, pi_ai::request::CallbackError>> + Send + Sync>;
@@ -1474,7 +1482,7 @@ impl AgentSession {
             thinking_phase_timeout_error: Mutex::new(None),
             disable_runtime_coordination_inbound,
             on_shared_channel_message_delivered,
-            terminal_outbox_claim_id: pi_ai::utils::random_uuid::random_uuid(),
+            terminal_outbox_claim_id: pi_ai::utils::random_uuid::random_uuid()?,
             terminal_outbox_last_cleanup_at: Mutex::new(None),
             multi_agent_active_tools: Mutex::new(Vec::new()),
             background_compaction_cache: Mutex::new(None),
@@ -2040,7 +2048,7 @@ impl AgentSession {
             if let Some(result) = runner
                 .emit_tool_gates(&mut gated)
                 .await
-                .map_err(|error| AgentError::new(error.message))?
+                .map_err(handler_error_to_agent_error)?
             {
                 return Ok(Some(tool_call_result_to_before(result)));
             }
@@ -2054,7 +2062,7 @@ impl AgentSession {
             && let Some(result) = self
                 .review_auto_approved_tool_call(&event, &runner, approval_required)
                 .await
-                .map_err(|error| AgentError::new(error.message))?
+                .map_err(handler_error_to_agent_error)?
         {
             return Ok(Some(tool_call_result_to_before(result)));
         }
@@ -2068,7 +2076,7 @@ impl AgentSession {
             llm_reviewer: self.create_tool_approval_llm_reviewer(&event, current_user_request),
         })
         .await
-        .map_err(|error| AgentError::new(error.message))?;
+        .map_err(handler_error_to_agent_error)?;
         Ok(result.map(tool_call_result_to_before))
     }
 
@@ -2267,7 +2275,7 @@ impl AgentSession {
                         None,
                     )
                     .await
-                    .map_err(crate::core::extensions::types::HandlerError::new)?;
+                    .map_err(crate::core::extensions::types::HandlerError::from)?;
                 match selection.as_ref() {
                     Some(choice) if choice == "Allow once" => Ok(None),
                     Some(choice) if choice == "Allow always" => {

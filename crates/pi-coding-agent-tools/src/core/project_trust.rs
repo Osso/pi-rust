@@ -143,7 +143,7 @@ async fn select_project_trust_option(
         .ui
         .select(&format_project_trust_prompt(cwd), &labels, None)
         .await
-        .map_err(TrustError::new)?;
+        .map_err(TrustError::from)?;
     Ok(selected.and_then(|selected| options.into_iter().find(|option| option.label == selected)))
 }
 

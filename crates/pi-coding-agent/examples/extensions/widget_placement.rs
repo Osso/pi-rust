@@ -11,14 +11,14 @@ pub fn widget_placement_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
                         &JsString::from("widget-above"),
                         Some(&["Above editor widget".into()]),
                         None,
-                    );
+                    )?;
                     ui.set_widget(
                         &JsString::from("widget-below"),
                         Some(&["Below editor widget".into()]),
                         Some(&ExtensionWidgetOptions {
                             placement: Some(WidgetPlacement::BelowEditor),
                         }),
-                    );
+                    )?;
                 }
                 Ok(None)
             })

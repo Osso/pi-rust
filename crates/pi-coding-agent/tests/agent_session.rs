@@ -2324,7 +2324,7 @@ impl ExtensionUiContext for ScriptedApprovalUi {
         title: &JsString,
         options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.titles.lock().unwrap().push(title.clone());
         self.options.lock().unwrap().push(options.to_vec());
         let selection = self.selections.lock().unwrap().pop_front().flatten();
@@ -3090,8 +3090,12 @@ impl ExtensionUiContext for FailingApprovalUi {
         _title: &JsString,
         _options: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, JsString>> {
-        Box::pin(async { Err(JsString::from("dialog failed")) })
+    ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
+        Box::pin(async {
+            Err(pi_ai::request::CallbackError::from_rejection(
+                JsValue::String(JsString::from("dialog failed")).into(),
+            ))
+        })
     }
 }
 

@@ -24,7 +24,7 @@ impl ExtensionUiContext for Ui {
         title: &JsString,
         message: &JsString,
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, pi_ai::request::CallbackError>> {
         self.calls.lock().unwrap().push(json!([title, message]));
         let answer = self.answer;
         Box::pin(async move { Ok(answer) })

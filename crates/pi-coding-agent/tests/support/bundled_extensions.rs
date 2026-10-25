@@ -67,7 +67,7 @@ impl ExtensionUiContext for RecordingUi {
         title: &JsString,
         message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<bool, JsString>> {
+    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<bool, pi_ai::request::CallbackError>> {
         self.calls
             .lock()
             .unwrap()
@@ -82,7 +82,8 @@ impl ExtensionUiContext for RecordingUi {
         title: &JsString,
         placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> pi_coding_agent::core::extensions::types::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>>
+    {
         let title = title.to_owned();
         let placeholder = placeholder.map(Clone::clone);
         let opts = opts.cloned();
@@ -115,8 +116,9 @@ impl ExtensionUiContext for RecordingUi {
         Ok(())
     }
 
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().set_editor_text.push(text.to_owned());
+        Ok(())
     }
 }
 

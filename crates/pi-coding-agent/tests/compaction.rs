@@ -654,7 +654,7 @@ fn re_summarizes_previously_kept_messages_when_recent_window_moves_past_them() {
 fn finds_cut_point_in_large_session_fixture() {
     let content = include_str!("fixtures/large-session.jsonl");
     let mut parsed = parse_session_entries(content);
-    migrate_session_entries(&mut parsed);
+    migrate_session_entries(&mut parsed).unwrap();
     let entries: Vec<SessionEntry> = parsed
         .into_iter()
         .filter_map(|entry| match entry {

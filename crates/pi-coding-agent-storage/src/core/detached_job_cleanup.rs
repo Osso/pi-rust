@@ -42,7 +42,7 @@ pub struct DetachedJobCleanupOptions<'a> {
 pub fn cleanup_detached_job_artifacts(
     control_db_path: &JsString,
     options: &DetachedJobCleanupOptions<'_>,
-) -> Result<DetachedJobCleanupResult, JsString> {
+) -> Result<DetachedJobCleanupResult, pi_ai::request::CallbackError> {
     let Some(process_references) = read_linux_process_references()? else {
         return Ok(empty_cleanup_result(
             "live process reference inspection requires Linux /proc",
@@ -64,12 +64,12 @@ pub fn cleanup_detached_job_artifacts(
             now: options.now.unwrap_or_else(now_millis),
         },
     )?;
-    Ok(delete_selected_artifact_directories(
+    delete_selected_artifact_directories(
         &candidates,
         &paths_to_delete,
         &mut errors,
         options.on_directory_quarantined,
-    ))
+    )
 }
 
 pub fn run_detached_job_artifact_cleanup(
@@ -96,7 +96,7 @@ pub fn run_detached_job_artifact_cleanup(
                 eprintln!("Detached artifact cleanup: {}", encode_node_utf8(&error));
             }
         }
-        Err(error) => eprintln!("Detached artifact cleanup failed: {}", encode_node_utf8(&error)),
+        Err(error) => eprintln!("Detached artifact cleanup failed: {}", encode_node_utf8(&error.message)),
     }
     Ok(())
 }
@@ -117,7 +117,7 @@ fn delete_selected_artifact_directories(
     paths_to_delete: &[JsString],
     errors: &mut Vec<JsString>,
     on_directory_quarantined: Option<&dyn Fn(&JsString)>,
-) -> DetachedJobCleanupResult {
+) -> Result<DetachedJobCleanupResult, pi_ai::request::CallbackError> {
     let candidates_by_path: IndexMap<&JsString, &DetachedArtifactRetentionCandidate> = candidates
         .iter()
         .map(|candidate| (&candidate.directory_path, candidate))
@@ -128,32 +128,32 @@ fn delete_selected_artifact_directories(
         let Some(candidate) = candidates_by_path.get(directory_path) else {
             continue;
         };
-        if delete_unreferenced_artifact_directory(directory_path, errors, on_directory_quarantined) {
+        if delete_unreferenced_artifact_directory(directory_path, errors, on_directory_quarantined)? {
             deleted_directories.push(directory_path.clone());
             deleted_bytes += candidate.byte_size;
         }
     }
     let total_bytes: f64 = candidates.iter().map(|candidate| candidate.byte_size).sum();
-    DetachedJobCleanupResult {
+    Ok(DetachedJobCleanupResult {
         deleted_bytes: deleted_bytes as i64,
         deleted_directories,
         errors: std::mem::take(errors),
         retained_bytes: (total_bytes - deleted_bytes) as i64,
         skipped_reason: None,
-    }
+    })
 }
 
 fn delete_unreferenced_artifact_directory(
     directory_path: &JsString,
     errors: &mut Vec<JsString>,
     on_directory_quarantined: Option<&dyn Fn(&JsString)>,
-) -> bool {
+) -> Result<bool, pi_js_compat::node_error::NativeNodeError> {
     let quarantine = node_join(
         node_dirname(directory_path),
         js_format!(
             ".cleanup-{}-{}",
             node_basename(directory_path),
-            pi_ai::utils::random_uuid::random_uuid()
+            pi_ai::utils::random_uuid::random_uuid()?
         ),
     );
     match fs::symlink_metadata(encode_node_utf8(directory_path)) {
@@ -162,50 +162,50 @@ fn delete_unreferenced_artifact_directory(
                 "Refused to delete non-directory detached artifact path: {}",
                 directory_path
             ));
-            return false;
+            return Ok(false);
         }
         Ok(_) => {}
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return false,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
         Err(error) => {
             errors.push(js_format!(
                 "Could not delete detached artifact directory {}: {}",
                 directory_path,
                 error.to_string()
             ));
-            return false;
+            return Ok(false);
         }
     }
     if let Err(error) = fs::rename(encode_node_utf8(directory_path), encode_node_utf8(&quarantine)) {
         if error.kind() == io::ErrorKind::NotFound {
-            return false;
+            return Ok(false);
         }
         errors.push(js_format!(
             "Could not delete detached artifact directory {}: {}",
             directory_path,
             error.to_string()
         ));
-        return false;
+        return Ok(false);
     }
     if let Some(on_directory_quarantined) = on_directory_quarantined {
         on_directory_quarantined(&quarantine);
     }
     if quarantined_directory_has_live_reference(&quarantine) {
         let _ = fs::rename(encode_node_utf8(&quarantine), encode_node_utf8(directory_path));
-        return false;
+        return Ok(false);
     }
     match fs::remove_dir_all(encode_node_utf8(&quarantine)) {
-        Ok(()) => true,
+        Ok(()) => Ok(true),
         Err(error) => {
             restore_quarantined_directory(&quarantine, directory_path, errors);
             if error.kind() == io::ErrorKind::NotFound {
-                return false;
+                return Ok(false);
             }
             errors.push(js_format!(
                 "Could not delete detached artifact directory {}: {}",
                 directory_path,
                 error.to_string()
             ));
-            false
+            Ok(false)
         }
     }
 }

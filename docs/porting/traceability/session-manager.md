@@ -258,3 +258,7 @@ branch summarization, cache stats, agent-session tree navigation and detached co
 footer/mode, default footer, effort, codex-fast, run-plan, goal rendering, agents-core runtime/session
 factories/parent journal. Proof: `lossless_session_projections` (RED `session-projections-red.log`: reopened
 `prepare_branch_entries` empty; GREEN `projection-green.log`).
+
+## Fallible UUID consumer migration (2026-10-25)
+
+Parent-approved mechanical prerequisite: source :280–286 generateId and :290/:340 migration throws propagate through Result. Native generate-id/collision loop, v1 migration, branch-label construction and append/open/load preserve their exact existing ordering and partial state; only crypto failure is newly representable. Original NativeNodeError is boxed through the existing SessionManagerError authority, not converted to text or routed uncaught. System UUID uses the shared [crypto error contract](../../specs/crypto-random-failures.md). Positive caller fixtures must assert the returned Result; checkpoint proof remains open during this signature migration.

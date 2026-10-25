@@ -70,15 +70,21 @@ impl ExtensionUiContext for Ui {
         self.trace.lock().unwrap().push(json!(["status", key, text]));
         Ok(())
     }
-    fn set_widget(&self, key: &JsString, text: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(
+        &self,
+        key: &JsString,
+        text: Option<&[JsString]>,
+        options: Option<&ExtensionWidgetOptions>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
         self.trace.lock().unwrap().push(json!(["widget", key, text, options]));
+        Ok(())
     }
     fn select<'a>(
         &'a self,
         title: &JsString,
         items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.trace.lock().unwrap().push(json!(["select", title, items]));
         let selected = self.step["selected"].as_str().map(str::to_owned);
         Box::pin(async move { Ok(selected.map(JsString::from)) })
@@ -87,7 +93,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         title: &JsString,
         prefill: Option<&JsString>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
         let result = self.step["editor"].as_str().map(str::to_owned);
         Box::pin(async move { Ok(result.map(JsString::from)) })

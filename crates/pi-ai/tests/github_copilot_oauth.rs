@@ -250,7 +250,7 @@ fn refresh_filters_models_to_the_account_picker_catalog() {
 }
 
 #[test]
-fn falls_back_to_policy_enabled_models_for_individual_accounts_only() {
+fn policy_enabled_models_without_picker_are_unavailable_for_all_accounts() {
     let individual = CopilotFetch::new(
         device_code("https://github.com/login/device", 1.0, 900.0),
         Vec::new(),
@@ -265,9 +265,9 @@ fn falls_back_to_policy_enabled_models_for_individual_accounts_only() {
              "capabilities": {"supports": {"tool_calls": false}}}
         ]}),
     );
-    assert_eq!(available_ids(&refresh_models(individual)), vec!["gpt-5.4".to_owned()]);
+    assert!(available_ids(&refresh_models(individual)).is_empty());
 
-    // A business proxy host never falls back to policy-enabled models.
+    // Business and individual accounts use the same picker rule.
     let business = CopilotFetch::new(
         device_code("https://github.com/login/device", 1.0, 900.0),
         Vec::new(),
@@ -573,36 +573,25 @@ async fn to_auth_derives_the_proxy_endpoint_from_the_access_token() {
 
 #[test]
 fn parses_picker_ids_with_the_source_rules() {
-    let picker = parse_available_copilot_model_ids(
-        &json!({"data": [
-            {"id": "a", "model_picker_enabled": true},
-            {"id": "b", "model_picker_enabled": true, "policy": {"state": "disabled"}},
-            {"id": "c", "model_picker_enabled": false, "policy": {"state": "enabled"}},
-            {"id": "d", "model_picker_enabled": true, "capabilities": {"supports": {"tool_calls": false}}},
-            {"model_picker_enabled": true},
-            "not-an-object"
-        ]}),
-        true,
-    )
+    let picker = parse_available_copilot_model_ids(&json!({"data": [
+        {"id": "a", "model_picker_enabled": true},
+        {"id": "b", "model_picker_enabled": true, "policy": {"state": "disabled"}},
+        {"id": "c", "model_picker_enabled": false, "policy": {"state": "enabled"}},
+        {"id": "d", "model_picker_enabled": true, "capabilities": {"supports": {"tool_calls": false}}},
+        {"model_picker_enabled": true},
+        "not-an-object"
+    ]}))
     .expect("parse");
     assert_eq!(picker, vec!["a".to_owned()]);
 
     let policy = parse_available_copilot_model_ids(
         &json!({"data": [{"id": "c", "model_picker_enabled": false, "policy": {"state": "enabled"}}]}),
-        true,
     )
     .expect("parse");
-    assert_eq!(policy, vec!["c".to_owned()]);
-
-    let strict = parse_available_copilot_model_ids(
-        &json!({"data": [{"id": "c", "model_picker_enabled": false, "policy": {"state": "enabled"}}]}),
-        false,
-    )
-    .expect("parse");
-    assert!(strict.is_empty());
+    assert!(policy.is_empty());
 
     assert_eq!(
-        parse_available_copilot_model_ids(&json!({}), true).expect_err("invalid"),
+        parse_available_copilot_model_ids(&json!({})).expect_err("invalid"),
         "Invalid Copilot models response"
     );
 }

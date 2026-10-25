@@ -164,7 +164,7 @@ async fn run_rust(dir: &str) -> Value {
         },
     )
     .expect("post request");
-    let observer = Arc::new(ArchitectObserver::new(&JsString::from(&control_db_path), None));
+    let observer = Arc::new(ArchitectObserver::new(&JsString::from(&control_db_path), None).unwrap());
     let prompt_manager = Arc::clone(&manager);
     let prompt_text = Arc::new(Mutex::new(JsString::default()));
     let captured_prompt = Arc::clone(&prompt_text);

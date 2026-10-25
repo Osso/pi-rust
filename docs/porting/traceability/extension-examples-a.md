@@ -98,3 +98,7 @@ the failing target; no later target is claimed as exercised in that run. Log 36
 exits 0: 5 tests pass, zero warnings. Ledger records base revision, exact working
 diff snapshots/digests and restoration. Other examples remain outside this
 follow-up's verification scope.
+
+## UUID carrier follow-up: titlebar spinner (2026-10-25)
+
+`uuid_source_boundaries` loads the actual frozen titlebar-spinner.ts and injects a setTitle crypto failure on the first interval frame (second setTitle overall). The process uncaughtException hook receives the original Error/message/code, proving :37–43 has no catch. The native timer therefore uses only the shared throw_callback_uncaught authority for this proven boundary; synchronous start/stop handlers return Result. Native process-hook test asserts the original payload and callcount2, with a bounded child. No ad-hoc panic implementation or catch_unwind is added. The initial native fixture could not compile with the old infallible match; this was a type-boundary RED, not a native process-result claim.

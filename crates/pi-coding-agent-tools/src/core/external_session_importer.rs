@@ -422,7 +422,12 @@ fn write_imported_session(
     let mut entries = vec![FileEntry::Header(header)];
     let mut parent_id: Option<JsString> = None;
     for message in &source.messages {
-        let id: JsString = random_uuid().chars().take(8).collect::<String>().into();
+        let id: JsString = random_uuid()
+            .map_err(Box::new)?
+            .chars()
+            .take(8)
+            .collect::<String>()
+            .into();
         let message = message
             .as_ref()
             .map_err(|_| SessionManagerError::new("Invalid time value"))?;

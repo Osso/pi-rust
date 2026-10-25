@@ -83,7 +83,7 @@ fn migration_mutates_raw_record_without_losing_extra_fields() {
         r#"{"type":"message","id":"m\ud800","parentId":null,"timestamp":"t","message":{"role":"hookMessage","content":"\ud800","timestamp":0,"\udfff":null},"\ud800":"extra"}"#,
     ];
     let mut entries = parse_session_entries(&lines.join("\n"));
-    migrate_session_entries(&mut entries);
+    migrate_session_entries(&mut entries).unwrap();
     assert_eq!(
         serde_json::to_string(&entries[0]).unwrap(),
         lines[0].replace("\"version\":2", "\"version\":3")

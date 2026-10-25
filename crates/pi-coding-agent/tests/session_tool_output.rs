@@ -15,7 +15,10 @@ use pi_coding_agent::core::session_tool_output::{
 };
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pi-rust-{name}-{}", pi_ai::utils::random_uuid::random_uuid()));
+    let dir = std::env::temp_dir().join(format!(
+        "pi-rust-{name}-{}",
+        pi_ai::utils::random_uuid::random_uuid().unwrap()
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }

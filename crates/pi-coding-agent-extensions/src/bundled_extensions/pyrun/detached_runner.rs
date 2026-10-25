@@ -358,11 +358,11 @@ async fn wait_for_detached_pyrun_settlement(
                         Some(identity) => {
                             dispatch_detached_pyrun_bridge_request(&manifest, &identity, pending, request)
                                 .await
-                                .map_err(crate::core::extensions::types::HandlerError::new)
+                                .map_err(crate::core::extensions::types::HandlerError::from)
                         }
                         None => dispatch_foreground_pyrun_bridge_request(&manifest, pending, request)
                             .await
-                            .map_err(crate::core::extensions::types::HandlerError::new),
+                            .map_err(crate::core::extensions::types::HandlerError::from),
                     }
                 });
             future
@@ -477,7 +477,7 @@ async fn dispatch_detached_pyrun_bridge_request(
     identity: &DetachedJobOwnershipIdentity,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Option<Value>, JsString> {
+) -> Result<Option<Value>, pi_ai::request::CallbackError> {
     let request_id = enqueue_detached_pyrun_bridge_request(EnqueueDetachedPyrunBridgeRequestInput {
         control_db_path: manifest.data.control_db_path.clone(),
         identity: identity.clone(),
@@ -496,15 +496,18 @@ async fn dispatch_detached_pyrun_bridge_request(
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .insert(request_id, PendingBridgeRequest { resolve: sender });
-    receiver.await.map_err(|error| JsString::from(error.to_string()))?
+    receiver
+        .await
+        .map_err(|error| JsString::from(error.to_string()))?
+        .map_err(Into::into)
 }
 
 async fn dispatch_foreground_pyrun_bridge_request(
     manifest: &DetachedPyrunLaunchManifest,
     pending: PendingRequests,
     request: super::runner::PiRequest,
-) -> Result<Option<Value>, JsString> {
-    let request_id = JsString::from(pi_ai::utils::random_uuid::random_uuid());
+) -> Result<Option<Value>, pi_ai::request::CallbackError> {
+    let request_id = JsString::from(pi_ai::utils::random_uuid::random_uuid()?);
     let mut record = Map::new();
     record.insert("method".into(), Value::String(request.method.clone().into()));
     record.insert("params".into(), request.params.clone());
@@ -532,7 +535,7 @@ async fn dispatch_foreground_pyrun_bridge_request(
                 .and_then(Value::as_string)
                 .filter(|error| !error.is_empty())
             {
-                return Err(error.to_owned());
+                return Err(error.to_owned().into());
             }
             return Ok(response.get("result").cloned());
         }

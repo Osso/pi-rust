@@ -550,7 +550,7 @@ impl ExtensionUiContext for RpcUiContext {
         title: &JsString,
         options: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Select {
             title: title.clone(),
@@ -570,7 +570,8 @@ impl ExtensionUiContext for RpcUiContext {
                 request,
                 |response| parse_dialog_value(response, "select"),
             )
-            .await
+            .await?
+            .map_err(CallbackError::from)
         })
     }
 
@@ -579,7 +580,7 @@ impl ExtensionUiContext for RpcUiContext {
         title: &JsString,
         message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, CallbackError>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Confirm {
             title: title.clone(),
@@ -599,7 +600,8 @@ impl ExtensionUiContext for RpcUiContext {
                 request,
                 parse_dialog_confirm,
             )
-            .await
+            .await?
+            .map_err(CallbackError::from)
         })
     }
 
@@ -608,7 +610,7 @@ impl ExtensionUiContext for RpcUiContext {
         title: &JsString,
         placeholder: Option<&JsString>,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Input {
             title: title.clone(),
@@ -628,7 +630,8 @@ impl ExtensionUiContext for RpcUiContext {
                 request,
                 |response| parse_dialog_value(response, "input"),
             )
-            .await
+            .await?
+            .map_err(CallbackError::from)
         })
     }
 
@@ -646,8 +649,7 @@ impl ExtensionUiContext for RpcUiContext {
                 message: message.clone(),
                 notify_type,
             },
-        );
-        Ok(())
+        )
     }
 
     fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), CallbackError> {
@@ -661,13 +663,17 @@ impl ExtensionUiContext for RpcUiContext {
                 status_key: key.clone(),
                 status_text: text,
             },
-        );
-        Ok(())
+        )
     }
 
-    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(
+        &self,
+        key: &JsString,
+        content: Option<&[JsString]>,
+        options: Option<&ExtensionWidgetOptions>,
+    ) -> Result<(), CallbackError> {
         let Some(state) = self.state() else {
-            return;
+            return Ok(());
         };
         output_ui_request(
             &state,
@@ -676,35 +682,35 @@ impl ExtensionUiContext for RpcUiContext {
                 widget_lines: content.map(<[JsString]>::to_vec),
                 widget_placement: options.and_then(|options| options.placement),
             },
-        );
+        )
     }
 
-    fn set_title(&self, title: &JsString) {
+    fn set_title(&self, title: &JsString) -> Result<(), CallbackError> {
         let Some(state) = self.state() else {
-            return;
+            return Ok(());
         };
-        output_ui_request(&state, RpcExtensionUiRequestPayload::SetTitle { title: title.clone() });
+        output_ui_request(&state, RpcExtensionUiRequestPayload::SetTitle { title: title.clone() })
     }
 
-    fn paste_to_editor(&self, text: &JsString) {
-        self.set_editor_text(text);
+    fn paste_to_editor(&self, text: &JsString) -> Result<(), CallbackError> {
+        self.set_editor_text(text)
     }
 
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), CallbackError> {
         let Some(state) = self.state() else {
-            return;
+            return Ok(());
         };
         output_ui_request(
             &state,
             RpcExtensionUiRequestPayload::SetEditorText { text: text.clone() },
-        );
+        )
     }
 
     fn editor<'a>(
         &'a self,
         title: &JsString,
         prefill: Option<&JsString>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let state = self.state();
         let request = RpcExtensionUiRequestPayload::Editor {
             title: title.clone(),
@@ -722,7 +728,8 @@ impl ExtensionUiContext for RpcUiContext {
                 request,
                 |response| parse_dialog_value(response, "editor"),
             )
-            .await
+            .await?
+            .map_err(CallbackError::from)
         })
     }
 
@@ -752,13 +759,14 @@ fn reject_rpc_theme_switch() -> ThemeSetResult {
     }
 }
 
-fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) {
+fn output_ui_request(state: &RpcState, payload: RpcExtensionUiRequestPayload) -> Result<(), CallbackError> {
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
-        id: random_uuid().into(),
+        id: random_uuid()?.into(),
         payload,
     };
     state.output(&js_json::to_value(&request).expect("extension UI request must serialize"));
+    Ok(())
 }
 
 fn parse_dialog_value(response: &JsValue, method: &str) -> Result<Option<JsString>, JsString> {
@@ -795,7 +803,7 @@ async fn create_dialog_promise<T, P, F>(
     default: T,
     request: RpcExtensionUiRequestPayload,
     parse: P,
-) -> T
+) -> Result<T, CallbackError>
 where
     P: FnOnce(&JsValue) -> T,
     F: Fn(&JsValue),
@@ -805,10 +813,10 @@ where
         None => (None, None),
     };
     if signal.as_ref().is_some_and(AbortSignal::aborted) {
-        return default;
+        return Ok(default);
     }
 
-    let id = random_uuid();
+    let id = random_uuid()?;
     let (sender, receiver) = oneshot::channel();
     dialogs.register(id.clone(), sender);
     let abort_subscription = subscribe_dialog_abort(dialogs, &id, signal.as_ref());
@@ -827,10 +835,10 @@ where
     if let Some(timer) = timer {
         timer.abort();
     }
-    match response {
+    Ok(match response {
         Some(response) => parse(&response),
         None => default,
-    }
+    })
 }
 
 fn subscribe_dialog_abort(
@@ -900,7 +908,7 @@ mod tests {
             assert!(broker.resolve(value_response(&id, "two")));
         };
         let (result, ()) = tokio::join!(promise, resolver);
-        assert_eq!(result, Some(JsString::from("two")));
+        assert_eq!(result.unwrap(), Some(JsString::from("two")));
     }
 
     #[tokio::test]
@@ -924,7 +932,7 @@ mod tests {
             |_response| Some("answered".to_owned()),
         )
         .await;
-        assert_eq!(result, Some("default".to_owned()));
+        assert_eq!(result.unwrap(), Some("default".to_owned()));
         assert!(started.elapsed() >= Duration::from_millis(10));
         let request = receiver.recv().await.expect("request line");
         let id = request["id"].as_string().expect("request id").to_utf8().unwrap();
@@ -945,8 +953,9 @@ mod tests {
             signal: Some(signal),
             ..ExtensionUiDialogOptions::default()
         };
-        let result =
-            create_dialog_promise(&broker, emit, Some(options), false, select_request(), |_response| true).await;
+        let result = create_dialog_promise(&broker, emit, Some(options), false, select_request(), |_response| true)
+            .await
+            .unwrap();
         assert!(!result);
         assert!(receiver.try_recv().is_err());
     }
@@ -977,7 +986,7 @@ mod tests {
             controller.abort(None);
         };
         let (result, ()) = tokio::join!(promise, resolver);
-        assert_eq!(result, "default");
+        assert_eq!(result.unwrap(), "default");
     }
 
     fn run_frozen_rpc_observation(order: &str) -> JsValue {
@@ -1054,7 +1063,8 @@ mod tests {
                     create_dialog_promise(&broker, emit, Some(options), None, select_request(), |response| {
                         response.get("value").and_then(JsValue::as_string).cloned()
                     })
-                    .await,
+                    .await
+                    .unwrap(),
                 );
             }
             assert!(results.iter().all(|result| result == &expected), "{order}: {results:?}");

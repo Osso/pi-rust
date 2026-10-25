@@ -104,7 +104,7 @@ pub fn find_selected_effort(levels: &[ThinkingLevel], effort: impl Into<JsString
 }
 
 fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
-    ctx.ui()?.set_editor_text(&JsString::default());
+    ctx.ui()?.set_editor_text(&JsString::default())?;
     Ok(())
 }
 
@@ -247,7 +247,7 @@ async fn select_delegation_mode(ctx: &ExtensionCommandContext) -> Result<Option<
             None,
         )
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     Ok(selected.and_then(parse_multi_agent_mode))
 }
 
@@ -333,7 +333,7 @@ async fn select_effort(
         .ui()?
         .select(&"Select effort".into(), &options, None)
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     Ok(selected.and_then(|effort| find_selected_effort(levels, effort)))
 }
 
