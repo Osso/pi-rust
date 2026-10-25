@@ -16,6 +16,16 @@ async function main(): Promise<void> {
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const cwd = request.root;
+		if (request.operation === "resource_order") {
+			const settings = SettingsManager.inMemory();
+			settings.setSessionSandboxProfile("full-access");
+			const seen: unknown[] = [];
+			const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+			const { session } = await createAgentSession({ cwd, agentDir: cwd, modelRegistry: registry, sessionManager: SessionManager.inMemory(cwd), settingsManager: settings, extensionFactories: [() => { seen.push(settings.getSessionSandboxProfile() ?? null); }] });
+			process.stdout.write(`${JSON.stringify({ id: request.id, seen, final: settings.getSessionSandboxProfile() ?? null })}\n`);
+			await session.dispose();
+			continue;
+		}
 		const authStorage = AuthStorage.inMemory();
 		const modelRegistry = ModelRegistry.inMemory(authStorage);
 		const settingsManager = SettingsManager.inMemory();
