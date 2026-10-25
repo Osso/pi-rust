@@ -41,7 +41,7 @@ Registered raw/simple callbacks preserve synchronous throws according to the sha
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/model_registry_frozen.rs`, `model_registry_auth_drift.rs` and `model_registry_oauth_throw_probe.rs` use `oracle/model-registry-oracle.ts` against the actual frozen module. Other registry/catalog/UI matrices and all-target checks remain open.
+`crates/pi-coding-agent/tests/model_registry_frozen.rs`, `model_registry_auth_drift.rs` and the configuration/registration/auth/reentry/throw matrices use actual frozen modules. `model_registry_dispatch_lifecycle` compares full positive dispatch and reset/upsert/unregister/OAuth states. `differential_catalog_startup` now compares a fresh frozen main --list-models process against the actual native binary, requiring the cache-only ID and exact output plus unchanged cache bytes. Final symbol/branch reconciliation and checkpoint gates remain open.
 
 ## Known gaps (current cycle)
 
