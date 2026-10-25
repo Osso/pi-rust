@@ -8,6 +8,10 @@ Rust: `crates/pi-coding-agent-tools/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Command wait stale guard (2026-10-25)
+
+Frozen runner.ts:999–1002 asserts active synchronously before calling waitForIdle. Native `ExtensionCommandContext::wait_for_idle` now returns `Result<BoxFuture<()>, HandlerError>` instead of turning a stale-guard error into an empty successful future. No native consumer called this method; there is no cross-lane propagation. New targeted test covers active completion and exact stale error; RED is the missing fallible contract (`/tmp/ext-api-wait-red.log`), GREEN pending at commit.
+
 ## Rejection-preserving handler carrier (2026-10-23)
 
 HandlerError retains one boxed source variant (native error or CallbackError). From<CallbackError> keeps the full rejection; From<AgentSessionError> routes through the canonical CallbackError conversion rather than reading a native/message projection. The now-unused private AgentSessionError::native_error accessor was deleted; no AgentSession lifecycle behavior changes in this carrier slice. Existing serialized message/stack fields are unchanged; no stringification or fallback carrier was added.

@@ -1315,11 +1315,9 @@ impl ExtensionCommandContext {
         handler(profile, scope)
     }
 
-    pub fn wait_for_idle(&self) -> BoxFuture<'static, ()> {
-        match self.context.read(|state| Arc::clone(&state.wait_for_idle_fn)) {
-            Ok(handler) => handler(),
-            Err(_) => Box::pin(async {}),
-        }
+    pub fn wait_for_idle(&self) -> Result<BoxFuture<'static, ()>, HandlerError> {
+        let handler = self.context.read(|state| Arc::clone(&state.wait_for_idle_fn))?;
+        Ok(handler())
     }
 
     pub fn new_session(

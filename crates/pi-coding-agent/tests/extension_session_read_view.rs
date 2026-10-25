@@ -6,6 +6,24 @@ use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lo
 use pi_js_compat::js_json;
 
 #[tokio::test]
+async fn stale_command_wait_for_idle_reports_the_frozen_error_instead_of_succeeding() {
+    let session = support::session_manager("/private/context");
+    let runner = ExtensionRunner::new(
+        Vec::new(),
+        support::runtime(),
+        "/private/context",
+        session,
+        support::model_registry().await,
+        None,
+    );
+    let command = runner.create_command_context();
+    command.wait_for_idle().expect("active wait").await;
+    runner.invalidate(Some("extension runtime replaced"));
+    let error = command.wait_for_idle().err().expect("stale wait must reject");
+    assert_eq!(error.message, "extension runtime replaced");
+}
+
+#[tokio::test]
 async fn readonly_context_snapshot_is_isolated_and_retained_view_tracks_live_writes() {
     let session = support::session_manager("/private/context");
     let runner = ExtensionRunner::new(
