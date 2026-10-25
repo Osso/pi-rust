@@ -1,6 +1,6 @@
 //! Interactive widgets and selector data, independent of bundled extensions.
 
-pub use pi_coding_agent_core::{config, core, utils};
+pub use pi_coding_agent_core::{ParsedSkillBlock, config, core, utils};
 
 pub mod modes {
     pub mod interactive {
