@@ -108,6 +108,40 @@ async fn jsonl_export_preserves_javascript_value_bytes() {
     );
 }
 
+#[tokio::test]
+async fn jsonl_export_directory_target_preserves_frozen_native_error() {
+    use std::error::Error;
+    let fixture = fixture().await;
+    let directory = fixture._temp_dir.path().join("directory-target");
+    std::fs::create_dir(&directory).expect("target directory");
+    let file = fixture._temp_dir.path().join("file-parent");
+    std::fs::write(&file, "existing file").expect("file parent");
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    for path in [directory, file.join("export.jsonl"), file.join("nested/export.jsonl")] {
+        let output = JsString::from(path.display().to_string());
+        let expected = oracle.request(&pi_js_compat::js_json!({
+            "operation": "export-error", "outputPath": output,
+            "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+        }));
+        assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)));
+        let failure = fixture
+            .session
+            .export_to_jsonl(Some(&output))
+            .expect_err("invalid export target");
+        let actual = failure
+            .source()
+            .and_then(|source| source.downcast_ref::<pi_js_compat::node_error::NativeNodeError>())
+            .map(|source| source.value())
+            .unwrap_or_else(|| pi_js_compat::js_json!({"name": "Error", "message": failure.message()}));
+        assert_eq!(
+            actual,
+            expected.get("value").expect("oracle value").clone(),
+            "path={path:?}"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(file).expect("existing file"), "existing file");
+}
+
 async fn fixture() -> Fixture {
     fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }

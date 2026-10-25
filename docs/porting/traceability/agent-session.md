@@ -322,3 +322,7 @@ Frozen :6097 uses `_getRequiredRequestAuth`, not best-effort compaction auth. Tr
 ## Re-pin empty tree summary and label (2026-10-25)
 
 Frozen :6156/6168/6182 tests summary and label truthiness before persistence. Native now skips empty extension summaries and labels instead of creating an empty branch-summary/label entry. Real native extension/store test `navigate_tree_empty_extension_summary_and_label_match_frozen` compares actual frozen navigation with an injected empty summary/label: no saved summary, no labels, root leaf, absent result summary entry. RED `/tmp/repin-agent-session-tree-empty-red2.log` observed one summary and label plus a non-root leaf.
+
+## Re-pin JSONL export filesystem boundary (2026-10-25)
+
+Frozen :6353–6390 retains Node filesystem failures. JSONL export now checks whether the parent exists before mkdir, distinguishes file open from write, and retains native message/name/code/errno/syscall/path via the shared Node error carrier instead of wrapping errors in Rust prose. Actual-frozen `jsonl_export_directory_target_preserves_frozen_native_error` compares complete errors for a directory output, an existing-file parent and an intermediate non-directory component; the original file bytes must remain unchanged. RED `/tmp/repin-agent-session-export-red.log` showed EISDIR metadata lost; RED2 showed native EEXIST mkdir versus frozen ENOTDIR open when the parent file already exists. OS-fault shapes remain the repository's one-line gap, not additional recovery behavior.

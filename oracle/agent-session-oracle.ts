@@ -148,6 +148,16 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "export-error") {
+		try {
+			session.exportToJsonl(request.outputPath);
+			return { success: true };
+		} catch (error) {
+			return { name: error.name, message: error.message, ...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "stack")) };
+		} finally {
+			session.dispose();
+		}
+	}
 	if (request.operation === "navigation-empty-summary") {
 		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("old answer"));

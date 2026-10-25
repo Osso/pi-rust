@@ -7433,8 +7433,13 @@ impl AgentSession {
             crate::utils::paths::resolve_path(output_path.unwrap_or(&default_name), "", &Default::default())
                 .map_err(|path_error| error(path_error.message()))?;
         let parent = crate::utils::paths::node_dirname(&file_path);
-        std::fs::create_dir_all(encode_node_utf8(&parent))
-            .map_err(|io_error| error(format!("Failed to create export directory: {io_error}")))?;
+        if !std::path::Path::new(&encode_node_utf8(&parent)).exists() {
+            std::fs::create_dir_all(encode_node_utf8(&parent)).map_err(|failure| {
+                pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                    &failure, "mkdir", &parent,
+                ))
+            })?;
+        }
         let (session_id, cwd, branch_entries) = {
             let manager = lock(&self.inner.session_manager);
             (
@@ -7469,8 +7474,16 @@ impl AgentSession {
             previous_id = entry.id().cloned();
             lines.push(pi_js_compat::js_json::stringify_lossless(&value));
         }
-        std::fs::write(encode_node_utf8(&file_path), format!("{}\n", lines.join("\n")))
-            .map_err(|io_error| error(format!("Failed to write session export: {io_error}")))?;
+        let mut file = std::fs::File::create(encode_node_utf8(&file_path)).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                &failure, "open", &file_path,
+            ))
+        })?;
+        std::io::Write::write_all(&mut file, format!("{}\n", lines.join("\n")).as_bytes()).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_file_write_error_record(
+                &failure,
+            ))
+        })?;
         Ok(file_path)
     }
 
