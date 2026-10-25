@@ -7,7 +7,8 @@
 | Spawn without parent journal dependency or transcript requirement (`runtime.ts:1080–1198`) | Removed old-only journal admission/start/terminal writes and the native-only request-handler journal argument. Actual frozen spawn with no transcript returns dispatched=true/completed and zero custom entries; native RED returned journaling-unconfigured; GREEN checks dispatch, completion, SQLite state and no parent custom entry. `/tmp/agents-core-journal-{red,green2}.log`; all 25 runtime tests pass |
 | Current child assistant result/errors | [Whole child-response map](child-response.md), real dispatch RED/GREEN and nine frozen vectors |
 | Descendant settlement and direct detached terminal cleanup | [Settlement](descendant-settlement.md), [cancellation](detached-runtime-cancellation.md); real spawn/SQLite/mailbox boundary |
-| Remaining runtime audit | Recovery still has an old-only parent-journal admission filter; child shutdown is still synchronous and lacks the frozen bound-session shutdown event/finally; restricted browser tools and remaining runtime branch proofs remain open. These are not completion evidence |
+| Child session shutdown scope (`runtime.ts:3181–3187`) | Actual frozen/native hook differential proves child quit and main reload do not invalidate shared dispatches, while main quit does. Native RED incorrectly invalidated shared store on child shutdown; GREEN `/tmp/agents-core-shutdown-scope-green.log` |
+| Remaining runtime audit | Recovery still has an old-only parent-journal admission filter; factory browser/read/tool/profile/archive/registry fields, artifact-root override, configurable cancellation timeout and remaining runtime branch proofs remain open. Child-session shutdown/finally is now closed in its own map. These are not completion evidence |
 
 Mechanical fallout: `pi-coding-agent/src/main.rs` drops the retired request-handler argument; native fixtures use the updated signature. No source delta or storage algorithm change.
 

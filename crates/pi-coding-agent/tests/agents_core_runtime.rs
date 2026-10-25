@@ -700,6 +700,61 @@ fn frozen_child_response_matrix_preserves_identity_errors_and_utf16() {
     }
 }
 
+#[tokio::test]
+async fn child_shutdown_does_not_invalidate_shared_parent_dispatches() {
+    use pi_coding_agent::core::extensions::types::{SessionShutdownEvent, SessionShutdownReason};
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for (child, reason, label) in [
+        (true, SessionShutdownReason::Quit, "quit"),
+        (false, SessionShutdownReason::Reload, "reload"),
+        (false, SessionShutdownReason::Quit, "quit"),
+    ] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let options = MultiAgentExtensionOptions {
+            store: Some(Arc::clone(&store)),
+            runtime_handles: Some(create_multi_agent_runtime_handles()),
+            ..Default::default()
+        };
+        let extension = load_extension_from_factory(
+            Arc::new(move |pi| {
+                let result = multi_agent_extension(pi, &options);
+                Box::pin(async move { result })
+            }),
+            &test.cwd.clone().into(),
+            Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+            create_extension_runtime(),
+            &"<core>".into(),
+        )
+        .await
+        .unwrap();
+        let hooks = extension.read().handlers.session_shutdown.clone();
+        let (_runner, ctx) = test_context(&test, None, child.then(|| "child".to_owned()), child).await;
+        let before = store.get_restore_generation();
+        for hook in hooks {
+            hook.call(
+                SessionShutdownEvent {
+                    reason,
+                    target_session_file: None,
+                },
+                ctx.clone(),
+            )
+            .await
+            .unwrap();
+        }
+        let source = ts.request(&json!({"id":7,"op":"shutdownScope","child":child,"reason":label}));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        assert_eq!(
+            source["output"],
+            json!({"invalidations":store.get_restore_generation()-before}),
+            "child={child}, reason={label}"
+        );
+    }
+}
+
 #[test]
 fn detached_memory_selection_and_cleanup_failures_match_frozen() {
     use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{

@@ -13,6 +13,10 @@ type SettlementStore = {
 type SettlementModule = {
 	waitForActiveDescendants(store: SettlementStore, id: string, signal: AbortSignal): Promise<void>;
 };
+type RuntimeModule = {
+    registerAgentsCoreTools(api: unknown, options: unknown): void;
+    createMultiAgentRuntimeHandles(): unknown;
+};
 type RouteModule = {
     sessionMessageRouteError(db: string | undefined, params: unknown): string | undefined;
     isRemoteSessionMessage(params: unknown): boolean;
@@ -61,6 +65,16 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "shutdownScope": {
+            const api=await load<RuntimeModule>("runtime.ts");
+            const hooks=new Map<string,(event:unknown,ctx:unknown)=>unknown>();
+            let invalidations=0;
+            api.registerAgentsCoreTools({on:(name:string,handler:(event:unknown,ctx:unknown)=>unknown)=>hooks.set(name,handler),registerTool:()=>{},registerCommand:()=>{}},{store:{invalidateInFlightDispatches:()=>{invalidations+=1;}},runtimeHandles:api.createMultiAgentRuntimeHandles()});
+            const shutdown=hooks.get("session_shutdown");
+            if (!shutdown) throw new Error("missing source shutdown hook");
+            await shutdown({reason:request.reason},{multiAgentAgentId:request.child ? "child" : undefined,multiAgentRequiresAgentId:request.child===true});
+            return {invalidations};
+        }
         case "sessionRoute": {
             const api=await load<RouteModule>("session-message-route.ts");
             return {error:api.sessionMessageRouteError(typeof request.db === "string" ? request.db : undefined,request.params) ?? null,remote:api.isRemoteSessionMessage(request.params)};
