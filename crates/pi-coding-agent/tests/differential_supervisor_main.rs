@@ -30,6 +30,25 @@ async fn authenticated_supervisor_model_selection_matches_frozen_requirements() 
         for provider in providers {
             records.insert(provider.into(), json!({"type":"api_key","key":"fixture"}));
         }
+        let models = ["openai-codex", "openai-codex-gc", "openai-codex-team"]
+            .into_iter()
+            .map(|provider| {
+                (
+                    JsString::from(provider),
+                    json!({
+                        "baseUrl":"https://example.invalid", "api":"openai-codex-responses",
+                        "models":[{"id":"gpt-6.1-sol","name":"Sol","api":"openai-codex-responses","reasoning":true,
+                            "input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},
+                            "contextWindow":200000,"maxTokens":8192}],
+                    }),
+                )
+            })
+            .collect::<pi_js_compat::js_json::JsObject>();
+        std::fs::write(
+            directory.path().join("models.json"),
+            pi_js_compat::js_json::stringify_lossless(&json!({"providers":models})),
+        )
+        .unwrap();
         let auth_path = directory.path().join("auth.json");
         std::fs::write(
             &auth_path,
