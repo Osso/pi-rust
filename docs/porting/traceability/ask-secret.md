@@ -50,3 +50,16 @@ invalidation are tracked in `/tmp/repin-baseline-triage-ledger.md`.
 
 Owned callback arguments follow the existing native-owned-value approval; JS
 mutation-through-retained callback references is not a separate native API.
+
+## Final checkpoint evidence
+
+At `0929b3053` (includes requested parent `561184afa`), the five tool/UI/file
+matrix tests and both default-process/crash tests pass; the ignored probe is
+invoked by its parent. Warning-mode clippy for the changed modules reports zero
+changed-line warnings. Two needless borrows in the new process fixture were
+removed; its focused warning-mode clippy is the remaining checkpoint check.
+The earlier `-D warnings` attempts are not green evidence: they stopped on
+pre-existing unrelated diagnostics. No warnings were suppressed. Automated
+readability CLI was unavailable; manual audit found no deep nesting or opaque
+state transitions. Longer functions are flat schema/command construction and
+single-lifetime I/O orchestration, not additional domain abstractions.

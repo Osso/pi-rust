@@ -136,7 +136,7 @@ fn default_secret_process_protocol_failure_and_abort_match_frozen() {
             "ask_secret_default_process_probe",
             &environment(&path, &native_capture, mode, &result),
         );
-        let native = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&result).unwrap()).unwrap();
+        let native = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&result).unwrap()).unwrap();
         assert_eq!(native["result"], expected["result"], "{mode} result");
         assert_eq!(native["error"], expected["error"], "{mode} error");
         assert_eq!(native["calls"], expected["calls"], "{mode} calls");
@@ -195,7 +195,7 @@ fn missing_provisioner_preserves_the_frozen_crash_discrepancy() {
         "ask_secret_default_process_probe",
         &environment(&path, &native_capture, "missing", &result),
     );
-    let native = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&result).unwrap()).unwrap();
+    let native = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&result).unwrap()).unwrap();
     assert_eq!(native["result"], json!(null));
     assert_eq!(
         native["error"],
