@@ -1781,7 +1781,7 @@ pub fn load_entries_from_file(file_path: &JsString) -> Result<Vec<FileEntry>, Se
         return Ok(Vec::new());
     }
     super::session_transcript_spool::with_seekable_session_transcript(&source, |plain| {
-        let file = File::open(encode_node_utf8(&plain)).map_err(|cause| filesystem_error(cause, "open", plain))?;
+        let file = File::open(encode_node_utf8(plain)).map_err(|cause| filesystem_error(cause, "open", plain))?;
         let mut entries = Vec::new();
         for line in BufReader::with_capacity(SESSION_READ_BUFFER_SIZE, file).split(b'\n') {
             let line = line.map_err(|cause| filesystem_error(cause, "read", plain))?;
