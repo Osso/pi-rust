@@ -459,7 +459,7 @@ fn reopen_embedded_closes(text: &JsString, styles: &[Style]) -> JsString {
         return text.to_owned();
     }
     styles.iter().rev().fold(text.to_owned(), |current, style| {
-        current.replace(style.close(), &format!("{}{}", style.close(), style.open()))
+        current.replace(style.close(), format!("{}{}", style.close(), style.open()))
     })
 }
 

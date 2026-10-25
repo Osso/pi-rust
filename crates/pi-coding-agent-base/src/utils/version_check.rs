@@ -363,7 +363,7 @@ pub fn version_check_user_agent(current_version: &JsString) -> JsString {
 
 /// Package version used by default callers.
 pub fn current_package_version() -> JsString {
-    package_config().version.clone().into()
+    package_config().version.clone()
 }
 
 #[cfg(test)]
