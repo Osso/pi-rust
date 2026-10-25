@@ -375,7 +375,7 @@ async fn adopts_the_cancelling_revision_terminates_the_payload_group_and_finaliz
     let coordinator = LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: fixture.control_db_path.clone().into(),
         create_agent_id: Arc::new(|| Ok("unused".into())),
-        now: Arc::new(|| pi_coding_agent::utils::iso_time::now_iso_string().into()),
+        now: Arc::new(pi_coding_agent::utils::iso_time::now_iso_string),
         process_identity: test_process_identity("runner-1"),
         session_path: fixture.session_path.clone().into(),
     });
