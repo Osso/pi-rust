@@ -2,6 +2,8 @@
 
 ## Runtime re-pin lane — 2026-10-25
 
+Successor factory slice: child and attached factories now forward the parent's model registry, install browser-only restricted read definitions (including the configurable root), augment profile tools with ask_questions and browser read, and exclude change_working_directory. Attached sessions restore archived files through the control DB and leave settings creation to SDK instead of overriding policy. Actual frozen factory-option differential RED: `/tmp/agents-core-2-factory-red.log`; archive/policy behavioral RED: `/tmp/agents-core-2-attached-red.log`. GREEN pending after commit. Mechanical API fallout: main.rs and native factory fixtures initialize browser_agent_config_root. No storage internals changed.
+
 | Frozen runtime branch | Native/proof |
 | --- | --- |
 | Spawn without parent journal dependency or transcript requirement (`runtime.ts:1080–1198`) | Removed old-only journal admission/start/terminal writes and the native-only request-handler journal argument. Actual frozen spawn with no transcript returns dispatched=true/completed and zero custom entries; native RED returned journaling-unconfigured; GREEN checks dispatch, completion, SQLite state and no parent custom entry. `/tmp/agents-core-journal-{red,green2}.log`; all 25 runtime tests pass |
