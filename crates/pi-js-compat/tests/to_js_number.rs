@@ -1,6 +1,5 @@
 //! Node-checked ToNumber over lossless JSON values, including binary64 bits.
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 use pi_js_compat::js_json::{parse_lossless, to_js_number};
 use serde_json::{Value, json};
 

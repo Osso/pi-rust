@@ -1,5 +1,4 @@
-#[path = "../../pi-tui/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_1 as oracle;
 use pi_js_compat::{base64::buffer_from_base64, js_json::JsString};
 use serde_json::json;
 

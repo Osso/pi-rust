@@ -1,5 +1,4 @@
-#[path = "../../pi-tui/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_1 as oracle;
 
 use pi_js_compat::{array_sort::js_array_sort, number::js_number_to_string};
 use serde_json::{Value, json};

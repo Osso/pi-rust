@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 use pi_js_compat::number::{js_math_max, js_math_min};
 use serde_json::json;
 #[test]

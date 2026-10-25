@@ -1,7 +1,6 @@
 //! Differential proof for `Date.parse` against Node under two time zones.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use std::ffi::OsString;
 

@@ -1,7 +1,6 @@
 //! Same-bit Node built-ins: literal text for formatting, binary64 for serde values.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use pi_js_compat::js_json::{self, JsValue};
 use pi_js_compat::number::{js_number_to_string, js_number_value};

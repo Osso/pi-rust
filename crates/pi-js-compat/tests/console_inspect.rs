@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_0 as oracle;
 use pi_js_compat::{
     js_json::{JsString, JsValue},
     node_fs::inspect_console_value,

@@ -2,8 +2,7 @@
 #[path = "../../pi-coding-agent/tests/differential_js_json.rs"]
 mod legacy;
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle_2 as oracle;
 
 use oracle::TsOracle;
 use pi_js_compat::js_json::{
