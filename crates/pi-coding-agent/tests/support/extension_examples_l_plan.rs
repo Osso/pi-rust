@@ -438,7 +438,7 @@ pub async fn compare(
         .collect();
     if request["checkRawPersistence"] == true {
         let file = manager.lock().unwrap().get_session_file().unwrap().to_owned();
-        let persisted = std::fs::read_to_string(&encode_node_utf8(&file)).unwrap();
+        let persisted = std::fs::read_to_string(encode_node_utf8(&file)).unwrap();
         assert!(
             persisted.contains("\\ud83d..."),
             "persisted JSONL retains generated surrogate"

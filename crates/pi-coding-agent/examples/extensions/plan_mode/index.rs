@@ -281,7 +281,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
             .iter()
             .map(|t| {
                 if t.completed {
-                    th.fg(C::Success, "☑ ") + &th.fg(C::Muted, &th.strikethrough(&t.text))
+                    th.fg(C::Success, "☑ ") + &th.fg(C::Muted, th.strikethrough(&t.text))
                 } else {
                     th.fg(C::Muted, "☐ ") + &t.text
                 }

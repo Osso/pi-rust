@@ -411,9 +411,9 @@ impl ExtensionUiContext for Ui {
                     if let Some(key) = input {
                         if let Some(index) = step["panel"].as_u64() {
                             let p = PANELS.with(|ps| ps.borrow()[index as usize].clone());
-                            p.component.handle_input(&JsString::from(key));
+                            p.component.handle_input(&key);
                         } else {
-                            component.handle_input(&JsString::from(key));
+                            component.handle_input(&key);
                         }
                     }
                     tokio::task::yield_now().await;

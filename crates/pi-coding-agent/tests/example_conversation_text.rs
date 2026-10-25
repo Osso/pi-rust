@@ -1,7 +1,6 @@
 #[path = "../examples/extensions/handoff.rs"]
 mod handoff;
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::differential_coding_agent_truncate::oracle;
 #[path = "../examples/extensions/summarize.rs"]
 mod summarize;
 use pi_coding_agent::core::session_manager::SessionEntry;
