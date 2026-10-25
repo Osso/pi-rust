@@ -21,3 +21,6 @@ These are Rust `Result` adaptations of source throws, not new error-swallowing p
 A fresh initial request is not unconditionally preflighted by prepare-next-turn; existing assistant history can reach pre-prompt checks. Percentage/idle scheduling, old-pin-only API removal and native automatic settings-save drain remain pending. No whole agent-session or goal-extension promotion.
 
 Development and independent proof, exact revisions, and known failures: `/tmp/pi-rust-repin-settings-callers/{ledger.md,VERIFY.md}`.
+
+## Whole-module revalidation (2026-10-25)
+All 16 frozen lines match the native zero-base/exponential/cap/jitter/round/final-cap branches. Existing actual-source differential passes at 2683e5cbc (`/tmp/settings-models-retry-delay.log`); production/test unchanged through 02e7c6033. Targeted warning-mode data-library clippy passes. Numeric extremes/runtime oddities are outside the current parity bar; existing edge fixtures are retained, not expanded. Consumer gaps above belong to their respective modules, not this pure helper.

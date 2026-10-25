@@ -15,3 +15,5 @@ The current pin already contains unsigned TIFF/chunk reads and bounds checks. Th
 Rust takes/returns owned images rather than preserving JavaScript identity; common owned-return approval applies. Native out-of-range byte access matches bitwise zero coercion. Pathological input/numeric extremes remain outside the current parity bar.
 
 Native proof: `/tmp/settings-models-exif-native.log` (df894c797, parser unchanged by the following comment/test partition commit). Frozen differential rerun and targeted clippy recorded in `/tmp/settings-models-proof-ledger.md`.
+
+Frozen differential GREEN: `/tmp/settings-models-exif-differential.log`, 02e7c6033. Targeted warning-mode clippy passes with no changed-line warnings; changed comments/test partition reviewed for readability.

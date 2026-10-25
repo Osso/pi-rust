@@ -11,9 +11,11 @@ Frozen source: `packages/coding-agent/src/utils/clipboard-native.ts` at `4f9e6f8
 
 RED `/tmp/settings-models-clipboard-red.log`: empty TERMUX_VERSION with DISPLAY=:1 returned false natively and true in frozen. Tests also mutate Termux/display after first lookup to prove export lifetime.
 
-## Open items / approved-boundary review
+## Gaps / native boundaries
 
-- Rust caches the guard at first native access, not JavaScript import evaluation. Main startup must initialize it before extensions can change environment; that cross-lane integration is pending while main.rs is held.
-- Static native binding replaces npm resolution in the production path; loader seam preserves ordered success/failure but native resolution/packaging still requires parent classification against this pin. No live X11/Wayland pasteboard or napi failure-message proof is claimed.
+| Module-load timing | Gap: Rust caches the gate at first native access rather than JavaScript import evaluation; intervening environment mutation is excluded as a module-load-timing oddity (parent decision 2026-10-25). |
+- Static native binding replaces npm resolution in the production path; loader seam preserves ordered success/failure; native Rust binding replaces npm resolution. No live X11/Wayland pasteboard or napi failure-message proof is claimed.
 - Rust returns owned handles and `Vec<u8>` and uses `Result` instead of thrown/rejected errors. Object identity is excluded under the common owned-return approval.
 - OS/runtime fault shapes are outside the current parity bar.
+
+GREEN: five private-process frozen export cases, `/tmp/settings-models-clipboard-green.log`, df894c797. Parent directed row closure with the timing gap on 2026-10-25. Targeted warning-mode clippy passes, no warnings on changed lines; manual Rust/TS readability audit found no violations in changed code.
