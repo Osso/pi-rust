@@ -532,9 +532,9 @@ struct DetachOrderHandle {
     order: Arc<Mutex<Vec<usize>>>,
 }
 impl pi_coding_agent::core::tool_detach_registry::ToolDetachHandle for DetachOrderHandle {
-    fn detach(&self) -> bool {
+    fn detach(&self) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
         self.order.lock().unwrap().push(self.index);
-        self.index != 0
+        Ok(self.index != 0)
     }
 }
 

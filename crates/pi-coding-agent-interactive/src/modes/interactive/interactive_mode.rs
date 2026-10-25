@@ -5963,16 +5963,17 @@ impl InteractiveMode {
         self.set_tools_expanded(!self.tool_output_expanded.get());
     }
 
-    fn detach_running_tool(&self) -> bool {
+    fn detach_running_tool(&self) -> Result<bool, CallbackError> {
+        // Frozen interactive-mode.ts:3795-3804 has no local callback-error catch.
         let session = self.session();
         if !session.has_detachable_tool() {
-            return false;
+            return Ok(false);
         }
-        if !session.detach_running_tool() {
-            return false;
+        if !session.detach_running_tool()? {
+            return Ok(false);
         }
         self.show_status("Detached tool to background job");
-        true
+        Ok(true)
     }
 
     fn toggle_thinking_block_visibility(&self) {
@@ -6712,7 +6713,9 @@ impl InteractiveMode {
         self.default_editor.borrow_mut().on_action(
             "app.tool.background",
             action(self, |mode| {
-                mode.detach_running_tool();
+                // Frozen :3767 invokes this directly from its synchronous editor action.
+                mode.detach_running_tool()
+                    .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
             }),
         );
         self.default_editor.borrow_mut().on_action(
@@ -18699,9 +18702,9 @@ mod ui_tests {
     }
 
     impl crate::core::tool_detach_registry::ToolDetachHandle for TestDetachHandle {
-        fn detach(&self) -> bool {
+        fn detach(&self) -> Result<bool, CallbackError> {
             self.detached.store(true, std::sync::atomic::Ordering::SeqCst);
-            true
+            Ok(true)
         }
     }
 

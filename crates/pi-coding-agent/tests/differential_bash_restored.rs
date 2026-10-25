@@ -171,7 +171,7 @@ async fn restored_bash_status_output_read_errors_and_optional_lifecycle_match_fr
         let on_update = Arc::new(move |_| {
             if is_registry {
                 observations.lock().unwrap().push(
-                    json!({"hasRunning":callback_registry.has_running(),"detached":callback_registry.detach_running()}),
+                    json!({"hasRunning":callback_registry.has_running(),"detached":callback_registry.detach_running().expect("fixture detach callback")}),
                 );
             }
             Ok(())

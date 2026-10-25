@@ -1,162 +1,152 @@
 //! Auto-detaching tool registry (`core/tool-detach-registry.ts`).
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use indexmap::IndexMap;
+use pi_js_compat::callback_error::CallbackError;
+use std::collections::HashMap;
 use std::sync::mpsc::{RecvTimeoutError, Sender};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
-use std::time::Duration;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::{Duration, Instant};
 
 pub const DEFAULT_AUTO_DETACH_AFTER_MS: u64 = 600_000;
 
 pub trait ToolDetachHandle: Send + Sync {
-    fn detach(&self) -> bool;
+    fn detach(&self) -> Result<bool, CallbackError>;
 }
 
-struct RegisteredHandle {
-    id: u64,
-    handle: Arc<dyn ToolDetachHandle>,
-}
-
-type SharedHandles = Arc<Mutex<Vec<RegisteredHandle>>>;
-type WeakHandles = Weak<Mutex<Vec<RegisteredHandle>>>;
+type Handles = IndexMap<usize, Arc<dyn ToolDetachHandle>>;
+type SharedHandles = Arc<Mutex<Handles>>;
 
 pub struct ToolDetachRegistry {
-    auto_detach_after_ms: u64,
+    auto_detach_after_ms: f64,
     handles: SharedHandles,
-    next_id: AtomicU64,
+    timers: Mutex<HashMap<usize, Sender<()>>>,
 }
 
 impl ToolDetachRegistry {
     pub fn new() -> Self {
-        Self::with_auto_detach_after_ms(DEFAULT_AUTO_DETACH_AFTER_MS)
+        Self::with_auto_detach_after_ms(DEFAULT_AUTO_DETACH_AFTER_MS as f64)
     }
 
-    pub fn with_auto_detach_after_ms(auto_detach_after_ms: u64) -> Self {
+    pub fn with_auto_detach_after_ms(auto_detach_after_ms: f64) -> Self {
         Self {
             auto_detach_after_ms,
-            handles: Arc::new(Mutex::new(Vec::new())),
-            next_id: AtomicU64::new(1),
+            handles: Arc::new(Mutex::new(IndexMap::new())),
+            timers: Mutex::new(HashMap::new()),
         }
     }
 
-    /// Register a handle; dropping the returned subscription cancels its timer.
+    /// Register one handle identity; dropping the subscription unregisters that handle.
     pub fn register(self: &Arc<Self>, handle: Arc<dyn ToolDetachHandle>) -> DetachSubscription {
-        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
-        self.handles().push(RegisteredHandle {
-            id,
-            handle: Arc::clone(&handle),
-        });
+        let id = Arc::as_ptr(&handle) as *const () as usize;
+        self.handles().entry(id).or_insert_with(|| Arc::clone(&handle));
         let (cancel, cancelled) = std::sync::mpsc::channel();
+        self.timers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .insert(id, cancel.clone());
         spawn_auto_detach_timer(
             self.auto_detach_after_ms,
             id,
             handle,
-            Arc::downgrade(&self.handles),
+            Arc::clone(&self.handles),
             cancelled,
+            cancel,
         );
         DetachSubscription {
-            registry: Arc::downgrade(self),
+            registry: Arc::clone(self),
             id,
-            cancel: Mutex::new(Some(cancel)),
         }
     }
 
-    /// Detach the most recently registered handle that accepts detachment.
-    pub fn detach_running(&self) -> bool {
-        let handles: Vec<Arc<dyn ToolDetachHandle>> = self
-            .handles()
-            .iter()
-            .rev()
-            .map(|registered| Arc::clone(&registered.handle))
-            .collect();
-        handles.into_iter().any(|handle| handle.detach())
-    }
-
-    /// Frozen `detachAll`: snapshot insertion order and try every handle.
-    pub fn detach_all(&self) {
-        let handles: Vec<_> = self
-            .handles()
-            .iter()
-            .map(|registered| registered.handle.clone())
-            .collect();
+    /// Detach the newest registered handle that accepts detachment.
+    pub fn detach_running(&self) -> Result<bool, CallbackError> {
+        let handles: Vec<_> = self.handles().values().rev().cloned().collect();
+        // Frozen :26-32 propagates the original callback throw.
         for handle in handles {
-            handle.detach();
+            if handle.detach()? {
+                return Ok(true);
+            }
         }
+        Ok(false)
+    }
+
+    /// Frozen `detachAll`: snapshot insertion order, propagating the first throw.
+    pub fn detach_all(&self) -> Result<(), CallbackError> {
+        let handles: Vec<_> = self.handles().values().cloned().collect();
+        for handle in handles {
+            handle.detach()?;
+        }
+        Ok(())
     }
 
     pub fn has_running(&self) -> bool {
         !self.handles().is_empty()
     }
 
-    fn handles(&self) -> MutexGuard<'_, Vec<RegisteredHandle>> {
+    fn handles(&self) -> MutexGuard<'_, Handles> {
         self.handles.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    fn unregister(&self, id: u64) {
-        self.handles().retain(|registered| registered.id != id);
+    fn unregister(&self, id: usize) {
+        self.handles().shift_remove(&id);
+        if let Some(timer) = self
+            .timers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .remove(&id)
+        {
+            // Clearing a timer that already fired is harmless, as with clearTimeout.
+            let _ = timer.send(());
+        }
     }
 }
-
 impl Default for ToolDetachRegistry {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// `setTimeout(...).unref()` equivalent: a detached thread that never blocks exit,
-/// cancelled by the subscription's channel send.
+/// An unref'ed timer does not keep the process alive; its callback still owns its inputs.
 fn spawn_auto_detach_timer(
-    auto_detach_after_ms: u64,
-    id: u64,
+    auto_detach_after_ms: f64,
+    id: usize,
     handle: Arc<dyn ToolDetachHandle>,
-    handles: WeakHandles,
+    handles: SharedHandles,
     cancelled: std::sync::mpsc::Receiver<()>,
+    timer_reference: Sender<()>,
 ) {
+    let delay = pi_js_compat::node_timers::normalize_timeout_delay(auto_detach_after_ms);
+    let deadline = Instant::now() + Duration::from_secs_f64(delay / 1000.0);
     std::thread::spawn(move || {
-        if cancelled.recv_timeout(Duration::from_millis(auto_detach_after_ms)) != Err(RecvTimeoutError::Timeout) {
+        // Frozen :51 overwrites only the latest timer reference, not the earlier timer.
+        // A sender owned by the timer prevents map replacement from cancelling it.
+        let _timer_reference = timer_reference;
+        if cancelled.recv_timeout(deadline.saturating_duration_since(Instant::now())) != Err(RecvTimeoutError::Timeout)
+        {
             return;
         }
-        let Some(handles) = handles.upgrade() else {
-            return;
-        };
-        let still_registered = handles
+        let registered = handles
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .iter()
-            .any(|registered| registered.id == id);
-        if still_registered {
-            handle.detach();
+            .contains_key(&id);
+        if registered && let Err(error) = handle.detach() {
+            // Actual frozen timer process probe exits 1; this is not a caught registry call.
+            pi_coding_agent_base::utils::uncaught::throw_callback_uncaught(error);
         }
     });
 }
 
 pub struct DetachSubscription {
-    registry: Weak<ToolDetachRegistry>,
-    id: u64,
-    cancel: Mutex<Option<Sender<()>>>,
+    registry: Arc<ToolDetachRegistry>,
+    id: usize,
 }
-
 impl DetachSubscription {
-    pub fn unregister(self) {
-        self.unregister_ref();
-    }
-
-    fn unregister_ref(&self) {
-        if let Some(registry) = self.registry.upgrade() {
-            registry.unregister(self.id);
-        }
-        if let Some(cancel) = self
-            .cancel
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take()
-        {
-            let _ = cancel.send(());
-        }
+    pub fn unregister(&self) {
+        self.registry.unregister(self.id);
     }
 }
-
 impl Drop for DetachSubscription {
     fn drop(&mut self) {
-        self.unregister_ref();
+        self.unregister();
     }
 }
