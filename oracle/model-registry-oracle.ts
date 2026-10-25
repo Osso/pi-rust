@@ -122,6 +122,62 @@ async function main(): Promise<void> {
 			registry.unregisterProvider(nested);
 			return { observations, afterRefresh, afterUnregister };
 		}
+		if (request.operation === "auth_reentry") {
+			const provider = "registry-auth-reentrant";
+			let count = 0;
+			const definition = (
+				request.config as { models: Record<string, unknown>[] }
+			).models[0];
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				headers: { "X-Provider": "provider-0\uDC00", "X-Same": "provider-0" },
+				models: [
+					{
+						...definition,
+						headers: { "X-Model": "model-0\uD800", "X-Same": "model-0" },
+					},
+				],
+				oauth: {
+					name: "OAuth Header Fixture",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (credential: unknown) => credential,
+					getApiKey: (credential: { access: string }) => {
+						count++;
+						registry.registerProvider(provider, {
+							...(request.config as Record<string, unknown>),
+							apiKey: "updated-provider-key",
+							authHeader: true,
+							headers: {
+								"X-Provider": `provider-${count}\uDC00`,
+								"X-Same": `provider-${count}`,
+							},
+							models: [
+								{
+									...definition,
+									headers: {
+										"X-Model": `model-${count}\uD800`,
+										"X-Same": `model-${count}`,
+									},
+								},
+							],
+						});
+						return credential.access;
+					},
+				},
+			});
+			const model = registry.find(provider, "one");
+			model.headers = {
+				"X-Static": "static",
+				"X-Same": "static",
+				Authorization: "static-auth",
+			};
+			const first = await registry.getApiKeyAndHeaders(model);
+			const second = await registry.getApiKeyAndHeaders(model);
+			registry.unregisterProvider(provider);
+			return { first, second, count };
+		}
 		if (request.operation === "config_request") {
 			const response = request.response;
 			const modelId = request.modelId;
