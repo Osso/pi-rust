@@ -1144,7 +1144,6 @@ async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_re
                 context(),
                 simple,
             )
-            .map_err(pi_ai::request::CallbackError::from)
         };
         match result {
             Err(error) => {
