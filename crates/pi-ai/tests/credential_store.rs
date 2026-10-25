@@ -114,7 +114,10 @@ async fn recovery_scenario() -> Value {
 }
 
 fn compare_source(scenario: &str, output: Value) {
-    let mut source = oracle::TsOracle::spawn("credential-store-oracle.ts", "packages/ai/src/auth/credential-store.ts");
+    let mut source = oracle::TsOracle::spawn(
+        "credential-store-oracle.mts",
+        "packages/ai/src/auth/credential-store.ts",
+    );
     let expected = source.request(&json!({"id": 0, "scenario": scenario}));
     assert_eq!(json!({"id": 0, "ok": true, "output": output}), expected);
 }
