@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 536, `gap` 24, `partial` 38, `todo` 88.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 537, `gap` 24, `partial` 37, `todo` 88.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -382,7 +382,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/architect/observer.ts` | 159 | 16 | done | `crates/pi-coding-agent/src/architect/observer.rs` | Observation diffs, bounded SQL snapshot, claim/renew/complete; 6 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/architect/project-spec.ts` | 70 | 22 | done | `crates/pi-coding-agent/src/architect/project_spec.rs` | Path containment, root discovery, `read_project_spec` tool registration and execution; 3 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/architect/prompt.ts` | 12 | 17 | done | `crates/pi-coding-agent/src/architect/prompt.rs` | Exact system prompt and observation prompt; differential `differential_architect_prompt`; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/src/bun/cli.ts` | 12 | 24 | partial | `crates/pi-coding-agent/src/bun/cli.rs` | Whole12-line wrapper audited: Bedrock registration then CLI handoff; Bun restore-sandbox-env is the approved subcall gap, not a wholesale shim gap. Real scripted lazy-provider/native entry proofs pending. [Trace](traceability/bun-entry.md). |
+| `coding-agent/src/bun/cli.ts` | 12 | 24 | done | `crates/pi-coding-agent/src/bun/cli.rs` | Whole12-line wrapper audited: Bedrock registration then CLI handoff; Bun restore-sandbox-env is the approved subcall gap, not a wholesale shim gap. Four native entry tests GREEN, including real scripted Bedrock request after replacing a marker module. [Trace](traceability/bun-entry.md). |
 | `coding-agent/src/bun/register-bedrock.ts` | 4 | 7 | done | `crates/pi-coding-agent/src/bun/register_bedrock.rs` | `set_bedrock_provider_module(bedrock_provider_module())`; idempotence test ([traceability](traceability/bun-entry.md)).; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/bun/restore-sandbox-env.ts` | 36 | 0 | gap | — | Bun-only workaround for oven-sh/bun#27802 (empty `process.env` in sandboxes); Rust has no Bun runtime and no empty-env bug to repair. User-approved gap 2026-10-19.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/cli.ts` | 24 | 23 | done | `crates/pi-coding-agent/src/cli_entry.rs` | Whole frozen entrypoint audited; RED fixes old-only AI_AGENT overwrite, preserving absent/empty/inherited values. Six actual-source/private-native process cases and native dispatch/error tests; six-process GREEN plus 13 native tests, warning-mode clippy PASS/zero changed-line warnings. [Traceability](traceability/cli-entry.md). |

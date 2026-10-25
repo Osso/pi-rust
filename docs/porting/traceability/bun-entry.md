@@ -12,3 +12,5 @@ Frozen common pin `4f9e6f8a4`; whole `packages/coding-agent/src/bun/cli.ts` (12l
 The old trace's registerBunOAuthFlows step does not exist in this pin and is retired; native code already has no such call. The entry shim is ported, not marked wholesale as a Bun gap. Tests are standalone because the Bedrock override is process-global; a local mutex protects their shared override.
 
 Focused native proof follows the commit in `/tmp/settings-models-proof-ledger.md`. Process-title/Node-warning runtime differences remain in CLI traceability, not a new duplicate contract.
+
+GREEN atd36d36bda: four standalone native entry/registration cases, `/tmp/settings-models-bun-entry-green.log`. No production source change was needed.
