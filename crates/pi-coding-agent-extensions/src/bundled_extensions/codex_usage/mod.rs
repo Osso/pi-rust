@@ -8,10 +8,10 @@ use pi_ai::request::{CallbackError, Fetch, HttpRequest, read_body_text};
 use pi_js_compat::base64::buffer_from_base64;
 use pi_js_compat::date::utc_date_fields;
 use pi_js_compat::js_format;
-use pi_js_compat::js_json::{self, JsString, JsValue};
+use pi_js_compat::js_json::{self, JsObject as Map, JsString, JsValue, JsValue as Value};
 use pi_js_compat::number::{js_number_to_string, to_fixed};
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::json;
 
 use crate::core::extensions::types::{
     CustomMessageContent, CustomMessagePayload, ExtensionApi, ExtensionCommandContext, HandlerError, NotifyType,
@@ -43,14 +43,14 @@ pub struct CodexRateLimitWindow {
 pub struct CodexCredits {
     pub has_credits: bool,
     pub unlimited: bool,
-    pub balance: Option<String>,
+    pub balance: Option<JsString>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexRateLimit {
-    pub limit_id: String,
-    pub limit_name: Option<String>,
+    pub limit_id: JsString,
+    pub limit_name: Option<JsString>,
     pub primary: Option<CodexRateLimitWindow>,
     pub secondary: Option<CodexRateLimitWindow>,
     pub credits: Option<CodexCredits>,
@@ -59,7 +59,7 @@ pub struct CodexRateLimit {
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CodexUsage {
-    pub plan_type: Option<String>,
+    pub plan_type: Option<JsString>,
     pub account_id: Option<JsString>,
     pub email: Option<JsString>,
     #[serde(serialize_with = "pi_js_compat::number::serialize_option")]
@@ -96,15 +96,12 @@ impl CodexUsageOptions {
     }
 }
 
-fn nullable_string(value: Option<&Value>) -> Option<String> {
-    value.and_then(Value::as_str).map(str::to_owned)
+fn nullable_string(value: Option<&Value>) -> Option<JsString> {
+    value.and_then(Value::as_string).cloned()
 }
 
-fn truthy_string(value: Option<&Value>) -> Option<String> {
-    value
-        .and_then(Value::as_str)
-        .filter(|text| !text.is_empty())
-        .map(str::to_owned)
+fn truthy_string(value: Option<&Value>) -> Option<JsString> {
+    nullable_string(value).filter(|text| !text.is_empty())
 }
 
 fn nullable_number(value: Option<&Value>) -> Option<f64> {
@@ -171,12 +168,13 @@ fn map_window(window: Option<&Value>) -> Option<CodexRateLimitWindow> {
     if window.is_null() {
         return None;
     }
+    let used_percent = nullable_number(window.get("used_percent")).filter(|value| value.is_finite())?;
     let window_seconds = nullable_number(window.get("limit_window_seconds"));
     let window_minutes = window_seconds
         .filter(|seconds| *seconds > 0.0)
         .map(|seconds| (seconds / SECONDS_PER_MINUTE).ceil());
     Some(CodexRateLimitWindow {
-        used_percent: nullable_number(window.get("used_percent")).unwrap_or(0.0),
+        used_percent,
         window_minutes,
         resets_at: nullable_number(window.get("reset_at")),
     })
@@ -195,8 +193,8 @@ fn map_credits(credits: Option<&Value>) -> Option<CodexCredits> {
 }
 
 fn map_codex_rate_limit(
-    limit_id: String,
-    limit_name: Option<String>,
+    limit_id: JsString,
+    limit_name: Option<JsString>,
     rate_limit: Option<&Value>,
     credits: Option<&Value>,
 ) -> CodexRateLimit {
@@ -222,10 +220,10 @@ fn map_additional_rate_limits(payloads: Option<&Value>) -> Vec<CodexRateLimit> {
                     let limit_id = metered_feature
                         .clone()
                         .or_else(|| limit_name_value.clone().filter(|name| !name.is_empty()))
-                        .unwrap_or_else(|| "codex_other".to_owned());
+                        .unwrap_or_else(|| "codex_other".into());
                     map_codex_rate_limit(
                         limit_id,
-                        limit_name_value.or(metered_feature),
+                        limit_name_value.or_else(|| nullable_string(payload.get("metered_feature"))),
                         payload.get("rate_limit"),
                         None,
                     )
@@ -237,7 +235,7 @@ fn map_additional_rate_limits(payloads: Option<&Value>) -> Vec<CodexRateLimit> {
 
 pub fn map_codex_usage_payload(payload: &Value) -> CodexUsage {
     let mut limits = vec![map_codex_rate_limit(
-        "codex".to_owned(),
+        "codex".into(),
         None,
         payload.get("rate_limit"),
         payload.get("credits"),
@@ -255,33 +253,33 @@ pub fn map_codex_usage_payload(payload: &Value) -> CodexUsage {
     }
 }
 
-fn format_limit(limit: &CodexRateLimit) -> String {
-    let label = match &limit.limit_name {
-        Some(limit_name) => format!("{} ({limit_name})", limit.limit_id),
+fn format_limit(limit: &CodexRateLimit) -> JsString {
+    let label = match limit.limit_name.as_ref().filter(|name| !name.is_empty()) {
+        Some(limit_name) => js_format!("{} ({})", limit.limit_id, limit_name),
         None => limit.limit_id.clone(),
     };
-    let details: Vec<String> = format_limit_details(limit)
+    let details: Vec<JsString> = format_limit_details(limit)
         .into_iter()
-        .map(|detail| format!("{label}: {detail}"))
+        .map(|detail| js_format!("{}: {}", label, detail))
         .collect();
     if details.is_empty() {
-        format!("{label}: no limit data")
+        js_format!("{}: no limit data", label)
     } else {
-        details.join("\n")
+        JsString::join(details, "\n")
     }
 }
 
-fn format_limit_details(limit: &CodexRateLimit) -> Vec<String> {
+fn format_limit_details(limit: &CodexRateLimit) -> Vec<JsString> {
     let mut details = Vec::new();
     if let Some(primary) = &limit.primary {
-        details.push(format!(
+        details.push(js_format!(
             "{} {}",
             format_window_label(primary, "primary"),
             format_window(primary)
         ));
     }
     if let Some(secondary) = &limit.secondary {
-        details.push(format!(
+        details.push(js_format!(
             "{} {}",
             format_window_label(secondary, "secondary"),
             format_window(secondary)
@@ -348,25 +346,30 @@ fn pad(value: i64) -> String {
     format!("{value:02}")
 }
 
-fn format_credits(credits: &CodexCredits) -> String {
+fn format_credits(credits: &CodexCredits) -> JsString {
     if credits.unlimited {
-        return "credits unlimited".to_owned();
+        return "credits unlimited".into();
     }
-    if let Some(balance) = &credits.balance {
-        return format!("credits balance {balance}");
+    if let Some(balance) = credits.balance.as_ref().filter(|balance| !balance.is_empty()) {
+        return js_format!("credits balance {}", balance);
     }
     if credits.has_credits {
-        "credits available".to_owned()
+        "credits available".into()
     } else {
-        "credits unavailable".to_owned()
+        "credits unavailable".into()
     }
 }
 
 pub fn format_codex_usage(usage: &CodexUsage) -> JsString {
-    let email_line = usage.email.as_ref().map(|email| js_format!("User: {}", email));
+    let email_line = usage
+        .email
+        .as_ref()
+        .filter(|email| !email.is_empty())
+        .map(|email| js_format!("User: {}", email));
     let account_id_line = usage
         .account_id
         .as_ref()
+        .filter(|account_id| !account_id.is_empty())
         .map(|account_id| js_format!("Account: {}", account_id));
     let mut lines: Vec<JsString> = vec!["OpenAI Codex usage".into()];
     if let Some(line) = email_line {
@@ -375,13 +378,10 @@ pub fn format_codex_usage(usage: &CodexUsage) -> JsString {
     if let Some(line) = account_id_line {
         lines.push(line);
     }
-    lines.push(
-        format!(
-            "Plan: {}",
-            usage.plan_type.clone().unwrap_or_else(|| "unknown".to_owned())
-        )
-        .into(),
-    );
+    lines.push(js_format!(
+        "Plan: {}",
+        usage.plan_type.clone().unwrap_or_else(|| "unknown".into())
+    ));
     lines.push(
         format!(
             "Reset credits: {} available",
@@ -389,7 +389,7 @@ pub fn format_codex_usage(usage: &CodexUsage) -> JsString {
         )
         .into(),
     );
-    lines.extend(usage.limits.iter().map(|limit| JsString::from(format_limit(limit))));
+    lines.extend(usage.limits.iter().map(format_limit));
     JsString::join(lines, "\n")
 }
 
@@ -406,16 +406,12 @@ pub fn format_reset_response(response: &ConsumeResetCreditResponse) -> String {
     }
 }
 
-fn send_codex_usage_message(pi: &ExtensionApi, content: JsString) -> Result<(), HandlerError> {
-    pi.send_message(
-        CustomMessagePayload {
-            custom_type: "codex-usage".into(),
-            content: CustomMessageContent::Text(content.into()),
-            display: true,
-            details: None,
-        },
-        None,
-    )
+fn send_codex_usage_message(
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    content: JsString,
+) -> Result<(), HandlerError> {
+    bridge::send_usage_report(ctx, pi, "codex-usage", content.clone(), content)
 }
 
 fn resolve_codex_provider_id(ctx: &ExtensionCommandContext) -> Result<String, HandlerError> {
@@ -487,7 +483,7 @@ async fn read_json_response(response: pi_ai::request::HttpResponse) -> Result<Va
     if text.is_empty() {
         return Ok(Value::Object(Map::new()));
     }
-    pi_js_compat::js_json::parse(&text).map_err(|error| HandlerError::new(error.to_string()))
+    js_json::parse_lossless(&text).map_err(|error| HandlerError::new(error.into_message()))
 }
 
 async fn read_codex_usage(ctx: &ExtensionCommandContext, fetch: &dyn Fetch) -> Result<CodexUsage, HandlerError> {
@@ -570,7 +566,7 @@ async fn consume_codex_usage_reset_credit(
         .await
         .map_err(callback_error)?;
     let value = read_json_response(response).await?;
-    serde_json::from_value(value).map_err(|error| HandlerError::new(error.to_string()))
+    js_json::from_value(&value).map_err(|error| HandlerError::new(error.to_string()))
 }
 
 fn callback_error(error: CallbackError) -> HandlerError {
@@ -583,7 +579,7 @@ async fn read_and_send_codex_usage(
     fetch: &dyn Fetch,
 ) -> Result<(), HandlerError> {
     let usage = read_codex_usage(ctx, fetch).await?;
-    send_codex_usage_message(pi, format_codex_usage(&usage))
+    send_codex_usage_message(ctx, pi, format_codex_usage(&usage))
 }
 
 async fn reset_codex_usage_and_send_result(
@@ -594,6 +590,7 @@ async fn reset_codex_usage_and_send_result(
     let usage_before_reset = read_codex_usage(ctx, fetch).await?;
     if usage_before_reset.reset_credits_available.unwrap_or(0.0) <= 0.0 {
         send_codex_usage_message(
+            ctx,
             pi,
             format_codex_usage(&usage_before_reset) + "\n\nNo reset credits available.",
         )?;
@@ -620,7 +617,7 @@ async fn reset_codex_usage_and_send_result(
     let usage_after_reset = read_codex_usage(ctx, fetch).await?;
     let message =
         JsString::from(format_reset_response(&reset_response)) + "\n\n" + format_codex_usage(&usage_after_reset);
-    send_codex_usage_message(pi, message)
+    send_codex_usage_message(ctx, pi, message)
 }
 
 async fn handle_usage_command(

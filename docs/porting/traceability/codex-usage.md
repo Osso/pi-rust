@@ -70,3 +70,11 @@ Oracle uses frozen `AuthStorage.inMemory`, `isIdle: () => true`, and native fixt
 `all-date-*` covers years 0000/0001/0099 and normalized February overflow/fractional seconds; Central labels use Intl numeric year-of-era (not padded ISO years). Fixture listeners yield once before resolving to prove the claimed future is awaited.
 
 `all-codex-error-redaction` reproduces frozen `readCodexUsage`'s catch boundary: every literal occurrence of the access token is redacted before account-row sanitization and 300-unit clipping. RED showed repeated raw JWTs; Rust now applies the frozen replace-all operation after obtaining the token, preserving pre-token login errors unchanged.
+
+## Whole-module re-pin audit (2026-10-25)
+
+Compared all exports and helpers with frozen `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`: token/identity, mapping, formatters, routing/completion, read/reset HTTP, busy reports, all-account bridge and sanitization/date/table helpers. The prior bridge blockers above remain historical and are superseded by the approved claim API section.
+
+Re-pin corrections: HTTP JSON, plan names, rate labels and credit balances stay in existing `JsValue`/`JsString` carriers through mapping and reports; no scalar replacement projection. Missing/nonfinite usage percentages produce absent windows instead of invented 0%. Empty email/account/limit-name/balance formatting follows frozen truthiness; an empty metered feature stays an empty mapped name. Read/reset reports share the all-report busy path: notify now, enqueue with nextTurn. Real HTTP-body seam tests and frozen helper cases reproduce each mismatch before fixing it.
+
+Proof: [lane ledger](../bundled-ext-b-proof.md). Auth fallback boundary remains under audit before closure. Gap: adversarial wrong-type JSON, runtime-only crypto absence, OS faults and numeric extremes use the approved parity exclusions.

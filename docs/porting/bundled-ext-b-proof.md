@@ -46,3 +46,10 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - RED worker-null/zero-notice: `/tmp/ext-b-bwrap-worker-red.log`; GREEN `/tmp/ext-b-bwrap-worker-green.log` (8/8, extensions --lib filter `bwrap::index::operation_tests::`).
 - Commands use `cargo test -j3 -p <crate> --test <suite> <filter>` (or --lib). All proofs cover bwrap implementation commit (this change). No actual host sandbox.
 - Index stays partial: explicit unimplemented full-access detached-job/registry forwarding, recorded in traceability.
+
+## Usage (implementation in progress)
+
+- RED HTTP raw text and busy report regressions: `/tmp/ext-b-usage-behavior-red.log` (2 failures); GREEN 15/15 `/tmp/ext-b-usage-behavior-green-1.log`.
+- RED frozen missing-percent case `/tmp/ext-b-usage-oracle-red.log`; RED empty-metered-feature case `/tmp/ext-b-usage-oracle-empty-red.log`.
+- Targets: `suite_extensions codex_usage_extension::`, `suite_core_2 differential_codex_usage::differential_codex_usage`; commands use `cargo test -j3 -p pi-coding-agent --test <target> <filter>`. Relevant usage changes invalidate prior usage proof only.
+- Parent event authority merged at 6ecbb4c5d from 1a02ec893.

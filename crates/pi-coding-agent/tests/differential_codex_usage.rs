@@ -307,7 +307,7 @@ async fn rust_results(cases: &[Value]) -> Vec<Value> {
                 let payload = case.get("payload").cloned().unwrap_or(Value::Null);
                 output.insert(
                     "mapped".to_owned(),
-                    serde_json::to_value(map_codex_usage_payload(&payload)).expect("usage"),
+                    serde_json::to_value(map_codex_usage_payload(&JsValue::from(payload))).expect("usage"),
                 );
             }
             "format" => {
@@ -405,6 +405,7 @@ async fn differential_codex_usage() {
     let cases = vec![
         json!({"name": "map-base", "kind": "map", "payload": base_payload}),
         json!({"name": "map-missing-percent", "kind": "map", "payload": {"rate_limit":{"primary_window":{"limit_window_seconds":18000}}}}),
+        json!({"name":"map-empty-metered-feature", "kind":"map", "payload":{"additional_rate_limits":[{"metered_feature":""}]}}),
         json!({"name":"format-empty-label-balance", "kind":"format", "usage":{"planType":"", "accountId":"", "email":"", "resetCreditsAvailable":null, "limits":[{"limitId":"codex", "limitName":"", "primary":null, "secondary":null, "credits":{"hasCredits":false,"unlimited":false,"balance":""}}]}}),
         json!({"name": "map-empty", "kind": "map", "payload": {}}),
         json!({"name": "map-additional", "kind": "map", "payload": {
