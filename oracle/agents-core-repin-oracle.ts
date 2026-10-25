@@ -16,6 +16,8 @@ type SettlementModule = {
 type RuntimeModule = {
     registerAgentsCoreTools(api: unknown, options: unknown): void;
     createMultiAgentRuntimeHandles(): unknown;
+    createProductionChildAgentSessionFactory(options: unknown): (input: unknown) => Promise<unknown>;
+    createProductionAttachedSessionFactory(options: unknown): (input: unknown) => Promise<unknown>;
 };
 type RouteModule = {
     sessionMessageRouteError(db: string | undefined, params: unknown): string | undefined;
@@ -65,6 +67,45 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "factoryOptions": {
+            const api = await load<RuntimeModule>("runtime.ts");
+            const registry = {find: () => undefined};
+            const manager = {
+                getSessionFile: () => undefined, getSessionId: () => "parent",
+                getSessionDir: () => request.sessionDir, getLeafId: () => undefined,
+                getBranch: () => [], persistForRecovery: () => {},
+            };
+            let captured: unknown;
+            const options = {
+                agentDir: request.agentDir,
+                createSessionManager: () => manager,
+                createSession: async (input: Record<string, unknown>) => {
+                    captured = {
+                        excludeTools: input.excludeTools, tools: input.tools ?? null,
+                        customTools: (input.customTools as Array<{name: string}> | undefined)?.map(tool => tool.name) ?? [],
+                        parentRegistry: input.modelRegistry === registry,
+                        settingsOverride: input.settingsManager !== undefined,
+                    };
+                    return {session: {
+                        sessionManager: input.sessionManager, bindExtensions: async () => {},
+                        setModel: async () => {}, setThinkingLevel: () => {}, cycleModel: async () => {},
+                        prompt: async () => {},
+                    }};
+                },
+            };
+            const ctx = {
+                cwd: request.cwd, controlDbPath: request.controlDbPath, modelRegistry: registry,
+                sessionManager: manager,
+                settingsManager: {getAgentProfile: () => ({tools: request.tools})},
+            };
+            const agent = {id: "child", agentType: request.agentType, cwd: request.cwd, permission: {policy: "never"}};
+            if (request.attached) {
+                await api.createProductionAttachedSessionFactory(options)({agent, ctx, sessionPath: request.sessionPath});
+            } else {
+                await api.createProductionChildAgentSessionFactory(options)({agent, ctx, context: "fresh", prompt: "task"});
+            }
+            return captured;
+        }
         case "shutdownScope": {
             const api=await load<RuntimeModule>("runtime.ts");
             const hooks=new Map<string,(event:unknown,ctx:unknown)=>unknown>();
