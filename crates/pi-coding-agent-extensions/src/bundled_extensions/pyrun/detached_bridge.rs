@@ -185,6 +185,10 @@ fn persist_bridge_message(input: PersistBridgeMessageInput) -> Result<(), JsStri
         "body".into(),
         Value::String(js_json::stringify_lossless(&input.body).into()),
     );
+    message.insert(
+        "createdAt".into(),
+        Value::String(crate::utils::iso_time::now_iso_string().into()),
+    );
     message.insert("fromAgentId".into(), Value::String(input.from_agent_id.clone().into()));
     message.insert("id".into(), Value::String(input.message_id.clone().into()));
     message.insert("kind".into(), Value::String("system".to_owned().into()));

@@ -189,3 +189,18 @@ pending entries now carry internal request IDs (the source uses object identity)
 so stdin errors, abort, parse and callback failures reject that entry only; process
 exit still rejects the generation. Actual frozen/native two-request RED/GREEN:
 `/tmp/bundled3-pyrun-queue-{red,green}.log`.
+
+## Re-pin detached-bridge
+
+| Frozen symbol / branch | Proof | Status |
+| --- | --- | --- |
+| enqueue request/persist metadata/message ID/routing/body order | actual frozen and native SQLite writers compared as exact normalized stored JSON bytes | proven |
+| enqueue response result/null/undefined/error | same byte differential, three response variants including lone UTF-16 unit in arbitrary JSON | proven |
+| parse protocol/command/method/requestId/toolCallId/truthy identity/replyTo | frozen parses native body; native deserializes frozen parsed result; existing empty/non-string toolCallId rejection | proven normal writer/ID paths |
+| validate sender/running lifecycle/supervisor/owner/process PID+startTicks | complete source comparison, native uses the same DB reads/equalities | dedicated live ownership-validation **proof gap** |
+| Wrong-typed identity/replyTo and OS/random failure shapes | source parser accepts exotic truthy shapes where native typed carrier rejects; repository adversarial/runtime-fault gap policy | gap |
+
+RED caught `createdAt` inserted by the shared DB writer at the end of the object;
+source inserts it second. Native bridge now supplies it at the source position.
+`/tmp/bundled3-pyrun-bridge-both.log` is GREEN. Random IDs and wall-clock timestamps
+are normalized only after checking the persisted IDs correlate with their bodies.
