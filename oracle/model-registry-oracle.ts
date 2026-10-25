@@ -148,10 +148,22 @@ async function main(): Promise<void> {
 				clearFetchScript();
 			}
 		}
-		if (request.operation === "registration_snapshot") {
+		if (
+			request.operation === "registration_snapshot" ||
+			request.operation === "registration_from_existing"
+		) {
+			let config = request.config;
+			if (request.operation === "registration_from_existing") {
+				const model = registry.find(
+					request.sourceProvider,
+					request.sourceModel,
+				);
+				if (!model) throw new Error("Source fixture model missing");
+				config = { ...(config as Record<string, unknown>), models: [model] };
+			}
 			let error = null;
 			try {
-				registry.registerProvider(request.provider, request.config);
+				registry.registerProvider(request.provider, config);
 			} catch (failure) {
 				error = failure instanceof Error ? failure.message : String(failure);
 			}
@@ -160,7 +172,23 @@ async function main(): Promise<void> {
 				.filter(
 					(model: { provider: string }) => model.provider === request.provider,
 				);
-			return { error, models, serializedModels: JSON.stringify(models) };
+			const snapshot = {
+				error,
+				models,
+				serializedModels: JSON.stringify(models),
+			};
+			if (request.operation === "registration_from_existing") {
+				const value = models[0]?.compat?.supportsStore;
+				return {
+					...snapshot,
+					numberState: {
+						type: typeof value,
+						finite: Number.isFinite(value),
+						positiveInfinity: value === Infinity,
+					},
+				};
+			}
+			return snapshot;
 		}
 		if (request.operation === "config_snapshot") {
 			return {

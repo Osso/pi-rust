@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_ai::types::Model;
+use pi_ai::types::{CompatFields, Model};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::{js_json, js_json::JsValue};
@@ -95,4 +95,58 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
         differences.len(),
         path.display()
     );
+}
+
+#[tokio::test]
+async fn registering_a_loaded_model_copies_native_compat_before_json_projection() {
+    // This is valid models.json ingress: another optional compat schema accepts
+    // supportsStore:1e400. Source preserves Infinity until output serialization.
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("models.json");
+    std::fs::write(&path,r#"{"providers":{"source-fixture":{"api":"openai-completions","baseUrl":"https://source.invalid","models":[{"id":"one","compat":{"supportsStore":1e400,"unknownHuman":"\ud800"}}]}}}"#).unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "model-registry-oracle.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+    );
+    let expected:JsValue=oracle.request(&js_json!({"id":"copy-native-values","operation":"registration_from_existing","modelsPath":path.to_str().unwrap(),"sourceProvider":"source-fixture","sourceModel":"one","provider":PROVIDER,"config":{"api":"openai-completions","baseUrl":"https://provider.invalid","apiKey":"fixture-key"}}));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    assert_eq!(
+        expected["output"]["numberState"],
+        js_json!({"type":"number","finite":false,"positiveInfinity":true})
+    );
+    let registry = ModelRegistry::create(
+        AuthStorage::in_memory(Vec::<(String, Value)>::new()),
+        Some(path.to_str().unwrap().into()),
+    )
+    .unwrap();
+    let input = registry.find("source-fixture", "one").unwrap();
+    registry
+        .register_provider(
+            PROVIDER,
+            ProviderConfigInput {
+                api: Some("openai-completions".into()),
+                base_url: Some("https://provider.invalid".into()),
+                api_key: Some("fixture-key".into()),
+                models: Some(vec![input.into()]),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    let models = registry
+        .get_all()
+        .into_iter()
+        .filter(|model| model.provider == PROVIDER)
+        .collect::<Vec<_>>();
+    let value = models[0]
+        .compat
+        .as_ref()
+        .unwrap()
+        .raw("supportsStore")
+        .unwrap()
+        .as_f64()
+        .unwrap();
+    let number_state = js_json!({"type":"number","finite":value.is_finite(),"positiveInfinity":value==f64::INFINITY});
+    let models = js_json::to_value(&models).unwrap();
+    let actual = js_json!({"error":null,"models":models,"serializedModels":js_json::stringify_lossless(&models),"numberState":number_state});
+    assert_eq!(actual, expected["output"]);
 }
