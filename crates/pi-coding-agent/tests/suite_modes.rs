@@ -1,5 +1,8 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/mode_harness.rs"]
+mod mode_harness;
+
 #[path = "auth_phase1_modes.rs"]
 pub mod auth_phase1_modes;
 #[path = "cli_mode.rs"]

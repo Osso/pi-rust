@@ -1,6 +1,5 @@
 //! Native public client against the actual unmodified frozen RPC server.
-#[path = "support/mode_harness.rs"]
-mod mode_harness;
+use crate::mode_harness;
 
 use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
 use pi_js_compat::js_json::{self, JsValue};
