@@ -8646,11 +8646,10 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
         register_supervisor_review_cancellation: Some(Arc::new({
             let weak = weak.clone();
             move |handler| match weak.upgrade() {
-                Some(inner) => AgentSession { inner }.register_supervisor_review_cancellation(handler),
-                None => crate::utils::uncaught::throw_uncaught(
-                    crate::utils::uncaught::ERROR,
+                Some(inner) => Ok(AgentSession { inner }.register_supervisor_review_cancellation(handler)),
+                None => Err(pi_js_compat::callback_error::CallbackError::new(
                     "Agent session is no longer available",
-                ),
+                )),
             }
         })),
         get_no_supervisor: Some(Arc::new({

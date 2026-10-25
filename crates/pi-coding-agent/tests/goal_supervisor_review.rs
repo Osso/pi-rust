@@ -39,7 +39,7 @@ async fn goal_resident_supervisor_review_cancels_and_unregisters_like_frozen() {
             record.lock().unwrap().push("register");
             handler();
             let record = record.clone();
-            Arc::new(move || record.lock().unwrap().push("unregister"))
+            Ok(Arc::new(move || record.lock().unwrap().push("unregister")) as Arc<dyn Fn() + Send + Sync>)
         }));
         harness.runner.bind_core(support::actions(), actions, None).unwrap();
         let reviewed = tokio::time::timeout(
