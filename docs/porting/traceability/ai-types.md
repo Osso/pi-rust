@@ -150,3 +150,5 @@ Frozen types.ts:478–482 Tool has only name/description/parameters. After paren
 Retired source-absent metadata-only fixtures: `old_strict_metadata_does_not_rewrite_frozen_tool_parameters`, `grammar_metadata_does_not_change_frozen_function_tools`, `ignores_old_strict_tool_metadata_and_keeps_plain_parameters`, and `frozen_wrappers_do_not_copy_old_constrained_sampling_metadata`. Existing complete payload/stream/provider tests stay enabled; the Codex fixture keeps its real parameter schema and assertions without the removed flag. Experimental gate proof now compares the actual frozen experimental.ts export directly, not invented null tool-metadata fields.
 
 Remaining known old-only carrier: ToolResultMessage.added_tool_names. Whole types.ts stays partial until its removal and the remaining public-type audit.
+
+Also retired the tools-index `tool_definitions_do_not_add_removed_experimental_sampling`/private `experimental_sampling_probe` pair: after deleting the artificial observer field, indexing the missing property on both snapshots would merely compare null to null. Full real definition/value comparisons remain enabled.
