@@ -8,7 +8,9 @@ Both game oracles now import actual ModelRegistry.inMemory/AuthStorage rather th
 Native PLAN_CONTEXT now uses frozen plan-mode/index.ts ask_questions blocking/inbox instructions verbatim. Existing planning differential RED at trace10 showed the former single clarifying-questions sentence against the frozen complete instructions (`test-example_plan_mode-registry-final.log`). No expectations changed.
 
 
-## Approved post-pin delta
+## Historical pre-repin read-isolation delta
+
+This section records the older pin only, not current common-pin parity evidence. The footer prerequisite now ports the actual common-pin [readonly-session-manager.ts](readonly-session-manager.md) and imports that unchanged module directly in its oracle; it does not use the older copy below. Extension-example oracle migration is outside that footer proof.
 
 Alessio approved “Fix TS root” on 2026-10-20. TS commit
 `bf55d9fd66f55fb57c91099c14fb6b5ca2bbca51` isolates extension-facing session

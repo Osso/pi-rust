@@ -6,8 +6,8 @@ Common-pin `core/readonly-session-manager.ts` returns a live session view with i
 
 - [x] Reads observe current underlying session state, not a constructor-time copy.
 - [x] Entries, headers, branches, context entries and tree nodes are owned snapshots; edits to returned data cannot mutate session storage.
-- [x] Expose all21 frozen accessors and explicit set/clear goal mutators without exposing the backing mutex or structural session mutators.
-- [ ] Propagate original goal/storage Result errors without reclassification; the private invalid-database wrapper proof awaits its final run.
+- [x] Expose all21 frozen methods, including the explicit set/clear goal mutators, without exposing the backing mutex or structural session mutators.
+- [x] Propagate original goal/storage Result errors without reclassification; the invalid-database wrapper test compares complete error values.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Common-pin `core/readonly-session-manager.ts` returns a live session view with i
 
 ## Known gaps (current cycle)
 
-- [ ] Final128-descendant, exact error and consumer gate pending; row is not yet complete.
+No unresolved implementation gap within the approved concrete-manager input boundary. The128-descendant, exact-error and current consumer proofs pass; see the [checkpoint proof](../porting/footer-data-provider-proof.md).
 
 ## Out of scope
 

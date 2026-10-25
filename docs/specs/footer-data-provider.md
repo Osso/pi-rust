@@ -7,7 +7,7 @@ The provider supplies branch, executable, extension status and displayed-session
 - [x] Resolve regular/worktree/reftable metadata and executable names with exact Node path/text semantics, including raw UTF-16 and metadata-kind walk/stop rules.
 - [x] Use frozen git arguments, stdout decoding/trim and default1MiB limits; synchronous stderr is ignored, asynchronous stderr is bounded, and overflow uses SIGTERM after captured pipes close.
 - [x] Preserve lazy caching, no-change suppression,500ms debounce, pending refresh coalescing and in-flight disposal/CWD behavior.
-- [ ] Use live branch-listener iteration and preserve original callback errors. Synchronous Result proofs pass; the added scheduled-refresh process-authority proof awaits its final run.
+- [x] Use live branch-listener iteration and preserve original callback errors. Synchronous callers receive Result; actual scheduled-refresh process proof preserves raw TypeError/code and the frozen fatal exit.
 - [x] Match HEAD/reftable setup failure,5s retry and disposal. Only WSL Windows-mounted HEAD files are polled; compare mtimeMs/ctimeMs/size with exact environment truthiness and case-insensitive mount prefix.
 - [x] Keep ordered text/pure status callbacks evaluated on every read with the current override; omitted text does not remove the carrier.
 - [x] Expose isolated live session reads through the [readonly session view](readonly-session-manager.md), retaining only its explicit goal mutators.
@@ -34,7 +34,7 @@ The provider supplies branch, executable, extension status and displayed-session
 
 ## Known gaps (current cycle)
 
-- [ ] Current final consumer/static/inventory confirmation and coverage checkpoint remain pending. Individual behavioral proofs are in the trace; no whole-row acceptance yet.
+No unclassified or disabled native branch remains. Accepted typed/pure-callback/type-projection boundaries are explicit in the branch map; scoped gate evidence is in the [checkpoint proof](../porting/footer-data-provider-proof.md).
 
 ## Out of scope
 

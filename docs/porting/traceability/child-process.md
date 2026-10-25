@@ -16,6 +16,10 @@ Accepted-gap checkpoint `b448fe01`: `cargo test -j4 -p pi-coding-agent --test di
 
 `read_utf8_chunks` moves the existing find stderr byte/read/repair loop unchanged into this authority for find/grep reuse. Callers retain their existing lifecycle/stop/error boundaries; no new capture loop or timer policy. Grep20 protocol +34 numeric +FD42 actual-process cases GREEN3/0 (`grep-protocol-green.log`), including malformed stderr bytes. No whole child-process source re-pin claim.
 
+## Footer explicit capture signal prerequisite (2026-10-24)
+
+The [capture contract](../../specs/child-process-capture.md) now takes an explicit kill signal and destroys/awaits readers before signaling/reaping on overflow. Existing wait/stream/RTK callers explicitly retain SIGKILL; footer execFile uses SIGTERM. Actual Node/Python trap RED→GREEN proves TERM and closed stdout (EPIPE), with a KILL regression and current10 child-process/3 RTK controls GREEN. See the [footer checkpoint proof](../footer-data-provider-proof.md) for revisions/artifacts. No timeout/escalation, duplicate reader, dependency or whole child-process re-pin claim is added.
+
 ## Current ls bounded-capture prerequisite
 
 The existing wait/read authority now exposes [configured capture](../../specs/child-process-capture.md), with independent stdout/stderr byte caps, early termination/reaping and explicit read errors. `wait_for_child_process` delegates with no cap/signal; all six existing process-lifetime tests remain GREEN. Actual frozen ordinary RTK outputs and native UTF-8/termination safety are GREEN in `ls-rtk-io-green-2.log`. No duplicate reader loop or Node chunk-prefix oddity reproduction; whole child-process module re-pin remains separately scoped.
