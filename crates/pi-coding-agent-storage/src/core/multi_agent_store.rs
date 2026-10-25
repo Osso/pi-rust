@@ -947,12 +947,6 @@ impl From<CallbackError> for MultiAgentStoreError {
     }
 }
 
-impl From<MultiAgentStoreError> for CallbackError {
-    fn from(error: MultiAgentStoreError) -> Self {
-        Self::from_error(error.message.clone(), error)
-    }
-}
-
 impl From<crate::core::sqlite::ControlDbError> for MultiAgentStoreError {
     fn from(error: crate::core::sqlite::ControlDbError) -> Self {
         Self::from(CallbackError::from(error))
