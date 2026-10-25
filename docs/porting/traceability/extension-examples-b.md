@@ -60,3 +60,13 @@ as `BTreeMap<String, String>`, irreversibly sorting header keys. For an input re
 this example can observe it. Main confirmed this defect and owns a separate
 header-order/API slice and this example; this batch does not change that API.
 Before-request payload logging was not shipped in isolation, preserving whole-module scope.
+
+## Re-pin baseline regex repair (2026-10-25)
+
+`permission_gate` and `input_transform_streaming` had retained Rust regex
+inline modifiers after moving to JsRegex. Both targets reproduced Invalid group
+modifier before handler execution. The factories now use the literal frozen
+patterns with `with_flags(..., "i")`; no translation layer or alternate engine.
+Both targets pass their 2 existing TS-runtime differential tests, including
+casefold, word-boundary, whitespace, dot, and actual Git behavior. No assertions
+changed. Readability audit: literal-pattern simplification, no new branches.
