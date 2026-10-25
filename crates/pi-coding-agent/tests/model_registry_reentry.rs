@@ -81,7 +81,7 @@ async fn oauth_model_callback_can_read_and_register_during_registration_and_refr
 #[ignore = "private subprocess entry; run by the differential parent"]
 fn isolated_reentrant_registry_probe() {
     let expected_path = std::env::var_os(EXPECTED_PATH).expect("private fixture path");
-    let expected = js_json::parse_lossless(&std::fs::read_to_string(expected_path).unwrap()).unwrap();
+    let expected = js_json::parse_lossless(std::fs::read_to_string(expected_path).unwrap()).unwrap();
     let auth = js_json!({PROVIDER:{"type":"oauth","access":"fixture-access","refresh":"fixture-refresh","expires":9999999999999_f64}});
     let registry = ModelRegistry::in_memory(AuthStorage::in_memory(auth.as_object().unwrap().clone()));
     let reader = registry.clone();
