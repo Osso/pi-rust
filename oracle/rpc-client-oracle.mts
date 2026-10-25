@@ -23,6 +23,7 @@ type Client = {
 type Api = {
 	RpcClient: new (options: {
 		cliPath: string;
+		executablePath?: string;
 		env: Record<string, string>;
 	}) => Client;
 };
@@ -33,8 +34,10 @@ type Request = {
 		| "idle"
 		| "typed"
 		| "collector_skip"
-		| "timeout";
+		| "timeout"
+		| "spawn_error";
 	reply: unknown;
+	executable?: string;
 	events?: unknown[];
 	delay?: number | "NaN" | "Infinity" | "-Infinity";
 	idleTimeout?: boolean;
@@ -75,6 +78,7 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 	await writeFile(path, child);
 	const client = new api.RpcClient({
 		cliPath: path,
+		executablePath: request.executable,
 		env: {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
@@ -88,6 +92,12 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 				throw new Error("fixture callback");
 		});
 	try {
+		if (request.operation === "spawn_error") {
+			const first = await startOutcome(client);
+			const second = await startOutcome(client);
+			await client.stop();
+			return { ok: true, value: [first, second, await startOutcome(client)] };
+		}
 		await client.start();
 		if (request.operation === "timeout") {
 			const delay =
@@ -129,6 +139,23 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 	} finally {
 		await client.stop();
 		await rm(dir, { recursive: true, force: true });
+	}
+}
+
+async function startOutcome(client: Client): Promise<unknown> {
+	try {
+		await client.start();
+		return { ok: true };
+	} catch (error) {
+		if (!(error instanceof Error)) throw error;
+		return {
+			ok: false,
+			error: {
+				name: error.name,
+				message: error.message,
+				...("code" in error ? { code: error.code } : {}),
+			},
+		};
 	}
 }
 

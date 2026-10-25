@@ -13,6 +13,7 @@ async fn native(request: &JsValue) -> JsValue {
     let path = dir.path().join("child.mjs");
     std::fs::write(&path, CHILD).unwrap();
     let mut options = RpcClientOptions {
+        executable_path: request.get("executable").and_then(JsValue::as_string).cloned(),
         cli_path: Some(path),
         ..Default::default()
     };
@@ -44,6 +45,14 @@ async fn native(request: &JsValue) -> JsValue {
     } else {
         None
     };
+    if request.get("operation").and_then(JsValue::as_string) == Some(&"spawn_error".into()) {
+        let first = start_outcome(&client).await;
+        let second = start_outcome(&client).await;
+        client.stop().await.unwrap();
+        let third = start_outcome(&client).await;
+        client.stop().await.unwrap();
+        return pi_js_compat::js_json!({"ok":true,"value":[first,second,third]});
+    }
     client.start().await.unwrap();
     let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"timeout".into()) {
         let delay = match request.get("delay").unwrap() {
@@ -128,6 +137,22 @@ async fn native(request: &JsValue) -> JsValue {
         }
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
     }
+}
+
+async fn start_outcome(client: &RpcClient) -> JsValue {
+    match client.start().await {
+        Ok(()) => pi_js_compat::js_json!({"ok":true}),
+        Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_failed_spawn_retains_the_process_until_stop() {
+    // Frozen :109,:122-127,:146-150 retains the failed child and the original process error.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"spawn_error","executable":"pi-rpc-client-no-such-private-executable","reply":{}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
 }
 
 #[tokio::test]
