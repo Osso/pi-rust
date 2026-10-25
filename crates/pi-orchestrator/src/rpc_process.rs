@@ -6,7 +6,6 @@ use pi_js_compat::{
     js_json::{JsString, JsValue as Value, encode_node_utf8},
 };
 use std::{
-    collections::HashMap,
     process::Stdio,
     sync::{
         Arc, Mutex,
@@ -27,7 +26,7 @@ struct State {
     exited: bool,
     stderr: Vec<u8>,
     next_id: u64,
-    pending: HashMap<JsString, Pending>,
+    pending: IndexMap<JsString, Pending>,
     // Frozen Map replacement loses the old resolver: retain it, unsettled, until instance drop.
     orphaned: Vec<Pending>,
     events: IndexMap<usize, Listener>,
@@ -133,7 +132,7 @@ impl RpcProcessInstance {
         };
         command["id"] = Value::String(id.clone());
         if let Err(error) = self.write_message(&command).await {
-            self.0.state.lock().unwrap().pending.remove(&id);
+            self.0.state.lock().unwrap().pending.shift_remove(&id);
             return Err(error);
         }
         receiver.await.map_err(|e| JsString::from(e.to_string()))?
@@ -295,7 +294,7 @@ fn dispatch_line(inner: &Inner, line: &JsString) -> Result<(), JsString> {
         match value["type"].as_string() {
             Some(tag) if tag == "response" => {
                 if let Some(id) = value["id"].as_string().filter(|v| !v.is_empty())
-                    && let Some(sender) = state.pending.remove(id)
+                    && let Some(sender) = state.pending.shift_remove(id)
                 {
                     let _ = sender.send(Ok(value.clone()));
                 }
@@ -342,7 +341,7 @@ fn notify_exit(inner: &Inner, error: &JsString) {
 }
 
 fn reject_pending(state: &mut State, error: &JsString) {
-    for (_, sender) in state.pending.drain() {
+    for (_, sender) in state.pending.drain(..) {
         let _ = sender.send(Err(error.into()));
     }
 }

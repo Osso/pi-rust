@@ -241,6 +241,64 @@ async fn child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams() {
 }
 
 #[tokio::test]
+async fn disposal_rejects_pending_requests_in_frozen_registration_order() {
+    use std::sync::{Arc, Mutex};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let fake = root.join("oracle/orchestrator-rpc-fake.mjs");
+    let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-rpc-oracle.mjs"))
+        .arg(source)
+        .arg(&fake)
+        .arg("pending_order")
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success());
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    let ids = (0..8).map(|index| format!("pending_{index}")).collect::<Vec<_>>();
+    assert_eq!(expected, json!(ids));
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("node");
+    command.arg(fake);
+    let rpc = RpcProcessInstance::spawn_command(&mut command, &dir.path().to_str().unwrap().into()).unwrap();
+    let rejected = Arc::new(Mutex::new(Vec::new()));
+    let (send, mut received) = tokio::sync::mpsc::unbounded_channel();
+    rpc.on_event(Arc::new(move |event| {
+        send.send(event["id"].clone()).unwrap();
+    }));
+    let tasks = ids
+        .iter()
+        .map(|id| {
+            let rpc = rpc.clone();
+            let rejected = rejected.clone();
+            let id = id.clone();
+            tokio::spawn(async move {
+                let error = rpc.send(json!({"type":"hold","id":id})).await.unwrap_err();
+                assert_eq!(error, JsString::from("RPC process disposed"));
+                rejected.lock().unwrap().push(id);
+            })
+        })
+        .collect::<Vec<_>>();
+    for id in &ids {
+        let actual = tokio::time::timeout(std::time::Duration::from_secs(5), received.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(actual, json!(id));
+    }
+    rpc.dispose().await.unwrap();
+    for task in tasks {
+        task.await.unwrap();
+    }
+    assert_eq!(json!(*rejected.lock().unwrap()), expected);
+}
+
+#[tokio::test]
 async fn callback_mutation_matches_frozen_live_set_iteration() {
     use pi_orchestrator::rpc_process::{ExitListener, Listener};
     use std::sync::{Arc, Mutex};
