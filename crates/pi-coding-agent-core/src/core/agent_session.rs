@@ -1026,7 +1026,7 @@ struct Inner {
     compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
     branch_summary_abort_controller: Mutex<Option<AbortController>>,
     pending_bash_messages: Mutex<Vec<BashExecutionMessage>>,
-    bash_abort_controllers: Mutex<Vec<AbortController>>,
+    bash_abort_controller: Mutex<Option<AbortController>>,
     disposed: AtomicBool,
     extension_runner: Mutex<ExtensionRunner>,
     extension_runner_ref: Option<Arc<Mutex<Option<ExtensionRunner>>>>,
@@ -1452,7 +1452,7 @@ impl AgentSession {
             compaction_summary_materialization_abort_controller: Mutex::new(None),
             branch_summary_abort_controller: Mutex::new(None),
             pending_bash_messages: Mutex::new(Vec::new()),
-            bash_abort_controllers: Mutex::new(Vec::new()),
+            bash_abort_controller: Mutex::new(None),
             disposed: AtomicBool::new(false),
             extension_runner: Mutex::new(placeholder_runner),
             extension_runner_ref,
@@ -6885,12 +6885,12 @@ impl AgentSession {
 
         let controller_abort = AbortController::new();
         let abort = controller_abort.signal();
-        lock(&self.inner.bash_abort_controllers).push(controller_abort.clone());
+        *lock(&self.inner.bash_abort_controller) = Some(controller_abort);
         let (prefix, shell_path) = {
             let settings = lock(&self.inner.settings_manager);
             (settings.get_shell_command_prefix().cloned(), settings.get_shell_path())
         };
-        let resolved_command = match prefix {
+        let resolved_command = match prefix.filter(|prefix| !prefix.is_empty()) {
             Some(prefix) => JsString::from(prefix) + "\n" + command,
             None => command.clone(),
         };
@@ -6910,10 +6910,15 @@ impl AgentSession {
             },
         )
         .await;
-        lock(&self.inner.bash_abort_controllers).retain(|token| token != &controller_abort);
-        let result = result.map_err(|bash_error| error(bash_error.message))?;
-        self.record_bash_result(command, &result, options.exclude_from_context);
-        Ok(result)
+        let result = match result {
+            Ok(result) => {
+                self.record_bash_result(command, &result, options.exclude_from_context);
+                Ok(result)
+            }
+            Err(cause) => Err(error(cause.message)),
+        };
+        *lock(&self.inner.bash_abort_controller) = None;
+        result
     }
 
     /// Records a bash execution result in session history.
@@ -6956,14 +6961,14 @@ impl AgentSession {
 
     /// Cancels a running bash command.
     pub fn abort_bash(&self) {
-        let tokens: Vec<AbortController> = lock(&self.inner.bash_abort_controllers).clone();
-        for token in tokens {
-            token.abort(None);
+        let controller = lock(&self.inner.bash_abort_controller).clone();
+        if let Some(controller) = controller {
+            controller.abort(None);
         }
     }
 
     pub fn is_bash_running(&self) -> bool {
-        !lock(&self.inner.bash_abort_controllers).is_empty()
+        lock(&self.inner.bash_abort_controller).is_some()
     }
 
     // Frozen agent-session.ts:5875-5884 forwards detach throws without a catch.

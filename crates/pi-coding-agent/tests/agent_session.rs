@@ -1,5 +1,7 @@
 //! Behavioral tests for `core/agent-session.ts`.
 
+#[path = "agent_session_bash_parity.rs"]
+mod bash_parity;
 #[path = "agent_session_effort_prefix.rs"]
 mod effort_prefix;
 #[path = "support/image_fixtures.rs"]
