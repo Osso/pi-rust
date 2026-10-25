@@ -146,3 +146,7 @@ Proofs: real extension-command round-trip `rpc_ui_responses_apply_cancellation_b
 Source :116–119 schedules a truthy timeout through Node setTimeout. Native now uses shared `node_timers::normalize_timeout_delay` after the frozen truthiness filter; the original numeric request field remains unchanged. Actual-source/private-process overflow2147483648 RED proves source resolves default at1ms while the old native timer never settles within2s (`rpc-mode-timer-overflow-red.log`). GREEN pending.
 
 Gap (parent2026-10-24, existing Node/V8/libuv runtime-oddity ruling): native omits Node TimeoutOverflowWarning and does not reproduce OS timer precision. The process proof asserts the source warning and native empty stderr separately; no warning filtering, suppression or invented warning subsystem.
+
+## Dialog first-notification settlement
+
+Actual frozen-process oracle `oracle/rpc-dialog-order-oracle.mts` drives real runRpcMode and routes a response/abort synchronously before Promise continuations. The ordered native helper proof reproduced lost response-first values (32 notifications: both Some(answered) and None) in `rpc-mode-dialog-order-red.log`. A biased select is insufficient because abort-first must also win. The broker now removes/sends its one pending slot at response, abort-listener or timer notification; subsequent notifications are ignored. Awaiting only consumes that already chosen result; shared AbortSubscription/timer handles provide cleanup. No new dependency or error-carrier panic is added. GREEN pending.

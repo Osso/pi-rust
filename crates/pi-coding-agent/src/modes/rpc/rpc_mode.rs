@@ -50,12 +50,12 @@ use crate::modes::rpc::rpc_types::{
 use crate::utils::shell::kill_tracked_detached_children;
 use pi_js_compat::js_json;
 
-type PendingSender = oneshot::Sender<JsValue>;
+type PendingSender = oneshot::Sender<Option<JsValue>>;
 
 /// Pending extension UI requests awaiting a client response line.
-#[derive(Default)]
+#[derive(Clone, Default)]
 struct DialogBroker {
-    pending: Mutex<HashMap<String, PendingSender>>,
+    pending: Arc<Mutex<HashMap<String, PendingSender>>>,
 }
 
 impl DialogBroker {
@@ -72,15 +72,15 @@ impl DialogBroker {
         else {
             return false;
         };
-        let sender = lock(&self.pending).remove(&id);
+        self.settle(&id, Some(response))
+    }
+
+    fn settle(&self, id: &str, response: Option<JsValue>) -> bool {
+        let sender = lock(&self.pending).remove(id);
         match sender {
             Some(sender) => sender.send(response).is_ok(),
             None => false,
         }
-    }
-
-    fn remove(&self, id: &str) {
-        lock(&self.pending).remove(id);
     }
 }
 
@@ -792,6 +792,8 @@ where
     let id = random_uuid();
     let (sender, receiver) = oneshot::channel();
     dialogs.register(id.clone(), sender);
+    let abort_subscription = subscribe_dialog_abort(dialogs, &id, signal.as_ref());
+    let timer = schedule_dialog_timeout(dialogs, &id, timeout);
     let request = RpcExtensionUiRequest {
         kind: ExtensionUiRequestTag::ExtensionUiRequest,
         id: id.clone(),
@@ -799,38 +801,47 @@ where
     };
     emit(&js_json::to_value(&request).expect("extension UI request must serialize"));
 
-    let response = await_dialog(receiver, signal, timeout).await;
-    dialogs.remove(&id);
+    let response = receiver
+        .await
+        .expect("pending dialog retains its sender until settlement");
+    drop(abort_subscription);
+    if let Some(timer) = timer {
+        timer.abort();
+    }
     match response {
         Some(response) => parse(&response),
         None => default,
     }
 }
 
-async fn await_dialog(
-    receiver: oneshot::Receiver<JsValue>,
-    signal: Option<AbortSignal>,
-    timeout: Option<f64>,
-) -> Option<JsValue> {
-    let timeout = timeout
-        .filter(|timeout| *timeout != 0.0 && !timeout.is_nan())
-        .map(|timeout| Duration::from_millis(pi_js_compat::node_timers::normalize_timeout_delay(timeout) as u64));
-    match (signal, timeout) {
-        (Some(signal), Some(timeout)) => tokio::select! {
-            response = receiver => response.ok(),
-            _ = signal.wait() => None,
-            () = tokio::time::sleep(timeout) => None,
-        },
-        (Some(signal), None) => tokio::select! {
-            response = receiver => response.ok(),
-            _ = signal.wait() => None,
-        },
-        (None, Some(timeout)) => tokio::select! {
-            response = receiver => response.ok(),
-            () = tokio::time::sleep(timeout) => None,
-        },
-        (None, None) => receiver.await.ok(),
+fn subscribe_dialog_abort(
+    dialogs: &DialogBroker,
+    id: &str,
+    signal: Option<&AbortSignal>,
+) -> Option<pi_js_compat::abort::AbortSubscription> {
+    let signal = signal?;
+    let broker = dialogs.clone();
+    let request_id = id.to_owned();
+    match signal.subscribe(move |_| {
+        broker.settle(&request_id, None);
+    }) {
+        Ok(subscription) => Some(subscription),
+        Err(_) => {
+            dialogs.settle(id, None);
+            None
+        }
     }
+}
+
+fn schedule_dialog_timeout(dialogs: &DialogBroker, id: &str, timeout: Option<f64>) -> Option<JoinHandle<()>> {
+    let timeout = timeout.filter(|timeout| *timeout != 0.0 && !timeout.is_nan())?;
+    let delay = Duration::from_millis(pi_js_compat::node_timers::normalize_timeout_delay(timeout) as u64);
+    let broker = dialogs.clone();
+    let request_id = id.to_owned();
+    Some(tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        broker.settle(&request_id, None);
+    }))
 }
 
 #[cfg(test)]
@@ -948,6 +959,87 @@ mod tests {
         };
         let (result, ()) = tokio::join!(promise, resolver);
         assert_eq!(result, "default");
+    }
+
+    fn frozen_dialog_order(order: &str) -> Option<JsString> {
+        use std::process::{Command, Stdio};
+        let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/porting/source-lock.json"
+        )))
+        .unwrap();
+        let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+        let head = Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(source)
+            .output()
+            .unwrap();
+        assert_eq!(
+            String::from_utf8(head.stdout).unwrap().trim(),
+            lock["commit"].as_str().unwrap()
+        );
+        let root = tempfile::tempdir().unwrap();
+        let mut child = Command::new("/usr/bin/timeout")
+            .args(["20", "/usr/bin/node"])
+            .arg(source.join("node_modules/tsx/dist/cli.mjs"))
+            .arg("--tsconfig")
+            .arg(source.join("tsconfig.json"))
+            .arg(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../oracle/rpc-dialog-order-oracle.mts"))
+            .arg(source.join("packages/coding-agent/src"))
+            .arg(root.path())
+            .arg(order)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let stdin = child.stdin.take().unwrap();
+        let output = child.wait_with_output().unwrap();
+        drop(stdin);
+        assert!(
+            output.status.success(),
+            "source stderr {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report =
+            js_json::parse_lossless(std::fs::read_to_string(root.path().join("dialog-order.json")).unwrap()).unwrap();
+        report["value"].as_string().cloned()
+    }
+
+    #[tokio::test]
+    async fn dialog_settlement_follows_response_and_abort_notification_order() {
+        for (order, expected) in [
+            ("response-first", Some(JsString::from("answered"))),
+            ("abort-first", None),
+        ] {
+            assert_eq!(frozen_dialog_order(order), expected);
+            let mut results = Vec::new();
+            for _ in 0..32 {
+                let broker = DialogBroker::default();
+                let controller = pi_js_compat::abort::AbortController::new();
+                let options = ExtensionUiDialogOptions {
+                    signal: Some(controller.signal()),
+                    ..Default::default()
+                };
+                let emit = |request: &JsValue| {
+                    let id = request["id"].as_string().unwrap().to_utf8().unwrap();
+                    if order == "response-first" {
+                        broker.resolve(value_response(&id, "answered"));
+                        controller.abort(None);
+                    } else {
+                        controller.abort(None);
+                        broker.resolve(value_response(&id, "answered"));
+                    }
+                };
+                results.push(
+                    create_dialog_promise(&broker, emit, Some(options), None, select_request(), |response| {
+                        response.get("value").and_then(JsValue::as_string).cloned()
+                    })
+                    .await,
+                );
+            }
+            assert!(results.iter().all(|result| result == &expected), "{order}: {results:?}");
+        }
     }
 
     #[test]
