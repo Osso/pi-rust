@@ -140,3 +140,5 @@ Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary
 ## Native union number decoding
 
 TextOrImageContent/AssistantContent/Message select their discriminators from JsValue and decode records directly; UserContent takes native text directly and decodes block arrays natively. No stringify/from_str bridge remains in these unions. [Shared numeric correction/proof](js-json.md#typed-union-and-checked-adapter-follow-up) covers nonfinite numbers, signed zero and unpaired human text without changing serialized wire semantics.
+
+2026-10-25: deleted the source-absent DeferredHandle, DeferredRequest/Window, DeferredFetch/CancelOptions, SimpleStreamOptions.deferred and ProviderStreams deferred methods. No native provider consumed them; only old-capability fixtures did. Constrained-sampling carrier removal waits for parent integration of coding-agent consumer cleanup.

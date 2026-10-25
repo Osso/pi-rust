@@ -1,14 +1,11 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use pi_ai::api::lazy::{LazyApiCapabilities, lazy_api, lazy_stream};
-use pi_ai::request::{
-    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, ProviderRequestOptions, ProviderStreams,
-    SimpleStreamOptions, StreamOptions,
-};
+use pi_ai::api::lazy::{lazy_api, lazy_stream};
+use pi_ai::request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantMessage, AssistantMessageEvent, Context, DeferredHandle, DoneReason, Modality, Model, ModelCost,
-    ModelCostRates, StopReason,
+    AssistantMessage, AssistantMessageEvent, Context, DoneReason, Modality, Model, ModelCost, ModelCostRates,
+    StopReason,
 };
 use pi_ai::utils::event_stream::{
     AssistantMessageEventSender, AssistantMessageEventStream, create_assistant_message_event_stream,
@@ -76,8 +73,6 @@ fn push_completed(sender: &AssistantMessageEventSender, model: &Model, text: &st
 
 struct FakeStreams {
     label: String,
-    supports_fetch: bool,
-    supports_cancel: bool,
     calls: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
@@ -100,44 +95,6 @@ impl ProviderStreams for FakeStreams {
     ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().push(format!("{}:{}", self.label, model.id));
         Ok(completed_stream(&model, "ok"))
-    }
-
-    fn supports_fetch_deferred(&self) -> bool {
-        self.supports_fetch
-    }
-
-    fn fetch_deferred(
-        &self,
-        model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredFetchOptions,
-    ) -> AssistantMessageEventStream {
-        completed_stream(&model, "fetched")
-    }
-
-    fn supports_cancel_deferred(&self) -> bool {
-        self.supports_cancel
-    }
-
-    fn cancel_deferred(
-        &self,
-        _model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredCancelOptions,
-    ) -> BoxFuture<'_, Result<(), CallbackError>> {
-        Box::pin(async { Ok(()) })
-    }
-}
-
-fn handle() -> DeferredHandle {
-    DeferredHandle {
-        provider: "p1".to_owned(),
-        model_id: "m1".to_owned(),
-        api: "test-api".to_owned(),
-        id: "response-1".to_owned(),
-        expires_at: None,
-        poll_after_ms: None,
-        data: None,
     }
 }
 
@@ -189,34 +146,24 @@ async fn lazy_stream_forwards_events_and_result() {
 }
 
 #[tokio::test]
-async fn lazy_api_loads_on_first_use_and_exposes_only_declared_capabilities() {
+async fn lazy_api_loads_on_first_use_and_forwards_both_stream_methods() {
     let loads = Arc::new(AtomicUsize::new(0));
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
     let streams = Arc::new(FakeStreams {
-        label: "deferred".to_owned(),
-        supports_fetch: true,
-        supports_cancel: true,
+        label: "plain".to_owned(),
         calls: Arc::clone(&calls),
     });
-    let api = lazy_api(
-        {
-            let loads = Arc::clone(&loads);
+    let api = lazy_api({
+        let loads = Arc::clone(&loads);
+        let streams = Arc::clone(&streams);
+        Arc::new(move || {
+            loads.fetch_add(1, Ordering::SeqCst);
             let streams = Arc::clone(&streams);
-            Arc::new(move || {
-                loads.fetch_add(1, Ordering::SeqCst);
-                let streams = Arc::clone(&streams);
-                Box::pin(async move { Ok(streams as Arc<dyn ProviderStreams>) })
-            })
-        },
-        LazyApiCapabilities {
-            fetch_deferred: true,
-            cancel_deferred: false,
-        },
-    );
+            Box::pin(async move { Ok(streams as Arc<dyn ProviderStreams>) })
+        })
+    });
 
     assert_eq!(loads.load(Ordering::SeqCst), 0);
-    assert!(api.supports_fetch_deferred());
-    assert!(!api.supports_cancel_deferred());
 
     let result = api
         .stream_simple(model(), context(), SimpleStreamOptions::default())
@@ -227,57 +174,21 @@ async fn lazy_api_loads_on_first_use_and_exposes_only_declared_capabilities() {
     assert_eq!(result.stop_reason, StopReason::Stop);
     assert_eq!(loads.load(Ordering::SeqCst), 1);
 
-    let fetched = api
-        .fetch_deferred(model(), handle(), DeferredFetchOptions::default())
+    let streamed = api
+        .stream(model(), context(), StreamOptions::default())
+        .expect("outer acquisition")
         .result()
         .await
         .unwrap();
-    assert_eq!(fetched.stop_reason, StopReason::Stop);
+    assert_eq!(streamed.stop_reason, StopReason::Stop);
     assert_eq!(loads.load(Ordering::SeqCst), 2);
 
-    let cancel_error = api
-        .cancel_deferred(model(), handle(), ProviderRequestOptions::default())
-        .await
-        .unwrap_err();
-    assert_eq!(cancel_error.message, "API cannot cancel deferred responses");
-    assert_eq!(calls.lock().unwrap().len(), 1);
-}
-
-#[tokio::test]
-async fn lazy_api_fetch_deferred_without_capability_is_an_error_stream() {
-    let streams = Arc::new(FakeStreams {
-        label: "plain".to_owned(),
-        supports_fetch: false,
-        supports_cancel: false,
-        calls: Arc::new(std::sync::Mutex::new(Vec::new())),
-    });
-    let api = lazy_api(
-        Arc::new(move || {
-            let streams = Arc::clone(&streams);
-            Box::pin(async move { Ok(streams as Arc<dyn ProviderStreams>) })
-        }),
-        LazyApiCapabilities::default(),
-    );
-    let result = api
-        .fetch_deferred(model(), handle(), DeferredFetchOptions::default())
-        .result()
-        .await
-        .unwrap();
-    assert_eq!(result.stop_reason, StopReason::Error);
-    assert_eq!(
-        result.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "API does not support deferred responses"
-        ))
-    );
+    assert_eq!(calls.lock().unwrap().as_slice(), &["plain:m1", "plain:m1"]);
 }
 
 #[tokio::test]
 async fn lazy_api_surfaces_load_failure_as_stream_error() {
-    let api = lazy_api(
-        Arc::new(|| Box::pin(async { Err(CallbackError::new("load failed")) })),
-        LazyApiCapabilities::default(),
-    );
+    let api = lazy_api(Arc::new(|| Box::pin(async { Err(CallbackError::new("load failed")) })));
     let result = api
         .stream(model(), context(), StreamOptions::default())
         .expect("outer acquisition")

@@ -7,7 +7,6 @@ Tests: `crates/pi-ai/tests/api_lazy.rs`; differential `lazy_stream_error`.
 | TS | Rust | Test |
 |---|---|---|
 | `lazyStream` | `lazy_stream` | `lazy_stream_turns_setup_failure_into_an_error_event`, `lazy_stream_forwards_events_and_result`, differential |
-| `LazyApiCapabilities` | same | `lazy_api_loads_on_first_use_and_exposes_only_declared_capabilities` |
 | `lazyApi` | `lazy_api` → `LazyApi` | lazy API tests |
 | `forwardStream` | private `forward_stream` | forwarding test |
 
@@ -15,7 +14,6 @@ Tests: `crates/pi-ai/tests/api_lazy.rs`; differential `lazy_stream_error`.
 - Setup runs in a spawned Tokio task; the stream is returned synchronously.
 - Setup catches acquisition rejection at frozen lazy.ts:49–53 and uses Error.message/String(error); raw values are not read from an empty CallbackError.message. If String conversion itself rejects, the original conversion rejection reaches the single shared uncaught authority without an invented error event. Inner stream failure handling is unchanged by this prerequisite and still needs its own common-pin audit.
 - `lazyApi` calls the loader on every stream call (no local cache), matching TS's reliance on the host import cache.
-- `fetchDeferred` is exposed only when `capabilities.fetch_deferred`; the method reports `"API does not support deferred responses"` otherwise. Cancellation similarly reports `"API cannot cancel deferred responses"`.
 - Inner events are forwarded unchanged; the final result comes from `EventStream::result`.
 
 ## Gaps
@@ -30,3 +28,9 @@ Parent approved moving throw_callback_uncaught unchanged to pi-js-compat::callba
 
 ## Discrepancies
 - None observed by differential `lazy_stream_error`.
+
+## Deferred-interface retirement (2026-10-25)
+
+Frozen lazy.ts:62–70 exports only lazyApi(load) with stream/streamSimple. Removed the old-only LazyApiCapabilities type/argument and fetch/cancel-deferred trait methods, request/window/fetch/cancel types and DeferredHandle. Nine native lazy factories, the approved public_index witness and provider_lazy_acquisition fixture now use the single-argument API. No replacement/fallback interface exists.
+
+Retired `lazy_api_fetch_deferred_without_capability_is_an_error_stream` and `faux_core_has_no_deferred_capabilities_at_frozen_pin`; removed unsupported-method assertions from retained Anthropic/Google streaming fixtures. The mixed lazy loader test now checks both real stream methods, complete results, exact invocation log and first-use/load counts, not removed capabilities. Remaining inner failure/result carrier audit is separate; this retirement does not claim whole lazy-stream parity.

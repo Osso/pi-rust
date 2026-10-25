@@ -200,8 +200,6 @@ async fn lazy_api_wrappers_expose_the_provider_streams_contract() {
             "Vertex AI requires a project ID. Set GOOGLE_CLOUD_PROJECT/GCLOUD_PROJECT or pass project in options."
         ))
     );
-    assert!(!gemini.supports_fetch_deferred());
-    assert!(!vertex.supports_cancel_deferred());
 }
 
 #[tokio::test]

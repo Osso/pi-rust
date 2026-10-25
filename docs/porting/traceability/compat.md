@@ -65,3 +65,5 @@ the pinned TS module).
 Compatibility stream wrappers forward the existing native API-key authority directly; no checked or lossy adapter is introduced.
 
 [Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+
+2026-10-25: removed old-only ApiProvider fetch_deferred/cancel_deferred methods and carrier imports; common-pin ProviderStreams has only stream/streamSimple. Other compat behavior unchanged.

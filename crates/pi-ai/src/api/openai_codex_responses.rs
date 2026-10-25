@@ -23,7 +23,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions, ResponsesEventSource,
@@ -325,10 +325,9 @@ impl ProviderStreams for OpenAICodexResponsesApi {
 
 /// `openAICodexResponsesApi()`: the lazy module wrapper.
 pub fn openai_codex_responses_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| Box::pin(async { Ok(Arc::new(OpenAICodexResponsesApi) as Arc<dyn ProviderStreams>) })),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(OpenAICodexResponsesApi) as Arc<dyn ProviderStreams>) })
+    }))
 }
 
 async fn run_stream(

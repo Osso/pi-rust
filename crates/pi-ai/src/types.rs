@@ -596,28 +596,6 @@ pub enum ErrorReason {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeferredHandle {
-    pub provider: String,
-    pub model_id: String,
-    pub api: String,
-    /// Provider token, such as a response id or batch id plus row id.
-    pub id: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "js_number::serialize_option"
-    )]
-    pub expires_at: Option<f64>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "js_number::serialize_option"
-    )]
-    pub poll_after_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InputSource {

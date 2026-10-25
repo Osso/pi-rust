@@ -21,7 +21,7 @@ crate root mirrors it with `pub use` globs. `base.ts` re-exports `compat`, so
 | `GoogleOptions` | `api::google_generative_ai::GoogleOptions` |
 | `GoogleThinkingLevel` | `api::google_shared::GoogleThinkingLevel` |
 | `GoogleVertexOptions` | `api::google_vertex::GoogleVertexOptions` |
-| `export * from api/lazy.ts` | `api::lazy::*` (`LazyApi`, `LazyApiCapabilities`, `lazy_api`, `lazy_stream`, `ApiLoader`, `StreamSetup`) |
+| `export * from api/lazy.ts` | `api::lazy::*` (`LazyApi`, `lazy_api`, `lazy_stream`, `ApiLoader`, `StreamSetup`) |
 | `MistralOptions` | `api::mistral_conversations::MistralOptions` |
 | `OpenAICodexResponsesOptions`, `OpenAICodexWebSocketDebugStats` | `api::openai_codex_responses::{OpenAICodexResponsesOptions, OpenAICodexWebSocketDebugStats}` |
 | `OpenAICompletionsOptions` | `api::openai_completions::OpenAICompletionsOptions` |
@@ -76,3 +76,5 @@ means using the crate-root path.
 ## Current-pin closure (2026-10-25)
 
 Added the five missing root OAuth type names: OAuthCredentials, OAuthProviderId, OAuthProvider, OAuthProviderInfo and OAuthProviderInterface. `public_oauth_types` fails to compile before the root re-exports and exercises the legacy getApiKey boundary after them. Strict source witness `oracle/ai-root-oauth-types-fixture.mts` imports these names from the unmodified frozen index. Existing public_index runtime tests remain unchanged. Removed old-only PiMessages, models-store, text and UUID root exports in their owning slices; TypeBox runtime builders remain the existing typed exclusion. Linking the Rust crate does not execute provider factories or register compat providers. Imported modules retain their independent coverage status.
+
+Deferred retirement removes the old-only LazyApiCapabilities native type and extra lazy_api argument; public_index witness adapted under parent approval.
