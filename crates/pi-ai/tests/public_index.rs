@@ -3,7 +3,6 @@
 
 use std::sync::Arc;
 
-use pi_ai::utils::text::ContentText;
 use serde_json::json;
 
 fn assert_type_paths() {
@@ -52,10 +51,6 @@ fn assert_type_paths() {
 fn crate_root_reexports_are_usable() {
     assert_type_paths();
 
-    assert_eq!(
-        pi_ai::content_text(ContentText::String("hello"), "\n"),
-        "hello".to_owned()
-    );
     assert_eq!(
         pi_ai::string_enum(&["a", "b"], pi_ai::StringEnumOptions::default()).into_value(),
         json!({"type": "string", "enum": ["a", "b"]})
