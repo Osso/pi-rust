@@ -18,8 +18,6 @@ pub mod differential_cli_mode;
 pub mod differential_list_models;
 #[path = "differential_model_catalog_cache.rs"]
 pub mod differential_model_catalog_cache;
-#[path = "differential_model_resolver.rs"]
-pub mod differential_model_resolver;
 #[path = "differential_package_manager_cli.rs"]
 pub mod differential_package_manager_cli;
 #[path = "differential_print_mode.rs"]

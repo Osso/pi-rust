@@ -15,6 +15,7 @@ use std::time::Duration;
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }

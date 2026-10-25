@@ -151,6 +151,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "agents-core",
     "agent-viewer",
     "agents-mailbox",
+    "agents-status",
     "default-footer",
     "effort",
     "goal",

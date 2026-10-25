@@ -60,6 +60,7 @@ struct StubTui {
 }
 
 impl ExtensionUiTuiBackend for StubTui {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn pi_coding_agent::core::extensions::ExtensionUiComponent>,
@@ -433,7 +434,7 @@ fn spawn_agent(store: &MultiAgentStore, name: &str, slot: Option<i64>) -> JsStri
 #[test]
 fn counts_only_running_waiting_and_steering_agents() {
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+        now: Some(Arc::new(|| Ok("2026-06-27T00:00:00.000Z".into()))),
     });
     spawn_agent(&store, "Running", None);
     assert_eq!(
@@ -449,7 +450,7 @@ fn counts_only_running_waiting_and_steering_agents() {
 #[tokio::test]
 async fn selected_agent_shows_slot_and_state() {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+        now: Some(Arc::new(|| Ok("2026-06-27T00:00:00.000Z".into()))),
     }));
     spawn_agent(&store, "First", Some(1));
     let second = spawn_agent(&store, "Second", Some(2));

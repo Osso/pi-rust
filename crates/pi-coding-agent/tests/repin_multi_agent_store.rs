@@ -36,7 +36,7 @@ fn mailbox_expires_at_controlled_creation_age_not_updated_age() {
     let clock = now.clone();
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
         now: Some(Arc::new(move || {
-            pi_coding_agent::utils::iso_time::format_iso_millis(*clock.lock().unwrap())
+            Ok(pi_coding_agent::utils::iso_time::format_iso_millis(*clock.lock().unwrap()).into())
         })),
     });
     store.record_outbound_session_message(&input()).unwrap();

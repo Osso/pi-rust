@@ -17,7 +17,10 @@ async function main(): Promise<void> {
 			callbackCount++;
 			throw rejection;
 		};
-		const api = lazyApi(async () => ({ stream: fail, streamSimple: fail }));
+		const acquire = request.inner
+			? () => ({ async *[Symbol.asyncIterator]() { throw rejection; } })
+			: fail;
+		const api = lazyApi(async () => ({ stream: acquire, streamSimple: acquire }));
 		const before = Date.now();
 		const stream =
 			request.method === "stream"

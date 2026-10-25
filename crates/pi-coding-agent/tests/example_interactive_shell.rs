@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 type Trace = Arc<Mutex<Vec<Value>>>;
 struct Backend(Trace);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn show_overlay(
         &self,
         _component: Box<dyn ExtensionUiComponent>,

@@ -53,6 +53,10 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
 
 Actual frozen SDK + faux provider differential found native overwrote request headers/environment with auth values, omitted attribution/session headers and retained caller cwd. Auth now resolves first, request environment overrides auth keys, ordered header merging uses the existing attribution helper, and SDK cwd replaces caller cwd in the existing extra-options carrier. No new API/dependency. RED `/tmp/ext-api2-sdk-stream-red5.log` compares real captured provider inputs; post-commit GREEN pending. Earlier fixture setup errors are not RED evidence; an erroneous exitCode-only oracle catch left readline open, so its job and all children were terminated and verified gone. Oracle fatal errors now exit explicitly.
 
+## No-auth startup/restart falsification (2026-10-25)
+
+Parent requested an absent-model representation only if actual frozen startup/persistence differed. Frozen agent.ts:85 substitutes DEFAULT_MODEL even when SDK's local model is undefined; AgentSession.model returns that state directly. The real frozen SDK/runtime and native SDK/runtime both report unknown/unknown, leave entry arrays empty, and persist unknown/unknown + thinking off before an injected post-persistence stop hook. Only the established source-package/binary-package root in the full startup guidance text is normalized. `/tmp/ext-api2-no-model-probe2.log` records the initial package-root-only mismatch, not an absent-model RED. No Option<Model> state migration is justified or implemented. Final focused proof pending at commit.
+
 ## Gaps
 
 - `base_tools` remains the injected tool override seam; when empty, `AgentSession`

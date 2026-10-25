@@ -137,6 +137,106 @@ async fn differential_export_probe() {
 }
 
 #[test]
+fn differential_custom_tools_and_overridden_assets() {
+    let package = export_fixture::fixture_package_dir();
+    for layout in ["src/core/export-html", "export-html"] {
+        let path = package.path().join(layout).join("template.html");
+        let template = fs::read_to_string(&path).unwrap();
+        fs::write(
+            path,
+            template.replace("<title>", "<!--custom-package-template--><title>"),
+        )
+        .unwrap();
+    }
+    export_fixture::run_export_probe("differential_custom_tool_probe", package.path());
+}
+
+#[tokio::test]
+#[ignore = "child process probe"]
+async fn differential_custom_tool_probe() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    use pi_ai::types::TextOrImageContent;
+    use pi_coding_agent::core::export_html::{
+        ExportOptions, RenderedToolResult, ToolHtmlRenderer, export_from_file, export_session_to_html,
+    };
+    use pi_coding_agent::core::session_manager::SessionManager;
+    use pi_js_compat::js_json::JsValue;
+    use std::{cell::RefCell, rc::Rc};
+    struct Renderer {
+        call_html: JsString,
+        calls: RefCell<Vec<Value>>,
+    }
+    impl ToolHtmlRenderer for Renderer {
+        fn render_call(&self, id: &str, name: &str, args: &JsValue) -> Option<JsString> {
+            self.calls
+                .borrow_mut()
+                .push(json!({"id":id,"name":name,"args":args.to_serde().unwrap()}));
+            Some(self.call_html.clone())
+        }
+        fn render_result(
+            &self,
+            _: &str,
+            _: &str,
+            _: &[TextOrImageContent],
+            _: Option<&JsValue>,
+            _: bool,
+        ) -> Option<RenderedToolResult> {
+            None
+        }
+    }
+    let mut oracle = Oracle::new();
+    let dir = tempfile::tempdir().unwrap();
+    let session = SessionManager::open_read_only(&fixture_path().into(), None).unwrap();
+    for (index, call_html) in ["", "<b>custom call</b>"].into_iter().enumerate() {
+        let expected = oracle.request("exportLive", json!({"inputPath":fixture_path(),"outputPath":dir.path().join(format!("ts{index}.html")),"callHtml":call_html}));
+        let renderer = Rc::new(Renderer {
+            call_html: call_html.into(),
+            calls: RefCell::new(Vec::new()),
+        });
+        let actual = export_session_to_html(
+            &session,
+            None,
+            Some(ExportOptions {
+                output_path: Some(dir.path().join(format!("native{index}.html")).to_str().unwrap().into()),
+                tool_renderer: Some(renderer.clone()),
+                ..Default::default()
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(json!(*renderer.calls.borrow()), expected["calls"]);
+        let html = fs::read_to_string(encode_node_utf8(&actual)).unwrap();
+        assert_same_html(&html, expected["html"].as_str().unwrap(), call_html);
+        assert!(html.contains("custom-package-template"));
+    }
+    let package = PathBuf::from(std::env::var_os("PI_PACKAGE_DIR").unwrap());
+    fs::remove_file(package.join("src/core/export-html/template.css")).unwrap();
+    fs::remove_file(package.join("export-html/template.css")).unwrap();
+    let expected = oracle.request(
+        "exportFromFile",
+        json!({"inputPath":fixture_path(),"outputPath":dir.path().join("ts-missing.html")}),
+    );
+    assert_eq!(expected["ok"], false);
+    let error = export_from_file(
+        &fixture_path().into(),
+        Some(ExportOptions::from_output_path(
+            dir.path().join("native-missing.html").to_str().unwrap(),
+        )),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        encode_node_utf8(&error.message()),
+        expected["error"]
+            .as_str()
+            .unwrap()
+            .replace("/src/core/export-html/", "/export-html/")
+    );
+}
+
+#[test]
 fn differential_missing_file_error_message() {
     let package = export_fixture::fixture_package_dir();
     export_fixture::run_export_probe("differential_missing_file_probe", package.path());

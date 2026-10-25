@@ -113,7 +113,7 @@ impl ExtensionRegistry {
                 }
                 Err(error) => errors.push(ExtensionLoadError {
                     path: entry.id.clone(),
-                    error: error.message,
+                    error: error.caught_message(),
                 }),
             }
         }
@@ -413,7 +413,7 @@ impl ExtensionRegistry {
         let api = ExtensionApi::new(extension.clone(), runtime, cwd.clone(), event_bus);
         factory(&api).await.map_err(|error| ExtensionLoadError {
             path: extension_path.to_owned(),
-            error: pi_js_compat::js_json::JsString::from("Failed to load extension: ") + error.message,
+            error: pi_js_compat::js_json::JsString::from("Failed to load extension: ") + error.caught_message(),
         })?;
         time(&js_format!("{} factory", extension_path), TimingLabel::Extensions);
         Ok(extension)

@@ -96,7 +96,7 @@ fn old_terminal_snapshot_does_not_create_fresh_notification() {
     snapshot["updatedAt"] = json!(old);
     let clock = current.clone();
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(move || clock.clone())),
+        now: Some(Arc::new(move || Ok(clock.clone().into()))),
     });
     store
         .publish_terminal_outbox_snapshot(&serde_json::from_value(snapshot.clone()).unwrap())

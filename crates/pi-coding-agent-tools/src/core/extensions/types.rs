@@ -235,6 +235,11 @@ pub trait ExtensionUiComponent {
 
     fn render(&self, width: usize) -> Vec<JsString>;
 
+    /// Stable native identity for `TUI.requestComponentRender(component)`.
+    fn render_identity(&self) -> usize {
+        std::ptr::from_ref(self).cast::<()>() as usize
+    }
+
     fn handle_input(&self, _data: &JsString) {}
 
     fn invalidate(&self) {}
@@ -262,6 +267,7 @@ pub trait ExtensionUiTuiBackend: Send + Sync {
     /// Called on the owning UI thread, like the editor factory itself.
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell>;
     fn request_render(&self);
+    fn request_component_render(&self, component_identity: usize);
     fn request_render_force(&self);
     fn stop(&self) -> Result<(), CallbackError>;
     fn start(&self) -> Result<(), CallbackError>;
@@ -288,6 +294,10 @@ impl ExtensionUiTui {
 
     pub fn request_render(&self) {
         self.backend.request_render();
+    }
+
+    pub fn request_component_render(&self, component_identity: usize) {
+        self.backend.request_component_render(component_identity);
     }
 
     /// Mount a nested overlay on the owning UI thread (`tui.ts:439,770–862`).
@@ -1019,6 +1029,7 @@ pub struct ExtensionContext {
     pub tool_execution_agent_id: Option<String>,
     state: Arc<Mutex<ExtensionContextState>>,
     system_prompt_override: Option<Arc<dyn Fn() -> JsString + Send + Sync>>,
+    get_model: Arc<dyn Fn() -> Option<Model> + Send + Sync>,
     viewed_session_target: Option<ViewedSessionMutationTargetResolver>,
 }
 
@@ -1027,11 +1038,13 @@ pub type ViewedSessionMutationTargetResolver =
 
 impl ExtensionContext {
     pub(super) fn new(state: Arc<Mutex<ExtensionContextState>>) -> Self {
+        let get_model = Arc::clone(&state.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).get_model);
         Self {
             tool_execution_started_at: None,
             tool_execution_agent_id: None,
             state,
             system_prompt_override: None,
+            get_model,
             viewed_session_target: None,
         }
     }
@@ -1161,7 +1174,8 @@ impl ExtensionContext {
         if let Some(target) = self.viewed_session_target()? {
             return Ok(target.model());
         }
-        self.callback(|state| Arc::clone(&state.get_model))
+        self.assert_active()?;
+        Ok((self.get_model)())
     }
 
     pub fn set_model(&self, model: Model) -> BoxFuture<'static, Result<bool, HandlerError>> {
@@ -1871,6 +1885,12 @@ pub struct CompactionEvent {
     pub signal: Option<AbortSignal>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionStartEvent {}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionEndEvent {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionSourceEvent {
@@ -2340,6 +2360,8 @@ pub enum ExtensionEvent {
     SessionBeforeFork(SessionBeforeForkEvent),
     SessionBeforeCompact(SessionBeforeCompactEvent),
     Compaction(CompactionEvent),
+    BackgroundCompactionStart(BackgroundCompactionStartEvent),
+    BackgroundCompactionEnd(BackgroundCompactionEndEvent),
     SessionCompactionSource(SessionCompactionSourceEvent),
     SessionCompact(SessionCompactEvent),
     SessionShutdown(SessionShutdownEvent),
@@ -2382,6 +2404,8 @@ impl ExtensionEvent {
             Self::SessionBeforeFork(_) => "session_before_fork",
             Self::SessionBeforeCompact(_) => "session_before_compact",
             Self::Compaction(_) => "compaction",
+            Self::BackgroundCompactionStart(_) => "background_compaction_start",
+            Self::BackgroundCompactionEnd(_) => "background_compaction_end",
             Self::SessionCompactionSource(_) => "session_compaction_source",
             Self::SessionCompact(_) => "session_compact",
             Self::SessionShutdown(_) => "session_shutdown",
@@ -2806,6 +2830,8 @@ pub struct ExtensionHandlers {
     pub session_before_fork: Vec<HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>>,
     pub session_before_compact: Vec<HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>>,
     pub compaction: Vec<HandlerHandle<CompactionEvent, CompactionEventResult>>,
+    pub background_compaction_start: Vec<HandlerHandle<BackgroundCompactionStartEvent, ()>>,
+    pub background_compaction_end: Vec<HandlerHandle<BackgroundCompactionEndEvent, ()>>,
     pub session_compaction_source: Vec<HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>>,
     pub session_compact: Vec<HandlerHandle<SessionCompactEvent, ()>>,
     pub session_shutdown: Vec<HandlerHandle<SessionShutdownEvent, ()>>,
@@ -2847,7 +2873,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 34] {
+    fn event_lists_empty(&self) -> [bool; 36] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2857,6 +2883,8 @@ impl ExtensionHandlers {
             self.session_before_fork.is_empty(),
             self.session_before_compact.is_empty(),
             self.compaction.is_empty(),
+            self.background_compaction_start.is_empty(),
+            self.background_compaction_end.is_empty(),
             self.session_compaction_source.is_empty(),
             self.session_compact.is_empty(),
             self.session_shutdown.is_empty(),
@@ -3209,6 +3237,20 @@ impl ExtensionApi {
         handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
+    }
+
+    pub fn on_background_compaction_start(
+        &self,
+        handler: impl Handler<BackgroundCompactionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_start, handler)
+    }
+
+    pub fn on_background_compaction_end(
+        &self,
+        handler: impl Handler<BackgroundCompactionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_end, handler)
     }
 
     pub fn on_session_compaction_source(

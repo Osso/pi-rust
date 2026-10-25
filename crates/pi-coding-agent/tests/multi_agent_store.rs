@@ -19,7 +19,7 @@ fn fresh_time() -> String {
 
 fn new_store() -> MultiAgentStore {
     MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| fresh_time())),
+        now: Some(Arc::new(|| Ok(fresh_time().into()))),
     })
 }
 
@@ -253,7 +253,9 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
     let mut updated = store.get_agent(&spawned.id).expect("agent");
     updated.lifecycle = AgentLifecycle::SteeringPending;
     updated.revision += 1;
-    store.publish_lifecycle_coordinator_steering(&updated, &message);
+    store
+        .publish_lifecycle_coordinator_steering(&updated, &message)
+        .unwrap();
     assert_eq!(
         store.get_agent(&spawned.id).expect("agent").lifecycle,
         AgentLifecycle::SteeringPending
@@ -263,7 +265,9 @@ fn steering_messages_move_through_pending_accepted_and_delivered() {
         status: MailboxMessageStatusValue::Accepted,
         ..message.clone()
     };
-    store.publish_lifecycle_coordinator_steering(&updated, &accepted);
+    store
+        .publish_lifecycle_coordinator_steering(&updated, &accepted)
+        .unwrap();
     assert_eq!(
         store.list_mailbox_messages().unwrap()[0].status,
         MailboxMessageStatusValue::Accepted
@@ -569,20 +573,22 @@ fn abort_handlers_fire_once_and_unregister_on_drop() {
     let captured = fired.clone();
     let registration = store.register_agent_abort_handler(&JsString::from("agent_1"), move || {
         *captured.lock().expect("fired") += 1;
+        Ok(())
     });
-    assert!(store.abort_agent_handle(&JsString::from("agent_1")));
+    assert!(store.abort_agent_handle(&JsString::from("agent_1")).unwrap());
     assert_eq!(*fired.lock().expect("fired"), 1);
-    assert!(!store.abort_agent_handle(&JsString::from("agent_1")));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_1")).unwrap());
     drop(registration);
-    assert!(!store.abort_agent_handle(&JsString::from("agent_1")));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_1")).unwrap());
 
     let fired = Arc::new(Mutex::new(0));
     let captured = fired.clone();
     let registration = store.register_agent_abort_handler(&JsString::from("agent_2"), move || {
         *captured.lock().expect("fired") += 1;
+        Ok(())
     });
     drop(registration);
-    assert!(!store.abort_agent_handle(&JsString::from("agent_2")));
+    assert!(!store.abort_agent_handle(&JsString::from("agent_2")).unwrap());
     assert_eq!(*fired.lock().expect("fired"), 0);
 }
 

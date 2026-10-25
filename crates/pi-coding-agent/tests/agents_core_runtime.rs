@@ -87,7 +87,9 @@ fn test_dir() -> TestDir {
 fn store_with_persistence(test: &TestDir) -> Arc<MultiAgentStore> {
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions {
         // Frozen multi-agent-store.ts:939-945 persists before enqueue; DB expiry uses Date.now().
-        now: Some(Arc::new(pi_coding_agent::utils::iso_time::now_iso_string)),
+        now: Some(Arc::new(|| {
+            Ok(pi_coding_agent::utils::iso_time::now_iso_string().into())
+        })),
     }));
     store.set_persistence_session_manager(Some(&TestPersistence {
         control_db_path: test.control_db_path.clone(),

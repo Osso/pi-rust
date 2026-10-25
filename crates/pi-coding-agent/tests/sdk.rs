@@ -98,6 +98,89 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 }
 
 #[tokio::test]
+async fn no_auth_startup_and_restart_persistence_match_frozen() {
+    use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
+    use pi_coding_agent::core::agent_session_services::AgentSessionServices;
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    let source_root = tempfile::tempdir().unwrap();
+    let native_root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn("sdk-no-model-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"id":99,"root":source_root.path()}));
+    let cwd: JsString = native_root.path().to_str().unwrap().into();
+    let auth_storage = AuthStorage::in_memory(serde_json::Map::new());
+    let model_registry = ModelRegistry::in_memory(auth_storage.clone()).unwrap();
+    let settings_manager = Arc::new(Mutex::new(SettingsManager::in_memory(
+        Default::default(),
+        Default::default(),
+    )));
+    let resource_loader = StaticResourceLoader::new();
+    let mut manager = SessionManager::create(
+        &cwd,
+        Some(&JsString::from(native_root.path().join("sessions").to_str().unwrap())),
+        None,
+    )
+    .unwrap();
+    manager
+        .set_metadata_control_db_path(
+            Some(&JsString::from(native_root.path().join("control.db").to_str().unwrap())),
+            Default::default(),
+        )
+        .unwrap();
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(cwd.clone()),
+        agent_dir: Some(cwd.clone()),
+        auth_storage: Some(auth_storage.clone()),
+        model_registry: Some(model_registry.clone()),
+        settings_manager: Some(Arc::clone(&settings_manager)),
+        resource_loader: Some(resource_loader.clone()),
+        session_manager: Some(manager),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    let entry_types = |session: &pi_coding_agent::core::AgentSession| {
+        session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .map(|entry| entry.entry_type().to_owned())
+            .collect::<Vec<_>>()
+    };
+    let startup = json!({"model":{"provider":result.session.model().provider,"id":result.session.model().id},"message":result.model_fallback_message.as_ref().map(|message|message.replace(pi_coding_agent::config::get_package_dir().unwrap(),"<package>")),"entries":entry_types(&result.session)});
+    let session = result.session.clone();
+    let services = AgentSessionServices {
+        cwd: cwd.clone(),
+        agent_dir: cwd,
+        auth_storage,
+        model_registry,
+        settings_manager,
+        resource_loader,
+        diagnostics: vec![],
+    };
+    let runtime = AgentSessionRuntime::new(
+        result.session,
+        services,
+        Arc::new(|_| Box::pin(async { Err("factory must not run".into()) })),
+        vec![],
+        result.model_fallback_message,
+    );
+    runtime.set_before_process_restart(Some(Arc::new(|| {
+        Box::pin(async { Err("stop after persistence".into()) })
+    })));
+    let error = runtime.restart(None, true).await.unwrap_err().message;
+    let persisted = session
+        .session_manager()
+        .read_persisted_session_settings()
+        .unwrap()
+        .unwrap();
+    let persisted = json!({"model":persisted.model.map(|model|json!({"provider":model.provider,"modelId":model.model_id})),"thinkingLevel":persisted.thinking_level});
+    assert_eq!(
+        json!({"id":99,"startup":startup,"persisted":persisted,"entries":entry_types(&session),"error":error}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn create_agent_session_keeps_running_without_models() {
     let temp = tempfile::tempdir().expect("temp dir");
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();

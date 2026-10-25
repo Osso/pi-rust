@@ -31,3 +31,9 @@ Pinned source: `packages/ai/src/auth/oauth/openai-codex.ts` at `532f7d12cd192350
 - `readTokenResponse` uses `HttpResponse::status_text` for an empty body. Invalid JSON is reported as a missing-fields error rather than the JS `SyntaxError` text.
 - Token responses are typed; malformed responses produce Rust errors instead of `undefined` credential fields.
 - Differential normalizes nothing for this flow: fixed clock and deterministic randomness make state/PKCE/expiry identical.
+
+## Settings/models bounded credentialsFromToken correction (2026-10-25)
+
+This lane ports frozen read-token id_token capture, shared JWT decoding, getEmail direct/profile precedence and optional email append in credentialsFromToken. It preserves access/refresh/expires/accountId/email construction order through the shared OAuthCredential key-order metadata and the actual AuthStorage type-first spread. REDs: `/tmp/settings-models-codex-order-red.log`, `/tmp/settings-models-codex-email-red.log`;7 actual-source AuthStorage/Codex refresh cases cover absent/direct/empty/profile/precedence/undecodable/native-unit email and exact file bytes. The rest of this OAuth module remains the AI lane's whole-module audit, not claimed by this bounded slice.
+
+Current lane GREEN: /tmp/settings-models-codex-order-green.log (7 actual-source wrapper cases + native order/email); /tmp/settings-models-oauth-regressions.log (20 Codex/Copilot native cases), /tmp/settings-models-anthropic-regressions.log (6 Anthropic native cases). Targeted warning-mode clippy passes (`/tmp/settings-models-oauth-order-clippy.log`); no warnings on changed lines. Manual changed Rust/TS readability audit found no in-scope violations.

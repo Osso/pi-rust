@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use futures_util::FutureExt;
 use pi_agent_core::agent::types::{
     AfterToolCallContext, AfterToolCallResult, AgentError, AgentEvent, AgentMessage, AgentState, AgentTool,
     AgentToolCall, BeforeToolCallContext, PrepareNextTurnContext, ShouldStopAfterTurnContext,
@@ -1128,6 +1129,7 @@ struct BackgroundCompactionCache {
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
     generation_duration_ms: Option<i64>,
+    generation: futures_util::future::Shared<BoxFuture<'static, ()>>,
 }
 
 const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
@@ -1574,6 +1576,44 @@ impl AgentSession {
         )));
     }
 
+    fn percentage_compaction_threshold_reached(&self) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        if settings.threshold_percent.is_none() {
+            return Ok(false);
+        }
+        let Some(usage) = self.get_context_usage() else {
+            return Ok(false);
+        };
+        crate::core::compaction::should_compact(
+            usage.tokens,
+            usage.context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            self.model().auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))
+    }
+
+    async fn compact_for_next_turn(
+        &self,
+        mut turn: PrepareNextTurnContext,
+    ) -> Result<PrepareNextTurnContext, AgentSessionError> {
+        if self.percentage_compaction_threshold_reached()? {
+            let identity = self
+                .find_last_assistant_message_with_identity()
+                .map(|(_, identity)| identity);
+            self.check_compaction(&turn.message, identity.as_ref(), false).await?;
+        } else if self.has_ready_background_compaction()? {
+            self.run_auto_compaction("threshold", false, false).await?;
+        } else {
+            return Ok(turn);
+        }
+        turn.context.messages = self.messages();
+        Ok(turn)
+    }
+
     fn install_agent_next_turn_refresh(&self) {
         let previous_with_context = self.inner.agent.prepare_next_turn_with_context_hook();
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
@@ -1584,11 +1624,14 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
-                    if let Some(inner) = weak.upgrade() {
-                        lock(&inner.settings_manager)
-                            .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
-                    }
+                    let turn = if let Some(inner) = weak.upgrade() {
+                        AgentSession { inner }
+                            .compact_for_next_turn(turn)
+                            .await
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?
+                    } else {
+                        turn
+                    };
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
@@ -3782,6 +3825,15 @@ impl AgentSession {
         };
         static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
+        let weak = Arc::downgrade(&self.inner);
+        let generation = async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            AgentSession { inner }.generate_background_compaction(token).await;
+        }
+        .boxed()
+        .shared();
         let cache = BackgroundCompactionCache {
             token,
             state: BackgroundCompactionState::Pending,
@@ -3800,34 +3852,39 @@ impl AgentSession {
             compaction: None,
             from_extension: false,
             generation_duration_ms: None,
+            generation: generation.clone(),
         };
         *lock(&self.inner.background_compaction_cache) = Some(cache);
-        let weak = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
-            let Some(inner) = weak.upgrade() else {
-                return;
-            };
-            AgentSession { inner }.generate_background_compaction(token).await;
-        });
+        tokio::spawn(generation);
         Ok(())
     }
 
     async fn generate_background_compaction(&self, token: u64) {
-        let Some((preparation, branch_entries, abort, runner, model)) = lock(&self.inner.background_compaction_cache)
+        let Some(cache) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.token == token)
-            .map(|cache| {
-                (
-                    cache.preparation.clone(),
-                    cache.branch_entries.clone(),
-                    cache.abort.signal(),
-                    cache.runner.clone(),
-                    self.inner.agent.model(),
-                )
-            })
+            .cloned()
         else {
             return;
         };
+        let model = self.inner.agent.model();
+        let runner = cache.runner.clone();
+        let mut start = ExtensionEvent::BackgroundCompactionStart(
+            crate::core::extensions::types::BackgroundCompactionStartEvent {},
+        );
+        runner.emit(&mut start).await;
+        self.generate_background_compaction_inner(cache, model).await;
+        let mut end =
+            ExtensionEvent::BackgroundCompactionEnd(crate::core::extensions::types::BackgroundCompactionEndEvent {});
+        runner.emit(&mut end).await;
+    }
+
+    async fn generate_background_compaction_inner(&self, cache: BackgroundCompactionCache, model: Model) {
+        let token = cache.token;
+        let preparation = cache.preparation;
+        let branch_entries = cache.branch_entries;
+        let abort = cache.abort.signal();
+        let runner = cache.runner;
         let started_at = now_millis();
         let extension_compaction =
             match emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort).await
@@ -3839,6 +3896,7 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
+            None if !cache.settings.enabled => return,
             None => match self.get_compaction_request_auth(&model).await {
                 Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
                 Err(error) => Err(error),
@@ -3996,27 +4054,30 @@ impl AgentSession {
     }
 
     async fn cancel_background_compaction(&self) {
-        let abort = lock(&self.inner.background_compaction_cache)
+        let pending = lock(&self.inner.background_compaction_cache)
             .as_ref()
-            .map(|cache| cache.abort.clone());
-        let Some(abort) = abort else {
+            .map(|cache| (cache.token, cache.abort.clone(), cache.generation.clone()));
+        let Some((token, abort, generation)) = pending else {
             return;
         };
         abort.abort(None);
-        *lock(&self.inner.background_compaction_cache) = None;
+        generation.await;
+        let mut cache = lock(&self.inner.background_compaction_cache);
+        if cache.as_ref().is_some_and(|cache| cache.token == token) {
+            *cache = None;
+        }
     }
 
     async fn take_background_compaction(&self) -> Result<Option<BackgroundCompactionCache>, AgentSessionError> {
-        let (token, state, abort) = {
+        let (token, state) = {
             let guard = lock(&self.inner.background_compaction_cache);
             let Some(cache) = guard.as_ref() else {
                 return Ok(None);
             };
-            (cache.token, cache.state, cache.abort.clone())
+            (cache.token, cache.state)
         };
         if state == BackgroundCompactionState::Pending {
-            abort.abort(None);
-            *lock(&self.inner.background_compaction_cache) = None;
+            self.cancel_background_compaction().await;
             return Ok(None);
         }
         if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token)? {

@@ -204,7 +204,7 @@ pub async fn emit_project_trust_event(
                 Err(error) => errors.push(ExtensionError {
                     extension_path: extension.read().path.clone(),
                     event: event_type_name("project_trust"),
-                    error: error.message,
+                    error: error.caught_message(),
                     stack: error.stack,
                 }),
             }
@@ -694,6 +694,8 @@ impl ExtensionRunner {
                 "session_before_fork" => !handlers.session_before_fork.is_empty(),
                 "session_before_compact" => !handlers.session_before_compact.is_empty(),
                 "compaction" => !handlers.compaction.is_empty(),
+                "background_compaction_start" => !handlers.background_compaction_start.is_empty(),
+                "background_compaction_end" => !handlers.background_compaction_end.is_empty(),
                 "session_compaction_source" => !handlers.session_compaction_source.is_empty(),
                 "session_compact" => !handlers.session_compact.is_empty(),
                 "session_shutdown" => !handlers.session_shutdown.is_empty(),
@@ -1034,7 +1036,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path,
             event: event.to_owned(),
-            error: error.message,
+            error: error.caught_message(),
             stack: error.stack,
         });
     }
@@ -1112,6 +1114,12 @@ impl ExtensionRunner {
             ExtensionEvent::SessionStart(event) => dispatch!(event, session_start, "session_start"),
             ExtensionEvent::SessionInfoChanged(event) => {
                 dispatch!(event, session_info_changed, "session_info_changed")
+            }
+            ExtensionEvent::BackgroundCompactionStart(event) => {
+                dispatch!(event, background_compaction_start, "background_compaction_start")
+            }
+            ExtensionEvent::BackgroundCompactionEnd(event) => {
+                dispatch!(event, background_compaction_end, "background_compaction_end")
             }
             ExtensionEvent::SessionCompact(event) => dispatch!(event, session_compact, "session_compact"),
             ExtensionEvent::SessionShutdown(event) => dispatch!(event, session_shutdown, "session_shutdown"),
@@ -1201,7 +1209,7 @@ impl ExtensionRunner {
         self.emit_error(ExtensionError {
             extension_path: extension_path.to_owned(),
             event: "runtime_mailbox".to_owned(),
-            error: error.message.clone(),
+            error: error.caught_message(),
             stack: error.stack.clone(),
         });
     }

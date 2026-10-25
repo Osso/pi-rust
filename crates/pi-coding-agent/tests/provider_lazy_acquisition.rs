@@ -181,3 +181,55 @@ async fn lazy_conversion_child() {
     .await
     .expect("lazy fixture progress");
 }
+
+#[test]
+fn frozen_lazy_inner_iteration_failure_is_process_uncaught() {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let lock = oracle::read_source_lock();
+    oracle::verify_source_head(&lock);
+    let mut source = oracle::spawn_oracle_process(
+        &lock,
+        "provider-lazy-acquisition-oracle.ts",
+        "packages/ai/src/api/lazy.ts",
+        &[],
+        std::process::Stdio::piped(),
+    );
+    let request = js_json::stringify_lossless(
+        &js_json!({"method":"stream", "kind":"error", "value":"inner rejected", "inner":true, "model":model_value()}),
+    ) + "\n";
+    source.stdin.take().unwrap().write_all(request.as_bytes()).unwrap();
+    let source = wait_output(source);
+    assert_eq!(source.status.code(), Some(1), "{source:?}");
+    assert!(source.stdout.is_empty());
+    assert!(
+        std::str::from_utf8(&source.stderr)
+            .unwrap()
+            .contains("TypeError: inner rejected"),
+        "{source:?}"
+    );
+    let native = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "lazy_inner_failure_child", "--ignored", "--nocapture"])
+        .env("PI_LAZY_INNER_CHILD", "1")
+        .process_group(0)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let native = wait_output(native);
+    assert_eq!(native.status.code(), Some(1), "{native:?}");
+    assert_eq!(native.stderr, b"TypeError: inner rejected\n");
+}
+
+#[tokio::test]
+#[ignore = "isolated shared process-hook fixture"]
+async fn lazy_inner_failure_child() {
+    assert_eq!(std::env::var("PI_LAZY_INNER_CHILD").as_deref(), Ok("1"));
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    let model = js_json::from_value(&model_value()).unwrap();
+    let (sender, inner) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+    sender.fail(rejection("error", &"inner rejected".into()).into());
+    let mut outer = pi_ai::api::lazy::lazy_stream(model, move || Box::pin(async move { Ok(inner) }));
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), outer.next()).await;
+    panic!("iteration failure must exit through shared uncaught authority, got {result:?}");
+}

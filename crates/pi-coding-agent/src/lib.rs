@@ -55,7 +55,6 @@ pub use crate::core::auth_storage::AuthStorage;
 pub use crate::core::auth_storage::AuthStorageBackend;
 pub use crate::core::auth_storage::FileAuthStorageBackend;
 pub use crate::core::auth_storage::InMemoryAuthStorageBackend;
-pub use crate::core::auth_storage::read_stored_credential;
 pub use crate::core::compaction::CompactionResult;
 pub use crate::core::compaction::CutPointResult;
 pub use crate::core::compaction::FileOperations;

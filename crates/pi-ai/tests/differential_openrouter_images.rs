@@ -30,7 +30,7 @@ fn normalize_headers(headers: &[(String, String)]) -> Value {
     let mut record = Map::new();
     for (name, value) in headers {
         let name = name.to_ascii_lowercase();
-        if name == "user-agent" || name.starts_with("x-stainless-") {
+        if name == "user-agent" || (name.starts_with("x-stainless-") && name != "x-stainless-retry-count") {
             continue;
         }
         record.insert(name, Value::String(value.clone()));
@@ -55,6 +55,7 @@ fn observed(request: &Value) -> Value {
             })
             .unwrap_or_default(),
         body: response["body"].as_str().expect("body string").to_owned(),
+        body_delay_ms: response.get("bodyDelayMs").and_then(Value::as_u64),
     };
     let fetch = Arc::new(FixtureFetch {
         response: fixture,
@@ -65,8 +66,34 @@ fn observed(request: &Value) -> Value {
     if option_values.get("aborted").and_then(Value::as_bool).unwrap_or(false) {
         signal_controller.abort(None);
     }
+    let payload_error = option_values.get("payloadError").cloned();
+    let replacement = option_values.get("replacePayload").cloned();
+    let response_error = option_values.get("responseError").cloned();
     let options = ImagesOptions {
         request: ImagesRequestOptions {
+            on_payload: Some(Arc::new(move |_, _| {
+                let error = payload_error.clone();
+                let replacement = replacement.clone();
+                Box::pin(async move {
+                    if let Some(error) = error {
+                        return Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                            error.into(),
+                        )));
+                    }
+                    Ok(replacement.map(Into::into))
+                })
+            })),
+            on_response: Some(Arc::new(move |_, _| {
+                let error = response_error.clone();
+                Box::pin(async move {
+                    if let Some(error) = error {
+                        return Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                            error.into(),
+                        )));
+                    }
+                    Ok(())
+                })
+            })),
             api_key: (option_values
                 .get("apiKey")
                 .and_then(Value::as_str)
@@ -74,6 +101,8 @@ fn observed(request: &Value) -> Value {
             headers: option_values.get("headers").and_then(headers_from_json),
             fetch: Some(fetch.clone()),
             signal: Some(signal),
+            max_retries: option_values.get("maxRetries").and_then(Value::as_f64),
+            timeout_ms: option_values.get("timeoutMs").and_then(Value::as_f64),
             ..Default::default()
         },
         ..Default::default()
@@ -81,7 +110,7 @@ fn observed(request: &Value) -> Value {
 
     let output = block_on(generate_images(model, context, options)).expect("generation returns a result");
     let requests = fetch.requests.lock().expect("requests lock").clone();
-    let recorded = match requests.first() {
+    let recorded = match requests.last() {
         Some(request) => json!({
             "method": request.method,
             "url": request.url,
@@ -104,6 +133,7 @@ struct FixtureResponse {
     status: u16,
     headers: Vec<(String, String)>,
     body: String,
+    body_delay_ms: Option<u64>,
 }
 
 struct FixtureFetch {
@@ -124,6 +154,7 @@ impl Fetch for FixtureFetch {
             headers: self.response.headers.clone(),
             body: Box::new(BytesBody {
                 chunk: Some(self.response.body.as_bytes().to_vec()),
+                delay_ms: self.response.body_delay_ms,
             }),
         };
         Box::pin(async move { Ok(response) })
@@ -132,12 +163,19 @@ impl Fetch for FixtureFetch {
 
 struct BytesBody {
     chunk: Option<Vec<u8>>,
+    delay_ms: Option<u64>,
 }
 
 impl HttpBody for BytesBody {
     fn next_chunk(&mut self) -> BoxFuture<'_, Option<Result<Vec<u8>, CallbackError>>> {
         let chunk = self.chunk.take();
-        Box::pin(async move { chunk.map(Ok) })
+        let delay = self.delay_ms.take();
+        Box::pin(async move {
+            if let Some(delay) = delay {
+                tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+            }
+            chunk.map(Ok)
+        })
     }
 }
 
@@ -193,7 +231,7 @@ fn fixtures() -> Vec<Value> {
         {"type": "text", "text": "Make it blue"},
         {"type": "image", "data": "aGk=", "mimeType": "image/png"}
     ]});
-    vec![
+    let mut cases = vec![
         json!({
             "id": 0,
             "model": base_model(),
@@ -264,7 +302,46 @@ fn fixtures() -> Vec<Value> {
             "context": text_context,
             "options": {"apiKey": "test", "response": {"status": 503, "headers": json!({"content-type": "application/json"}), "body": json!({"error": {"message": "nested", "type": "x"}}).to_string()}}
         }),
-    ]
+    ];
+    for (id, headers, body) in [
+        (10, json!({"content-type":"text/plain"}), "gateway returned text"),
+        (11, json!({"content-type":"application/json"}), "not json"),
+        (12, json!({"content-type":"application/json"}), "{\"choices\":[]}"),
+    ] {
+        let mut request = cases[0].clone();
+        request["id"] = json!(id);
+        request["options"]["response"] = json!({"status":200,"headers":headers,"body":body});
+        cases.push(request);
+    }
+    let mut empty_key = cases[0].clone();
+    empty_key["id"] = json!(13);
+    empty_key["options"]["apiKey"] = json!("");
+    cases.push(empty_key);
+    for (id, field, value) in [
+        (15, "payloadError", json!("payload rejected")),
+        (16, "responseError", json!({"message":"raw response rejected"})),
+        (
+            17,
+            "replacePayload",
+            json!({"model":"override","messages":[],"stream":false}),
+        ),
+    ] {
+        let mut request = cases[0].clone();
+        request["id"] = json!(id);
+        request["options"][field] = value;
+        cases.push(request);
+    }
+    let mut retry = cases[0].clone();
+    retry["id"] = json!(18);
+    retry["options"]["maxRetries"] = json!(1);
+    retry["options"]["response"] = json!({"status":500,"headers":{"content-type":"application/json","retry-after-ms":"0"},"body":"{\"error\":{\"message\":\"retry exhausted\"}}"});
+    cases.push(retry);
+    let mut slow_body = cases[0].clone();
+    slow_body["id"] = json!(19);
+    slow_body["options"]["timeoutMs"] = json!(10);
+    slow_body["options"]["response"]["bodyDelayMs"] = json!(100);
+    cases.push(slow_body);
+    cases
 }
 
 #[test]
@@ -276,4 +353,55 @@ fn openrouter_images_matches_the_pinned_typescript_module() {
     for request in fixtures() {
         assert_eq!(observed(&request), ts.request(&request), "request {request}");
     }
+}
+
+#[test]
+fn image_response_text_keeps_native_utf16_against_frozen_sdk() {
+    use pi_js_compat::{js_json, js_json::JsValue};
+    let body = r#"{"id":"img-native","choices":[{"message":{"content":"image caption \ud800", "images":[]}}]}"#;
+    let fetch = Arc::new(FixtureFetch {
+        response: FixtureResponse {
+            status: 200,
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: body.into(),
+            body_delay_ms: None,
+        },
+        requests: Mutex::new(Vec::new()),
+    });
+    let replacement =
+        pi_js_compat::js_json::parse_lossless(r#"{"model":"override","caption":"native \ud801","stream":false}"#)
+            .unwrap();
+    let payload = replacement.clone();
+    let options = ImagesOptions {
+        request: ImagesRequestOptions {
+            api_key: Some("test".into()),
+            fetch: Some(fetch.clone()),
+            on_payload: Some(Arc::new(move |_, _| {
+                let payload = payload.clone();
+                Box::pin(async move { Ok(Some(payload)) })
+            })),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let context = json!({"input":[{"type":"text","text":"draw"}]});
+    let output = block_on(generate_images(
+        model_from_json(&base_model()),
+        context_from_json(&context),
+        options,
+    ))
+    .unwrap();
+    let mut actual = js_json!(output);
+    actual["timestamp"] = js_json!(0);
+    let mut source = oracle::TsOracle::spawn(
+        "openrouter-images-oracle.ts",
+        "packages/ai/src/api/openrouter-images.ts",
+    );
+    let mut request: JsValue = json!({"id":14,"model":base_model(),"context":context,"options":{"apiKey":"test","response":{"status":200,"headers":{"content-type":"application/json"},"body":body}}}).into();
+    request["options"]["replacePayload"] = replacement;
+    let expected = source.request(&request);
+    assert_eq!(actual, expected["output"]);
+    let requests = fetch.requests.lock().unwrap();
+    let sent = String::from_utf8(requests[0].body.clone().unwrap()).unwrap();
+    assert_eq!(js_json!(sent), expected["request"]["body"]);
 }

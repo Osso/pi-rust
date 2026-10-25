@@ -83,12 +83,7 @@ fn storage() -> AuthStorage {
     AuthStorage::in_memory([] as [(&str, serde_json::Value); 0])
 }
 fn credential(access: JsString) -> OAuthCredentials {
-    OAuthCredentials {
-        refresh: "refresh-token".into(),
-        access,
-        expires: 9999999999999.0,
-        extra: Default::default(),
-    }
+    OAuthCredentials::new("refresh-token", access, 9999999999999.0)
 }
 fn options(id: &str, storage: AuthStorage, io: Arc<TestIo>) -> RunLoginCommandOptions {
     RunLoginCommandOptions {

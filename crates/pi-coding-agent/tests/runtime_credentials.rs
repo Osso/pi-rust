@@ -1,118 +1,97 @@
-//! Ports `packages/coding-agent/test/runtime-credentials.test.ts`.
+//! Runtime overrides through the frozen public AuthStorage API.
 
-use pi_js_compat::js_json::JsString;
-use std::sync::Arc;
-
-use pi_ai::auth::types::{ApiKeyCredential, AuthError, Credential, CredentialModifier, CredentialStore};
 use pi_ai::request::BoxFuture;
-use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::runtime_credentials::RuntimeCredentials;
-use pi_js_compat::abort::AbortSignal;
-use serde_json::{Map, json};
+use pi_coding_agent::core::auth_storage::{
+    AsyncLockOperation, AuthStorage, AuthStorageBackend, GetApiKeyOptions, LockOperation, StorageError,
+};
+use pi_js_compat::js_json::{JsString, JsValue};
+use std::sync::{
+    Arc,
+    atomic::{AtomicUsize, Ordering},
+};
 
-fn runtime() -> tokio::runtime::Runtime {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap()
+fn api_key(key: &str) -> JsValue {
+    pi_js_compat::js_json!({"type":"api_key", "key":key})
 }
 
-fn api_key(key: &str) -> Credential {
-    Credential::ApiKey(ApiKeyCredential {
-        key: Some(key.to_owned().into()),
-        env: None,
-    })
+#[tokio::test]
+async fn runtime_overrides_mask_stored_credentials_without_persisting() {
+    let storage = AuthStorage::in_memory([("fixture", api_key("stored-key"))]);
+    storage.set_runtime_api_key("fixture", &JsString::from("runtime-key"));
+    assert_eq!(
+        storage
+            .get_api_key("fixture", GetApiKeyOptions::default())
+            .await
+            .unwrap(),
+        Some("runtime-key".into())
+    );
+    assert_eq!(storage.get("fixture"), Some(api_key("stored-key")));
+    storage.remove_runtime_api_key("fixture");
+    assert_eq!(
+        storage
+            .get_api_key("fixture", GetApiKeyOptions::default())
+            .await
+            .unwrap(),
+        Some("stored-key".into())
+    );
 }
 
-fn storage_with(entries: &[(&str, serde_json::Value)]) -> Arc<AuthStorage> {
-    let mut data = Map::new();
-    for (provider, credential) in entries {
-        data.insert((*provider).to_owned(), credential.clone());
+struct FailingRemovalBackend {
+    reads: AtomicUsize,
+}
+impl AuthStorageBackend for FailingRemovalBackend {
+    fn with_lock(&self, operation: LockOperation<'_>) -> Result<(), StorageError> {
+        if self.reads.fetch_add(1, Ordering::SeqCst) == 0 {
+            operation(Some(r#"{"fixture":{"type":"api_key","key":"stored-key"}}"#))?;
+            Ok(())
+        } else {
+            Err(StorageError::new("persistent removal failed"))
+        }
     }
-    Arc::new(AuthStorage::in_memory(data))
-}
-
-#[test]
-fn runtime_overrides_mask_stored_credentials_without_persisting() {
-    let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
-    let credentials = RuntimeCredentials::new(Arc::clone(&storage) as Arc<dyn CredentialStore>);
-
-    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
-    runtime().block_on(async {
-        assert_eq!(
-            credentials.read("anthropic").await.unwrap(),
-            Some(api_key("runtime-key"))
-        );
-        assert_eq!(storage.read("anthropic").await.unwrap(), Some(api_key("stored-key")));
-    });
-
-    credentials.remove_runtime_api_key("anthropic");
-    assert!(!credentials.has_runtime_api_key("anthropic"));
-    runtime().block_on(async {
-        assert_eq!(
-            credentials.read("anthropic").await.unwrap(),
-            Some(api_key("stored-key"))
-        );
-    });
-}
-
-struct FailingDeleteStore {
-    inner: Arc<AuthStorage>,
-    signal: AbortSignal,
-}
-
-impl CredentialStore for FailingDeleteStore {
-    fn read(&self, provider_id: &str) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        self.inner.read(provider_id)
-    }
-
-    fn modify(
-        &self,
-        provider_id: &str,
-        modifier: CredentialModifier,
-    ) -> BoxFuture<'_, Result<Option<Credential>, AuthError>> {
-        self.inner.modify(provider_id, modifier)
-    }
-
-    fn delete(&self, _provider_id: &str) -> BoxFuture<'_, Result<(), AuthError>> {
-        let signal = self.signal.clone();
-        Box::pin(async move { Err(AuthError::from_abort_reason(signal.wait().await)) })
+    fn with_lock_async(&self, _: AsyncLockOperation) -> BoxFuture<'_, Result<(), StorageError>> {
+        Box::pin(async { Err(StorageError::new("unexpected async operation")) })
     }
 }
 
-#[test]
-fn keeps_a_runtime_override_when_persistent_deletion_aborted() {
-    let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
-    let controller = pi_js_compat::abort::AbortController::new();
-    controller.abort(Some(pi_js_compat::abort::AbortReason::Value(
-        pi_js_compat::js_json::JsValue::Bool(false),
-    )));
-    let failing = Arc::new(FailingDeleteStore {
-        inner: Arc::clone(&storage),
-        signal: controller.signal(),
-    });
-    let credentials = RuntimeCredentials::new(failing as Arc<dyn CredentialStore>);
-    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
-
-    let error = runtime().block_on(credentials.delete("anthropic")).unwrap_err();
-    assert_eq!(error.thrown_value(), controller.signal().reason().unwrap());
-    runtime().block_on(async {
-        assert_eq!(
-            credentials.read("anthropic").await.unwrap(),
-            Some(api_key("runtime-key"))
-        );
-    });
+#[tokio::test]
+async fn keeps_runtime_override_and_stored_snapshot_after_removal_failure() {
+    let storage = AuthStorage::from_storage(Arc::new(FailingRemovalBackend {
+        reads: AtomicUsize::new(0),
+    }));
+    storage.set_runtime_api_key("fixture", &JsString::from("runtime-key"));
+    assert_eq!(
+        storage.remove("fixture").unwrap_err().message(),
+        "persistent removal failed"
+    );
+    assert_eq!(storage.get("fixture"), Some(api_key("stored-key")));
+    assert_eq!(
+        storage
+            .get_api_key("fixture", GetApiKeyOptions::default())
+            .await
+            .unwrap(),
+        Some("runtime-key".into())
+    );
 }
 
-#[test]
-fn delete_clears_both_the_override_and_the_persisted_credential() {
-    let storage = storage_with(&[("anthropic", json!({"type": "api_key", "key": "stored-key"}))]);
-    let credentials = RuntimeCredentials::new(Arc::clone(&storage) as Arc<dyn CredentialStore>);
-    credentials.set_runtime_api_key("anthropic", &JsString::from("runtime-key"));
-
-    runtime().block_on(credentials.delete("anthropic")).unwrap();
-
-    runtime().block_on(async {
-        assert_eq!(credentials.read("anthropic").await.unwrap(), None);
-    });
+#[tokio::test]
+async fn logout_keeps_runtime_override_until_it_is_explicitly_removed() {
+    let storage = AuthStorage::in_memory([("fixture", api_key("stored-key"))]);
+    storage.set_runtime_api_key("fixture", &JsString::from("runtime-key"));
+    storage.logout("fixture").unwrap();
+    assert_eq!(storage.get("fixture"), None);
+    assert_eq!(
+        storage
+            .get_api_key("fixture", GetApiKeyOptions::default())
+            .await
+            .unwrap(),
+        Some("runtime-key".into())
+    );
+    storage.remove_runtime_api_key("fixture");
+    assert_eq!(
+        storage
+            .get_api_key("fixture", GetApiKeyOptions::default())
+            .await
+            .unwrap(),
+        None
+    );
 }
