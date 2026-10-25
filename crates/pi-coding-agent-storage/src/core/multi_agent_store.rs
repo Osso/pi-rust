@@ -305,8 +305,8 @@ pub struct AgentError {
 
 #[derive(Debug, Clone)]
 pub struct AgentNode {
-    /// Original root (None) and spread-copied child (Some) key orders; no duplicate JSON values.
-    pub key_order: Vec<(Option<JsString>, Vec<JsString>)>,
+    /// Original object-path key orders (empty path is root); no duplicate JSON values.
+    pub key_order: Vec<(Vec<JsString>, Vec<JsString>)>,
     pub id: JsString,
     pub parent_id: Option<JsString>,
     pub display_name: JsString,
@@ -342,22 +342,60 @@ impl PartialEq for AgentNode {
     }
 }
 
-fn capture_agent_key_order(object: &JsObject) -> Vec<(Option<JsString>, Vec<JsString>)> {
-    let mut orders = vec![(None, object.keys().cloned().collect())];
-    for field in [
-        "error",
-        "currentActivity",
-        "lastActivity",
-        "model",
-        "permission",
-        "slot",
-        "worktree",
-    ] {
-        if let Some(JsValue::Object(child)) = object.get(field) {
-            orders.push((Some(field.into()), child.keys().cloned().collect()));
-        }
+fn capture_agent_key_order(object: &JsObject) -> Vec<(Vec<JsString>, Vec<JsString>)> {
+    let mut orders = vec![(Vec::new(), object.keys().cloned().collect())];
+    for (key, value) in object {
+        capture_value_key_orders(value, &mut vec![key.clone()], &mut orders);
     }
     orders
+}
+
+fn capture_value_key_orders(
+    value: &JsValue,
+    path: &mut Vec<JsString>,
+    orders: &mut Vec<(Vec<JsString>, Vec<JsString>)>,
+) {
+    match value {
+        JsValue::Object(object) => {
+            orders.push((path.clone(), object.keys().cloned().collect()));
+            for (key, value) in object {
+                path.push(key.clone());
+                capture_value_key_orders(value, path, orders);
+                path.pop();
+            }
+        }
+        JsValue::Array(array) => {
+            for (index, value) in array.iter().enumerate() {
+                path.push(index.to_string().into());
+                capture_value_key_orders(value, path, orders);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
+}
+
+fn restore_value_key_orders(value: &mut JsValue, path: &mut Vec<JsString>, orders: &HashMap<&[JsString], &[JsString]>) {
+    match value {
+        JsValue::Object(object) => {
+            if let Some(order) = orders.get(path.as_slice()) {
+                *object = reorder_properties(std::mem::take(object), order);
+            }
+            for (key, value) in object {
+                path.push(key.clone());
+                restore_value_key_orders(value, path, orders);
+                path.pop();
+            }
+        }
+        JsValue::Array(array) => {
+            for (index, value) in array.iter_mut().enumerate() {
+                path.push(index.to_string().into());
+                restore_value_key_orders(value, path, orders);
+                path.pop();
+            }
+        }
+        _ => {}
+    }
 }
 
 fn reorder_properties(mut object: JsObject, order: &[JsString]) -> JsObject {
@@ -420,18 +458,14 @@ fn agent_node_json(agent: &AgentNode) -> JsValue {
         }
     }
     object.extend(agent.extra.clone());
-    for (field, order) in &agent.key_order {
-        let Some(field) = field else {
-            continue;
-        };
-        if let Some(JsValue::Object(child)) = object.get_mut(field) {
-            *child = reorder_properties(std::mem::take(child), order);
-        }
-    }
-    if let Some((_, order)) = agent.key_order.iter().find(|(field, _)| field.is_none()) {
-        object = reorder_properties(object, order);
-    }
-    JsValue::Object(object)
+    let mut value = JsValue::Object(object);
+    let orders = agent
+        .key_order
+        .iter()
+        .map(|(path, order)| (path.as_slice(), order.as_slice()))
+        .collect();
+    restore_value_key_orders(&mut value, &mut Vec::new(), &orders);
+    value
 }
 
 impl Serialize for AgentNode {
@@ -2166,7 +2200,7 @@ impl MultiAgentStore {
         Ok(AgentSnapshot {
             key_order: vec![
                 (
-                    None,
+                    Vec::new(),
                     [
                         "agentType",
                         "createdAt",
@@ -2183,7 +2217,7 @@ impl MultiAgentStore {
                     .map(JsString::from)
                     .collect(),
                 ),
-                (Some("permission".into()), vec!["narrowed".into(), "policy".into()]),
+                (vec!["permission".into()], vec!["narrowed".into(), "policy".into()]),
             ],
             agent_type: "main".into(),
             created_at: timestamp.clone(),
@@ -2581,7 +2615,7 @@ impl MetadataUpdate {
         ] {
             if replaced {
                 let field = JsString::from(field);
-                updated.key_order.retain(|(child, _)| child.as_ref() != Some(&field));
+                updated.key_order.retain(|(path, _)| path.first() != Some(&field));
             }
         }
         updated.updated_at = updated_at.clone();
@@ -2781,16 +2815,28 @@ fn restore_agent_snapshot(agent: AgentNode) -> AgentNode {
 
 pub fn copy_agent(agent: &AgentNode) -> AgentNode {
     let mut copied = agent.clone();
-    if !copied.key_order.iter().any(|(field, _)| field.is_none()) {
+    copied.key_order.retain(|(path, _)| {
+        let Some(field) = path.first() else {
+            return true;
+        };
+        if field == "account" {
+            return path.len() > 1;
+        }
+        !["result", "worker", "transcript", "eventStream"]
+            .iter()
+            .any(|name| field == *name)
+    });
+    if !copied.key_order.iter().any(|(path, _)| path.is_empty()) {
         let value = agent_node_json(agent);
-        copied
-            .key_order
-            .push((None, value.as_object().expect("agent object").keys().cloned().collect()));
+        copied.key_order.push((
+            Vec::new(),
+            value.as_object().expect("agent object").keys().cloned().collect(),
+        ));
     }
     let (_, root) = copied
         .key_order
         .iter_mut()
-        .find(|(field, _)| field.is_none())
+        .find(|(path, _)| path.is_empty())
         .expect("root order");
     for field in [
         "account",

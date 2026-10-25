@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Raw agent writes versus store copies (2026-10-25)
+
+Actual-source attachment creation RED `/tmp/storage3-control-agent-wire-red.log` shows typed agent serialization incorrectly applied store copyAccount order to a raw control-DB payload. Existing approved AgentNode order-only metadata now records object paths (including reference-array entries); no JSON values are duplicated. Raw control reads/creation/mutation retain original nested orders. Only copyAgent discards metadata for the objects it rebuilds (account root; result/reference, worker, transcript and event-stream subtrees), so store copies keep their distinct frozen constructor order. The fixture compares actual frozen/native attachment SQLite data bytes for five ordinary nested fields.
+
 ## Archive-candidate Unicode tie ordering (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-archive-order-red.log` orders ordinary `𠮷野` and fullwidth `Ａ` filenames differently from native UTF-8 sorting. Candidate timestamps/paths now use the existing JsString SQL reader and UTF-16 ordering. The real-source fixture supplies Date to the exported selector; the native test covers date priority, equal-date filename order, cutoff equality, archived/subagent filtering and verifies selection does not archive rows. No new carrier or locale sort.
