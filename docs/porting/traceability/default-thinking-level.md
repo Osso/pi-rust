@@ -4,7 +4,7 @@ Pinned source: `packages/coding-agent/src/core/defaults.ts:1-3` at commit `532f7
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
-| `defaults.ts:1` | Import the agent-harness `ThinkingLevel` type. | `crates/pi-coding-agent-data/src/core/defaults.rs` imports `pi_agent_core::harness::ThinkingLevel` through the exact local dependency. |
+| `defaults.ts:1` | Import the agent-harness `ThinkingLevel` type. | `crates/pi-coding-agent-models/src/core/defaults.rs` imports `pi_agent_core::harness::ThinkingLevel` through the exact local dependency. |
 | `defaults.ts:3` | Export `DEFAULT_THINKING_LEVEL` with the exact typed value `"medium"`. | `pub const DEFAULT_THINKING_LEVEL: ThinkingLevel = ThinkingLevel::Medium`; focused behavior proves typed equality, the exact literal, and Copy use. |
 | Coding-agent package index | `defaults.ts` is not exported by the pinned coding-agent index. | Rust adds no crate-root or `core` re-export of the constant; only `pi_coding_agent::core::defaults::DEFAULT_THINKING_LEVEL` is public. |
 | Differential request `13167` | Read the actual exported constant from the pinned direct module. | `differential_default_thinking_level` invokes `default-thinking-level-oracle.ts` with `packages/coding-agent/src/core/defaults.ts`; Rust compares the returned value to `DEFAULT_THINKING_LEVEL.as_str()`. |

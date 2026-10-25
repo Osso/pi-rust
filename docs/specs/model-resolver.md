@@ -15,7 +15,7 @@ Port the selection rules of `packages/coding-agent/src/core/model-resolver.ts` a
 
 ## Implementation inventory
 
-`crates/pi-coding-agent-data/src/core/model_resolver.rs`: matching, scopes and model selection. ModelRegistry is the sole production implementation of its four-method read surface.
+`crates/pi-coding-agent-models/src/core/model_resolver.rs`: matching, scopes and model selection. ModelRegistry is the sole production implementation of its four-method read surface.
 
 ## Tests asserting this spec
 

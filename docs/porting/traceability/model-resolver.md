@@ -1,7 +1,7 @@
 # Model resolver — Q15 re-port in progress
 
 Frozen: `packages/coding-agent/src/core/model-resolver.ts` at [the common pin](../source-lock.json).
-Rust: `crates/pi-coding-agent-data/src/core/model_resolver.rs`.
+Rust: `crates/pi-coding-agent-models/src/core/model_resolver.rs`.
 
 | Frozen exports/branches | Current proof |
 |---|---|

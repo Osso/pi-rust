@@ -40,7 +40,7 @@ Config-value behavior ports selected helpers from pinned `packages/coding-agent/
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-data/src/core/config_value.rs` — private template parser plus public reference and environment-status helpers.
+- `crates/pi-coding-agent-models/src/core/config_value.rs` — private template parser plus public reference and environment-status helpers.
 - `crates/pi-coding-agent-core/src/core/mod.rs` — public core exports.
 - `crates/pi-coding-agent/tests/config_value_references.rs` — focused parser/classification behavior.
 - `crates/pi-coding-agent/tests/config_value_status.rs` — focused explicit-map and deterministic process-environment behavior.

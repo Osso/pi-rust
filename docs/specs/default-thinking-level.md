@@ -18,7 +18,7 @@ This specification covers `packages/coding-agent/src/core/defaults.ts:1-3` at th
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-data/src/core/defaults.rs` — typed default constant.
+- `crates/pi-coding-agent-models/src/core/defaults.rs` — typed default constant.
 - `crates/pi-coding-agent-core/src/core/mod.rs` — direct public module exposure.
 - `crates/pi-coding-agent/Cargo.toml` — exact local `pi-agent-core` dependency.
 - `crates/pi-coding-agent/tests/defaults.rs` — focused behavioral proof.

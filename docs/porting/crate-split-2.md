@@ -31,3 +31,7 @@ Checkpoint proof and final timing table remain pending. No completion claim is m
 ## Second cut
 
 The first tools touch took **30.22s** (wall 30.31s) at uptime load 30.14/29.78/30.98, so it failed the 30s goal. Main approved a further tool-support cut. `pi-coding-agent-tool-support` owns shared theme/UI, edit/diff/truncation/output helpers and the unchanged `HandlerError` implementation, re-exported under its former extension-types path. Its only widened function is compiler-proven cross-crate `observe_tool_producer`. Storage and support are sibling branches; support depends on data/packages, never session runtime or tools.
+
+## Model leaf cut
+
+The second-cut model-resolver touch rebuilt unrelated storage/package branches and took **31.76s** at load 21.16. Main approved `pi-coding-agent-models`: auth storage, config values, model registry/cache/resolver, defaults and provider display names. Models depends on data for CLI validation, but storage/packages/tool-support do not depend on models. Core and facade retain old auth/model paths through tools' re-exports. The newly introduced data crate no longer re-exports these leaves, to avoid restoring the dependency.
