@@ -95,7 +95,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         _: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let result = Arc::new(Mutex::new(None));
         let captured = result.clone();
         let context = ExtensionUiFactoryContext {

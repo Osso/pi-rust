@@ -7,6 +7,7 @@ mod support;
 #[path = "support/ui_thread.rs"]
 mod ui_thread;
 
+use futures_util::FutureExt;
 use pi_coding_agent::core::extensions::*;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
@@ -202,7 +203,7 @@ impl ExtensionUiContext for Ui {
         &'a self,
         factory: ExtensionUiCustomFactory,
         options: Option<ExtensionUiCustomOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsValue>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsValue>, pi_js_compat::callback_error::CallbackError>> {
         let trace = self.trace.clone();
         let current = self.current.lock().unwrap().clone();
         let theme = self.theme();
@@ -315,7 +316,7 @@ impl ExtensionUiContext for Ui {
                 let result = value.lock().unwrap().clone();
                 Ok(result)
             })
-        })
+        }).map(|result| result.map_err(pi_js_compat::callback_error::CallbackError::from)).boxed()
     }
 }
 fn engine(path: &JsString, trace: Trace, current: Arc<Mutex<Value>>) -> example::doom_engine::DoomEngine {

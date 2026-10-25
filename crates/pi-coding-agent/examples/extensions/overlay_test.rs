@@ -209,7 +209,7 @@ pub fn overlay_test_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         }),
                     )
                     .await
-                    .map_err(HandlerError::new)?;
+                    .map_err(HandlerError::from)?;
                 if let Some(result) = result {
                     let action = result["action"].as_string().expect("overlay action");
                     let message = match result["query"].as_string().filter(|s| !s.is_empty()) {

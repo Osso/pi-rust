@@ -2326,7 +2326,7 @@ async fn ask_questions_tool_differential() {
             &'a self,
             _: pi_coding_agent::core::extensions::types::ExtensionUiCustomFactory,
             _: Option<pi_coding_agent::core::extensions::types::ExtensionUiCustomOptions>,
-        ) -> BoxFuture<'a, Result<Option<Value>, JsString>> {
+        ) -> BoxFuture<'a, Result<Option<Value>, pi_js_compat::callback_error::CallbackError>> {
             let value = self.panel_result.clone();
             Box::pin(async move { Ok(Some(value)) })
         }

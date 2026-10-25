@@ -198,10 +198,20 @@ impl AgentTool for DefinitionTool {
         Box::pin(async move {
             let result = (definition.execute)(tool_call_id, params, signal, Some(capped_update), context)
                 .await
-                .map_err(|error| ToolError::new(error.message))?;
+                .map_err(|error| project_callback_tool_error(error.into()))?;
             let mut spill = spill.lock().expect("tool output spill lock");
             cap_tool_result_output(result, &mut spill)
         })
+    }
+}
+
+/// Frozen agent-loop.ts:845-850 projects Error.message or String(rejection).
+pub(super) fn project_callback_tool_error(error: pi_js_compat::callback_error::CallbackError) -> ToolError {
+    match error.error_or_string_message() {
+        Ok(message) => ToolError::new(message),
+        // Approved ingress (c) gap, 2026-10-24: ToolError cannot carry a loop-fatal
+        // coercion rejection. Return that TypeError explicitly, never exit the process.
+        Err(conversion_error) => ToolError::new(conversion_error.message),
     }
 }
 

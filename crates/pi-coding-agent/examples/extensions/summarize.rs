@@ -180,7 +180,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
             None,
         )
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     }
     Ok(())
 }
