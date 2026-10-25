@@ -8336,10 +8336,11 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             Ok(())
         });
     let resume_weak = weak.clone();
-    let request_resume_continuation: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+    let request_resume_continuation: Arc<dyn Fn() -> Result<(), String> + Send + Sync> = Arc::new(move || {
         if let Some(inner) = resume_weak.upgrade() {
             AgentSession { inner }.request_resume_continuation();
         }
+        Ok(())
     });
     let name_weak = weak.clone();
     let set_session_name: crate::core::extensions::types::SetSessionNameHandler = Arc::new(move |name: &JsString| {

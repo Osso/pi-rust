@@ -3024,7 +3024,7 @@ pub struct ExtensionActions {
     pub send_message: SendMessageHandler,
     pub send_user_message: SendUserMessageHandler,
     pub append_entry: AppendEntryHandler,
-    pub request_resume_continuation: Arc<dyn Fn() + Send + Sync>,
+    pub request_resume_continuation: Arc<dyn Fn() -> Result<(), String> + Send + Sync>,
     pub set_session_name: SetSessionNameHandler,
     pub get_session_name: GetSessionNameHandler,
     pub set_label: SetLabelHandler,
@@ -3571,8 +3571,7 @@ impl ExtensionApi {
 
     pub fn request_resume_continuation(&self) -> Result<(), String> {
         self.runtime.assert_active()?;
-        (self.runtime.actions().request_resume_continuation)();
-        Ok(())
+        (self.runtime.actions().request_resume_continuation)()
     }
 
     pub fn set_session_name(&self, name: &JsString) -> Result<(), HandlerError> {

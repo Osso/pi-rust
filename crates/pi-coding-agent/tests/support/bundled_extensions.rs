@@ -219,7 +219,7 @@ pub fn actions(calls: &Arc<Mutex<Calls>>) -> ExtensionActions {
                 .push((custom_type.to_owned(), data));
             Ok(())
         }),
-        request_resume_continuation: Arc::new(|| {}),
+        request_resume_continuation: Arc::new(|| Ok(())),
         set_session_name: Arc::new(|_| Ok(())),
         get_session_name: Arc::new(|| Ok(None)),
         set_label: Arc::new(|_, _| Ok(())),

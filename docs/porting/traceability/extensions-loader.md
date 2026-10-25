@@ -38,10 +38,11 @@ Whole frozen loader inspection found three ordinary path defects: configured pat
 
 RED: actual frozen relative `entry.ts` loads successfully while native reports an invalid factory (`/tmp/ext-api2-loader-red.log`). New differential covers relative loading, source metadata, configured directory and absolute manifest resolution, plus invalid file-URL errors. Post-commit GREEN pending.
 
-## Remaining work
+## Pre-bind action audit (2026-10-25)
 
-Finish current focused proof and API/runtime audit. The Rust-native discovery surface is implemented; `core::resource_loader::DefaultResourceLoader`
-resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
+Frozen runtime rejects requestResumeContinuation before binding, while native silently succeeded. Its callTool/callCommand/setModel rejections use the short `Extension runtime not initialized` message; native incorrectly used the long synchronous-action text. Actual frozen/native RED `/tmp/ext-api3-loader-unbound-red2.log` proves all four differences through the real API/runtime. The continuation callback now returns its existing public Result; core binding and six fixture action tables propagate this mechanically. Post-commit focused proof pending.
+
+The Rust-native discovery surface is implemented; `core::resource_loader::DefaultResourceLoader` resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
 
 ## Gaps
 
