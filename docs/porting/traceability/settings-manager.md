@@ -14,8 +14,11 @@ Rust: `crates/pi-coding-agent-settings/src/core/settings_manager.rs`. Governing 
 
 ## Current status
 
-**TODO, not whole-module parity.** Phase1 has source-aligned settings contracts and new isolated proofs. Targeted GREEN: 27 native tests and 4 differential tests (15 manager scenarios, bidirectional stale/concurrent writer fixture, three queued-ordering cases, 14 direct helper inputs). Four independent production mutants killed: recursive overlay, zero percentage, fractional retry milliseconds, and synchronous global save. Each was restored before final formatting; see proof ledger for commands/artifacts. Main caller/export integration imported as e2d89154; shared save pumping is implemented by `SettingsManagerGuard` with focused development proof tracked below; full-module parity remains open. Old-pin proof is not repin evidence.
+**Done at the user-observable parity bar (2026-10-25).** Successor whole-module audit covers file/memory storage, migrations, scoped clone/merge/read/write/error queues, all getters/setters and shared drain. Existing five frozen differential tests pass at parent `3672fd002` (`/tmp/settings-models-settings-differential.log`), including exact file text, stale/concurrent writers, reciprocal TS/Rust writes and queued ordering. Successful persistence algorithms and serialization remain unchanged by the successor error-only fixes. Native error REDs reproduce directory-as-settings reads during construction and queued persistence and invalid timeout text. The corrections use Node read/open errors and JS String conversion. Historical phase notes below describe earlier checkpoints, not remaining blockers. Consumers have separate coverage rows.
 
+DISCREPANCY (preserved): frozen `deepMergeSettings` promises recursive merging in its comment but merges only one object level; nested grandchildren are replaced, as the existing differential and native test assert.
+
+Gap: adversarial/wrong-typed JSON, numeric extremes, unsupported OS/runtime fault shapes and scheduling races follow the repository parity bar; existing lossless carriers remain intact.
 Renderer-mode APIs were removed as recorded above. Coupled cache/selector deletion now also removes get/set_show_cache_miss_notices, get/set_mermaid_rendering_mode, MermaidRenderingMode and MarkdownSettings.mermaid; raw legacy JSON keys remain ordinary unknown data rather than being scrubbed. [Removal classification](cache-stats.md). PackageFilter.autoload remains separately staged old-only work, not counted as parity.
 
 ## Exported types / lifecycle
@@ -182,7 +185,7 @@ All 70 frozen getters/is methods are observed in `snapshot`; all 53 setters have
 
 - Settings module has no retry scheduling, percentage-triggered compaction, idle scheduling, transcript suppression, or relay startup. B2/B3/relay proof remains TODO.
 - Rust JSON boundary cannot represent `NaN`/infinities; direct JS-invalid runtime types and non-object root documents are not claimed equivalent. Typed core exclusion is tracked in project rules.
-- Error scope/throw behavior is compared. New retry/percentage errors use JavaScript string conversion; existing timeout errors still use JSON serialization for object values.
+- Error scope/throw behavior is compared. New retry/percentage errors use JavaScript string conversion; timeout errors now use lossless JavaScript String conversion (successor correction).
 - RED same-turn setter/external-write/flush mismatch reproduced at e2d89154 + fixture correction (`red-queued-ordering.txt`). Setters now queue scoped snapshots; mutable `flush` drains FIFO and `reload` first flushes. Shared guard release now schedules an owned FIFO worker without a runtime dependency. AgentSession's persistent setters/accessor, interactive shared-lock consumers, and package-manager adapter use this boundary. Standalone mutable managers and raw mutex locks do not self-schedule; explicit `flush`/`reload` retain synchronous barrier behavior.
 - Configured external editor is observed. Environment defaults are sandbox-isolated; broader host-locale/environment branches are not established by these fixtures.
 
