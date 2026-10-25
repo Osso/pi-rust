@@ -63,6 +63,66 @@ fn file_url_errors_preserve_frozen_names_messages_and_properties() {
 }
 
 #[test]
+fn canonical_paths_follow_real_files_symlink_chains_and_source_catch_boundaries() {
+    use pi_coding_agent::utils::paths::canonicalize_path;
+    use std::os::unix::{ffi::OsStringExt, fs::symlink};
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    std::fs::create_dir(root.join("dir")).unwrap();
+    std::fs::write(root.join("dir/file"), b"fixture").unwrap();
+    symlink("dir", root.join("relative")).unwrap();
+    symlink("relative", root.join("chain")).unwrap();
+    symlink(root.join("dir"), root.join("absolute")).unwrap();
+    symlink("absent", root.join("dangling")).unwrap();
+    symlink("cycle-b", root.join("cycle-a")).unwrap();
+    symlink("cycle-a", root.join("cycle-b")).unwrap();
+    let raw = std::ffi::OsString::from_vec(vec![b'r', 0xff]);
+    std::fs::write(root.join(&raw), b"raw bytes").unwrap();
+    symlink(&raw, root.join("raw-link")).unwrap();
+    let socket = std::os::unix::net::UnixListener::bind(root.join("socket")).unwrap();
+    symlink("socket", root.join("socket-link")).unwrap();
+    let names = [
+        "",
+        "dir",
+        "dir/file",
+        "relative/file",
+        "chain/file",
+        "absolute/file",
+        "dir/../chain/file",
+        "missing",
+        "dangling",
+        "cycle-a",
+        "dir/file/child",
+        "raw-link",
+        "socket",
+        "socket-link",
+        "socket-link/child",
+    ];
+    let mut inputs: Vec<JsString> = names
+        .iter()
+        .map(|name| JsString::from(root.join(name).to_str().unwrap()))
+        .collect();
+    inputs.extend([JsString::from(""), JsString::from("/"), JsString::from("bad\0path")]);
+    let cases = inputs
+        .iter()
+        .map(|input| pi_js_compat::js_json!({"kind":"canonicalize","name":"realpath","path":input}))
+        .collect();
+    let mut source = oracle::TsOracle::spawn(
+        "coding-agent-paths-oracle.ts",
+        "packages/coding-agent/src/utils/paths.ts",
+    );
+    let expected = source.request(&pi_js_compat::js_json!({"id":1,"cases":JsValue::Array(cases)}));
+    for (input, expected) in inputs.iter().zip(expected["output"]["results"].as_array().unwrap()) {
+        assert_eq!(
+            JsValue::String(canonicalize_path(input)),
+            expected["value"],
+            "realpath {input:?}"
+        );
+    }
+    drop(socket);
+}
+
+#[test]
 fn file_url_adversarial_host_path_and_percent_matrix() {
     let hosts = [
         "",
@@ -191,6 +251,74 @@ fn compare_normalized_urls(inputs: &[JsString]) {
         inputs.len(),
         mismatches.join("\n")
     );
+}
+
+#[test]
+fn cloud_sync_real_process_argv_stdio_and_ignored_results_match_source() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink("/usr/bin/node", root.path().join("node")).unwrap();
+    let executable = root.path().join("setfattr");
+    let log = root.path().join("argv.jsonl");
+    let script = "#!/usr/bin/python3\nimport json,os,sys\nwith open(os.environ['PATHS_ARGV_LOG'], 'a') as log:\n log.write(json.dumps({'argv':sys.argv[1:], 'stdin':sys.stdin.read()})+'\\n')\nprint('must not escape stdout')\nprint('must not escape stderr',file=sys.stderr)\nsys.exit(23)\n";
+    std::fs::write(&executable, script).unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let input = JsString::from("./literal space/@~") + JsString::from_utf16(vec![0xd800]);
+    compare_cloud_sync_processes(root.path(), &log, &input);
+    let histories: Vec<serde_json::Value> = std::fs::read_to_string(&log)
+        .unwrap()
+        .lines()
+        .map(|line| serde_json::from_str(line).unwrap())
+        .collect();
+    assert_eq!(histories.len(), 2);
+    assert_eq!(histories[0], histories[1]);
+    assert_eq!(
+        histories[0],
+        serde_json::json!({"argv":["-n","user.com.dropbox.ignored","-v","1","./literal space/@~�"],"stdin":""})
+    );
+    std::fs::remove_file(&executable).unwrap();
+    compare_cloud_sync_processes(root.path(), &log, &input);
+    std::fs::write(&executable, "not an executable image").unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    compare_cloud_sync_processes(root.path(), &log, &input);
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 2);
+}
+
+fn compare_cloud_sync_processes(directory: &std::path::Path, log: &std::path::Path, input: &JsString) {
+    use std::process::Command;
+    let mut source = oracle::TsOracle::spawn_with_environment(
+        "paths-boundaries-oracle.ts",
+        "packages/coding-agent/src/utils/paths.ts",
+        &[
+            ("PATH", directory.as_os_str().to_owned()),
+            ("PATHS_ARGV_LOG", log.as_os_str().to_owned()),
+        ],
+    );
+    let expected = source.request(&pi_js_compat::js_json!({"id":1,"cases":[{"kind":"mark","input":input}]}));
+    assert_eq!(
+        expected["output"]["results"].as_array().unwrap()[0],
+        pi_js_compat::js_json!({"ok":true,"value":null})
+    );
+    let native = Command::new(std::env::current_exe().unwrap())
+        .args(["--ignored", "--exact", "cloud_sync_process_child", "--nocapture"])
+        .env("PATH", directory)
+        .env("PATHS_ARGV_LOG", log)
+        .env(
+            "PATHS_INPUT",
+            pi_js_compat::js_json::stringify_lossless(&JsValue::String(input.clone())),
+        )
+        .output()
+        .unwrap();
+    assert!(native.status.success(), "{}", String::from_utf8_lossy(&native.stderr));
+    assert!(!String::from_utf8_lossy(&native.stdout).contains("must not escape"));
+    assert!(!String::from_utf8_lossy(&native.stderr).contains("must not escape"));
+}
+
+#[test]
+#[ignore = "invoked explicitly by cloud-sync process differential"]
+fn cloud_sync_process_child() {
+    let input = pi_js_compat::js_json::parse_lossless(&std::env::var("PATHS_INPUT").unwrap()).unwrap();
+    pi_coding_agent::utils::paths::mark_path_ignored_by_cloud_sync(input.as_str().unwrap()).unwrap();
 }
 
 #[test]
