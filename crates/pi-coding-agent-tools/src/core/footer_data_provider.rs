@@ -13,19 +13,38 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use notify::RecommendedWatcher;
 use pi_ai::request::{BoxFuture, CallbackError};
 use pi_ai::types::Model;
 use tokio::task::JoinHandle;
 
 use crate::core::readonly_session_manager::ReadonlySessionManager;
-use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, close_watcher, watch_with_error_handler};
+use crate::utils::fs_watch::{FS_WATCH_RETRY_DELAY_MS, WatchEventKind, watch_with_error_handler};
+
+#[doc(hidden)]
+pub type FooterWatchListener = Box<dyn Fn(WatchEventKind, Option<PathBuf>) + Send>;
+#[doc(hidden)]
+pub type FooterWatchFailure = Arc<dyn Fn() + Send + Sync>;
+#[doc(hidden)]
+pub type FooterWatchHandle = Box<dyn Send>;
+#[doc(hidden)]
+pub type FooterWatchFactory =
+    Arc<dyn Fn(&Path, FooterWatchListener, FooterWatchFailure) -> Option<FooterWatchHandle> + Send + Sync>;
+
+fn watch_system_path(
+    path: &Path,
+    listener: FooterWatchListener,
+    failed: FooterWatchFailure,
+) -> Option<FooterWatchHandle> {
+    watch_with_error_handler(path, listener, move || failed()).map(|watcher| Box::new(watcher) as FooterWatchHandle)
+}
 
 /// Debounce for file-system triggered branch refreshes.
 const WATCH_DEBOUNCE_MS: u64 = 500;
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_runtime_watch;
 /// Poll interval for WSL Windows-mounted `HEAD` files only.
 const GIT_FILE_POLL_INTERVAL_MS: u64 = 1_000;
 
@@ -269,11 +288,12 @@ struct FooterState {
     refresh_pending: AtomicBool,
     disposed: AtomicBool,
     session_override: Mutex<Option<FooterSessionOverride>>,
-    head_watcher: Mutex<Option<RecommendedWatcher>>,
-    reftable_watcher: Mutex<Option<RecommendedWatcher>>,
-    reftable_tables_list_watcher: Mutex<Option<RecommendedWatcher>>,
+    head_watcher: Mutex<Option<FooterWatchHandle>>,
+    reftable_watcher: Mutex<Option<FooterWatchHandle>>,
+    reftable_tables_list_watcher: Mutex<Option<FooterWatchHandle>>,
     poll_timer: Mutex<Option<JoinHandle<()>>>,
     git: Arc<dyn GitBranchRunner>,
+    watch: FooterWatchFactory,
 }
 
 impl FooterState {
@@ -345,6 +365,16 @@ impl FooterDataProvider {
     }
 
     pub fn with_git_runner(cwd: impl Into<JsString>, git: Arc<dyn GitBranchRunner>) -> Self {
+        Self::with_git_and_watch_factory(cwd, git, Arc::new(watch_system_path))
+    }
+
+    /// Footer-only fault injection for runtime watcher failures absent from real inotify probes.
+    #[doc(hidden)]
+    pub fn with_git_and_watch_factory(
+        cwd: impl Into<JsString>,
+        git: Arc<dyn GitBranchRunner>,
+        watch: FooterWatchFactory,
+    ) -> Self {
         let cwd = cwd.into();
         let state = Arc::new(FooterState {
             git_paths: Mutex::new(find_git_paths(&cwd)),
@@ -365,6 +395,7 @@ impl FooterDataProvider {
             reftable_tables_list_watcher: Mutex::new(None),
             poll_timer: Mutex::new(None),
             git,
+            watch,
         });
         let provider = Self {
             state,
@@ -525,9 +556,9 @@ impl FooterDataProvider {
     }
 
     fn clear_git_watchers(&self) {
-        close_watcher(lock(&self.state.head_watcher).take());
-        close_watcher(lock(&self.state.reftable_watcher).take());
-        close_watcher(lock(&self.state.reftable_tables_list_watcher).take());
+        drop(lock(&self.state.head_watcher).take());
+        drop(lock(&self.state.reftable_watcher).take());
+        drop(lock(&self.state.reftable_tables_list_watcher).take());
         if let Some(timer) = lock(&self.state.poll_timer).take() {
             timer.abort();
         }
@@ -563,19 +594,19 @@ impl FooterDataProvider {
         let head_dir = node_dirname(&paths.head_path);
 
         let head_provider = self.clone();
-        let head_watcher = watch_with_error_handler(
+        let head_watcher = (self.state.watch)(
             Path::new(&encode_node_utf8(&head_dir)),
-            move |_kind: WatchEventKind, filename: Option<PathBuf>| {
+            Box::new(move |_kind: WatchEventKind, filename: Option<PathBuf>| {
                 let matches = filename
                     .as_ref()
                     .is_none_or(|path| path.file_name().is_some_and(|name| name == "HEAD"));
                 if matches {
                     head_provider.schedule_refresh();
                 }
-            },
+            }),
             {
                 let provider = self.clone();
-                move || provider.handle_git_watcher_error()
+                Arc::new(move || provider.handle_git_watcher_error())
             },
         );
         *lock(&self.state.head_watcher) = head_watcher;
@@ -586,14 +617,14 @@ impl FooterDataProvider {
         let reftable_dir = node_join(&paths.common_git_dir, "reftable");
         if Path::new(&encode_node_utf8(&reftable_dir)).exists() {
             let reftable_provider = self.clone();
-            let reftable_watcher = watch_with_error_handler(
+            let reftable_watcher = (self.state.watch)(
                 Path::new(&encode_node_utf8(&reftable_dir)),
-                move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
+                Box::new(move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
                     reftable_provider.schedule_refresh();
-                },
+                }),
                 {
                     let provider = self.clone();
-                    move || provider.handle_git_watcher_error()
+                    Arc::new(move || provider.handle_git_watcher_error())
                 },
             );
             *lock(&self.state.reftable_watcher) = reftable_watcher;
@@ -604,14 +635,14 @@ impl FooterDataProvider {
             let tables_list = node_join(&reftable_dir, "tables.list");
             if Path::new(&encode_node_utf8(&tables_list)).exists() {
                 let list_provider = self.clone();
-                let list_watcher = watch_with_error_handler(
+                let list_watcher = (self.state.watch)(
                     Path::new(&encode_node_utf8(&tables_list)),
-                    move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
+                    Box::new(move |_kind: WatchEventKind, _filename: Option<PathBuf>| {
                         list_provider.schedule_refresh();
-                    },
+                    }),
                     {
                         let provider = self.clone();
-                        move || provider.handle_git_watcher_error()
+                        Arc::new(move || provider.handle_git_watcher_error())
                     },
                 );
                 *lock(&self.state.reftable_tables_list_watcher) = list_watcher;

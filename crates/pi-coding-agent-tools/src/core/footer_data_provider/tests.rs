@@ -2,9 +2,9 @@ use super::*;
 use pi_js_compat::{js_json, js_json::JsValue};
 use std::os::unix::fs::PermissionsExt;
 
-struct CountingGit {
-    branch: Mutex<JsString>,
-    executions: AtomicUsize,
+pub(super) struct CountingGit {
+    pub(super) branch: Mutex<JsString>,
+    pub(super) executions: AtomicUsize,
 }
 impl GitBranchRunner for CountingGit {
     fn resolve_sync(&self, _: &JsString) -> Option<JsString> {
@@ -17,7 +17,11 @@ impl GitBranchRunner for CountingGit {
     }
 }
 
-fn snapshot(provider: &FooterDataProvider, changes: &Mutex<Vec<Option<JsString>>>, git: &CountingGit) -> JsValue {
+pub(super) fn snapshot(
+    provider: &FooterDataProvider,
+    changes: &Mutex<Vec<Option<JsString>>>,
+    git: &CountingGit,
+) -> JsValue {
     js_json!({"branch":provider.get_git_branch(),"changes":*lock(changes),"executions":git.executions.load(Ordering::SeqCst)})
 }
 
