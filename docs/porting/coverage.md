@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 485, `gap` 23, `partial` 49, `todo` 129.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 486, `gap` 23, `partial` 48, `todo` 129.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -85,7 +85,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/bedrock-provider.ts` | 6 | 2 | done | `crates/pi-ai/src/bedrock_provider.rs` | `bedrock_provider_module`; provider module test; re-run vs 4f9e6f8a4 pending |
 | `ai/src/cli.ts` | 147 | 6 | gap |  | re-pin delta; old status: gap; old Rust: ; Standalone `pi-ai` binary not ported (user decision 2026-10-18); provider OAuth login is available through the `pi` login command ([traceability](traceability/cli.md)). |
 | `ai/src/compat.ts` | 279 | 6 | todo | `crates/pi-ai/src/compat/mod.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/compat/mod.rs`; Api registry, builtin registration/override identity, env-key injection, faux registration, legacy dispatch; 10 behavioral + 4 differential requests ([traceability](traceability/compat.md)). |
-| `ai/src/env-api-keys.ts` | 176 | 2 | partial | `crates/pi-ai/src/env_api_keys.rs` | Common pin 4f9e6f8a4: removed old-only auth/Qwen/Radius/Baseten keys; 15 behavioral + 5 differential GREEN (50307512 + env slice). Native async-readiness/homedir/export gaps explicit in [traceability](traceability/env-api-keys.md); ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. |
+| `ai/src/env-api-keys.ts` | 176 | 2 | done | `crates/pi-ai/src/env_api_keys.rs` | Current-pin native14 + source differential6 GREEN, including real-file ambient fallback/positive cache/explicit missing-path bypass. Scoped-empty defect hypothesis falsified; unchanged production matches frozen scoped-or-ambient semantics. One approved native-runtime gap: [trace](traceability/env-api-keys.md). |
 | `ai/src/image-models.generated.ts` | 534 | 2 | done | `crates/pi-ai/data/image-models.json`, `crates/pi-ai/src/image_models_generated.rs` | Whole frozen literal: 35 full records; explicit order/membership, all 42 union lookups and static provider records. Targeted GREEN + three killed data-semantic mutants at d8fefff1: [trace](traceability/image-models-generated.md). Finite static data only; helper mutable-return semantics and whole provider flow remain OPEN. |
 | `ai/src/image-models.ts` | 42 | 3 | done | `crates/pi-ai/src/image_models.rs` | Lookup/list APIs; `undefined` modeled as `Option`/empty slice (see traceability).; re-run vs 4f9e6f8a4 pending |
 | `ai/src/images-api-registry.ts` | 53 | 2 | done | `crates/pi-ai/src/images_api_registry.rs` | API registration/lookup and api-mismatch wrapper; `sourceId` excluded as unobservable (see traceability).; re-run vs 4f9e6f8a4 pending |

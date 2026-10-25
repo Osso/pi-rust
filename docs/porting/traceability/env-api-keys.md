@@ -19,7 +19,7 @@ Removed old-only Qwen/Radius/Baseten environment mappings and Anthropic auth-tok
 
 ## Current completion audit
 
-The proposed empty-scoped-path defect was falsified: frozen `getProviderEnvValue` uses `scoped || ambient`, and unchanged Rust matches. The added actual-source real-file/process sequence covers empty-scoped ambient fallback, missing explicit path bypass of a positive cache, and reuse of cached ambient credentials. No production change is required. [Contract](../../specs/env-api-keys.md). Current focused proof is pending.
+The proposed empty-scoped-path defect was falsified: frozen `getProviderEnvValue` uses `scoped || ambient`, and unchanged Rust matches. The added actual-source real-file/process sequence covers empty-scoped ambient fallback, missing explicit path bypass of a positive cache, and reuse of cached ambient credentials. No production change is required. [Contract](../../specs/env-api-keys.md). Atd6dd70086, current native14 + source differential6 GREEN (suite_core_1). The suite_core_2 probe selects zero tests and is not proof. Required two-package all-target checkPASS; scopedClippy0 errors/8 existing warnings/0 changed-line warnings. Logs: `/tmp/ai-env-current-*`. Changed test lines have no readability findings. Status done under the approved parity bar.
 
 ## Explicit runtime gap
 

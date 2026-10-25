@@ -4,10 +4,10 @@ Port frozen `packages/ai/src/env-api-keys.ts` at `4f9e6f8a4`. [Traceability](../
 
 ## What it must do
 
-- [ ] Report only configured API-key variable names from the frozen provider map; prefer Anthropic OAuth over its API key.
-- [ ] Resolve nonempty scoped values before ambient values; empty scoped values fall through, not mask the ambient value.
-- [ ] For Vertex, require credentials, project and location. Probe nonempty scoped ADC paths directly without updating the cache; otherwise cache the ambient/default-path probe. An explicit API key takes precedence.
-- [ ] Report Bedrock ambient authentication for the six frozen credential sources, requiring both IAM key fields when that source is used.
+- [x] Report only configured API-key variable names from the frozen provider map; prefer Anthropic OAuth over its API key.
+- [x] Resolve nonempty scoped values before ambient values; empty scoped values fall through, not mask the ambient value.
+- [x] For Vertex, require credentials, project and location. Probe nonempty scoped ADC paths directly without updating the cache; otherwise cache the ambient/default-path probe. An explicit API key takes precedence.
+- [x] Report Bedrock ambient authentication for the six frozen credential sources, requiring both IAM key fields when that source is used.
 
 ## How it works
 
@@ -25,7 +25,7 @@ Port frozen `packages/ai/src/env-api-keys.ts` at `4f9e6f8a4`. [Traceability](../
 
 ## Known gaps (current cycle)
 
-Current focused proof is pending.
+None within the approved scope.
 
 ## Out of scope
 
