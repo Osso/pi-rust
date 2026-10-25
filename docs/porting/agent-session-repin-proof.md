@@ -123,3 +123,7 @@ Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command start
 ## Reload scheduling correction, 2026-10-25
 
 `agent_session / idle_compaction_arms_restored_context` RED1 (`/tmp/repin-agent-session-reload-idle-red.log`) produces one unexpected compaction during reload versus source's zero. GREEN1 (`/tmp/repin-agent-session-reload-idle-green.log`) retains five scenarios, with reload/observer/error negative and startup/aborted positive. This corrects the earlier idle-audit test's native-only reload expectation; it does not weaken or remove coverage. Production change is deletion of the extra scheduling call after reload resources.
+
+## Extension send checkpoint, 2026-10-25
+
+Genuine RED2: `/tmp/repin-agent-session-extension-sends-red3.log` against the actual pre-fix HEAD source (the saved fix patch was restored afterward). Native immediate agent/storage counts are0/0 instead of1/1; an actual before-run failure never reaches onError. GREEN2: `/tmp/repin-agent-session-extension-sends-green2.log`. Earlier red.log is fixture compilation; red2/green.log's unknown-slash rejection expectation was invalid because source disables command handling in sendUserMessage. No source assertion was weakened: the final test uses the supported before-run rejection boundary and checks exact runtime error fields. The shared helper handles both existing send futures and the existing error carrier.

@@ -8300,6 +8300,24 @@ fn extension_tool_info(entry: &ToolDefinitionEntry) -> ExtensionToolInfo {
     }
 }
 
+fn start_extension_send(
+    runner: ExtensionRunner,
+    event: &'static str,
+    send: impl std::future::Future<Output = Result<(), AgentSessionError>> + Send + 'static,
+) -> Result<(), crate::core::extensions::types::HandlerError> {
+    AgentSession::start_extension_event(async move {
+        if let Err(cause) = send.await {
+            runner.emit_error(crate::core::extensions::types::ExtensionError {
+                extension_path: "<runtime>".into(),
+                event: event.to_owned(),
+                error: crate::core::extensions::types::HandlerError::from(cause).caught_message(),
+                stack: None,
+            });
+        }
+    })
+    .map_err(crate::core::extensions::types::HandlerError::from)
+}
+
 fn send_custom_message_from_extension(
     session: &AgentSession,
     message: crate::core::extensions::types::CustomMessagePayload,
@@ -8323,12 +8341,10 @@ fn send_custom_message_from_extension(
         Some(MessageDelivery::FollowUp) => Some(StreamingBehavior::FollowUp),
         _ => None,
     };
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return Ok(());
-    };
+    let runner = session.runner();
     let session = session.clone();
-    handle.spawn(async move {
-        let _ = session
+    start_extension_send(runner, "send_message", async move {
+        session
             .send_custom_message(
                 &message.custom_type,
                 content,
@@ -8337,9 +8353,8 @@ fn send_custom_message_from_extension(
                 trigger_turn,
                 deliver,
             )
-            .await;
-    });
-    Ok(())
+            .await
+    })
 }
 
 fn send_user_message_from_extension(
@@ -8362,14 +8377,11 @@ fn send_user_message_from_extension(
         .as_ref()
         .and_then(|options| options.expand_prompt_templates)
         .unwrap_or(false);
-    let Ok(handle) = tokio::runtime::Handle::try_current() else {
-        return Ok(());
-    };
+    let runner = session.runner();
     let session = session.clone();
-    handle.spawn(async move {
-        let _ = session.send_user_message(content, deliver_as, expand).await;
-    });
-    Ok(())
+    start_extension_send(runner, "send_user_message", async move {
+        session.send_user_message(content, deliver_as, expand).await
+    })
 }
 
 fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
