@@ -375,6 +375,21 @@ async fn build_harness_with_runtime_observer(
 }
 
 #[tokio::test]
+async fn missing_import_preserves_the_frozen_error_name_and_file_path() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let path = JsString::from(harness._temp.path().join("missing.jsonl").to_str().unwrap());
+    let mut source = oracle::TsOracle::spawn("runtime-import-error-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"path":path}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let error = harness.runtime.import_from_jsonl(&path, None).await.unwrap_err();
+    let actual = error.thrown_value().as_error().unwrap().value();
+    assert_eq!(actual, JsValue::from(&expected["output"]));
+}
+
+#[tokio::test]
 async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
