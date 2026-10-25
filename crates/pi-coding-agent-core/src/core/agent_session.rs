@@ -6586,6 +6586,9 @@ impl AgentSession {
                 return Ok(false);
             }
             context_tokens = estimate.tokens;
+        } else {
+            context_tokens =
+                self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent);
         }
         if crate::core::compaction::should_compact(
             context_tokens,
@@ -6611,6 +6614,32 @@ impl AgentSession {
         }
         self.start_background_compaction(context_tokens, context_window)?;
         Ok(false)
+    }
+
+    fn estimate_threshold_context_tokens(
+        &self,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
+        direct_context_tokens: f64,
+        threshold_percent: Option<f64>,
+    ) -> f64 {
+        if threshold_percent.is_none() {
+            return direct_context_tokens;
+        }
+        let Some(identity) = identity else {
+            return direct_context_tokens;
+        };
+        let snapshot = self.inner.agent.identity_snapshot(|_| true);
+        let Some(index) = snapshot
+            .message_tokens()
+            .iter()
+            .position(|candidate| candidate == identity)
+        else {
+            return direct_context_tokens;
+        };
+        let messages = self.messages();
+        messages.get(index + 1..).map_or(direct_context_tokens, |trailing| {
+            direct_context_tokens + estimate_messages_tokens(trailing)
+        })
     }
 
     async fn run_auto_compaction(
