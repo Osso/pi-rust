@@ -20,4 +20,20 @@ No production consumer mutates these exports or relies on shared-reference ident
 
 ## Discrepancies / gaps
 
-None specific to this data-only module. Common-pin compiler/lint/protected fixture/style/inventory checkpoint is pending. [Contract](../../specs/tool-capabilities.md).
+None specific to this data-only module. [Contract](../../specs/tool-capabilities.md).
+
+## Checkpoint
+
+Native/test candidate `6cc86baa`; approved oracle type-only correction `1cdf85b6`. Artifacts are under `/tmp/pi-rust-repin-core-tools/`.
+
+| Proof | Result / artifact |
+|---|---|
+| Actual frozen export/order/membership comparison | 1/0, all three exports plus 26 lookups; `tool-capabilities-first.log` |
+| Retained constant and session option-boundary tests | 2/0; `tool-capabilities-retained.log` |
+| Workspace all-target keep-going compile | 0 errors/warnings; `tool-capabilities-workspace-summary.json` |
+| Target warning Clippy | 0 changed test findings, 504 existing selected-target/dependency diagnostics; `tool-capabilities-clippy-summary.json` |
+| Protected strict TypeScript / style / inventory | Compiler 0 (`tool-capabilities-types-green.log`); edited blocks formatter-clean and Biome lint 0 edited findings with six existing unrelated warnings (`tool-capabilities-biome-summary.json`); inventory PASS 686/186679,455done/19gap/46partial/166todo |
+
+Protected compilation first found three pre-existing TS2352 dynamic-data casts in unrelated handlers. Compiling the unchanged `afec7263` fixture reproduces all three (`tool-capabilities-types-baseline.log`). Main approved only explicit `unknown` boundaries, without any/suppression/runtime edits. Whitespace-normalized emitted JavaScript before/after those type-only corrections is byte-identical (SHA256 `ab6dd76db42e35871bb5ed22d4fb018f0d6405aea6695d474d7090f9e98c7ad4`; `tool-capabilities-oracle-type-equivalence.json`). The pinned source bytes remain unmodified.
+
+Manual Rust/TS changed-line readability audit is clean; metrics binary is unavailable. The native module itself is unchanged. No broad checks were repeated solely for the documentation checkpoint.

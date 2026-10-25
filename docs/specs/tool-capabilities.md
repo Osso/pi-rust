@@ -23,7 +23,7 @@ The module has three data exports and no input functions. Rust arrays and an imm
 
 ## Known gaps (current cycle)
 
-No module-specific semantic gap. General Rust-native/owned-value rules apply; the read-only built-in consumer audit is recorded in traceability. Final compiler/lint/fixture gates remain pending until the slice checkpoint.
+No module-specific semantic gap. General Rust-native/owned-value rules apply; the read-only built-in consumer audit is recorded in traceability. Current compiler/scoped-lint/protected-fixture/style/inventory gates pass; [checkpoint evidence](../porting/traceability/tool-capabilities.md#checkpoint).
 
 ## Out of scope
 
