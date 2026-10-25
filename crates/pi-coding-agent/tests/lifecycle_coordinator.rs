@@ -445,6 +445,84 @@ fn detached_cancellation_preserves_terminal_notification_suppression() {
     );
 }
 
+#[tokio::test]
+async fn cancelling_tree_suppresses_detached_descendants_but_not_root() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        CancelReservedAgentResult, cancel_owned_agent_runtime,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::create_multi_agent_runtime_handles;
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions, SessionPersistence};
+
+    struct Persistence(String);
+    impl SessionPersistence for Persistence {
+        fn metadata_control_db_path(&self) -> Option<JsString> {
+            Some(self.0.as_str().into())
+        }
+        fn session_file(&self) -> Option<JsString> {
+            Some(SESSION_PATH.into())
+        }
+    }
+    let (_directory, db) = temp_db();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&Persistence(db.clone())));
+    let root_coordinator = create_coordinator_with(&db, SESSION_PATH, || "root".into());
+    let child_coordinator = create_coordinator_with(&db, SESSION_PATH, || "descendant".into());
+    let mut root = child_input(None);
+    root.agent_type = "background".into();
+    root.worker =
+        Some(js_json::from_value(&pi_js_compat::js_json!({"adapter":"runtime","handleId":"runtime-job"})).unwrap());
+    let prepared = root_coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: root,
+            agent_id: None,
+            detached: Some(true),
+            result: Some(AgentResult {
+                summary: None,
+                file_refs: Some(vec![
+                    js_json::from_value(&pi_js_compat::js_json!({"path":"/tmp/output","label":"Bash output"})).unwrap(),
+                ]),
+                duration_ms: None,
+                tool_call_id: None,
+            }),
+        })
+        .unwrap();
+    let (root, _) = expect_created(
+        root_coordinator
+            .commit_running_child(&prepared, &"supervisor-session".into(), &current_identity(), None)
+            .unwrap(),
+    );
+    let mut child = child_input(Some(&root.id));
+    child.agent_type = root.agent_type.clone();
+    child.worker = root.worker.clone();
+    let prepared = child_coordinator
+        .prepare_child(&PrepareChildCommandInput {
+            spawn: child,
+            agent_id: None,
+            detached: Some(true),
+            result: root.result.clone(),
+        })
+        .unwrap();
+    let (child, _) = expect_created(
+        child_coordinator
+            .commit_running_child(&prepared, &"supervisor-session".into(), &current_identity(), None)
+            .unwrap(),
+    );
+    store.publish_lifecycle_coordinator_snapshot(&root).unwrap();
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let cancelled = cancel_owned_agent_runtime(&store, &create_multi_agent_runtime_handles(), &root.id, None)
+        .await
+        .unwrap();
+    assert!(matches!(cancelled, CancelReservedAgentResult::Ok { .. }));
+    let persisted_child = read_multi_agent_agent(&db, SESSION_PATH, &child.id).unwrap().unwrap();
+    assert_eq!(
+        persisted_child.extra.get("suppressTerminalNotification"),
+        Some(&pi_js_compat::js_json!(true))
+    );
+    let persisted_root = read_multi_agent_agent(&db, SESSION_PATH, &root.id).unwrap().unwrap();
+    assert!(!persisted_root.extra.contains_key("suppressTerminalNotification"));
+    assert_eq!(list_runtime_mailbox_messages(&db).unwrap().len(), 2);
+}
+
 #[test]
 fn requests_detached_cancellation_and_enqueues_the_runner_command() {
     let (_directory, db) = temp_db();

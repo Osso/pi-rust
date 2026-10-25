@@ -319,6 +319,7 @@ struct FakeSession {
     transcript: Option<pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata>,
     summary: String,
     abort_calls: Arc<Mutex<usize>>,
+    on_prompt: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl FakeSession {
@@ -333,6 +334,7 @@ impl FakeSession {
             }),
             summary: summary.to_owned(),
             abort_calls: Arc::new(Mutex::new(0)),
+            on_prompt: None,
         }
     }
 }
@@ -347,6 +349,9 @@ impl ChildAgentSession for FakeSession {
     }
 
     fn prompt(&self, text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
+        if let Some(on_prompt) = &self.on_prompt {
+            on_prompt();
+        }
         let summary = self.summary.clone();
         let messages = self.messages.lock().expect("messages").clone();
         let _ = messages;
@@ -572,6 +577,257 @@ async fn child_runtime_rejects_orchestration_tools() {
         text(&result),
         "Agent orchestration is unavailable from child agent runtimes."
     );
+}
+
+#[path = "support/oracle.rs"]
+mod repin_oracle;
+
+#[tokio::test]
+async fn frozen_settlement_abort_and_detached_predicate_match() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::is_detached_runtime_agent;
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for cancelling in [false, true] {
+        let source = ts.request(&json!({"id":1,"op":"settlementAbort","cancelling":cancelling}));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        assert_eq!(
+            source["output"],
+            json!({"settledBeforeUpdate":!cancelling,"listenersAfterFinish":0})
+        );
+    }
+    let mut agent = json!(empty_agent("runtime"));
+    agent["agentType"] = json!("background");
+    agent["lifecycle"] = json!("running");
+    agent["detached"] = json!(true);
+    agent["worker"] = json!({"adapter":"runtime","handleId":"job"});
+    agent["result"] = json!({"fileRefs":[{"path":"output","label":"Bash output"}]});
+    let mut cases = vec![agent.clone()];
+    for (key, value) in [
+        ("detached", json!(false)),
+        ("worker", json!({"adapter":"terminal","handleId":"job"})),
+        ("agentType", json!("worker")),
+        ("result", json!({"fileRefs":[{"path":"output","label":"Other output"}]})),
+        ("result", Value::Null),
+    ] {
+        let mut other = agent.clone();
+        other[key] = value;
+        cases.push(other);
+    }
+    agent["result"] = json!({"fileRefs":[{"path":"first"},{"path":"output","label":"Pyrun output"}]});
+    cases.push(agent);
+    for agent in cases {
+        let source = ts.request(&json!({"id":2,"op":"isDetached","agent":agent}));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let native: AgentSnapshot = pi_js_compat::js_json::from_value(&agent).unwrap();
+        assert_eq!(source["output"], json!(is_detached_runtime_agent(&native)), "{agent:?}");
+    }
+}
+
+#[tokio::test]
+async fn child_terminal_path_cancels_detached_runtime_before_settling() {
+    use pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::create_lifecycle_coordinator;
+    use pi_coding_agent::core::lifecycle_coordinator::{
+        LifecycleCommandResult, OwnedLifecycleCommandInput, PrepareChildCommandInput,
+    };
+    use pi_coding_agent::core::multi_agent_store::SpawnAgent;
+    use pi_coding_agent::core::session_control_db::{
+        CreateMultiAgentChildWithRuntimeOwnershipResult, RuntimeMailboxAddress, RuntimeMailboxRegistrationOptions,
+        register_runtime_mailbox_listener,
+    };
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let handles = create_multi_agent_runtime_handles();
+    let identity = pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap();
+    let owner_id = ctx.session_manager().unwrap().get_session_id().to_owned();
+    register_runtime_mailbox_listener(
+        &test.control_db_path,
+        &RuntimeMailboxAddress {
+            session_id: owner_id.clone(),
+            agent_id: None,
+        },
+        identity.pid,
+        Some(&test.session_path),
+        RuntimeMailboxRegistrationOptions::default(),
+    )
+    .unwrap();
+    let detached = Arc::new(Mutex::new(None));
+    let captured = Arc::clone(&detached);
+    let factory_store = Arc::clone(&store);
+    let factory = ChildAgentSessionFactory::new(move |input| {
+        let store = Arc::clone(&factory_store);
+        let captured = Arc::clone(&captured);
+        let identity = identity.clone();
+        let owner_id = owner_id.clone();
+        Box::pin(async move {
+            let mut session = FakeSession::new("parent done", Some("parent-session"));
+            session.on_prompt = Some(Arc::new(move || {
+                let coordinator = create_lifecycle_coordinator(&store).unwrap();
+                let spawn: SpawnAgent = pi_js_compat::js_json::from_value(&json!({
+                    "parentId":input.agent.id,"displayName":"background-job","agentType":"background","cwd":"/tmp",
+                    "permission":{"policy":"on-request","narrowed":true},"worker":{"adapter":"runtime","handleId":"job"}
+                }))
+                .unwrap();
+                let prepared = coordinator
+                    .prepare_child(&PrepareChildCommandInput {
+                        spawn,
+                        agent_id: None,
+                        detached: Some(true),
+                        result: Some(
+                            pi_js_compat::js_json::from_value(
+                                &json!({"fileRefs":[{"path":"/tmp/job","label":"Bash output"}]}),
+                            )
+                            .unwrap(),
+                        ),
+                    })
+                    .unwrap();
+                let result = coordinator
+                    .commit_running_child(&prepared, &owner_id, &identity, None)
+                    .unwrap();
+                let CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { agent, ownership } = result else {
+                    panic!("child commit {result:?}")
+                };
+                store.publish_lifecycle_coordinator_snapshot(&agent).unwrap();
+                *captured.lock().unwrap() = Some((coordinator, *agent, *ownership));
+            }));
+            Ok(Arc::new(session) as Arc<dyn ChildAgentSession>)
+        })
+    });
+    let (journal, _) = recording_journal();
+    let result = spawn_agent(SpawnAgentRuntimeInput {
+        active_tool_call_id: None,
+        create_child_session: Some(factory),
+        ctx,
+        desktop_notifier: Arc::new(RecordingNotifier::default()),
+        dispatches: Arc::clone(&handles.dispatches),
+        handles: Some(Arc::clone(&handles.sessions)),
+        ownerships: Arc::clone(&handles.ownerships),
+        params: json!({"prompt":"work"}),
+        pi: Some(journal),
+        store: Arc::clone(&store),
+        waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
+        _marker: std::marker::PhantomData,
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        result.details.as_ref().unwrap()["dispatched"],
+        json!(true),
+        "{result:?}"
+    );
+    let parent_id = result.details.unwrap()["agent"]["id"].as_string().unwrap().clone();
+    let (coordinator, child, ownership) = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Some(detached) = detached.lock().unwrap().take() {
+                break detached;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let cancelling = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let current = read_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id)
+                .unwrap()
+                .unwrap();
+            if current.lifecycle == AgentLifecycle::Cancelling {
+                break current;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("terminal cleanup must cancel direct detached child");
+    assert_eq!(cancelling.extra.get("suppressTerminalNotification"), Some(&json!(true)));
+    assert_eq!(store.get_agent(&parent_id).unwrap().lifecycle, AgentLifecycle::Running);
+    let LifecycleCommandResult::Ok { agent: aborted } = coordinator
+        .acknowledge_cancellation(&OwnedLifecycleCommandInput {
+            agent: cancelling,
+            ownership,
+        })
+        .unwrap()
+    else {
+        panic!("acknowledge")
+    };
+    store.publish_lifecycle_coordinator_snapshot(&aborted).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while store.get_agent(&parent_id).unwrap().lifecycle == AgentLifecycle::Running {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        store.get_agent(&parent_id).unwrap().lifecycle,
+        AgentLifecycle::Completed
+    );
+}
+
+#[tokio::test]
+async fn cancelling_parent_waits_for_descendants_even_after_abort() {
+    use pi_coding_agent::bundled_extensions::agents_core::dispatch_runtime::wait_for_active_descendants;
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    let mut parent = empty_agent("parent");
+    parent.lifecycle = AgentLifecycle::Cancelling;
+    let mut child = empty_agent("child");
+    child.parent_id = Some(parent.id.clone());
+    child.lifecycle = AgentLifecycle::Running;
+    store.publish_lifecycle_coordinator_snapshot(&parent).unwrap();
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    let controller = pi_js_compat::abort::AbortController::new();
+    controller.abort(None);
+    let signal = controller.signal();
+    let waiting = wait_for_active_descendants(&store, &parent.id, Some(&signal));
+    tokio::pin!(waiting);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut waiting)
+            .await
+            .is_err()
+    );
+    child.lifecycle = AgentLifecycle::Completed;
+    child.revision += 1;
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(1), waiting)
+        .await
+        .unwrap()
+        .unwrap();
+}
+
+#[tokio::test]
+async fn descendant_settlement_reconciles_persisted_newer_revision_without_local_event() {
+    use pi_coding_agent::bundled_extensions::agents_core::dispatch_runtime::wait_for_active_descendants;
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    use pi_coding_agent::core::session_control_db::bootstrap_multi_agent_agent;
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let mut child = empty_agent("child");
+    child.parent_id = Some("parent".into());
+    child.lifecycle = AgentLifecycle::Running;
+    child.revision = 1;
+    store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    let parent_id = JsString::from("parent");
+    let waiting = wait_for_active_descendants(&store, &parent_id, None);
+    tokio::pin!(waiting);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(20), &mut waiting)
+            .await
+            .is_err()
+    );
+    child.lifecycle = AgentLifecycle::Completed;
+    child.revision = 2;
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+        .await
+        .expect("250ms persisted poll")
+        .unwrap();
+    assert_eq!(store.get_agent(&child.id).unwrap().revision, 2);
+    assert_eq!(store.get_agent(&child.id).unwrap().lifecycle, AgentLifecycle::Completed);
 }
 
 #[tokio::test]
