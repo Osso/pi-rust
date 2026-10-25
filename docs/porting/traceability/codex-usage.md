@@ -77,4 +77,6 @@ Compared all exports and helpers with frozen `4f9e6f8a4c0065d81b10e7177b28d5082f
 
 Re-pin corrections: HTTP JSON, plan names, rate labels and credit balances stay in existing `JsValue`/`JsString` carriers through mapping and reports; no scalar replacement projection. Missing/nonfinite usage percentages produce absent windows instead of invented 0%. Empty email/account/limit-name/balance formatting follows frozen truthiness; an empty metered feature stays an empty mapped name. Read/reset reports share the all-report busy path: notify now, enqueue with nextTurn. Real HTTP-body seam tests and frozen helper cases reproduce each mismatch before fixing it.
 
-Proof: [lane ledger](../bundled-ext-b-proof.md). Auth fallback boundary remains under audit before closure. Gap: adversarial wrong-type JSON, runtime-only crypto absence, OS faults and numeric extremes use the approved parity exclusions.
+Proof: [lane ledger](../bundled-ext-b-proof.md). Auth lookup now calls `authStorage.getApiKey(..., includeFallback:false)` exactly, instead of the registry fallback accessor. The isolated environment-key regression fails before this fix and passes after it. Gap: adversarial wrong-type JSON, runtime-only crypto absence, OS faults and numeric extremes use the approved parity exclusions.
+
+`usage_human_fields_match_frozen_utf16_in_both_directions` compares native mapping to TS output, deserializes the TS value, then sends the native serialized DTO to TS formatting and compares exact raw-unit text. Five current frozen differentials pass.

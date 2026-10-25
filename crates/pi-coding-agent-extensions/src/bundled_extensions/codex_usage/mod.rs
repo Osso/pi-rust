@@ -434,10 +434,17 @@ async fn read_codex_access_token_for_provider(
 ) -> Result<JsString, HandlerError> {
     let token = ctx
         .model_registry()?
-        .get_api_key_for_provider(provider_id)
+        .auth_storage()
+        .get_api_key(
+            provider_id,
+            crate::core::auth_storage::GetApiKeyOptions {
+                include_fallback: false,
+                ..Default::default()
+            },
+        )
         .await
         .map_err(|error| HandlerError::new(error.message()))?;
-    let Some(token) = token else {
+    let Some(token) = token.filter(|token| !token.is_empty()) else {
         return Err(HandlerError::new(format!(
             "OpenAI Codex provider {provider_id} is not logged in. Run /login {provider_id}."
         )));

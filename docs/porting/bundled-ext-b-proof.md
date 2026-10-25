@@ -53,3 +53,10 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - RED frozen missing-percent case `/tmp/ext-b-usage-oracle-red.log`; RED empty-metered-feature case `/tmp/ext-b-usage-oracle-empty-red.log`.
 - Targets: `suite_extensions codex_usage_extension::`, `suite_core_2 differential_codex_usage::differential_codex_usage`; commands use `cargo test -j3 -p pi-coding-agent --test <target> <filter>`. Relevant usage changes invalidate prior usage proof only.
 - Parent event authority merged at 6ecbb4c5d from 1a02ec893.
+
+### Usage closure
+
+- RED fallback credential lookup `/tmp/ext-b-usage-auth-red.log`; GREEN `cargo test -j3 -p pi-coding-agent --test codex_usage_auth_boundary`, 1/1, `/tmp/ext-b-usage-auth-green.log`.
+- GREEN `cargo test -j3 -p pi-coding-agent --test suite_core_2 differential_codex_usage::`, 5/5 including raw bidirectional DTO/text oracle, all-account bridge/credentials; `/tmp/ext-b-usage-all-green.log`.
+- Proof covers usage closure commit (this change). HTTP/payload/report behavior proof at f8724a65d remains valid except credential lookup, now covered above.
+- Mechanical fallout: native map fixture adapters and standalone auth target registration in Cargo.toml; no dependencies or cross-lane algorithms.

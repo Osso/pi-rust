@@ -696,3 +696,25 @@ async fn differential_usage_all_codex_credentials() {
     }
     assert_eq!(actual.len(), expected.len());
 }
+
+#[test]
+fn usage_human_fields_match_frozen_utf16_in_both_directions() {
+    use pi_coding_agent::bundled_extensions::codex_usage::{CodexUsage, format_codex_usage, map_codex_usage_payload};
+    use pi_js_compat::{js_json, js_json as native_json};
+    let payload = js_json::parse_lossless(r#"{"plan_type":"plan\ud800", "credits":{"balance":"10\udfff"}, "additional_rate_limits":[{"limit_name":"rate\ud801", "metered_feature":"feature\ud802"}]}"#).unwrap();
+    let mut ts = TsOracle::spawn("codex-usage-oracle.ts", SOURCE);
+    let response: JsValue = ts.request(
+        &native_json!({"id":91,"operation":"cases","cases":[{"name":"raw-map","kind":"map","payload":payload}]}),
+    );
+    assert_eq!(response["ok"], native_json!(true));
+    let expected = &response["output"]["results"][0]["mapped"];
+    let native = map_codex_usage_payload(&payload);
+    assert_eq!(js_json::to_value(&native).unwrap(), *expected);
+    let from_ts: CodexUsage = js_json::from_value(expected).unwrap();
+    let response: JsValue = ts.request(&native_json!({"id":92,"operation":"cases","cases":[{"name":"raw-format","kind":"format","usage":js_json::to_value(&native).unwrap()}]}));
+    assert_eq!(response["ok"], native_json!(true));
+    assert_eq!(
+        native_json!(format_codex_usage(&from_ts)),
+        response["output"]["results"][0]["text"]
+    );
+}
