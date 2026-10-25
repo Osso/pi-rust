@@ -1,5 +1,14 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "support/components.rs"]
+mod shared_components;
+#[path = "support/editor_host.rs"]
+mod shared_editor_host;
+#[path = "support/oracle.rs"]
+mod shared_oracle;
+#[path = "support/virtual_terminal.rs"]
+mod shared_virtual_terminal;
+
 #[path = "differential_editor.rs"]
 pub mod differential_editor;
 #[path = "differential_tui.rs"]

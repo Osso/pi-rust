@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_tui::terminal_colors::{
     RgbColor, TerminalColorScheme, is_osc11_background_color_response, parse_osc11_background_color,

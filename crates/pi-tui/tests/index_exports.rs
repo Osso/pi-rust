@@ -3,8 +3,7 @@
 //! The `Key` map and the `Marked` facade are compared against the pinned
 //! TypeScript module through the shared oracle.
 
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_tui::keys::Key;
 use serde_json::{Value, json};
@@ -145,8 +144,7 @@ fn key_map_matches_the_pinned_typescript_object() {
     }
 }
 
-#[path = "support/virtual_terminal.rs"]
-mod virtual_terminal;
+use crate::shared_virtual_terminal as virtual_terminal;
 
 #[test]
 fn frozen_root_tui_constructs_and_renders() {

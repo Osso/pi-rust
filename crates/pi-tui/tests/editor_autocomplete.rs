@@ -1,8 +1,7 @@
 //! Ported from `packages/tui/test/editor.test.ts` (`Autocomplete`, the
 //! autocomplete paste case, and `undoes autocomplete`).
 
-#[path = "support/editor_host.rs"]
-mod editor_host;
+use crate::shared_editor_host as editor_host;
 
 use pi_js_compat::js_json::JsString;
 use std::cell::Cell;
