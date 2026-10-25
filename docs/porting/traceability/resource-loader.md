@@ -131,6 +131,10 @@ loadProjectContextFiles now returns Result with the existing CallbackError carri
 
 Extended the same actual frozen lifecycle fixture to append a prompt after the rule failure. Frozen override reads current skills synchronously. Native held its state mutex throughout extendResources and deadlocked when the override called getSkills. RED `/tmp/ext-api2-resource-extend-red.log` fails the bounded real-thread completion boundary. Native now releases the state lock before overrides and publishes successful resource stages in source order, preserving metadata before failures. No special-case guard or fallback. GREEN pending.
 
+## Warning text and directory candidates (2026-10-25)
+
+Frozen attempts reads for existing AGENTS/CLAUDE candidates, including directories, and logs chalk-yellow Error text on read failures. Native previously silently skipped directory candidates and used Rust OS text for prompt warnings. Context reads now follow read→realpath→collect, skip with the exact Node read/realpath message on failure, and use the existing stdout-bound Chalk authority for yellow diagnostics. RED `/tmp/ext-api2-resource-warnings-red.log` has one native OS-text warning versus three frozen Node-text warnings. The subprocess comparison covers FORCE_COLOR=0/1; GREEN pending.
+
 ## Constructor error carrier
 
 [Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.

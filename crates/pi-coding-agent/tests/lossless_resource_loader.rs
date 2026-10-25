@@ -137,6 +137,65 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
 }
 
 #[test]
+fn context_and_prompt_directory_warnings_match_frozen_stderr() {
+    use serde_json::json;
+    let root = tempfile::tempdir().unwrap();
+    std::fs::create_dir(root.path().join("AGENTS.md")).unwrap();
+    std::fs::create_dir(root.path().join("prompt-dir")).unwrap();
+    for force_color in ["0", "1"] {
+        let mut oracle = oracle::TsOracle::spawn_with_environment(
+            "resource-loader-lifecycle-oracle.ts",
+            "packages/coding-agent/src/core/resource-loader.ts",
+            &[("FORCE_COLOR", force_color.into())],
+        );
+        let expected = oracle.request(&json!({"id":6,"operation":"warnings","root":root.path()}));
+        let actual = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "lossless_resource_loader::context_and_prompt_warning_probe",
+                "--nocapture",
+            ])
+            .env("PI_RESOURCE_WARNING_ROOT", root.path())
+            .env("FORCE_COLOR", force_color)
+            .output()
+            .unwrap();
+        assert!(actual.status.success(), "{}", String::from_utf8_lossy(&actual.stderr));
+        let warnings = String::from_utf8(actual.stderr)
+            .unwrap()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        assert_eq!(json!({"id":6,"warnings":warnings}), expected);
+    }
+}
+
+#[tokio::test]
+#[ignore = "child process probe invoked by context_and_prompt_directory_warnings_match_frozen_stderr"]
+async fn context_and_prompt_warning_probe() {
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use std::sync::{Arc, Mutex};
+    let root = std::env::var("PI_RESOURCE_WARNING_ROOT").unwrap();
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: root.as_str().into(),
+        agent_dir: root.as_str().into(),
+        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            Default::default(),
+        )))),
+        no_extensions: true,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        system_prompt: Some((root + "/prompt-dir").into()),
+        ..Default::default()
+    })
+    .unwrap();
+    loader.reload().await.unwrap();
+}
+
+#[test]
 fn context_file_roots_report_frozen_invalid_file_url_errors() {
     let mut oracle = oracle::TsOracle::spawn(
         "coding-agent-resource-loader-oracle.ts",

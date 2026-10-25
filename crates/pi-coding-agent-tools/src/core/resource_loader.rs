@@ -65,15 +65,12 @@ pub fn resolve_prompt_input(input: Option<&JsString>, description: &str) -> Opti
     match read_text_file(input) {
         Ok(content) => Some(content),
         Err(error) => {
-            eprintln!(
-                "{}",
-                encode_node_utf8(&js_format!(
-                    "Warning: Could not read {} file {}: {}",
-                    description,
-                    input,
-                    error.to_string()
-                ))
-            );
+            warn_resource_read(js_format!(
+                "Warning: Could not read {} file {}: Error: {}",
+                description,
+                input,
+                pi_js_compat::node_fs::node_read_error(&error, input)
+            ));
             Some(input.to_owned())
         }
     }
@@ -161,6 +158,23 @@ struct LoadedContextFile {
     real_path: JsString,
 }
 
+fn warn_resource_read(message: JsString) {
+    let warning = crate::utils::chalk::Chalk::stdout().yellow(message);
+    eprintln!("{}", encode_node_utf8(&warning));
+}
+
+fn read_context_file(file_path: &JsString) -> Result<LoadedContextFile, JsString> {
+    let content =
+        read_text_file(file_path).map_err(|error| pi_js_compat::node_fs::node_read_error(&error, file_path))?;
+    let real_path = fs::canonicalize(encode_node_utf8(file_path))
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "realpath", file_path))?;
+    Ok(LoadedContextFile {
+        path: file_path.clone(),
+        content,
+        real_path: pi_js_compat::node_fs::decode_node_path(real_path.as_os_str()),
+    })
+}
+
 fn load_context_files_from_dir(dir: &JsString, candidates: &[&str]) -> Vec<LoadedContextFile> {
     let mut context_files = Vec::new();
     for filename in candidates {
@@ -168,40 +182,9 @@ fn load_context_files_from_dir(dir: &JsString, candidates: &[&str]) -> Vec<Loade
         if !path_exists(&file_path) {
             continue;
         }
-        let metadata = match fs::metadata(encode_node_utf8(&file_path)) {
-            Ok(metadata) => metadata,
-            Err(error) => {
-                eprintln!(
-                    "{}",
-                    encode_node_utf8(&js_format!(
-                        "Warning: Could not read {}: {}",
-                        file_path,
-                        error.to_string()
-                    ))
-                );
-                continue;
-            }
-        };
-        if !metadata.is_file() {
-            continue;
-        }
-        match read_text_file(&file_path) {
-            Ok(content) => {
-                let real_path = canonicalize_path(&file_path);
-                context_files.push(LoadedContextFile {
-                    path: file_path,
-                    content,
-                    real_path,
-                });
-            }
-            Err(error) => eprintln!(
-                "{}",
-                encode_node_utf8(&js_format!(
-                    "Warning: Could not read {}: {}",
-                    file_path,
-                    error.to_string()
-                ))
-            ),
+        match read_context_file(&file_path) {
+            Ok(file) => context_files.push(file),
+            Err(error) => warn_resource_read(js_format!("Warning: Could not read {}: Error: {}", file_path, error)),
         }
     }
     context_files

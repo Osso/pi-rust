@@ -8,6 +8,17 @@ async function main(): Promise<void> {
 	const { SettingsManager } = await import(pathToFileURL(join(dirname(process.argv[2]), "settings-manager.ts")).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
+		if (request.operation === "warnings") {
+			const warnings: string[] = [];
+			const original = console.error;
+			console.error = (message: string) => { warnings.push(message); };
+			try {
+				const loader = new DefaultResourceLoader({ cwd: request.root, agentDir: request.root, settingsManager: SettingsManager.inMemory(), noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, systemPrompt: join(request.root, "prompt-dir") });
+				await loader.reload();
+			} finally { console.error = original; }
+			process.stdout.write(`${JSON.stringify({ id: request.id, warnings })}\n`);
+			continue;
+		}
 		if (request.operation === "extend_path") {
 			const loader = new DefaultResourceLoader({ cwd: request.root, agentDir: request.root, settingsManager: SettingsManager.inMemory() });
 			let error: string | null = null;
