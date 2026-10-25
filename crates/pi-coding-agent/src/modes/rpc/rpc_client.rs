@@ -513,11 +513,11 @@ impl RpcClient {
             });
         }
         match sync.exit {
-            Some(exit) => Err(sync
+            Some(exit) if exit.code.is_some() => Err(sync
                 .exit_error
                 .clone()
                 .unwrap_or_else(|| process_exit_error(exit, &sync.stderr))),
-            None => Ok(()),
+            _ => Ok(()),
         }
     }
 
@@ -1463,6 +1463,63 @@ mod tests {
             std::task::Poll::Ready(Err(std::io::Error::from_raw_os_error(
                 rustix::io::Errno::IO.raw_os_error(),
             )))
+        }
+    }
+
+    #[test]
+    fn linux_signal_names_match_every_node_constant_number() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"signal_names","reply":{}}));
+        let names = expected["value"].as_object().unwrap();
+        assert_eq!(names.len(), 31);
+        for (number, name) in names {
+            let number = number.to_utf8().unwrap().parse::<i32>().unwrap();
+            assert_eq!(
+                crate::utils::child_process::signal_name(number),
+                name.as_string().unwrap().to_utf8().unwrap(),
+                "signal {number}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn signal_only_startup_keeps_start_successful_and_caches_send_error() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        for signal in ["SIGTERM", "SIGUSR2"] {
+            let expected =
+                source.request(&pi_js_compat::js_json!({"operation":"startup_signal","signal":signal,"reply":{}}));
+            let (_root, script) = temp_script("child.mjs", include_str!("../../../../../oracle/rpc-client-child.mjs"));
+            let client = RpcClient::new(RpcClientOptions {
+                cli_path: Some(script.to_str().unwrap().into()),
+                env: IndexMap::from([
+                    ("PI_RPC_CLIENT_REPLY".into(), "{}".into()),
+                    ("PI_RPC_STARTUP_SIGNAL".into(), signal.into()),
+                ]),
+                ..Default::default()
+            });
+            let mut start = Box::pin(client.start());
+            assert!(futures_util::poll!(start.as_mut()).is_pending());
+            tokio::time::timeout(Duration::from_secs(3), async {
+                while client.inner.sync.lock().unwrap().exit.is_none() {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+            })
+            .await
+            .unwrap();
+            let outcome = match start.await {
+                Ok(()) => pi_js_compat::js_json!({"ok":true}),
+                Err(error) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
+            };
+            let send_error = client.get_state().await.unwrap_err().value();
+            client.stop().await.unwrap();
+            assert_eq!(outcome, expected["value"]["start"]);
+            assert_eq!(send_error, expected["value"]["send"]["error"]);
         }
     }
 

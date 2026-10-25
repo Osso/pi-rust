@@ -1,6 +1,8 @@
 import { createInterface } from "node:readline";
 import { closeSync } from "node:fs";
 const reply = JSON.parse(process.env.PI_RPC_CLIENT_REPLY);
+if (process.env.PI_RPC_STARTUP_SIGNAL)
+	process.kill(process.pid, process.env.PI_RPC_STARTUP_SIGNAL);
 if (process.env.PI_RPC_WRITING === "1") {
 	process.on("SIGTERM", () => {});
 	process.stdout.on("error", (error) => {

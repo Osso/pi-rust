@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { constants as osConstants } from "node:os";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -53,8 +55,11 @@ type Request = {
 		| "blocked_write"
 		| "pipe_error"
 		| "promise_lifetime"
-		| "prompt_fail_lifetime";
+		| "prompt_fail_lifetime"
+		| "startup_signal"
+		| "signal_names";
 	reply: unknown;
+	signal?: string;
 	executable?: string;
 	cliPath?: string;
 	cwd?: string;
@@ -112,7 +117,41 @@ const child = await readFile(
 	"utf8",
 );
 
+function readCanonicalSignalNames(): Record<string, string> {
+	const groups = new Map<number, string[]>();
+	for (const [name, number] of Object.entries(osConstants.signals)) {
+		const aliases = groups.get(number) ?? [];
+		aliases.push(name);
+		groups.set(number, aliases);
+	}
+	const names: Record<string, string> = {};
+	for (const [number, aliases] of groups) {
+		let canonical = aliases[0];
+		if (aliases.length > 1) {
+			// Resolve aliases using a real private exit; disable core files only in that child.
+			const child = spawnSync(
+				"python3",
+				[
+					"-c",
+					`import os,resource;resource.setrlimit(resource.RLIMIT_CORE,(0,0));os.kill(os.getpid(),${number})`,
+				],
+				{ timeout: 2000 },
+			);
+			if (!child.signal)
+				throw new Error(
+					`signal ${number}: ${child.error ?? child.stderr.toString()}`,
+				);
+			canonical = child.signal;
+		}
+		if (canonical === undefined) throw new Error(`empty aliases for ${number}`);
+		names[String(number)] = canonical;
+	}
+	return names;
+}
+
 async function execute(api: Api, request: Request): Promise<unknown> {
+	if (request.operation === "signal_names")
+		return { ok: true, value: readCanonicalSignalNames() };
 	const dir = await mkdtemp(join(tmpdir(), "rpc-client-oracle-"));
 	const path = join(dir, "child.mjs");
 	await writeFile(path, child);
@@ -123,6 +162,7 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 		nodeArgs: request.nodeArgs,
 		env: {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
+			PI_RPC_STARTUP_SIGNAL: request.signal ?? "",
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
 			PI_RPC_WRITING: request.keepWriting ? "1" : "0",
 			PI_RPC_DELAY_ACK: request.operation === "promise_lifetime" ? "1" : "0",
@@ -149,6 +189,28 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			const second = await startOutcome(client);
 			await client.stop();
 			return { ok: true, value: [first, second, await startOutcome(client)] };
+		}
+		if (request.operation === "startup_signal") {
+			const starting = startOutcome(client);
+			const child = Reflect.get(client, "process") as {
+				exitCode: number | null;
+				signalCode: string | null;
+				once(event: "exit", listener: () => void): void;
+			};
+			if (child.exitCode === null && child.signalCode === null)
+				await new Promise<void>((resolve) => child.once("exit", resolve));
+			const start = await starting;
+			const send = await client.getState().then(
+				() => ({ ok: true }),
+				(error: unknown) => {
+					if (!(error instanceof Error)) throw error;
+					return {
+						ok: false,
+						error: { name: error.name, message: error.message },
+					};
+				},
+			);
+			return { ok: true, value: { start, send } };
 		}
 		await client.start();
 		if (
