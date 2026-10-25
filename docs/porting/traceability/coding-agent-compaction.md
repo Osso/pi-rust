@@ -118,3 +118,5 @@ The update-summary template now also matches frozen622–658: retain only still-
 Added ten actual-frozen numeric percentage validation/enabled combinations (0/-1/101 reject even when disabled;0.5/100 accepted), plus preparation-settings round-trip for37.5%. These supplement the inclusive-boundary and percentage/model/reserve precedence vectors.
 
 Focused helper batch after the source changes:36/37 passed; the sole failure was the old budget unit fixture, whose keepRecentTokens1/2 expectations contradicted frozen protected-suffix behavior. It now asserts exact index1/start0/splittrue for both budgets plus full-result equality. Generation batch15/15 passed. An initial branch filter selected zero tests in suite_session_1 and is not evidence; native branch tests belong to suite_core_1.
+
+Materialization now has an actual-frozen injected-stream differential for full checkpoint/request/result, aborted result, whitespace-only rejection and missing checkpoint, in addition to the existing native materialization tests.

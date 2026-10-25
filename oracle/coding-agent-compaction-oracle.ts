@@ -36,6 +36,8 @@ const handlers: Record<string, Handler> = {
 			if (request.kind === "branch") {
 				value = await api.generateBranchSummary(request.entries, { ...options, model: request.model, reserveTokens: 1000,
 					customInstructions: request.customInstructions, replaceInstructions: request.replaceInstructions });
+			} else if (request.kind === "materialize") {
+				value = await api.materializeCompactionSummary(request.entry, request.model, { ...options, reserveTokens: 1000 });
 			} else if (request.kind === "summary") {
 				value = await api.generateSummary(request.messages, request.model, 1000, options.apiKey, options.headers,
 					undefined, request.customInstructions, request.previousSummary, undefined, streamFn, options.env);

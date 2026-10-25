@@ -6,8 +6,9 @@ use pi_agent_core::agent::{AgentMessage, StreamFn};
 use pi_ai::types::{AssistantMessage, Model, ProviderEnv, ProviderHeaders, StopReason};
 use pi_coding_agent::core::compaction::branch_summarization::{GenerateBranchSummaryOptions, generate_branch_summary};
 use pi_coding_agent::core::compaction::{
-    CompactionPreparation, CompactionSummaryOptions, DEFAULT_COMPACTION_SETTINGS, GenerateSummaryOptions, compact,
-    create_file_ops, generate_summary,
+    CompactionPreparation, CompactionSummaryOptions, DEFAULT_COMPACTION_SETTINGS, GenerateSummaryOptions,
+    MaterializeCompactionSummaryOptions, MaterializeCompactionSummaryResult, compact, create_file_ops,
+    generate_summary, materialize_compaction_summary,
 };
 use pi_coding_agent::core::session_manager::SessionEntry;
 use pi_js_compat::js_json::JsString;
@@ -166,6 +167,55 @@ async fn summary_generation_matches_frozen_guidance_focus_and_empty_errors() {
             json!({"id": 1, "module": "core/compaction/compaction.ts", "operation": "generation", "kind": "summary",
             "messages": messages, "model": model, "responses": [response], "customInstructions": custom,
             "previousSummary": previous}),
+            outcome(result),
+            &requests,
+        );
+    }
+}
+
+#[tokio::test]
+async fn materialization_matches_frozen_checkpoints_requests_and_outcomes() {
+    let mut oracle = oracle();
+    let model = model();
+    for (checkpoint, reason, text) in [
+        (true, StopReason::Stop, "summary"),
+        (true, StopReason::Aborted, ""),
+        (true, StopReason::Stop, " \u{feff} "),
+        (false, StopReason::Stop, "summary"),
+    ] {
+        let mut entry = json!({"type": "compaction", "id": "checkpoint", "parentId": null,
+            "timestamp": "2026-01-01T00:00:00.000Z", "summary": "checkpoint summary", "tokensBefore": 10000,
+            "firstKeptEntryId": "kept"});
+        if checkpoint {
+            entry["providerNative"] =
+                json!({"provider": "faux", "api": "faux", "format": "openai.responses.input", "value": []});
+        }
+        let entry: pi_coding_agent::core::session_manager::CompactionEntry = serde_json::from_value(entry).unwrap();
+        let mut response = response(text);
+        response.stop_reason = reason;
+        let requests = Arc::new(Mutex::new(Vec::new()));
+        let stream = stream(vec![response.clone()], requests.clone());
+        let result = materialize_compaction_summary(
+            &entry,
+            &model,
+            &MaterializeCompactionSummaryOptions {
+                reserve_tokens: 1000.0,
+                api_key: Some("fixture-key".into()),
+                headers: Some(headers()),
+                env: Some(env()),
+                signal: None,
+                stream_fn: Some(&stream),
+            },
+        )
+        .await
+        .map(|result| match result {
+            MaterializeCompactionSummaryResult::Aborted => json!({"aborted": true}),
+            MaterializeCompactionSummaryResult::Summary(summary) => json!({"aborted": false, "summary": summary}),
+        });
+        compare(
+            &mut oracle,
+            json!({"id": 1, "module": "core/compaction/compaction.ts", "operation": "generation", "kind": "materialize",
+            "entry": entry, "model": model, "responses": [response]}),
             outcome(result),
             &requests,
         );
