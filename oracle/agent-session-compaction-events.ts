@@ -62,6 +62,16 @@ async function bindSavedEventFixture(
 	return () => preparation;
 }
 
+function normalizeSavedEvent(event) {
+	const wire = JSON.parse(JSON.stringify(event));
+	const entry = wire.compactionEntry;
+	for (const field of ["id", "parentId", "timestamp", "firstKeptEntryId"]) {
+		if (typeof entry[field] === "string") entry[field] = `<${field}>`;
+	}
+	if (typeof entry.durationMs === "number") entry.durationMs = "<durationMs>";
+	return wire;
+}
+
 export async function runCompactionEventsScenario(operation, context) {
 	const { session, sessionManager, settingsManager, agent, model } = context;
 	const auto = operation.startsWith("auto-");
@@ -182,6 +192,8 @@ export async function runCompactionEventsScenario(operation, context) {
 			afterCompacting: session.isCompacting,
 			error,
 			snapshots,
+			wires: saved.map(normalizeSavedEvent),
+			rawWires: saved.map((event) => JSON.parse(JSON.stringify(event))),
 		};
 	} finally {
 		release();

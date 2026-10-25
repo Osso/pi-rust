@@ -1901,10 +1901,21 @@ pub struct SessionCompactionSourceEvent {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactEvent {
+    #[serde(serialize_with = "serialize_compaction_event_entry")]
     pub compaction_entry: CompactionEntry,
     pub from_extension: bool,
     pub reason: CompactionReason,
     pub will_retry: bool,
+}
+
+fn serialize_compaction_event_entry<S: serde::Serializer>(
+    entry: &CompactionEntry,
+    serializer: S,
+) -> Result<S::Ok, S::Error> {
+    let tagged = crate::core::session_manager::SessionEntry::Known(
+        crate::core::session_manager::KnownSessionEntry::Compaction(entry.clone()),
+    );
+    tagged.serialize(serializer)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

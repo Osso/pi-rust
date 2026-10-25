@@ -2,6 +2,22 @@ use super::*;
 use pi_agent_core::agent::types::{AgentContext, PrepareNextTurnContext};
 use std::time::Duration;
 
+fn normalize_saved_event(event: &pi_coding_agent::core::extensions::types::SessionCompactEvent) -> serde_json::Value {
+    let mut wire =
+        serde_json::to_value(pi_coding_agent::core::extensions::types::ExtensionEvent::SessionCompact(event.clone()))
+            .unwrap();
+    let entry = wire.get_mut("compactionEntry").unwrap();
+    for field in ["id", "parentId", "timestamp", "firstKeptEntryId"] {
+        if let Some(value) = entry.get_mut(field).filter(|value| value.is_string()) {
+            *value = json!(format!("<{field}>"));
+        }
+    }
+    if let Some(value) = entry.get_mut("durationMs").filter(|value| value.is_number()) {
+        *value = json!("<durationMs>");
+    }
+    wire
+}
+
 async fn assert_saved_event_boundary(operation: &str) {
     let auto = operation.starts_with("auto-");
     let cancel = operation.contains("cancel");
@@ -107,7 +123,8 @@ async fn assert_saved_event_boundary(operation: &str) {
         let captured = env.captured.lock().unwrap();
         let entries = env.session.session_manager().get_entries();
         captured.saved.iter().map(|event| {
-            let serialized = serde_json::to_value(&event.compaction_entry).unwrap();
+            let envelope = normalize_saved_event(event);
+            let serialized = &envelope["compactionEntry"];
             let hook = &captured.compaction[0].preparation;
             json!({"entryType":serialized["type"],"summary":event.compaction_entry.summary,
                 "fromExtension":event.from_extension,"fromHook":event.compaction_entry.from_hook,
@@ -117,7 +134,15 @@ async fn assert_saved_event_boundary(operation: &str) {
                 "durationPresent":event.compaction_entry.duration_ms.is_some(),"details":event.compaction_entry.details})
         }).collect::<Vec<_>>()
     };
-    let actual = json!({"handlerStarted":handler_started,"settledBeforeRelease":settled_before_release,
+    let wires = env
+        .captured
+        .lock()
+        .unwrap()
+        .saved
+        .iter()
+        .map(normalize_saved_event)
+        .collect::<Vec<_>>();
+    let actual = json!({"wires":wires,"handlerStarted":handler_started,"settledBeforeRelease":settled_before_release,
         "order":env.captured.lock().unwrap().saved_order,"endCompacting":end_states.lock().unwrap().clone(),
         "afterCompacting":env.session.is_compacting(),"error":error,"snapshots":snapshots});
     env.session.dispose();
@@ -125,6 +150,21 @@ async fn assert_saved_event_boundary(operation: &str) {
         callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
     let expected =
         oracle.request(&json!({"operation":operation,"dir":env._dir.path().join("oracle").display().to_string()}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let mut expected = expected;
+    let raw_wires = expected["value"].as_object_mut().unwrap().remove("rawWires").unwrap();
+    for wire in raw_wires.as_array().unwrap() {
+        let decoded: pi_coding_agent::core::extensions::types::ExtensionEvent =
+            serde_json::from_value(wire.clone()).unwrap();
+        let encoded = serde_json::to_value(decoded).unwrap();
+        assert_eq!(JsValue::from(encoded), JsValue::from(wire.clone()));
+    }
+    let mut expected_projection = expected.clone();
+    expected_projection["value"]
+        .as_object_mut()
+        .unwrap()
+        .remove("wires")
+        .unwrap();
     let snapshots = if cancel {
         Vec::new()
     } else {
@@ -139,11 +179,11 @@ async fn assert_saved_event_boundary(operation: &str) {
         vec!["session_compact:start", "session_compact:end", "compaction_end"]
     };
     assert_eq!(
-        expected,
+        expected_projection,
         json!({"ok":true,"value":{"handlerStarted":!cancel,"settledBeforeRelease":cancel,"order":order,
         "endCompacting":[auto || cancel],"afterCompacting":false,"error":if cancel && !auto { Some("Compaction cancelled") } else { None },"snapshots":snapshots}})
     );
-    assert_eq!(actual, expected["value"]);
+    assert_eq!(JsValue::from(actual), JsValue::from(expected["value"].clone()));
 }
 
 #[tokio::test]
