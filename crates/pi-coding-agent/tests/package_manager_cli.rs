@@ -114,7 +114,7 @@ fn valid_commands_return_actions() {
         })
     );
     let outcome = handle_config_command(&args(&["config", "-l"])).unwrap();
-    assert_eq!(outcome.action, Some(PackageAction::Config { local: true }));
+    assert_eq!(outcome.action, Some(PackageAction::Config));
 }
 
 #[test]
