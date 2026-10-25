@@ -31,3 +31,4 @@ Common pin: `4f9e6f8a4`. Source: `packages/coding-agent/extensions/codex-fast/sr
 
 - RED: `/tmp/bundled-fast-red.log` shows frozen handler mismatch (team-provider and warning text); `/tmp/bundled-fast-status-red.log` shows missing off-state callback.
 - Whole-module audit preserves command metadata, validation/editor ordering, branch restore, configured defaults, request object injection, and callback display selection. Native owned values apply; pathological inputs/runtime races are outside the parity bar.
+- GREEN at `9c81479b8`: both focused tests pass (`/tmp/bundled-fast-green.log`); 14 frozen cases plus live-status callback matrix. Targeted extension clippy is blocked by 7 existing errors in `pi-coding-agent-base` (`/tmp/bundled-ext-clippy.log`); no lint suppression or adjacent fix added. Changed Rust lines reviewed against the readability checklist.
