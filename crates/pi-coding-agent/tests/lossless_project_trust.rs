@@ -33,7 +33,7 @@ impl pi_coding_agent::core::extensions::types::ExtensionUiContext for RejectUi {
         _: Option<&pi_coding_agent::core::extensions::types::ExtensionUiDialogOptions>,
     ) -> pi_ai::request::BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         let reason = self.0.clone();
-        Box::pin(async move { Err(reason) })
+        Box::pin(async move { Err(pi_ai::request::CallbackError::new(reason)) })
     }
 }
 
