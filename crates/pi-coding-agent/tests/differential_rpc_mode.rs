@@ -1039,7 +1039,8 @@ fn thinking_timeout_recovery_matches_frozen_rpc() {
     // The actual TS-written record still has byte-exact native raw persistence semantics.
     let parsed = pi_coding_agent::core::session_manager::parse_session_entries(source_record.as_str());
     assert_eq!(parsed.len(), 1);
-    let serialized = pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence(&parsed[0]);
+    let serialized =
+        pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence(&parsed[0]).unwrap();
     assert_eq!(serialized, source_record);
     let round_trip = root.path().join("ts-aborted-native-roundtrip.jsonl");
     std::fs::write(&round_trip, serialized + "\n").unwrap();

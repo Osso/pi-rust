@@ -7,8 +7,17 @@ const root = process.argv[2];
 const tools = await import(pathToFileURL(join(root, "session-tool-output.ts")).href);
 const manager = await import(pathToFileURL(join(root, "session-manager.ts")).href);
 
-type Request = { id: number; op: string; dir: string; text?: string; path?: string; advanceMtime?: number };
+type Request = { id: number; op: string; dir: string; text?: string; path?: string; advanceMtime?: number; entry?: unknown };
 function runRequest(request: Request): unknown {
+    if (request.op === "truncate") {
+        try {
+            return { ok: true, entry: tools.truncateToolResultForPersistence(request.entry) };
+        } catch (error) {
+            if (!(error instanceof Error)) throw error;
+            return { ok: false, error: { name: error.name, message: error.message,
+                ...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "stack")) } };
+        }
+    }
     if (request.op === "create") {
         const session = manager.SessionManager.create(request.dir, request.dir);
         session.appendMessage({ role: "toolResult", toolCallId: "fixture", toolName: "fixture",

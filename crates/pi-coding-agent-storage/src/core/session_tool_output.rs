@@ -7,6 +7,7 @@ use std::path::Path;
 use pi_ai::utils::random_uuid::random_uuid;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::node_fs::{
     node_file_write_error_record, node_fs_dest_error, node_fs_error, node_read_error, node_rm_error,
 };
@@ -168,26 +169,51 @@ fn fit_tool_result_candidate(entry: &JsObject, message: &JsObject, content: &[Va
     best
 }
 
-fn cap_tool_result_entry(entry: &JsObject, message: &JsObject, content: &[Value]) -> JsObject {
+fn minimal_tool_identity(value: Option<&Value>) -> Result<JsString, Box<NativeNodeError>> {
+    let received = match value {
+        Some(Value::String(text)) => return Ok(utf8_prefix(text, 128)),
+        None => "undefined".to_owned(),
+        Some(Value::Null) => "null".to_owned(),
+        Some(Value::Bool(value)) => format!("type boolean ({value})"),
+        Some(Value::Number(value)) => format!("type number ({})", pi_js_compat::number::js_number_to_string(*value)),
+        Some(Value::Array(_) | Value::Object(_)) => {
+            return Err(Box::new(NativeNodeError::new(
+                "Error",
+                "Non-string Buffer-like tool identity is not supported at the persistence fallback",
+            )));
+        }
+    };
+    Err(Box::new(NativeNodeError::from_node_constructor(
+        NativeErrorClass::TypeError,
+        "ERR_INVALID_ARG_TYPE",
+        format!(
+            "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received {received}"
+        ),
+    )))
+}
+
+fn cap_tool_result_entry(
+    entry: &JsObject,
+    message: &JsObject,
+    content: &[Value],
+) -> Result<JsObject, Box<NativeNodeError>> {
     let capped_content = cap_serialized_content(&cap_text_content(content));
     let initial = build_tool_result_candidate(entry, message, capped_content);
     if entry_bytes(&initial) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-        return initial;
+        return Ok(initial);
     }
     let mut without_details = message.clone();
     without_details.shift_remove("details");
     for variant in [message, &without_details] {
         let candidate = fit_tool_result_candidate(entry, variant, content);
         if entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-            return candidate;
+            return Ok(candidate);
         }
     }
     let mut minimal = JsObject::new();
     minimal.insert("role".into(), Value::String("toolResult".into()));
     for key in ["toolCallId", "toolName"] {
-        if let Some(text) = message.get(key).and_then(Value::as_string) {
-            minimal.insert(key.into(), Value::String(utf8_prefix(text, 128)));
-        }
+        minimal.insert(key.into(), Value::String(minimal_tool_identity(message.get(key))?));
     }
     let blocks = vec![text_value(TOOL_RESULT_TRUNCATION_MARKER.into())];
     minimal.insert("content".into(), Value::Array(blocks.clone()));
@@ -196,45 +222,55 @@ fn cap_tool_result_entry(entry: &JsObject, message: &JsObject, content: &[Value]
             minimal.insert(key.into(), value.clone());
         }
     }
-    build_tool_result_candidate(entry, &minimal, blocks)
+    Ok(build_tool_result_candidate(entry, &minimal, blocks))
 }
 
 /// Return a persistence-only copy; arbitrary raw entry/message fields remain authoritative.
-pub fn truncate_tool_result_for_persistence(entry: &SessionEntry) -> (SessionEntry, bool) {
+pub fn truncate_tool_result_for_persistence(
+    entry: &SessionEntry,
+) -> Result<(SessionEntry, bool), Box<NativeNodeError>> {
     if entry.entry_type() != "message" {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     }
     let value = pi_js_compat::js_json::to_value(entry).expect("session entry serializes losslessly");
     let object = value.as_object().expect("session entry is an object");
-    let Some(message) = object.get("message").and_then(Value::as_object) else {
-        return (entry.clone(), false);
+    let raw_message = object.get("message");
+    if matches!(raw_message, None | Some(Value::Null)) {
+        let value = if raw_message.is_none() { "undefined" } else { "null" };
+        return Err(Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            format!("Cannot read properties of {value} (reading 'role')"),
+        )));
+    }
+    let Some(message) = raw_message.and_then(Value::as_object) else {
+        return Ok((entry.clone(), false));
     };
     let Some(content) = message.get("content").and_then(Value::as_array) else {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     };
     if message.get("role").and_then(Value::as_string) != Some(&JsString::from("toolResult"))
         || entry_bytes(object) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES
     {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     }
-    (
-        SessionEntry::Unknown(UnknownSessionEntry(cap_tool_result_entry(object, message, content))),
+    Ok((
+        SessionEntry::Unknown(UnknownSessionEntry(cap_tool_result_entry(object, message, content)?)),
         true,
-    )
+    ))
 }
 
 /// Serialize one session entry while applying persistence-only tool-result truncation.
-pub fn serialize_session_entry(entry: &SessionEntry) -> String {
-    let (persisted, _) = truncate_tool_result_for_persistence(entry);
-    serde_json::to_string(&persisted).expect("session entry serializes losslessly")
+pub fn serialize_session_entry(entry: &SessionEntry) -> Result<String, Box<NativeNodeError>> {
+    let (persisted, _) = truncate_tool_result_for_persistence(entry)?;
+    Ok(serde_json::to_string(&persisted).expect("session entry serializes losslessly"))
 }
 
 /// Serialize a header or entry without projecting through scalar JSON.
-pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> String {
+pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> Result<String, Box<NativeNodeError>> {
     match entry {
-        FileEntry::Header(header) => serde_json::to_string(header).expect("header serializes losslessly"),
+        FileEntry::Header(header) => Ok(serde_json::to_string(header).expect("header serializes losslessly")),
         FileEntry::Entry(entry) => serialize_session_entry(entry),
-        FileEntry::Json(value) => serde_json::to_string(value).expect("JSON value serializes losslessly"),
+        FileEntry::Json(value) => Ok(serde_json::to_string(value).expect("JSON value serializes losslessly")),
     }
 }
 
@@ -369,7 +405,11 @@ fn build_rewritten_session_content(
             return Err(js_format!("Missing parsed entry for {}:{}", file_path, line_index + 1));
         };
         if changed_indexes.contains(&entry_index) {
-            rewritten_lines.push(serialize_session_entry_for_persistence(entry).into());
+            rewritten_lines.push(
+                serialize_session_entry_for_persistence(entry)
+                    .map_err(|error| error.message)?
+                    .into(),
+            );
         } else {
             rewritten_lines.push(line.clone());
         }
@@ -453,13 +493,14 @@ fn rewrite_session_file(
     write_session_file_atomically(file_path, &content, parsed, now_ms)
 }
 
-fn cap_session_entries(entries: &[FileEntry]) -> (Vec<FileEntry>, Vec<usize>) {
+fn cap_session_entries(entries: &[FileEntry]) -> Result<(Vec<FileEntry>, Vec<usize>), JsString> {
     let mut capped_entries = Vec::with_capacity(entries.len());
     let mut changed_indexes = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
         let capped = match entry {
             FileEntry::Entry(entry) => {
-                let (truncated, changed) = truncate_tool_result_for_persistence(entry);
+                let (truncated, changed) =
+                    truncate_tool_result_for_persistence(entry).map_err(|error| error.message)?;
                 if changed {
                     changed_indexes.push(index);
                 }
@@ -469,7 +510,7 @@ fn cap_session_entries(entries: &[FileEntry]) -> (Vec<FileEntry>, Vec<usize>) {
         };
         capped_entries.push(capped);
     }
-    (capped_entries, changed_indexes)
+    Ok((capped_entries, changed_indexes))
 }
 
 /// One file of `migrateToolResultSessionFiles`; `Err` is the caught error message.
@@ -491,7 +532,7 @@ fn migrate_session_file(
         }
     };
 
-    let (capped_entries, changed_indexes) = cap_session_entries(&parsed.entries);
+    let (capped_entries, changed_indexes) = cap_session_entries(&parsed.entries)?;
     if changed_indexes.is_empty() {
         return Ok(());
     }

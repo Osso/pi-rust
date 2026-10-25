@@ -156,14 +156,14 @@ fn persisted_details_use_javascript_key_order_and_numbers() {
         timestamp: "2025-01-01T00:00:00.000Z".into(),
         message: Box::new(message),
     }));
-    let line = pi_coding_agent::core::session_tool_output::serialize_session_entry(&entry);
+    let line = pi_coding_agent::core::session_tool_output::serialize_session_entry(&entry).unwrap();
     assert!(line.contains(r#""details":{"1":1,"2":2,"x":3}"#), "{line}");
 }
 
 #[test]
 fn truncates_multibyte_utf8_at_a_valid_boundary() {
     let entry = tool_result_entry(&"😀漢字".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
-    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry).unwrap();
     assert!(changed);
     let text = text_from_tool_result(&persisted);
     assert!(encode_node_utf8(&text).len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
@@ -174,7 +174,7 @@ fn truncates_multibyte_utf8_at_a_valid_boundary() {
 #[test]
 fn does_not_emit_replacement_character_at_multibyte_boundary() {
     let entry = tool_result_entry(&"😀".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
-    let (persisted, _) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, _) = truncate_tool_result_for_persistence(&entry).unwrap();
     let text = text_from_tool_result(&persisted);
     assert!(!text.contains('\u{fffd}'));
 }
@@ -182,7 +182,7 @@ fn does_not_emit_replacement_character_at_multibyte_boundary() {
 #[test]
 fn returns_unchanged_small_tool_results() {
     let entry = tool_result_entry("small output");
-    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry).unwrap();
     assert!(!changed);
     assert_eq!(persisted, entry);
 }

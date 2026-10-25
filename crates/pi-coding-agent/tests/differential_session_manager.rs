@@ -85,7 +85,7 @@ fn serialize_entries(entries: &[Value]) -> Vec<String> {
         .iter()
         .map(|value| {
             let entry: FileEntry = serde_json::from_value(value.clone()).unwrap();
-            serialize_session_entry_for_persistence(&entry)
+            serialize_session_entry_for_persistence(&entry).unwrap()
         })
         .collect()
 }
@@ -481,7 +481,7 @@ fn truncates_tool_results_identically() {
             FileEntry::Entry(entry) => entry,
             FileEntry::Header(_) | FileEntry::Json(_) => unreachable!(),
         };
-        let (truncated, _) = truncate_tool_result_for_persistence(&entry);
+        let (truncated, _) = truncate_tool_result_for_persistence(&entry).unwrap();
         assert_eq!(serde_json::to_value(&truncated).unwrap(), response["output"]["entry"]);
         assert_eq!(
             serde_json::to_string(&truncated).unwrap(),

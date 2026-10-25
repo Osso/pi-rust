@@ -2432,7 +2432,7 @@ fn write_fork_entries(
         if index == 0 {
             entry.set_parent_id(None);
         }
-        let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry));
+        let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry))?;
         writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
     }
     Ok(())
@@ -3018,7 +3018,7 @@ impl SessionManager {
             .open(encode_node_utf8(file_path))
             .map_err(|error| SessionManagerError::new(error.to_string()))?;
         for entry in &self.file_entries {
-            let line = serialize_session_entry_for_persistence(entry);
+            let line = serialize_session_entry_for_persistence(entry)?;
             writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
         }
         Ok(())
@@ -3040,7 +3040,7 @@ impl SessionManager {
         };
         if !self.has_assistant() {
             if self.flushed {
-                let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()));
+                let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()))?;
                 let mut file = OpenOptions::new()
                     .append(true)
                     .open(encode_node_utf8(&session_file))
@@ -3055,7 +3055,7 @@ impl SessionManager {
             self.write_entries(&session_file, true)?;
             self.flushed = true;
         } else {
-            let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()));
+            let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()))?;
             let mut file = OpenOptions::new()
                 .append(true)
                 .open(encode_node_utf8(&session_file))
