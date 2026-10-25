@@ -19,7 +19,7 @@ fn dark_theme() -> Arc<Theme> {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
     let theme = Arc::new(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             Some(ColorMode::Truecolor),
         )
         .expect("built-in dark theme"),

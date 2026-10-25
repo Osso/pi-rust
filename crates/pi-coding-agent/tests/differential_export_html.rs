@@ -131,7 +131,7 @@ async fn differential_export_probe() {
         .await
         .expect("rust export succeeds");
 
-        let actual_html = fs::read_to_string(&&encode_node_utf8(&actual_path)).expect("read rust html");
+        let actual_html = fs::read_to_string(encode_node_utf8(&actual_path)).expect("read rust html");
         assert_same_html(&actual_html, expected_html, theme);
     }
     // This standalone target runs the process-global cwd mutation only in its child probe.

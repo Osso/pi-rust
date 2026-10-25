@@ -15,7 +15,7 @@ fn dark_theme() -> std::sync::Arc<pi_coding_agent::modes::interactive::theme::Th
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json");
     let theme = std::sync::Arc::new(
         load_theme_from_path(
-            &JsString::from((&path).to_str().expect("fixture path must be UTF-8")),
+            &JsString::from(path.to_str().expect("fixture path must be UTF-8")),
             Some(ColorMode::Truecolor),
         )
         .expect("built-in dark theme"),

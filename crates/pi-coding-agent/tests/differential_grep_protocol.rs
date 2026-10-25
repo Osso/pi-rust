@@ -51,7 +51,7 @@ fn cases() -> Vec<JsValue> {
         json!({"stdout":wire(&[json!({"type":"match"})],"\n")}),
         json!({"stdout":wire(&[json!({"type":"begin"})],"\n")}),
         json!({"stdout":"not-json\n"}),
-        json!({"stdout":format!("\u{feff}{}",wire(&[normal.clone()],"\n"))}),
+        json!({"stdout":format!("\u{feff}{}",wire(std::slice::from_ref(&normal),"\n"))}),
         json!({"stdout":wire(&[event("/repo/search/a.txt".into(),3.0,Some(JsString::from("raw-")+JsString::from_utf16(vec![0xd800])))],"\n")}),
         json!({"stdout":wire(&[event(JsString::from("/repo/search/p-")+JsString::from_utf16(vec![0xdfff]),3.0,Some("path".into()))],"\n")}),
         json!({"stdout":wire(&[event("/repo/search/a.txt".into(),1.5,Some("fraction".into()))],"\n")}),

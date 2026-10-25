@@ -58,7 +58,7 @@ fn coding_agent_edit_prepare_arguments_match_the_pinned_typescript_source() {
     assert_eq!(expected_results.len(), cases.len());
 
     let definition = pi_coding_agent::core::tools::edit::create_edit_tool_definition(
-        &JsString::from(cwd),
+        JsString::from(cwd),
         pi_coding_agent::core::tools::edit::EditToolOptions::default(),
     );
     let prepare = definition.prepare_arguments.expect("prepare arguments forwarded");

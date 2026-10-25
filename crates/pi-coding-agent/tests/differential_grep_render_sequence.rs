@@ -21,7 +21,7 @@ fn grep_renderer_reuses_text_and_preserves_numeric_warning_truthiness() {
         .unwrap(),
     );
     set_theme_instance(theme.clone());
-    let truncation = truncate_head(&JsString::from("x".repeat(12000)), TruncationOptions::default());
+    let truncation = truncate_head(JsString::from("x".repeat(12000)), TruncationOptions::default());
     let steps = vec![
         json!({"kind":"call","args":{}}),
         json!({"kind":"call","args":{"pattern":"","path":"","limit":0}}),

@@ -99,11 +99,11 @@ async fn compare(source: &mut oracle::TsOracle, mut request: Value) {
             "key" => component.borrow_mut().handle_input(&text(step)),
             "inputKey" => {
                 let input = component.borrow().get_search_input();
-                input.borrow_mut().handle_input(&text(step));
+                input.borrow_mut().handle_input(text(step));
             }
             "setInput" => {
                 let input = component.borrow().get_search_input();
-                input.borrow_mut().set_value(&text(step));
+                input.borrow_mut().set_value(text(step));
             }
             "focus" => component.borrow_mut().set_focused(step["value"].as_bool().unwrap()),
             "width" => width = step["value"].as_u64().unwrap() as usize,

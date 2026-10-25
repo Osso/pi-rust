@@ -335,10 +335,10 @@ fn normalize_generated_cache_temporary(mut value: Value) -> Value {
         regex::Regex::new(r"\.openrouter-[0-9]+-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.tmp")
             .unwrap();
     let mut normalize = |pointer: &str| {
-        if let Some(field) = value.pointer_mut(pointer) {
-            if let Some(text) = field.as_str() {
-                *field = Value::String(temporary.replace_all(text, ".openrouter-<pid>-<uuid>.tmp").into_owned());
-            }
+        if let Some(field) = value.pointer_mut(pointer)
+            && let Some(text) = field.as_str()
+        {
+            *field = Value::String(temporary.replace_all(text, ".openrouter-<pid>-<uuid>.tmp").into_owned());
         }
     };
     normalize("/message");
