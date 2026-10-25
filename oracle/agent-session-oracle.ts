@@ -115,7 +115,9 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = SettingsManager.create(dir, agentDir);
+	const settingsManager = request.operation === "preflight-compaction"
+		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } })
+		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
 	if (request.operation === "quota-fallback") settingsManager.setRetryEnabled(false);
 	const agent = new Agent({
@@ -146,6 +148,30 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
+	if (request.operation === "preflight-compaction") {
+		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
+		for (let i = 0; i < 4; i++) {
+			sessionManager.appendMessage({ role: "user", content: `newer request ${i}`, timestamp: i + 1 });
+		}
+		sessionManager.appendMessage(fauxAssistantMessage("latest answer"));
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		settingsManager.setCompactionEnabled(false);
+		const runner = session.extensionRunner;
+		const emit = runner.emit.bind(runner);
+		runner.hasHandlers = (type) => type === "session_before_compact";
+		runner.emit = async (event) => event.type === "session_before_compact" ? {
+			compaction: { summary: "obsolete preflight summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
+		} : emit(event);
+		try {
+			const result = await session.compact("keep decisions");
+			return { summary: result.summary };
+		} catch (error) {
+			return { error: error.message };
+		} finally {
+			session.dispose();
+		}
+	}
 	if (request.operation === "idle-steer") {
 		agent.state.messages.push({ role: "user", content: "earlier request", timestamp: 0 });
 		let release;

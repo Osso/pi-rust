@@ -3887,7 +3887,7 @@ impl AgentSession {
             signal: Some(abort.clone()),
         });
         match runner.emit(&mut event).await {
-            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, result.compaction),
+            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, None),
             _ => CompactionExtensionDecision::None,
         }
     }
