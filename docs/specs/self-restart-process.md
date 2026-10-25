@@ -1,8 +1,17 @@
-# Self-restart process dependencies
+# Self-restart requests and process replacement
 
-Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process handoff behavior. [Traceability](../porting/traceability/self-restart.md) records source boundaries and proofs; [runtime contract](agent-session-runtime.md) governs lifecycle preparation.
+Port all 303 lines of frozen `packages/coding-agent/src/core/self-restart.ts`, including request consumption, parent wait, persisted results/notices and process handoff. [Traceability](../porting/traceability/self-restart.md) records source boundaries and proofs; [runtime contract](agent-session-runtime.md) governs lifecycle preparation.
 
 ## What it must do
+
+### Requests and persisted state
+
+- [x] Consume and remove restart environment variables before child creation; require the marker and nonempty session, and reject an invalid or unrelated supplied old PID.
+- [x] Skip absent/current/zero parent waits; poll the selected live parent until exit or the frozen deadline.
+- [x] Apply the handoff to Args, clearing provider/model/thinking and other session/input overrides exactly like frozen; no handoff leaves Args unchanged.
+- [x] Append pending restart results in call order with the first matching detached job, then truthy restart notices with the correct same/spawn PID text. Keep ordinary interruption outcomes distinct from restart_self success.
+
+### Process replacement
 
 - [x] Replace the supplied old PID with the current PID before restart callbacks.
 - [x] Call an available execve with current executable, argv0, filtered restart arguments and restart environment; propagate its original native/raw rejection. A returned execve raises frozen's exact error.
@@ -39,6 +48,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Known gaps (current cycle)
 
+- [x] Whole-module realistic-branch audit is complete; current code reuses unchanged source/process evidence rather than rerunning the old numeric/fault matrices. [Audit and exact scope](../porting/traceability/self-restart.md#whole-module-audit-closure-2026-10-25).
 - [x] Scoped acceptance: process16/16, legacy22/22+3/3, runtime44/44 plus parent-invoked isolated child, backend/outside-callers/abort regression; strict TS/Biome/fmt, workspace0 errors/0 warnings, owned-hunk clippy0 and locked inventory PASS. Full unrelated clippy debt remains explicit.
 
 ## Out of scope
