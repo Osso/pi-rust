@@ -7598,8 +7598,8 @@ impl InteractiveMode {
             value if value == "cd" => {
                 self.handle_cd_command(js_format!("/cd {}", args)).await;
             }
-            value if value == "name" => self.handle_name_command(args),
-            value if value == "unname" => self.handle_unname_command(),
+            value if value == "name" => self.handle_name_command(args)?,
+            value if value == "unname" => self.handle_unname_command()?,
             value if value == "session" => self.handle_session_command(),
             value if value == "tools" => self.handle_tools_command(),
             value if value == "extensions" => self.handle_extensions_command(),
@@ -9088,27 +9088,64 @@ impl InteractiveMode {
         }
     }
 
-    fn handle_name_command(&self, args: &JsString) {
+    fn handle_name_command(&self, args: &JsString) -> Result<(), CallbackError> {
         let name = args.trim();
+        let session = self.session();
         if name.is_empty() {
-            self.show_error("Usage: /name <name>");
-            return;
+            if let Some(current) = session
+                .session_manager()
+                .get_session_name()
+                .filter(|name| !name.is_empty())
+            {
+                self.append_command_output(with_theme(|theme| {
+                    theme.fg(ThemeColor::Dim, &js_format!("Session name: {}", current))
+                }));
+            } else {
+                self.show_warning("Usage: /name <name>");
+            }
+            self.ui.request_render();
+            return Ok(());
         }
-        if let Err(error) = self.session().set_session_name(&JsString::from(name)) {
-            self.show_error(&(JsString::from("Failed to set session name: ") + error.message()));
-            return;
-        }
-        self.update_terminal_title();
+        session.set_session_name(&name).map_err(CallbackError::from)?;
+        let stored = session.session_manager().get_session_name();
+        self.warn_if_name_normalized(&name, stored.as_ref());
+        self.append_command_output(with_theme(|theme| {
+            theme.fg(
+                ThemeColor::Dim,
+                &js_format!("Session name set: {}", stored.as_ref().unwrap_or(&name)),
+            )
+        }));
         self.ui.request_render();
+        Ok(())
     }
 
-    fn handle_unname_command(&self) {
-        if let Err(error) = self.session().clear_session_name() {
-            self.show_error(&(JsString::from("Failed to clear session name: ") + error.message()));
+    fn warn_if_name_normalized(&self, requested: &JsString, stored: Option<&JsString>) {
+        if stored == Some(requested) {
             return;
         }
-        self.update_terminal_title();
+        let requested_json = pi_js_compat::js_json::stringify_lossless(&JsValue::String(requested.clone()));
+        let stored_json = stored
+            .map(|name| pi_js_compat::js_json::stringify_lossless(&JsValue::String(name.clone())))
+            .unwrap_or_else(|| "undefined".into());
+        self.show_warning(&js_format!(
+            "Session name was normalized from {} to {}",
+            requested_json,
+            stored_json
+        ));
+    }
+
+    fn handle_unname_command(&self) -> Result<(), CallbackError> {
+        self.session().clear_session_name().map_err(CallbackError::from)?;
+        self.append_command_output(with_theme(|theme| theme.fg(ThemeColor::Dim, "Session name removed")));
         self.ui.request_render();
+        Ok(())
+    }
+
+    fn append_command_output(&self, text: JsString) {
+        self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
+        self.chat_container
+            .borrow_mut()
+            .add_child(component(Text::new(text, 1, 0)));
     }
 
     fn handle_session_command(&self) {
@@ -9123,26 +9160,29 @@ impl InteractiveMode {
     }
 
     fn handle_tools_command(&self) {
-        let tools = self.session().get_all_tools();
-        let active = self.session().get_active_tool_names();
-        let lines: Vec<JsString> = tools
-            .iter()
-            .map(|tool| {
-                let marker = if active.contains(&tool.name) { "●" } else { "○" };
-                js_format!("{} {}", marker, tool.name)
+        let session = self.session();
+        let tools = session
+            .get_all_tools()
+            .into_iter()
+            .map(|tool| crate::core::extensions::types::ToolInfo {
+                name: tool.name,
+                description: tool.description,
+                parameters: tool.parameters,
+                prompt_guidelines: Some(tool.prompt_guidelines),
+                source_info: tool.source_info,
             })
-            .collect();
-        self.show_status(&js_format!("Tools:\n{}", JsString::join(lines, "\n")));
+            .collect::<Vec<_>>();
+        let info = crate::cli::list_tools::format_tool_inventory(&tools, &session.get_active_tool_names());
+        self.append_command_output(info);
+        self.ui.request_render();
     }
 
     fn handle_extensions_command(&self) {
-        let extensions = self.session().resource_loader().get_extensions();
-        let lines: Vec<JsString> = extensions
-            .extensions
-            .iter()
-            .map(|extension| extension.read().path.clone())
-            .collect();
-        self.show_status(&js_format!("Extensions:\n{}", JsString::join(lines, "\n")));
+        let info = crate::cli::list_extensions::format_extension_inventory(
+            &self.session().resource_loader().get_extensions().extensions,
+        );
+        self.append_command_output(info);
+        self.ui.request_render();
     }
 
     fn get_changelog_for_display(&self) -> Result<Option<JsString>, crate::config::ConfigError> {
@@ -13070,6 +13110,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_transfer_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_display_commands.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),

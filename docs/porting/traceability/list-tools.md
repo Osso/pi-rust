@@ -1,8 +1,8 @@
 # Coding-agent list tools traceability
 
-Pinned source: `packages/coding-agent/src/cli/list-tools.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/coding-agent/src/cli/list-tools.ts` at common pin `4f9e6f8a4`.
 
-Rust: `crates/pi-coding-agent-tools/src/cli/list_tools.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Historical proof below is unchanged.
+Rust: `crates/pi-coding-agent-tools/src/cli/list_tools.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Current common-pin revalidation: `display-list-tools.log` passes3 tests, including four frozen inventories, newline and raw split-surrogate retention.
 
 Differential: `tests/differential_list_tools.rs` compares `formatToolInventory` byte-for-byte across four fixtures (`28500..=28503`): empty, sources/active flags, description truncation, and locale name ordering.
 
@@ -18,7 +18,7 @@ Differential: `tests/differential_list_tools.rs` compares `formatToolInventory` 
 ## Semantics
 
 - Widths and truncation use UTF-16 code units like `String.prototype.length`/`slice`.
-- JavaScript can return a lone surrogate when truncation splits an astral character; Rust substitutes U+FFFD, which is what Node writes to stdout. The differential omits that fixture; a unit test pins the observable output.
+- A truncated astral character retains its lone UTF-16 unit in the returned JsString. Replacement occurs only at Node-compatible stdout encoding; the raw-return unit test and byte-level output fixtures cover those separate boundaries.
 
 ## Discrepancies
 
