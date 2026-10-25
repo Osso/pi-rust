@@ -303,6 +303,7 @@ pub struct ProductionChildAgentSessionFactoryOptions {
 pub fn create_production_child_agent_session_factory(
     options: ProductionChildAgentSessionFactoryOptions,
 ) -> ChildAgentSessionFactory {
+    super::runtime::remember_store_artifact_root(options.multi_agent_store.as_ref(), options.agent_dir.as_ref());
     ChildAgentSessionFactory::production(move |input| {
         let options = options.clone();
         Box::pin(async move { create_production_child_session(input, &options).await })
@@ -352,6 +353,7 @@ fn path_exists(path: &JsString) -> bool {
 pub fn create_production_attached_session_factory(
     options: ProductionAttachedSessionFactoryOptions,
 ) -> AttachedSessionFactory {
+    super::runtime::remember_store_artifact_root(options.multi_agent_store.as_ref(), options.agent_dir.as_ref());
     AttachedSessionFactory::new(move |input| {
         let options = options.clone();
         Box::pin(async move { create_production_attached_session(input, &options).await })

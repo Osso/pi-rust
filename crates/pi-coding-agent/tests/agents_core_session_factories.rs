@@ -910,9 +910,9 @@ async fn child_agent_tools_append_control_tools_in_order() {
             "read".to_owned(),
             "end_turn".to_owned(),
             "grep".to_owned(),
+            "ask_questions".to_owned(),
             "contact_parent".to_owned(),
             "send_agent_message".to_owned(),
-            "ask_questions".to_owned(),
         ]
     );
 }

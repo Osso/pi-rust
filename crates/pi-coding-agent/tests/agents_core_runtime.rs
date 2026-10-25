@@ -1153,6 +1153,111 @@ async fn cancel_agent_requests_cancellation_for_owned_runtime() {
     ));
 }
 
+#[tokio::test(start_paused = true)]
+async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() {
+    use futures_util::FutureExt;
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        OwnedAgentRuntime, cancel_owned_agent_runtime,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::create_lifecycle_coordinator;
+    use pi_coding_agent::core::lifecycle_coordinator::OwnedLifecycleCommandInput;
+    use pi_coding_agent::core::session_control_db::read_multi_agent_runtime_ownership;
+    for failure in [None, Some(JsString::from("dispatch settlement failed"))] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let agent = seed_child(&store, &test, "owned", "owned-transcript");
+        let mut handles = create_multi_agent_runtime_handles();
+        handles.cancellation_settlement_timeout_ms = Some(17);
+        let ownership = read_multi_agent_runtime_ownership(&test.control_db_path, &test.session_path, &agent.id)
+            .unwrap()
+            .unwrap();
+        handles.ownerships.lock().unwrap().insert(
+            agent.id.clone(),
+            Arc::new(OwnedAgentRuntime {
+                abort_controller: pi_js_compat::abort::AbortController::new(),
+                coordinator: create_lifecycle_coordinator(&store).unwrap(),
+                lifecycle: OwnedLifecycleCommandInput {
+                    agent: agent.clone(),
+                    ownership,
+                },
+            }),
+        );
+        let dispatch_error = failure.clone();
+        handles.dispatches.lock().unwrap().insert(
+            agent.id.clone(),
+            async move {
+                if let Some(error) = dispatch_error {
+                    Err(error)
+                } else {
+                    std::future::pending().await
+                }
+            }
+            .boxed()
+            .shared(),
+        );
+        let start = tokio::time::Instant::now();
+        let result = cancel_owned_agent_runtime(&store, &handles, &agent.id, None).await;
+        if let Some(error) = failure {
+            assert_eq!(result.err().expect("source rejects failed dispatch").message, error);
+        } else {
+            assert!(result.is_ok());
+            assert_eq!(start.elapsed(), std::time::Duration::from_millis(17));
+            assert_eq!(
+                store.get_agent(&agent.id).unwrap().lifecycle,
+                AgentLifecycle::Cancelling
+            );
+            assert!(
+                handles.dispatches.lock().unwrap().contains_key(&agent.id),
+                "timeout must not cancel the dispatch"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn recovery_resumes_unjournaled_child_transcript() {
+    use pi_coding_agent::bundled_extensions::agents_core::shared::AttachedSessionFactory;
+    use pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::{RecoverAgentsInput, recover_agents};
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let agent = seed_child(&store, &test, "unjournaled", "saved-transcript");
+    let handles = create_multi_agent_runtime_handles();
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let observed = Arc::clone(&calls);
+    recover_agents(&RecoverAgentsInput {
+        create_attached_session: Some(AttachedSessionFactory::new(move |input| {
+            observed.lock().unwrap().push((input.agent.id, input.prompt));
+            Box::pin(async { Ok(Arc::new(FakeSession::new("recovered", None)) as Arc<dyn ChildAgentSession>) })
+        })),
+        ctx,
+        desktop_notifier: Arc::new(RecordingNotifier::default()),
+        dispatches: Arc::clone(&handles.dispatches),
+        handles: Some(Arc::clone(&handles.sessions)),
+        ownerships: Arc::clone(&handles.ownerships),
+        store: Arc::clone(&store),
+        waiting_desktop_notifications: Default::default(),
+    })
+    .unwrap();
+    let dispatch = handles
+        .dispatches
+        .lock()
+        .unwrap()
+        .get(&agent.id)
+        .cloned()
+        .expect("must dispatch without journal");
+    assert_eq!(dispatch.await.unwrap().lifecycle, AgentLifecycle::Completed);
+    assert_eq!(
+        *calls.lock().unwrap(),
+        vec![(
+            agent.id,
+            JsString::from(
+                "Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context."
+            )
+        )]
+    );
+}
+
 #[tokio::test]
 async fn steer_without_runtime_identity_reports_unavailable_identity() {
     let test = test_dir();
