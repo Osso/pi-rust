@@ -54,9 +54,7 @@ The Rust-native discovery surface is implemented; `core::resource_loader::Defaul
 
 ## Discrepancies
 
-- Directory enumeration order comes from the OS in both implementations;
-  discovery tests assert membership and manifest order rather than readdir
-  order.
+- Corrected directory order: frozen Node readdir uses raw byte-name sorting. Native now sorts before decoding/filtering, preserving discovery/factory precedence. RED `/tmp/ext-api3-loader-order-red.log` compares ASCII, accented, BMP and astral filenames in their exact loaded order. Package-manager and theme discovery share this correction; rule locale ties retain the initial byte order. Parent approved the cross-lane package-manager helper change; no manifest workaround is used.
 
 ## Live registration identity (2026-10-20)
 

@@ -136,6 +136,107 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
     loader_ref.lock().unwrap().take();
 }
 
+#[test]
+fn rule_locale_ties_retain_frozen_raw_directory_order() {
+    use pi_coding_agent::core::resource_loader::{load_rules_files_from_dir, load_rules_from_dir};
+    use serde_json::json;
+    let root = tempfile::tempdir().unwrap();
+    for name in ["é.md", "e\u{301}.md", "à.md", "a\u{300}.md", "ö.md", "o\u{308}.md"] {
+        std::fs::write(root.path().join(name), name).unwrap();
+    }
+    let mut oracle = oracle::TsOracle::spawn(
+        "coding-agent-resource-loader-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":7,"operation":"rules","dir":root.path()}));
+    let dir = root.path().to_str().unwrap().into();
+    let actual = json!({"id":7,"ok":true,"output":{"files":load_rules_files_from_dir(&dir).unwrap(),"content":load_rules_from_dir(&dir).unwrap()}});
+    assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn trust_bootstrap_reuses_successful_and_failed_factories_like_frozen() {
+    use pi_coding_agent::core::extensions::loader::ExtensionRegistry;
+    use pi_coding_agent::core::resource_loader::{
+        DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension,
+    };
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    for trusted in [false, true] {
+        let root = tempfile::tempdir().unwrap();
+        let expected = oracle.request(&json!({"id":5,"operation":"trust_reuse","root":root.path(),"trusted":trusted}));
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let mut registry = ExtensionRegistry::new();
+        for (directory, name) in [
+            ("agent/extensions", "global"),
+            ("agent/extensions", "failed"),
+            ("project/.pi/extensions", "project"),
+        ] {
+            let calls = Arc::clone(&calls);
+            registry.register(
+                root.path().join(directory).join(format!("{name}.ts")).to_str().unwrap(),
+                Arc::new(move |_| {
+                    calls.lock().unwrap().push(name.into());
+                    Box::pin(async move {
+                        if name == "failed" {
+                            Err("fixture-failure".into())
+                        } else {
+                            Ok(())
+                        }
+                    })
+                }),
+            );
+        }
+        let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            Default::default(),
+        )));
+        let inline_calls = Arc::clone(&calls);
+        let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+            cwd: root.path().join("project").to_str().unwrap().into(),
+            agent_dir: root.path().join("agent").to_str().unwrap().into(),
+            settings_manager: Some(Arc::clone(&settings)),
+            extension_registry: Some(Arc::new(registry)),
+            no_skills: true,
+            no_prompt_templates: true,
+            no_themes: true,
+            no_context_files: true,
+            extension_factories: vec![InlineExtension::Factory {
+                extension_path: None,
+                factory: Arc::new(move |_| {
+                    inline_calls.lock().unwrap().push("inline".into());
+                    Box::pin(async { Ok(()) })
+                }),
+            }],
+            ..Default::default()
+        })
+        .unwrap();
+        let preload = Arc::new(Mutex::new(Vec::new()));
+        let seen_preload = Arc::clone(&preload);
+        loader
+            .reload_with(Some(Arc::new(move |loaded| {
+                *seen_preload.lock().unwrap() = loaded
+                    .extensions
+                    .iter()
+                    .map(|extension| extension.read().path.clone())
+                    .collect::<Vec<_>>();
+                Box::pin(async move { Ok(trusted) })
+            })))
+            .await
+            .unwrap();
+        let loaded = loader.get_extensions();
+        assert_eq!(
+            json!({"id":5,"preload":preload.lock().unwrap().clone(),"loaded":loaded.extensions.iter().map(|extension|extension.read().path.clone()).collect::<Vec<_>>(),"errors":loaded.errors,"calls":calls.lock().unwrap().clone(),"trusted":settings.lock().unwrap().is_project_trusted()}),
+            expected
+        );
+    }
+}
+
 #[tokio::test]
 async fn additional_theme_paths_receive_default_source_metadata_like_frozen() {
     use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
@@ -153,28 +254,37 @@ async fn additional_theme_paths_receive_default_source_metadata_like_frozen() {
         "resource-loader-lifecycle-oracle.ts",
         "packages/coding-agent/src/core/resource-loader.ts",
     );
-    let expected = oracle.request(&json!({"id":4,"operation":"theme_source","root":root.path(),"theme":theme}));
-    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
-        cwd: root.path().to_str().unwrap().into(),
-        agent_dir: root.path().to_str().unwrap().into(),
-        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
-            Default::default(),
-            Default::default(),
-        )))),
-        no_extensions: true,
-        no_skills: true,
-        no_prompt_templates: true,
-        no_themes: true,
-        no_context_files: true,
-        additional_theme_paths: vec![theme.to_str().unwrap().into()],
-        ..Default::default()
-    })
-    .unwrap();
-    loader.reload().await.unwrap();
-    assert_eq!(
-        json!({"id":4,"themes":loader.get_themes().themes.into_iter().map(|theme| theme.source_info).collect::<Vec<_>>()}),
-        expected
-    );
+    let directory = root.path().join("theme-directory");
+    std::fs::create_dir(&directory).unwrap();
+    for name in ["z", "𐀀", "é", "a", "\u{e000}"] {
+        let mut contents: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&theme).unwrap()).unwrap();
+        contents["name"] = json!(name);
+        std::fs::write(directory.join(format!("{name}.json")), contents.to_string()).unwrap();
+    }
+    for theme in [&theme, &directory] {
+        let expected = oracle.request(&json!({"id":4,"operation":"theme_source","root":root.path(),"theme":theme}));
+        let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+            cwd: root.path().to_str().unwrap().into(),
+            agent_dir: root.path().to_str().unwrap().into(),
+            settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+                Default::default(),
+                Default::default(),
+            )))),
+            no_extensions: true,
+            no_skills: true,
+            no_prompt_templates: true,
+            no_themes: true,
+            no_context_files: true,
+            additional_theme_paths: vec![theme.to_str().unwrap().into()],
+            ..Default::default()
+        })
+        .unwrap();
+        loader.reload().await.unwrap();
+        assert_eq!(
+            json!({"id":4,"themes":loader.get_themes().themes.into_iter().map(|theme| theme.source_info).collect::<Vec<_>>()}),
+            expected
+        );
+    }
 }
 
 #[tokio::test]
