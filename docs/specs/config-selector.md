@@ -17,7 +17,7 @@ Match frozen `4f9e6f8a4` `coding-agent/src/modes/interactive/components/config-s
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-interactive/src/modes/interactive/components/config_selector.rs`: resource grouping, filtering, rendering and settings toggles.
+- `crates/pi-coding-agent-ui/src/modes/interactive/components/config_selector.rs`: resource grouping, filtering, rendering and settings toggles.
 - `crates/pi-coding-agent/src/cli/config_selector.rs`: terminal lifecycle and command adapter.
 - `crates/pi-coding-agent/src/package_manager_cli.rs`: resource resolution and selector request.
 

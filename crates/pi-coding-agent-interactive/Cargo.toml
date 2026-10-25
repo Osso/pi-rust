@@ -10,6 +10,7 @@ autoexamples = false
 autobenches = false
 
 [dependencies]
+pi-coding-agent-ui = { version = "=0.0.0", path = "../pi-coding-agent-ui" }
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat", features = ["rusqlite"] }

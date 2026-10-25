@@ -1,6 +1,6 @@
 # model-selector.ts
 
-Authority: common-pin331-line `coding-agent/src/modes/interactive/components/model-selector.ts`. Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/model_selector.rs`. [Contract](../../specs/model-selector.md).
+Authority: common-pin331-line `coding-agent/src/modes/interactive/components/model-selector.ts`. Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/model_selector.rs`. [Contract](../../specs/model-selector.md).
 
 | Frozen surface | Native representation / behavior | Proof |
 |---|---|---|

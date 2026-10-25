@@ -1,7 +1,7 @@
 # components/custom-message.ts
 
 Frozen source: `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/custom-message.ts`.
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/custom_message.rs`.
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/custom_message.rs`.
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

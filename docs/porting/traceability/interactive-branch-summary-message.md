@@ -1,7 +1,7 @@
 # components/branch-summary-message.ts
 
 Source: `coding-agent/src/modes/interactive/components/branch-summary-message.ts`
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/branch_summary_message.rs`
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/branch_summary_message.rs`
 
 Tests: `interactive_components_c.rs::branch_summary_collapsed_and_expanded`,
 differential `branchSummary` cases.
