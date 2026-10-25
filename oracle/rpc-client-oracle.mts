@@ -11,6 +11,11 @@ type Client = {
 	collectEvents(timeout: number): Promise<unknown[]>;
 	waitForIdle(timeout: number): Promise<void>;
 	prompt(message: string): Promise<void>;
+	promptAndWait(
+		message: string,
+		images: undefined,
+		timeout: number,
+	): Promise<unknown[]>;
 	onEvent(
 		listener: (event: { type?: unknown; willRetry?: unknown }) => void,
 	): () => void;
@@ -46,7 +51,9 @@ type Request = {
 		| "stop_fail"
 		| "stop_writing"
 		| "blocked_write"
-		| "pipe_error";
+		| "pipe_error"
+		| "promise_lifetime"
+		| "prompt_fail_lifetime";
 	reply: unknown;
 	executable?: string;
 	cliPath?: string;
@@ -118,6 +125,9 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
 			PI_RPC_WRITING: request.keepWriting ? "1" : "0",
+			PI_RPC_DELAY_ACK: request.operation === "promise_lifetime" ? "1" : "0",
+			PI_RPC_EXIT_ON_LINE:
+				request.operation === "prompt_fail_lifetime" ? "1" : "0",
 			PI_RPC_BLOCK_INPUT: request.closeInput
 				? "close"
 				: request.blockInput
@@ -141,6 +151,37 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			return { ok: true, value: [first, second, await startOutcome(client)] };
 		}
 		await client.start();
+		if (
+			request.operation === "promise_lifetime" ||
+			request.operation === "prompt_fail_lifetime"
+		) {
+			const unhandled = new Promise((resolve) => {
+				process.once("unhandledRejection", (error: unknown) => {
+					if (!(error instanceof Error)) throw error;
+					resolve({ name: error.name, message: error.message });
+				});
+			});
+			const result = client
+				.promptAndWait(
+					"input",
+					undefined,
+					request.operation === "promise_lifetime" ? 10 : 200,
+				)
+				.then(
+					(events) => ({ ok: true, events }),
+					(error: unknown) => {
+						if (!(error instanceof Error)) throw error;
+						return {
+							ok: false,
+							error: { name: error.name, message: error.message },
+						};
+					},
+				);
+			return {
+				ok: true,
+				value: { unhandled: await unhandled, result: await result },
+			};
+		}
 		if (request.operation === "pipe_error") {
 			const first = client.getState().then(
 				() => null,

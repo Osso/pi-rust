@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::io::Write as _;
 use std::process::Stdio;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -977,7 +977,7 @@ impl RpcClient {
 
     /// Collects events until the agent becomes idle.
     pub async fn collect_events(&self, timeout_ms: f64) -> Result<Vec<JsValue>, RpcClientError> {
-        self.start_collector(timeout_ms).finish().await
+        self.start_collector(timeout_ms, true).finish().await
     }
 
     /// Sends a prompt and waits for completion, returning all events.
@@ -987,19 +987,39 @@ impl RpcClient {
         images: Option<Vec<ImageContent>>,
         timeout_ms: f64,
     ) -> Result<Vec<JsValue>, RpcClientError> {
-        let collector = self.start_collector(timeout_ms);
-        self.prompt(message, images).await?;
+        let collector = self.start_collector(timeout_ms, false);
+        if let Err(error) = self.prompt(message, images).await {
+            collector.retain_unobserved();
+            return Err(error);
+        }
         collector.finish().await
     }
 
-    fn start_collector(&self, timeout_ms: f64) -> EventCollector {
+    fn start_collector(&self, timeout_ms: f64, observed: bool) -> EventCollector {
         let (sender, receiver) = mpsc::unbounded_channel();
         let subscription = self.subscribe_sender(sender);
+        let deadline = tokio::time::Instant::now() + event_timeout(timeout_ms);
+        let inner = Arc::clone(&self.inner);
+        let (result_sender, result) = oneshot::channel();
+        let observed = Arc::new(AtomicBool::new(observed));
+        let task_observed = Arc::clone(&observed);
+        let task = tokio::spawn(async move {
+            let result = collect_event_stream(receiver, deadline, &inner).await;
+            drop(subscription);
+            let unobserved = result
+                .as_ref()
+                .err()
+                .filter(|_| !task_observed.load(Ordering::SeqCst))
+                .map(RpcClientError::message);
+            let _ = result_sender.send(result);
+            if let Some(message) = unobserved {
+                crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, message);
+            }
+        });
         EventCollector {
-            deadline: tokio::time::Instant::now() + event_timeout(timeout_ms),
-            receiver,
-            subscription,
-            inner: Arc::clone(&self.inner),
+            receiver: result,
+            observed,
+            task: Some(task),
         }
     }
 
@@ -1029,31 +1049,52 @@ fn event_timeout(timeout_ms: f64) -> Duration {
 }
 
 struct EventCollector {
-    deadline: tokio::time::Instant,
-    receiver: mpsc::UnboundedReceiver<JsValue>,
-    subscription: RpcEventSubscription,
-    inner: Arc<ClientInner>,
+    receiver: oneshot::Receiver<Result<Vec<JsValue>, RpcClientError>>,
+    observed: Arc<AtomicBool>,
+    task: Option<tokio::task::JoinHandle<()>>,
 }
 
 impl EventCollector {
     async fn finish(mut self) -> Result<Vec<JsValue>, RpcClientError> {
-        let mut events = Vec::new();
-        let outcome = tokio::time::timeout_at(self.deadline, async {
-            while let Some(event) = self.receiver.recv().await {
-                let done = is_final_agent_end(&event);
-                events.push(event);
-                if done {
-                    return;
-                }
-            }
-        })
-        .await;
-        drop(self.subscription);
-        outcome.map_err(|_| RpcClientError::CollectTimeout {
-            stderr: self.inner.stderr(),
-        })?;
-        Ok(events)
+        self.observed.store(true, Ordering::SeqCst);
+        (&mut self.receiver)
+            .await
+            .expect("collector publishes before an uncaught rejection")
     }
+
+    // Frozen promptAndWait leaves its local promise running when prompt rejects.
+    fn retain_unobserved(mut self) {
+        drop(self.task.take());
+    }
+}
+
+impl Drop for EventCollector {
+    fn drop(&mut self) {
+        // Explicit caller cancellation keeps the approved native SDK boundary.
+        if let Some(task) = self.task.take() {
+            task.abort();
+        }
+    }
+}
+
+async fn collect_event_stream(
+    mut receiver: mpsc::UnboundedReceiver<JsValue>,
+    deadline: tokio::time::Instant,
+    inner: &ClientInner,
+) -> Result<Vec<JsValue>, RpcClientError> {
+    let mut events = Vec::new();
+    tokio::time::timeout_at(deadline, async {
+        while let Some(event) = receiver.recv().await {
+            let done = is_final_agent_end(&event);
+            events.push(event);
+            if done {
+                return;
+            }
+        }
+    })
+    .await
+    .map_err(|_| RpcClientError::CollectTimeout { stderr: inner.stderr() })?;
+    Ok(events)
 }
 
 /// Handle for one [`RpcClient::on_event`] subscription.
@@ -1423,6 +1464,121 @@ mod tests {
                 rustix::io::Errno::IO.raw_os_error(),
             )))
         }
+    }
+
+    #[test]
+    fn internal_collection_timeout_is_unobserved_before_prompt_ack() {
+        if let Ok(output) = std::env::var("PI_RPC_COLLECTION_PROBE") {
+            run_collection_probe(PathBuf::from(output));
+            return;
+        }
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-client-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let (root, script) = temp_script("child.mjs", include_str!("../../../../../oracle/rpc-client-child.mjs"));
+        for fail_prompt in [false, true] {
+            let operation = if fail_prompt {
+                "prompt_fail_lifetime"
+            } else {
+                "promise_lifetime"
+            };
+            let expected = source.request(&pi_js_compat::js_json!({"operation":operation,"reply":{"type":"response","command":"prompt","success":true}}));
+            if fail_prompt {
+                assert_ne!(expected["value"]["unhandled"], expected["value"]["result"]["error"]);
+            } else {
+                assert_eq!(expected["value"]["unhandled"], expected["value"]["result"]["error"]);
+            }
+            let output_path = root.path().join("uncaught.txt");
+            let output = run_private_collection_probe(&script, &output_path, fail_prompt);
+            assert_eq!(
+                output.status.code(),
+                Some(1),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let unhandled = &expected["value"]["unhandled"];
+            let expected_text = pi_js_compat::js_format!(
+                "{}: {}",
+                unhandled["name"].as_string().unwrap(),
+                unhandled["message"].as_string().unwrap()
+            );
+            assert_eq!(
+                std::fs::read_to_string(output_path).unwrap(),
+                encode_node_utf8(&expected_text)
+            );
+        }
+    }
+
+    fn run_collection_probe(output: PathBuf) {
+        crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            std::fs::write(
+                &output,
+                encode_node_utf8(&crate::utils::uncaught::format_uncaught(payload)),
+            )
+            .unwrap();
+        })));
+        crate::utils::uncaught::install_uncaught_handler();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let fail_prompt = std::env::var("PI_RPC_COLLECTION_FAIL").as_deref() == Ok("1");
+                let client = RpcClient::new(RpcClientOptions {
+                    cli_path: Some(std::env::var("PI_RPC_COLLECTION_SCRIPT").unwrap().into()),
+                    env: IndexMap::from([
+                        (
+                            "PI_RPC_CLIENT_REPLY".into(),
+                            r#"{"type":"response","command":"prompt","success":true}"#.into(),
+                        ),
+                        (
+                            "PI_RPC_DELAY_ACK".into(),
+                            if fail_prompt { "0".into() } else { "1".into() },
+                        ),
+                        (
+                            "PI_RPC_EXIT_ON_LINE".into(),
+                            if fail_prompt { "1".into() } else { "0".into() },
+                        ),
+                    ]),
+                    ..Default::default()
+                });
+                client.start().await.unwrap();
+                let _ = client
+                    .prompt_and_wait("input", None, if fail_prompt { 200.0 } else { 10.0 })
+                    .await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
+                std::process::exit(7);
+            });
+    }
+
+    fn run_private_collection_probe(
+        script: &std::path::Path,
+        output_path: &std::path::Path,
+        fail_prompt: bool,
+    ) -> std::process::Output {
+        use std::os::unix::process::CommandExt;
+        let child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "modes::rpc::rpc_client::tests::internal_collection_timeout_is_unobserved_before_prompt_ack",
+                "--nocapture",
+            ])
+            .env("PI_RPC_COLLECTION_PROBE", output_path)
+            .env("PI_RPC_COLLECTION_SCRIPT", script)
+            .env("PI_RPC_COLLECTION_FAIL", if fail_prompt { "1" } else { "0" })
+            .process_group(0)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let group = rustix::process::Pid::from_raw(i32::try_from(child.id()).unwrap()).unwrap();
+        let output = child.wait_with_output().unwrap();
+        match rustix::process::kill_process_group(group, Signal::KILL) {
+            Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+            Err(error) => panic!("clean private probe group: {error}"),
+        }
+        output
     }
 
     #[tokio::test]
