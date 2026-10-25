@@ -19,7 +19,7 @@ fn architect_post_matches_js_trim_and_claim_tokens() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let input = PostArchitectRequestInput {
         sender_session_id: "sender".into(),
         project_cwd: "/fixture".into(),
@@ -55,7 +55,7 @@ fn prompt_history_trims_js_whitespace_before_adjacent_dedup() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for value in ["\u{feff}same", "same", "\u{0085}"] {
         call(&mut ts, "recordPromptHistoryEntry", json!([ts_db, value]));
         record_prompt_history_entry(&rust_db, value).unwrap();
@@ -75,7 +75,7 @@ fn legacy_prompt_history_preserves_source_return_and_trimmed_storage() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let entries: Vec<JsString> = vec!["\u{feff}same".into(), "same".into(), "\u{0085}".into()];
     let expected = call(&mut ts, "readOrMigratePromptHistory", json!([ts_db, entries, 20]));
     assert_eq!(

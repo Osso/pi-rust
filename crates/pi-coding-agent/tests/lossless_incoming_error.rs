@@ -12,7 +12,7 @@ fn incoming_error_reaches_sql_binding_without_changing_native_input() {
     let id = enqueue_incoming_message(&db, "fixture").unwrap();
     let message = JsString::from("error-") + JsString::from_utf16(vec![0xd800, 0xdfff, 0xd801]);
     let original = message.clone();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = pi_js_compat::js_json!([db, id, message]);
     let response = source.request(&serde_json::json!({"id":1,"steps":[{"op":"callWire","args":["failIncomingMessage",pi_js_compat::js_json::stringify_lossless(&wire)]}]}));
     assert_eq!(response["output"][0]["ok"], true, "{response}");

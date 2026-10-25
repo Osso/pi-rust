@@ -8,7 +8,7 @@ use serde_json::json;
 #[test]
 fn detached_finalization_uses_distinct_new_and_existing_reference_orders_and_replays_cross_runtime() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for (case, kind) in ["completed", "failed", "aborted"].into_iter().enumerate() {
         let source_db = root.path().join(format!("source{case}.sqlite"));
         let native_db = JsString::from(root.path().join(format!("native{case}.sqlite")).to_str().unwrap());

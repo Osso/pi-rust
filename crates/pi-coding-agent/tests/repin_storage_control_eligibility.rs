@@ -15,7 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 #[test]
 fn eligibility_rejection_preserves_original_error_and_leaves_all_rows_unclaimed() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let recipient = RuntimeMailboxAddress {
         session_id: "recipient".into(),
         agent_id: None,
@@ -85,7 +85,7 @@ fn runtime_replacement_probe_rejection_preserves_listener_state_and_original_err
         session_id: "recipient".into(),
         agent_id: None,
     };
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let response=source.request(&json!({"id":1,"steps":[{"op":"registerSelf","args":[source_db,recipient,null]},{"op":"registerThrow","args":[source_db,recipient]}]}));
     let expected = &response["output"][1]["value"];
     register_runtime_mailbox_listener(&native_db, &recipient, std::process::id(), None, Default::default()).unwrap();

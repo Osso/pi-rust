@@ -9,7 +9,7 @@ use serde_json::json;
 #[test]
 fn control_attachment_preserves_input_json_without_store_copy_normalization() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for (case, field, value) in [
         (
             0,
@@ -81,7 +81,7 @@ fn empty_parent_child_guards_run_before_database_open() {
     let blocked = root.path().join("blocked");
     std::fs::write(&blocked, "not a directory").unwrap();
     let db = JsString::from(blocked.join("control.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let identity = pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap();
     for failed in [false, true] {
         let lifecycle = if failed { "failed" } else { "running" };

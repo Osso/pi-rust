@@ -83,7 +83,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - `crates/pi-coding-agent-storage/src/core/session_control_db/` — shared schema and database operations.
 - `crates/pi-coding-agent-storage/src/core/multi_agent_store.rs` — persistent/in-memory projection.
 - `crates/pi-coding-agent-storage/src/core/session_manager.rs` — metadata snapshot producer.
-- `oracle/control-db-oracle.ts` — real frozen TS public-API fixture operations.
+- `oracle/control-db-oracle.mts` — real frozen TS public-API fixture operations.
 
 ## Tests asserting this spec
 

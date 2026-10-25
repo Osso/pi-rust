@@ -10,7 +10,7 @@ fn compare_metadata_update(clear: bool) {
     let root = tempfile::tempdir().unwrap();
     let source_db = root.path().join("source.sqlite");
     let native_db = JsString::from(root.path().join("native.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = pi_coding_agent::core::runtime_process::read_process_identity(std::process::id()).unwrap();
     let mut agent = json!({"id":"child","parentId":"main","displayName":"Child","agentType":"worker","lifecycle":"running","revision":1,"createdAt":now,"updatedAt":now,"cwd":"/fixture","permission":{"policy":"on-request","narrowed":true}});

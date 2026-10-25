@@ -11,7 +11,7 @@ fn node(id: &str) -> Value {
 #[test]
 fn bootstrap_rejects_nonboolean_notification_policy_before_writing() {
     let t = tempfile::tempdir().unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for (index, value) in [Value::Null, json!("true"), json!(1), json!([]), json!({})]
         .into_iter()
         .enumerate()
@@ -46,7 +46,7 @@ fn persisted_nonboolean_policy_is_not_hidden_by_typed_input_exclusions() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let response=ts.request(&json!({"id":1,"steps":[{"op":"call","args":["bootstrapMultiAgentAgent",[db,"/fixture/s","bad",node("bad")]]},{"op":"fixtureSql","args":[db,"UPDATE multi_agent_agents SET data=json_set(data,'$.suppressTerminalNotification',42) RETURNING agent_id",[]]},{"op":"call","args":["readMultiAgentState",[db,"/fixture/s"]]}]}));
     assert_eq!(response["output"][0]["ok"], json!(true));
     assert_eq!(response["output"][2]["ok"], json!(false));

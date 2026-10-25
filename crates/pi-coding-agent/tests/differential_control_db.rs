@@ -597,7 +597,7 @@ fn script(db: &str) -> Vec<Value> {
 #[test]
 fn operation_scripts_match_the_pinned_typescript_module() {
     let (_directory, rust_db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let (_oracle_directory, oracle_db) = temp_db();
     let request = json!({
         "id": 9001,
@@ -645,7 +645,7 @@ fn unsupported_future_schema_errors_match() {
     let connection = create_sqlite_database(&db).expect("open");
     connection.execute_batch("PRAGMA user_version = 99").expect("version");
     drop(connection);
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let response = oracle.request(&json!({
         "id": 9002,
         "steps": [{"op":"call","args":["readSessionHealth",[db.clone(), "missing"]]}],
@@ -661,7 +661,7 @@ fn unsupported_future_schema_errors_match() {
 #[test]
 fn empty_channel_body_error_matches() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let response = oracle.request(&json!({
         "id": 9003,
         "steps": [{"op":"call","args":["postSharedChannelMessage",[db.clone(), {"sender": {"sessionId":"x","agentId":null}, "body":"   "}]]}],

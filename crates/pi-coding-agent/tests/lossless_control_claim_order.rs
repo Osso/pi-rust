@@ -34,7 +34,7 @@ fn actual_source_and_native_claim_serialize_missing_delivery_fields_in_the_same_
         session_id: "recipient".into(),
         agent_id: None,
     };
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let message = js_json::parse_lossless(r#"{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"body-\ud800","unknown":{"key-\udfff":"value-\ud801"}}"#).unwrap();
     source_call(
         &mut source,

@@ -485,7 +485,7 @@ fn mailbox_host_is_local(message: &Map) -> bool {
         .get("recipientHost")
         .and_then(Value::as_string)
         .filter(|host| !host.is_empty())
-        .is_none_or(|host| host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref()))
+        .is_none_or(|host| host == &super::read_local_hostname())
 }
 
 struct RuntimeMailboxAuthoritySnapshot {
@@ -907,7 +907,7 @@ fn read_canonical_mailbox_rows_for_recipient(
             params![
                 status_name(status),
                 recipient.session_id,
-                gethostname::gethostname().to_string_lossy(),
+                super::read_local_hostname(),
                 super::retention::mailbox_cutoff_ms(),
                 recipient.agent_id.as_ref(),
                 recipient.agent_id.as_ref(),
@@ -1411,9 +1411,7 @@ fn notify_local_runtime_mailbox_listener(
     recipient_host: Option<&JsString>,
     listener: Option<&RuntimeMailboxListenerRow>,
 ) {
-    if recipient_host.is_none_or(|host| {
-        host.is_empty() || host == &JsString::from(gethostname::gethostname().to_string_lossy().as_ref())
-    }) {
+    if recipient_host.is_none_or(|host| host.is_empty() || host == &super::read_local_hostname()) {
         notify_runtime_mailbox_listener(listener);
     }
 }

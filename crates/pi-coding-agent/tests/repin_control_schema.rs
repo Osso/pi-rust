@@ -19,7 +19,7 @@ fn rust_schema_provides_frozen_birth_origin_and_recovery_contracts_before_ts_ini
         Ok(())
     })(&raw).unwrap();
     drop(raw);
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let response = ts.request(&json!({"id":1,"steps":[{"op":"call","args":["readSessionMetadata",[db,"/absent"]]}]}));
     assert_eq!(response["output"][0]["ok"], true, "{response}");
 }

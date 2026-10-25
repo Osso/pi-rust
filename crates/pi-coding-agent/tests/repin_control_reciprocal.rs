@@ -25,7 +25,7 @@ fn fresh_rust_mailbox_survives_ts_init_claim_fail_and_explicit_delete() {
     let (_t, db) = temp();
     let input:EnqueueStoredRuntimeMailboxMessageInput=js_json::from_value(&json!({"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"Rust first"}})).unwrap();
     let id = enqueue_stored_runtime_mailbox_message(&db, &input).unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "readRuntimeMailboxMessage", json!([db, id]))["body"],
         json!("Rust first")
@@ -69,7 +69,7 @@ fn fresh_rust_owned_agent_model_terminal_and_peer_ack_replay() {
         .unwrap(),
         CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { .. }
     ));
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "readMultiAgentAgent", json!([db, "/fixture/s", "child"]))["revision"],
         json!(1)
@@ -126,7 +126,7 @@ fn fresh_rust_channel_and_relay_cursor_names_coexist_after_ts_init() {
         },
     )
     .unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "listSharedChannelMessagesAfter", json!([db, 0, 20]))[0]["body"],
         json!("Rust first")
@@ -167,7 +167,7 @@ fn fresh_rust_supervisor_request_remains_cancelled_after_peer_takeover() {
         pi_coding_agent::utils::iso_time::format_iso_millis(pi_js_compat::date::js_now_millis() as i64 + 3_600_000);
     let input:PostSupervisorRequestInput=js_json::from_value(&json!({"senderSessionId":"sender","projectId":"p","kind":"supervisor_advisory","payload":{"question":"fixture"},"deadlineAt":deadline})).unwrap();
     let id = post_supervisor_request(&db, &input).unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "readSupervisorRequest", json!([db, id]))["status"],
         json!("pending")
@@ -201,7 +201,7 @@ fn fresh_rust_supervisor_request_remains_cancelled_after_peer_takeover() {
 fn unchanged_incoming_history_health_and_counters_cross_public_producers() {
     let (_t, db) = temp();
     let id = enqueue_incoming_message(&db, "native incoming").unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "claimLatestIncomingMessage", json!([db]))["id"],
         json!(id)
@@ -249,7 +249,7 @@ fn archive_failure_after_relocation_rolls_back_metadata_and_shared_rows() {
     let metadata:WritableSessionMetadata=js_json::from_value(&json!({"sessionPath":"/fixture/s","id":"s","cwd":"/fixture","name":"original","createdAt":now,"modifiedAt":now,"messageCount":1,"firstMessage":"body"})).unwrap();
     write_session_metadata(&db, &metadata).unwrap();
     allocate_multi_agent_counter(&db, "/fixture/s", MultiAgentCounterName::Agent).unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "readSessionMetadata", json!([db, "/fixture/s"]))["name"],
         json!("original")
@@ -273,7 +273,7 @@ fn archive_failure_after_relocation_rolls_back_metadata_and_shared_rows() {
 fn last_message_roundtrip_keeps_assistant_singleton_content() {
     let (_t, db) = temp();
     write_last_message(&db, "assistant", "  native\n\n").unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "readLastMessage", json!([db])),
         js_json::to_value(&read_last_message(&db).unwrap().unwrap()).unwrap()
@@ -290,7 +290,7 @@ fn last_message_roundtrip_keeps_assistant_singleton_content() {
 fn sandbox_profile_identity_relocation_and_metadata_delete_match_peer() {
     use pi_coding_agent::core::permissions::presets::SandboxProfileName;
     let (_t, db) = temp();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     call(
         &mut ts,

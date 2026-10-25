@@ -25,7 +25,7 @@ fn metadata_survives_both_initialization_orders_and_peer_reopen() {
             .expect("utf-8 test path")
             .to_owned();
         let path = "/fixture/session.jsonl";
-        let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+        let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
         if ts_first {
             call(&mut ts, "writeSessionMetadata", json!([db, metadata(path)]));
         } else {
@@ -57,7 +57,7 @@ fn metadata_survives_both_initialization_orders_and_peer_reopen() {
             json!("Rust changed")
         );
         drop(ts);
-        let mut reopened = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+        let mut reopened = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
         assert_eq!(
             call(&mut reopened, "readSessionMetadata", json!([db, path]))["firstMessage"],
             json!("Rust changed")
@@ -73,7 +73,7 @@ fn descendants_and_atomic_archive_relocation_match_peer() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for (path, parent) in [
         ("/fixture/root.jsonl", None),
         ("/fixture/child.jsonl.zst", Some("/fixture/root.jsonl.zst")),
@@ -127,7 +127,7 @@ fn selecting_archive_candidates_does_not_mark_rows_archived() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     call(
         &mut ts,
         "writeSessionMetadata",

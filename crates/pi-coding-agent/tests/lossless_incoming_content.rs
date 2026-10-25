@@ -21,7 +21,7 @@ fn incoming_content_remains_native_until_the_sqlite_boundary() {
     let message: IncomingControlMessage = js_json::from_value(&json!({"id": 1, "content": content})).unwrap();
     assert_eq!(js_json::to_value(&message).unwrap()["content"], json!(content));
 
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let response = source.request(&json!({"id":1,"steps":[
         {"op":"call","args":["enqueueIncomingMessage",[source_db,content]]},
         {"op":"call","args":["claimLatestIncomingMessage",[source_db]]}

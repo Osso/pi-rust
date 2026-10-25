@@ -36,7 +36,7 @@ fn canonical_status_mutations_preserve_source_utf16_body_and_distinct_unknown_ke
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","\udfff":"low","�":"replacement","array":["\ud800",{{"\udfff":"\ud800"}}]}}}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -88,7 +88,7 @@ fn routing_existing_source_mailbox_preserves_raw_utf16_fields() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},"/fixture/s","m",{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -137,7 +137,7 @@ fn routing_identity_does_not_alias_raw_surrogate_with_replacement_character() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"\ud800","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"identity"}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -184,7 +184,7 @@ fn idempotent_enqueue_does_not_alias_raw_surrogate_body_with_replacement() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after"}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -212,7 +212,7 @@ fn raw_writer_multi_agent_failure_preserves_source_payload() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},"/fixture/s","m",{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -240,7 +240,7 @@ fn raw_legacy_artifact_migration_preserves_unrelated_source_utf16_fields() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -284,7 +284,7 @@ fn raw_legacy_routing_migration_preserves_unrelated_source_utf16_fields() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -319,7 +319,7 @@ fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recover
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/\ud800/s","messageId":"\udfff"}},"message":{{"id":"\udfff","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"raw\ud800","unknown":{{"\ud800":"high","�":"replacement"}}}}}}]"#,
         serde_json::to_string(&path).unwrap()
@@ -367,7 +367,7 @@ fn source_sql_bind_keys_and_raw_receipts_have_distinct_utf16_identity_on_recover
         Default::default(),
     )
     .unwrap();
-    let mut observer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut observer = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let recovered = persisted_raw(&mut observer, &path);
     assert_eq!(
         recovered.get(&js_json::JsString::from("status")),
@@ -393,7 +393,7 @@ fn canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim(
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let wire = format!(
         r#"[{},{{"recipient":{{"sessionId":"to","agentId":null}},"sender":{{"sessionId":"from","agentId":null}},"kind":"message","storeRef":{{"sessionPath":"/fixture/s","messageId":"m"}},"message":{{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"before\ud800after"}}}}]"#,
         serde_json::to_string(&db).unwrap()

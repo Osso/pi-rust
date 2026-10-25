@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+Hostname reads share the existing OsStr→JsString Node byte-ingress decoder for routing, local claims and notification checks; no control-DB to_string_lossy path remains.
+
+Fixture: `oracle/control-db-oracle.mts` is the single ESM fixture; all Rust callers use it. This replaces the former CommonJS-classified .ts path after protected TS1479, without copies, alternate paths or compiler-option changes.
+
 ## Empty listener-path assertion (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-listener-path-red.log` omits the public trusted path for an empty registration path while native exposed sessionPath:"". Registration now timestamps only nonempty supplied paths, preserving the original path value in SQLite. Source/native GREEN `/tmp/storage3-control-listener-path-green.log` covers omitted, empty and ordinary absolute paths with real public registration/read APIs. No new carrier or path fallback.
@@ -244,7 +248,7 @@ The session-manager consumer contract (20 symbols) is compile-locked by
 - `schema_text_and_pragmas_match_the_typescript_module`
 
 `tests/differential_control_db.rs` runs 74 operation steps against
-`oracle/control-db-oracle.ts` on separate temp databases and compares `JSON.stringify` output
+`oracle/control-db-oracle.mts` on separate temp databases and compares `JSON.stringify` output
 (key order included) after masking timestamps. Covers schema creation, session metadata, named
 sessions, prompt history, incoming messages, mailbox routing/claims, architect/supervisor queues,
 shared channel cursors, health, multi-agent bootstrap/state/lifecycle/outbox/counters, and

@@ -240,10 +240,11 @@ pub struct RuntimeMailboxListener {
     pub updated_at: String,
 }
 
+type RuntimeProcessAliveProbe = dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync;
+
 #[derive(Clone, Default)]
 pub struct RuntimeMailboxRegistrationOptions {
-    pub is_runtime_process_alive:
-        Option<Arc<dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync>>,
+    pub is_runtime_process_alive: Option<Arc<RuntimeProcessAliveProbe>>,
     pub reconcile_runtime_replacement: Option<bool>,
     pub runtime_instance_id: Option<String>,
 }
@@ -309,6 +310,10 @@ pub struct MultiAgentRuntimeOwnershipIdentity {
 /// `getControlDbPath(directory = getUserStateRoot())`.
 pub fn get_control_db_path(directory: impl Into<JsString>) -> JsString {
     crate::utils::paths::node_join(directory, "control.sqlite")
+}
+
+fn read_local_hostname() -> JsString {
+    pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str())
 }
 
 pub(crate) fn runtime_mailbox_agent_id_key(agent_id: Option<&JsString>) -> JsString {
