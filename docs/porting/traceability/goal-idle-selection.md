@@ -14,3 +14,5 @@ Source: `packages/coding-agent/extensions/goal/src/goal-idle-selection.ts`, comm
 Test: `suite_extensions::goal_idle_selection::goal_idle_selection_matches_frozen_pending_and_terminal_order`; oracle: `oracle/goal-idle-selection-oracle.ts`. Results and observable callback order compare against the real unmodified frozen export. RED: `/tmp/bundled-goal-idle-red.log` shows the old port omits the pending-first gate even for normal terminal turns. The old pending-input status message is deleted, not retained as alternate behavior.
 
 Gap: pathological inputs/runtime fault shapes follow the shared parity exclusions. The containing index row owns live context callback and persistence wiring.
+
+GREEN after merging parent `68ebed9aa`: all ten cases pass (`/tmp/bundled-goal-idle-green.log`). No UI/persistence behavior is substituted for this export.

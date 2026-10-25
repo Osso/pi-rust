@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 512, `gap` 21, `partial` 45, `todo` 108.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 513, `gap` 21, `partial` 45, `todo` 107.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -341,7 +341,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/goal/src/goal-agent-end-scheduling.ts` | 39 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_agent_end_scheduling.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_agent_end_scheduling.rs`; Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/goal/src/goal-agent-end.ts` | 50 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_agent_end.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-args.ts` | 34 | 0 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_args.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 39 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_idle_selection.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_idle_selection.rs`; Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-idle-selection.ts` | 39 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_idle_selection.rs` | Whole frozen pending-first/terminal selection audit; ten exact result/callback-order differential cases cover null goal, pending normal/empty/error/abort and no-assistant paths; [map](traceability/goal-idle-selection.md). |
 | `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_objective.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_parsing.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_presentation.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
