@@ -69,7 +69,8 @@ struct Fixture {
     controller: DetachedJobLifecycleController,
 }
 
-fn fixture(now: &'static str) -> Fixture {
+fn fixture(now: impl Into<String>) -> Fixture {
+    let now = now.into();
     let directory = tempfile::tempdir().expect("temp dir");
     let root = directory.path().to_str().expect("utf-8 test path").to_owned();
     let control_db_path = directory
@@ -88,7 +89,7 @@ fn fixture(now: &'static str) -> Fixture {
     let coordinator = Arc::new(LifecycleCoordinator::new(LifecycleCoordinatorOptions {
         control_db_path: control_db_path.clone().into(),
         create_agent_id: Arc::new(|| Ok("unused".into())),
-        now: Arc::new(move || now.into()),
+        now: Arc::new(move || now.clone()),
         process_identity: test_process_identity("runner-1"),
         session_path: session_path.clone().into(),
     }));
@@ -416,7 +417,7 @@ async fn wait_for_status_response(
 
 #[tokio::test]
 async fn adopts_the_cancelling_revision_and_finalizes_aborted() {
-    let fixture = fixture("2026-07-11T22:00:00.000Z");
+    let fixture = fixture(pi_coding_agent::utils::iso_time::now_iso_string());
     let runner_command = write_runner(
         fixture.directory.path(),
         r#"
