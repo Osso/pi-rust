@@ -22,7 +22,6 @@ use pi_coding_agent::core::{
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use serde_json::json;
 use std::sync::{Arc, Mutex};
 const CLIENT_ID: &str = "da4edff2e6ebd2bc3208611e2768bc1c1dd7be791dc5ff26ca34ca9ee44f7d4b";
 const REDIRECT: &str = "http://127.0.0.1:8080/callback";
