@@ -107,3 +107,7 @@ path = "tests/openai_codex_responses.rs"
 [[test]]
 name = "session_resources"
 path = "tests/session_resources.rs"
+
+[[test]]
+name = "anthropic_oauth"
+path = "tests/anthropic_oauth.rs"

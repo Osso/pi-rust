@@ -4,8 +4,6 @@
 pub mod abort;
 #[path = "anthropic_messages.rs"]
 pub mod anthropic_messages;
-#[path = "anthropic_oauth.rs"]
-pub mod anthropic_oauth;
 #[path = "api_lazy.rs"]
 pub mod api_lazy;
 #[path = "approved_image_delta.rs"]
