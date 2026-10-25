@@ -85,6 +85,16 @@ interface Request {
 	importPath?: string;
 	events?: AgentSessionEvent[];
 	replayMessages?: AgentMessage[];
+	editorActions?: (
+		| "toggle-thinking"
+		| "dequeue"
+		| "ctrl-c"
+		| "set-second-line"
+		| "wait-750"
+	)[];
+	editorText?: string;
+	followUp?: string[];
+	compactionQueue?: { text: string; mode: "steer" | "followUp" }[];
 }
 
 async function captureStartup(request: Request) {
@@ -215,10 +225,14 @@ async function captureStartup(request: Request) {
 			chat: render(mode.chatContainer),
 			tail: render(mode.transcriptTailContainer),
 			status: render(mode.statusContainer),
+			pending: render(mode.pendingMessagesContainer),
+			editorText: units(mode.editor.getText()),
+			hideThinking: settingsManager.getHideThinkingBlock(),
 			narrow: {
 				chat: render(mode.chatContainer, 25),
 				tail: render(mode.transcriptTailContainer, 25),
 				status: render(mode.statusContainer, 25),
+				pending: render(mode.pendingMessagesContainer, 25),
 			},
 			progress: [...terminal.progress],
 		});
@@ -231,6 +245,21 @@ async function captureStartup(request: Request) {
 		}
 		for (const event of request.events ?? []) {
 			await mode.handleEvent(event);
+			eventFrames.push(captureEventFrame());
+		}
+		if (request.editorText !== undefined)
+			mode.editor.setText(request.editorText);
+		for (const text of request.followUp ?? [])
+			await mode.session.followUp(text);
+		if (request.compactionQueue)
+			mode.compactionQueuedMessages = request.compactionQueue;
+		if (request.editorActions) mode.updatePendingMessagesDisplay();
+		for (const action of request.editorActions ?? []) {
+			if (action === "toggle-thinking") mode.toggleThinkingBlockVisibility();
+			else if (action === "dequeue") mode.handleDequeue();
+			else if (action === "ctrl-c") mode.handleCtrlC();
+			else if (action === "set-second-line") mode.editor.setText("Second line");
+			else await new Promise((resolve) => setTimeout(resolve, 750));
 			eventFrames.push(captureEventFrame());
 		}
 		const output = {

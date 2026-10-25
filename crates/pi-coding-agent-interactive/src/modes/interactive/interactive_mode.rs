@@ -6049,7 +6049,26 @@ impl InteractiveMode {
         let hidden = !self.hide_thinking_block.get();
         self.hide_thinking_block.set(hidden);
         self.settings_mut(|settings| settings.set_hide_thinking_block(hidden));
-        self.ui.request_render();
+        self.chat_container.borrow_mut().clear();
+        self.rebuild_chat_from_messages();
+        let streaming = self.streaming_component.borrow().clone();
+        let message = self.streaming_message.borrow().clone();
+        if let (Some(streaming), Some(message)) = (streaming, message) {
+            self.clear_transcript_tail();
+            if let Some(component) = streaming
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
+            {
+                component.set_hide_thinking_block(hidden);
+                component.update_content(message);
+            }
+            self.transcript_tail_container.borrow_mut().add_child(streaming);
+        }
+        self.show_status(&js_format!(
+            "Thinking blocks: {}",
+            if hidden { "hidden" } else { "visible" }
+        ));
     }
 
     fn cycle_thinking_level(&self) {
@@ -6068,11 +6087,11 @@ impl InteractiveMode {
 
     fn handle_ctrl_c(&self) -> Result<(), CallbackError> {
         let now = js_now_millis();
-        if now - self.last_sigint_time.get() < 1000.0 {
+        if now - self.last_sigint_time.get() < 500.0 {
             self.actions.borrow_mut().push_back(ModeAction::Shutdown);
         } else {
-            self.last_sigint_time.set(now);
             self.clear_editor()?;
+            self.last_sigint_time.set(now);
         }
         Ok(())
     }
@@ -8367,35 +8386,60 @@ impl InteractiveMode {
 
     fn handle_dequeue(&self) -> Result<(), CallbackError> {
         let restored = self.restore_queued_messages_to_editor(false)?;
-        if restored > 0 {
-            self.show_status(&js_format!("Restored {} queued message(s)", restored));
+        if restored == 0 {
+            self.show_status("No queued messages to restore");
+        } else {
+            self.show_status(&js_format!(
+                "Restored {} queued message{} to editor",
+                restored,
+                if restored > 1 { "s" } else { "" }
+            ));
         }
         Ok(())
     }
 
+    fn clear_all_queues(&self) -> (Vec<JsString>, Vec<JsString>) {
+        let (mut steering, mut follow_up) = self.session().clear_queue();
+        let compaction = std::mem::take(&mut *self.compaction_queued_messages.borrow_mut());
+        steering.extend(
+            compaction
+                .iter()
+                .filter(|message| message.mode == "steer")
+                .map(|message| message.text.clone()),
+        );
+        follow_up.extend(
+            compaction
+                .into_iter()
+                .filter(|message| message.mode == "followUp")
+                .map(|message| message.text),
+        );
+        (steering, follow_up)
+    }
+
     fn restore_queued_messages_to_editor(&self, abort: bool) -> Result<usize, CallbackError> {
-        if abort {
-            let session = self.session();
-            tokio::task::spawn_local(async move {
-                let _ = session.abort().await;
-            });
-        }
-        let (steering, follow_up) = self.session().clear_queue();
-        let count = steering.len() + follow_up.len();
-        if count == 0 {
+        let (steering, follow_up) = self.clear_all_queues();
+        let queued: Vec<_> = steering.into_iter().chain(follow_up).collect();
+        if queued.is_empty() {
+            self.update_pending_messages_display();
+            if abort {
+                self.session().agent().abort();
+            }
             return Ok(0);
         }
-        let mut text = self.editor().borrow().get_text()?;
-        for message in steering.into_iter().chain(follow_up) {
-            if !text.is_empty() {
-                text.push_str("\n");
-            }
-            text.push_str(&(&message).clone());
-        }
+        let queued_text = JsString::join(queued.iter(), "\n\n");
+        let current_text = self.editor().borrow().get_text()?;
+        let text = JsString::join(
+            [queued_text, current_text]
+                .into_iter()
+                .filter(|text| !text.trim().is_empty()),
+            "\n\n",
+        );
         self.editor().borrow_mut().set_text(&text)?;
         self.update_pending_messages_display();
-        self.ui.request_render();
-        Ok(count)
+        if abort {
+            self.session().agent().abort();
+        }
+        Ok(queued.len())
     }
 
     async fn cancel_streaming_and_submit_queued_messages(&self) -> Result<(), CallbackError> {

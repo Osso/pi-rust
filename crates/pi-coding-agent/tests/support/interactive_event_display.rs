@@ -17,6 +17,13 @@ fn interleaved_text_tool_and_retry_compaction_frames_match_frozen() {
         "replay-error",
         "replay-complete",
         "replay-aborted",
+        "replay-thinking",
+        "live-thinking",
+        "editor-ctrl-c-spaced",
+        "editor-dequeue-empty",
+        "editor-dequeue-one",
+        "editor-dequeue-many",
+        "editor-dequeue-whitespace",
     ] {
         let root = tempfile::tempdir().unwrap();
         let skill = root.path().join("skill");
@@ -77,6 +84,9 @@ fn build_display_fixture_events(case: &str) -> Vec<AgentSessionEvent> {
     use crate::core::agent_session::{
         AutoRetryEndEvent, CompactionEndEvent, CompactionStartEvent, ProviderStreamRetryEvent,
     };
+    if case == "live-thinking" {
+        return build_live_thinking_events();
+    }
     if case == "retry-empty" {
         return vec![AgentSessionEvent::AutoRetryEnd(AutoRetryEndEvent {
             event_type: "auto_retry_end",
@@ -163,6 +173,18 @@ fn build_display_replay_messages(case: &str) -> Vec<AgentMessage> {
         pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({"type":"toolCall","id":"call-replay","name":"read","arguments":{"path":"fixture.txt"}})).unwrap()
     ));
     match case {
+        "replay-thinking" => {
+            assistant.content = vec![
+                pi_js_compat::js_json::from_value(
+                    &pi_js_compat::js_json!({"type":"thinking","thinking":"Reasoning before the answer"}),
+                )
+                .unwrap(),
+                pi_js_compat::js_json::from_value(&pi_js_compat::js_json!({"type":"text","text":"The answer"}))
+                    .unwrap(),
+            ];
+            assistant.stop_reason = pi_ai::types::StopReason::Stop;
+            vec![assistant.into()]
+        }
         "replay-error" => {
             assistant.stop_reason = pi_ai::types::StopReason::Error;
             assistant.error_message = Some(JsString::default());
@@ -181,6 +203,112 @@ fn build_display_replay_messages(case: &str) -> Vec<AgentMessage> {
     }
 }
 
+async fn drive_editor_display_fixture(
+    mode: &InteractiveMode,
+    terminal: &Rc<RefCell<CaptureTerminal>>,
+    case: &str,
+    request: &mut serde_json::Value,
+) -> Vec<serde_json::Value> {
+    if case == "replay-thinking" || case == "live-thinking" {
+        let actions = ["toggle-thinking", "toggle-thinking"];
+        request["editorActions"] = serde_json::json!(actions);
+        return drive_captured_editor_actions(mode, terminal, &actions).await;
+    }
+    if case == "editor-ctrl-c-spaced" {
+        let actions = ["ctrl-c", "set-second-line", "wait-750", "ctrl-c"];
+        request["editorActions"] = serde_json::json!(actions);
+        return drive_captured_editor_actions(mode, terminal, &actions).await;
+    }
+    if !case.starts_with("editor-dequeue-") {
+        return Vec::new();
+    }
+    let text = if case == "editor-dequeue-whitespace" {
+        " \n "
+    } else {
+        "Unsent text"
+    };
+    mode.editor().borrow_mut().set_text(&JsString::from(text)).unwrap();
+    let follow_up = match case {
+        "editor-dequeue-empty" => vec![],
+        "editor-dequeue-many" => vec!["Queued first", "Queued second"],
+        _ => vec!["Queued first"],
+    };
+    request["editorText"] = serde_json::json!(text);
+    request["followUp"] = serde_json::json!(follow_up);
+    for text in follow_up {
+        mode.session().follow_up(&JsString::from(text), &[]).await.unwrap();
+    }
+    if case == "editor-dequeue-many" {
+        mode.compaction_queued_messages.borrow_mut().extend([
+            CompactionQueuedMessage {
+                text: "Compaction steer".into(),
+                mode: "steer",
+            },
+            CompactionQueuedMessage {
+                text: "Compaction follow-up".into(),
+                mode: "followUp",
+            },
+        ]);
+        request["compactionQueue"] = serde_json::json!([{"text":"Compaction steer","mode":"steer"},{"text":"Compaction follow-up","mode":"followUp"}]);
+    }
+    mode.update_pending_messages_display();
+    request["editorActions"] = serde_json::json!(["dequeue"]);
+    mode.handle_dequeue().unwrap();
+    vec![capture_event_display_frame(mode, terminal)]
+}
+
+fn build_live_thinking_events() -> Vec<AgentSessionEvent> {
+    let AgentMessage::Assistant(message) = build_display_replay_messages("replay-thinking").pop().unwrap() else {
+        unreachable!()
+    };
+    let mut empty = (*message).clone();
+    empty.content.clear();
+    let mut thinking = (*message).clone();
+    thinking.content.truncate(1);
+    vec![
+        AgentSessionEvent::Agent(AgentEvent::MessageStart { message: empty.into() }),
+        AgentSessionEvent::Agent(AgentEvent::MessageUpdate {
+            message: thinking.clone().into(),
+            assistant_message_event: Box::new(pi_ai::types::AssistantMessageEvent::ThinkingDelta {
+                content_index: 0,
+                delta: "Reasoning before the answer".into(),
+                partial: thinking,
+            }),
+        }),
+        AgentSessionEvent::Agent(AgentEvent::MessageUpdate {
+            message: (*message).clone().into(),
+            assistant_message_event: Box::new(pi_ai::types::AssistantMessageEvent::TextDelta {
+                content_index: 1,
+                delta: "The answer".into(),
+                partial: *message,
+            }),
+        }),
+    ]
+}
+
+async fn drive_captured_editor_actions(
+    mode: &InteractiveMode,
+    terminal: &Rc<RefCell<CaptureTerminal>>,
+    actions: &[&str],
+) -> Vec<serde_json::Value> {
+    let mut frames = Vec::new();
+    for action in actions {
+        match *action {
+            "toggle-thinking" => mode.toggle_thinking_block_visibility(),
+            "ctrl-c" => mode.handle_ctrl_c().unwrap(),
+            "set-second-line" => mode
+                .editor()
+                .borrow_mut()
+                .set_text(&JsString::from("Second line"))
+                .unwrap(),
+            "wait-750" => tokio::time::sleep(Duration::from_millis(750)).await,
+            _ => panic!("unknown captured editor action: {action}"),
+        }
+        frames.push(capture_event_display_frame(mode, terminal));
+    }
+    frames
+}
+
 fn capture_event_display_frame(mode: &InteractiveMode, terminal: &Rc<RefCell<CaptureTerminal>>) -> serde_json::Value {
     let render = |container: &mut dyn Component, width| {
         container
@@ -193,10 +321,14 @@ fn capture_event_display_frame(mode: &InteractiveMode, terminal: &Rc<RefCell<Cap
         "chat":render(&mut *mode.chat_container.borrow_mut(), 120),
         "tail":render(&mut *mode.transcript_tail_container.borrow_mut(), 120),
         "status":render(&mut *mode.status_container.borrow_mut(), 120),
+        "pending":render(&mut *mode.pending_messages_container.borrow_mut(), 120),
+        "editorText":mode.editor().borrow().get_text().unwrap().units(),
+        "hideThinking":mode.settings(|settings| settings.get_hide_thinking_block()),
         "narrow": {
             "chat":render(&mut *mode.chat_container.borrow_mut(), 25),
             "tail":render(&mut *mode.transcript_tail_container.borrow_mut(), 25),
             "status":render(&mut *mode.status_container.borrow_mut(), 25),
+            "pending":render(&mut *mode.pending_messages_container.borrow_mut(), 25),
         },
         "progress":terminal.borrow().progress,
     })
