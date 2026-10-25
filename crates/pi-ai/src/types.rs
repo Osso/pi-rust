@@ -351,13 +351,49 @@ impl ThinkingContent {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImageContent {
     pub r#type: ImageTag,
     /// Base64-encoded image data.
     pub data: String,
     pub mime_type: String,
+    /// Unknown message properties and original order; never provider request fields.
+    pub properties: ModelProperties,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImageContentWire {
+    r#type: ImageTag,
+    data: String,
+    mime_type: String,
+}
+
+impl Serialize for ImageContent {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        self.properties.serialize(
+            &ImageContentWire {
+                r#type: self.r#type,
+                data: self.data.clone(),
+                mime_type: self.mime_type.clone(),
+            },
+            serializer,
+        )
+    }
+}
+
+impl<'de> Deserialize<'de> for ImageContent {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let (wire, properties): (ImageContentWire, _) =
+            ModelProperties::decode(value, &["type", "data", "mimeType"]).map_err(D::Error::custom)?;
+        Ok(Self {
+            r#type: wire.r#type,
+            data: wire.data,
+            mime_type: wire.mime_type,
+            properties,
+        })
+    }
 }
 
 impl ImageContent {
@@ -366,6 +402,7 @@ impl ImageContent {
             r#type: ImageTag::Tag,
             data: data.into(),
             mime_type: mime_type.into(),
+            properties: ModelProperties::default(),
         }
     }
 }

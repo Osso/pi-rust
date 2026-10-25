@@ -132,15 +132,15 @@ Image representability ruling (parent2026-10-24): reject, do not project or drop
 | `prompt.images[].type` | Reject non-image/non-scalar tag |
 | `prompt.images[].data` | Reject non-string or unpaired units explicitly |
 | `prompt.images[].mimeType` | Reject non-string or unpaired units explicitly |
-| `prompt.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `prompt.images[].<unknown property>` | Exact retention through the shared [ImageContent carrier](../../specs/image-content-properties.md); retired rejection gap |
 | `steer.images[].type` | Reject non-image/non-scalar tag |
 | `steer.images[].data` | Reject non-string or unpaired units explicitly |
 | `steer.images[].mimeType` | Reject non-string or unpaired units explicitly |
-| `steer.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `steer.images[].<unknown property>` | Same shared decoder/carrier; retired unknown-property rejection gap |
 | `follow_up.images[].type` | Reject non-image/non-scalar tag |
 | `follow_up.images[].data` | Reject non-string or unpaired units explicitly |
 | `follow_up.images[].mimeType` | Reject non-string or unpaired units explicitly |
-| `follow_up.images[].<unknown property>` | Reject the image explicitly instead of dropping properties |
+| `follow_up.images[].<unknown property>` | Same shared decoder/carrier; retired unknown-property rejection gap |
 
 Implementation: `rpc_mode/input.rs`; no typed-command fallback remains. Tests: `rpc_external_unknown_command_echoes_original_json_values`, `rpc_external_model_lookup_uses_strict_raw_value_equality`, `rpc_external_local_trim_and_since_use_frozen_js_operations`, `rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping`, and falsey-images/export tests. Initial RPC-local RED2/2 is `rpc-mode-external-json-red.log`; GREEN in final process29/29 and owned module9/9; see current checkpoint proof.
 
