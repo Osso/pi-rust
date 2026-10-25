@@ -253,7 +253,6 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
             context_window: definition.context_window.unwrap_or(128_000.0),
             auto_compaction_threshold: None,
             max_tokens: definition.max_tokens.unwrap_or(16_384.0),
-            sampling_params: None,
             headers: None,
             compat: None,
         })

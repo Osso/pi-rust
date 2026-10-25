@@ -62,3 +62,7 @@ No pending whole-module feature. `builtinImagesModels` aggregation is already po
 Image auth resolution keeps native model endpoint, API key and environment values through request dispatch; environment merge has one ProviderEnv authority.
 
 [Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+
+## Native metadata and model fields (2026-10-25)
+
+Compile RED exposed scalar JSON metadata. ImagesOptions now forwards JsObject unchanged, including arbitrary nested JSON and unmatched units, through actual frozen/native generation callbacks. ImagesModel display names and unknown/historical properties use the existing JsString/ModelProperties authorities. Current13image tests GREEN (`/tmp/ai3-types-suite_modes.log`); the type witness also checks source-typed image records with exact unknown-key order. No new callback or property authority. See [stopped-lane handoff](../handoff-ai-core.md).

@@ -133,8 +133,6 @@ pub struct StreamOptions {
     pub cwd: Option<JsString>,
     pub request: ProviderRequestOptions,
     pub temperature: Option<f64>,
-    /// Merged into OpenAI-compatible request bodies after named fields.
-    pub sampling_params: Option<JsonObject>,
     pub max_tokens: Option<f64>,
     pub transport: Option<Transport>,
     /// Default "short".
@@ -189,7 +187,7 @@ pub struct ImagesRequestOptions {
 #[derive(Clone, Default)]
 pub struct ImagesOptions {
     pub request: ImagesRequestOptions,
-    pub metadata: Option<JsonObject>,
+    pub metadata: Option<pi_js_compat::js_json::JsObject>,
     pub extra: JsonObject,
 }
 

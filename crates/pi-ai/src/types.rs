@@ -819,7 +819,7 @@ pub struct Context {
 }
 
 /// Event protocol for `AssistantMessageEventStream`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AssistantMessageEvent {
     Start {
@@ -888,6 +888,78 @@ pub enum AssistantMessageEvent {
         reason: ErrorReason,
         error: AssistantMessage,
     },
+}
+
+impl<'de> Deserialize<'de> for AssistantMessageEvent {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let tag = value
+            .get("type")
+            .and_then(JsValue::as_string)
+            .ok_or_else(|| D::Error::custom("event type must be a string"))?;
+        macro_rules! field {
+            ($key:literal) => {
+                js_json::from_value(value.get($key).ok_or_else(|| D::Error::missing_field($key))?)
+                    .map_err(D::Error::custom)?
+            };
+        }
+        Ok(match tag.to_utf8().map_err(D::Error::custom)?.as_str() {
+            "start" => Self::Start {
+                partial: field!("partial"),
+            },
+            "text_start" => Self::TextStart {
+                content_index: field!("contentIndex"),
+                partial: field!("partial"),
+            },
+            "text_delta" => Self::TextDelta {
+                content_index: field!("contentIndex"),
+                delta: field!("delta"),
+                partial: field!("partial"),
+            },
+            "text_end" => Self::TextEnd {
+                content_index: field!("contentIndex"),
+                content: field!("content"),
+                partial: field!("partial"),
+            },
+            "thinking_start" => Self::ThinkingStart {
+                content_index: field!("contentIndex"),
+                partial: field!("partial"),
+            },
+            "thinking_delta" => Self::ThinkingDelta {
+                content_index: field!("contentIndex"),
+                delta: field!("delta"),
+                partial: field!("partial"),
+            },
+            "thinking_end" => Self::ThinkingEnd {
+                content_index: field!("contentIndex"),
+                content: field!("content"),
+                partial: field!("partial"),
+            },
+            "toolcall_start" => Self::ToolCallStart {
+                content_index: field!("contentIndex"),
+                partial: field!("partial"),
+            },
+            "toolcall_delta" => Self::ToolCallDelta {
+                content_index: field!("contentIndex"),
+                delta: field!("delta"),
+                partial: field!("partial"),
+            },
+            "toolcall_end" => Self::ToolCallEnd {
+                content_index: field!("contentIndex"),
+                tool_call: field!("toolCall"),
+                partial: field!("partial"),
+            },
+            "done" => Self::Done {
+                reason: field!("reason"),
+                message: field!("message"),
+            },
+            "error" => Self::Error {
+                reason: field!("reason"),
+                error: field!("error"),
+            },
+            other => return Err(D::Error::custom(format!("unknown event type: {other}"))),
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1232,7 +1304,6 @@ pub struct Model {
     /// Exact context-token count at which automatic compaction begins.
     pub auto_compaction_threshold: Option<f64>,
     pub max_tokens: f64,
-    pub sampling_params: Option<JsonObject>,
     pub headers: Option<IndexMap<String, JsString>>,
     pub compat: Option<ModelCompat>,
     /// Unknown properties and key order only; known values are stored once above.
@@ -1254,7 +1325,6 @@ struct ModelWire {
     context_window: f64,
     auto_compaction_threshold: Option<f64>,
     max_tokens: f64,
-    sampling_params: Option<JsonObject>,
     headers: Option<IndexMap<String, JsString>>,
     compat: Option<JsValue>,
 }
@@ -1272,7 +1342,6 @@ const MODEL_FIELDS: &[&str] = &[
     "contextWindow",
     "autoCompactionThreshold",
     "maxTokens",
-    "samplingParams",
     "headers",
     "compat",
 ];
@@ -1285,13 +1354,7 @@ fn validate_model_optionals(object: &JsObject) -> Result<(), String> {
     {
         return Err("model.id contains an unpaired UTF-16 surrogate".into());
     }
-    for field in [
-        "thinkingLevelMap",
-        "autoCompactionThreshold",
-        "samplingParams",
-        "headers",
-        "compat",
-    ] {
+    for field in ["thinkingLevelMap", "autoCompactionThreshold", "headers", "compat"] {
         if object.get(field) == Some(&JsValue::Null) {
             return Err(format!("model.{field} cannot be null"));
         }
@@ -1322,8 +1385,6 @@ struct ModelSerialization<'a> {
     #[serde(serialize_with = "js_number::serialize")]
     max_tokens: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
-    sampling_params: Option<&'a JsonObject>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     headers: Option<&'a IndexMap<String, JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     compat: Option<&'a ModelCompat>,
@@ -1344,7 +1405,6 @@ impl Serialize for Model {
             context_window: self.context_window,
             auto_compaction_threshold: self.auto_compaction_threshold,
             max_tokens: self.max_tokens,
-            sampling_params: self.sampling_params.as_ref(),
             headers: self.headers.as_ref(),
             compat: self.compat.as_ref(),
         };
@@ -1378,7 +1438,6 @@ impl<'de> Deserialize<'de> for Model {
             context_window: wire.context_window,
             auto_compaction_threshold: wire.auto_compaction_threshold,
             max_tokens: wire.max_tokens,
-            sampling_params: wire.sampling_params,
             headers: wire.headers,
             compat,
             properties,
@@ -1387,28 +1446,101 @@ impl<'de> Deserialize<'de> for Model {
 }
 
 /// `ImagesModel<TApi>`: `Model` without the chat-only fields, plus `output` modalities.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, PartialEq)]
 pub struct ImagesModel {
     pub id: String,
-    pub name: String,
+    pub name: JsString,
     pub api: ImagesApi,
     pub provider: ImagesProviderId,
     pub base_url: JsString,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level_map: Option<ThinkingLevelMap>,
     pub input: Vec<Modality>,
     pub output: Vec<Modality>,
     pub cost: ModelCost,
+    pub auto_compaction_threshold: Option<f64>,
+    pub headers: Option<IndexMap<String, JsString>>,
+    pub properties: ModelProperties,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImagesModelWire {
+    id: String,
+    name: JsString,
+    api: ImagesApi,
+    provider: ImagesProviderId,
+    base_url: JsString,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_level_map: Option<ThinkingLevelMap>,
+    input: Vec<Modality>,
+    output: Vec<Modality>,
+    cost: ModelCost,
     #[serde(
         skip_serializing_if = "Option::is_none",
         serialize_with = "js_number::serialize_option"
     )]
-    pub auto_compaction_threshold: Option<f64>,
+    auto_compaction_threshold: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub sampling_params: Option<JsonObject>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub headers: Option<IndexMap<String, JsString>>,
+    headers: Option<IndexMap<String, JsString>>,
+}
+
+const IMAGES_MODEL_FIELDS: &[&str] = &[
+    "id",
+    "name",
+    "api",
+    "provider",
+    "baseUrl",
+    "thinkingLevelMap",
+    "input",
+    "output",
+    "cost",
+    "autoCompactionThreshold",
+    "headers",
+];
+
+impl Serialize for ImagesModel {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let fields = ImagesModelWire {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            api: self.api.clone(),
+            provider: self.provider.clone(),
+            base_url: self.base_url.clone(),
+            thinking_level_map: self.thinking_level_map.clone(),
+            input: self.input.clone(),
+            output: self.output.clone(),
+            cost: self.cost.clone(),
+            auto_compaction_threshold: self.auto_compaction_threshold,
+            headers: self.headers.clone(),
+        };
+        self.properties.serialize(&fields, serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ImagesModel {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = JsValue::deserialize(deserializer)?;
+        let JsValue::Object(object) = value else {
+            return Err(D::Error::custom("image model must be an object"));
+        };
+        let (known, properties) = ModelProperties::split(object, IMAGES_MODEL_FIELDS);
+        let wire: ImagesModelWire =
+            pi_js_compat::js_json::from_value(&JsValue::Object(known)).map_err(D::Error::custom)?;
+        Ok(Self {
+            id: wire.id,
+            name: wire.name,
+            api: wire.api,
+            provider: wire.provider,
+            base_url: wire.base_url,
+            thinking_level_map: wire.thinking_level_map,
+            input: wire.input,
+            output: wire.output,
+            cost: wire.cost,
+            auto_compaction_threshold: wire.auto_compaction_threshold,
+            headers: wire.headers,
+            properties,
+        })
+    }
 }
 
 fn deserialize_present_nullable<'de, D: Deserializer<'de>>(
