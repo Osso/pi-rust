@@ -4,6 +4,8 @@
 
 #[path = "support/oracle.rs"]
 mod callbacks_oracle;
+#[path = "agent_session_compaction_events.rs"]
+mod saved_events;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -64,6 +66,10 @@ struct Captured {
     background: Vec<&'static str>,
     background_start_gate: Option<Arc<tokio::sync::Notify>>,
     background_end_gate: Option<Arc<tokio::sync::Notify>>,
+    saved: Vec<pi_coding_agent::core::extensions::types::SessionCompactEvent>,
+    saved_order: Vec<&'static str>,
+    saved_started: Option<Arc<tokio::sync::Notify>>,
+    saved_release: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Captured {
@@ -74,6 +80,10 @@ impl Captured {
             background: Vec::new(),
             background_start_gate: None,
             background_end_gate: None,
+            saved: Vec::new(),
+            saved_order: Vec::new(),
+            saved_started: None,
+            saved_release: None,
         }))
     }
 }
@@ -186,11 +196,13 @@ async fn env_with(
     let before_capture = Arc::clone(&captured);
     let compaction_capture = Arc::clone(&captured);
     let background_capture = Arc::clone(&captured);
+    let saved_capture = Arc::clone(&captured);
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
         let before_capture = Arc::clone(&before_capture);
         let compaction_capture = Arc::clone(&compaction_capture);
         let background_start_capture = Arc::clone(&background_capture);
         let background_end_capture = Arc::clone(&background_capture);
+        let saved_capture = Arc::clone(&saved_capture);
         let before = before.clone();
         let compaction_hook = compaction_hook.clone();
         let registered = (|| -> Result<(), String> {
@@ -221,6 +233,25 @@ async fn env_with(
                         'static,
                         Result<Option<CompactionEventResult>, HandlerError>,
                     >
+            })?;
+            api.on_session_compact(move |event, _ctx| {
+                let captured = Arc::clone(&saved_capture);
+                Box::pin(async move {
+                    let (started, release) = {
+                        let mut saved = captured.lock().unwrap();
+                        saved.saved.push(event);
+                        saved.saved_order.push("session_compact:start");
+                        (saved.saved_started.clone(), saved.saved_release.clone())
+                    };
+                    if let Some(started) = started {
+                        started.notify_one();
+                    }
+                    if let Some(release) = release {
+                        release.notified().await;
+                    }
+                    captured.lock().unwrap().saved_order.push("session_compact:end");
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
             api.on_background_compaction_start(move |_event, _ctx| {
                 let captured = Arc::clone(&background_start_capture);
@@ -282,8 +313,12 @@ async fn env_with(
 
     let events = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&events);
+    let saved_capture = Arc::clone(&captured);
     result.session.subscribe(Arc::new(move |event: &AgentSessionEvent| {
         sink.lock().expect("events").push(event.clone());
+        if matches!(event, AgentSessionEvent::CompactionEnd(_)) {
+            saved_capture.lock().unwrap().saved_order.push("compaction_end");
+        }
     }));
     Env {
         session: result.session,

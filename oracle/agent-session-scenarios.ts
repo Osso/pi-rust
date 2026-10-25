@@ -2,8 +2,18 @@
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { runPromptLifecycleScenario } from "./agent-session-prompt-lifecycle.ts";
 import { runInputImagesScenario } from "./agent-session-input-images.ts";
+import { runCompactionEventsScenario } from "./agent-session-compaction-events.ts";
 
 export async function runAgentSessionScenario(request, context) {
+	if (
+		[
+			"manual-compact-events",
+			"auto-compact-events",
+			"manual-cancel-events",
+			"auto-cancel-events",
+		].includes(request.operation)
+	)
+		return runCompactionEventsScenario(request.operation, context);
 	if (["input-images", "input-image-propagation"].includes(request.operation))
 		return runInputImagesScenario(
 			context,
