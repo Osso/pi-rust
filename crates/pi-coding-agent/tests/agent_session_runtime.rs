@@ -88,6 +88,8 @@ mod hello_example;
 
 #[path = "support/runtime_callback_failures.rs"]
 mod runtime_callback_failures;
+#[path = "support/runtime_initial_event.rs"]
+mod runtime_initial_event;
 #[path = "support/runtime_restart.rs"]
 mod runtime_restart;
 
@@ -331,7 +333,7 @@ async fn build_harness_with_runtime_observer(
                     disable_runtime_coordination_inbound: false,
                     on_shared_channel_message_delivered: None,
                     extension_runner_ref: None,
-                    session_start_event: None,
+                    session_start_event: request.session_start_event,
                 })
                 .map_err(|error| error.message().clone())?;
                 Ok(CreateAgentSessionRuntimeResult {
@@ -361,6 +363,7 @@ async fn build_harness_with_runtime_observer(
         &JsString::from(&cwd),
         &JsString::from(&cwd),
         session_manager,
+        None,
         None,
     )
     .await

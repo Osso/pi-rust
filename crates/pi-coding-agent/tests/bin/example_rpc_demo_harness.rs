@@ -137,10 +137,7 @@ async fn main() {
                 session_manager: Some(input.session_manager),
                 tools: Some(vec![]),
                 disable_runtime_coordination_inbound: true,
-                session_start_event: Some(SessionStartEvent {
-                    reason: SessionStartReason::New,
-                    previous_session_file: input.previous_session_file,
-                }),
+                session_start_event: input.session_start_event,
                 ..Default::default()
             })
             .await

@@ -4,6 +4,7 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 
 ## What it must do
 
+- [x] The factory DTO carries `Option<SessionStartEvent>`, not flattened reason/previous fields. Initial creation preserves absent or explicit events unchanged; replacement operations supply their frozen event. Main, examples and the convenience factory forward it to SDK binding. Do not synthesize an initial event at the runtime factory boundary.
 - [x] A prepared tool-result cwd relocation prevents a later session replacement from starting until activation releases the lifecycle transition.
 - [x] Missing import paths retain `SessionImportFileNotFoundError` name, message and `filePath` through the existing callback carrier. Interactive recovery checks the retained error type, not its message prefix; a later ordinary factory failure with similar text remains fatal.
 - [ ] Serialize all lifecycle transitions in frozen FIFO order, release after failure, and release prepared relocation before continuing the replacement session.

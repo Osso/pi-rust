@@ -13055,7 +13055,7 @@ mod ui_tests {
                 let observed=Arc::new(Mutex::new(Vec::new()));
                 let captured=observed.clone();
                 let (mode,_terminal,_faux,temp)=build_mode_with_extra_providers(StaticResourceLoader::new(),None,SettingsManager::in_memory(Default::default(),SettingsManagerCreateOptions::default()),Vec::new(),serde_json::Map::new(),true,TestModeSetup{runtime_request_observer:Some(Arc::new(move|request|{
-                    if request.session_start_reason!="startup" {
+                    if request.session_start_event.as_ref().is_some_and(|event| event.reason != crate::core::extensions::types::SessionStartReason::Startup) {
                         captured.lock().unwrap().push(request.project_trust_context.as_ref().map(|context|serde_json::json!({"cwd":context.cwd,"mode":context.mode,"hasUI":context.has_ui})));
                     }
                 })),..Default::default()}).await;
@@ -13466,7 +13466,7 @@ mod ui_tests {
                         disable_runtime_coordination_inbound: false,
                         on_shared_channel_message_delivered: None,
                         extension_runner_ref: None,
-                        session_start_event: None,
+                        session_start_event: request.session_start_event,
                     })
                     .map_err(|error| error.to_string())?;
                     Ok(CreateAgentSessionRuntimeResult {
@@ -13499,6 +13499,7 @@ mod ui_tests {
             &JsString::from(&cwd),
             &JsString::from(&cwd),
             session_manager,
+            None,
             None,
         )
         .await
