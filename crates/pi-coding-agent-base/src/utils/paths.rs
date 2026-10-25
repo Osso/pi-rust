@@ -217,30 +217,44 @@ pub fn format_path_relative_to_cwd_or_absolute(
 }
 
 /// The actual argv binding, rather than the normalization functions, encodes text.
-pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) {
+pub fn mark_path_ignored_by_cloud_sync(path: impl Into<JsString>) -> Result<(), Box<NativeNodeError>> {
+    use super::child_process::{ChildStdio, ChildStdioOptions, SpawnSyncOptions, spawn_sync};
+    let options = || SpawnSyncOptions {
+        stdio: ChildStdioOptions {
+            stdin: ChildStdio::Ignore,
+            stdout: ChildStdio::Ignore,
+            stderr: ChildStdio::Ignore,
+        },
+        ..Default::default()
+    };
     let path = path.into();
     #[cfg(target_os = "macos")]
     for attribute in ["com.dropbox.ignored", "com.apple.fileprovider.ignore#P"] {
-        let _ = std::process::Command::new("xattr")
-            .args(["-w", attribute, "1", &encode_node_utf8(&path)])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        spawn_sync(
+            &"xattr".into(),
+            &["-w".into(), attribute.into(), "1".into(), path.clone()],
+            options(),
+        )?;
     }
     #[cfg(target_os = "linux")]
     {
-        let _ = std::process::Command::new("setfattr")
-            .args(["-n", "user.com.dropbox.ignored", "-v", "1", &encode_node_utf8(&path)])
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status();
+        spawn_sync(
+            &"setfattr".into(),
+            &[
+                "-n".into(),
+                "user.com.dropbox.ignored".into(),
+                "-v".into(),
+                "1".into(),
+                path,
+            ],
+            options(),
+        )?;
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
     {
-        let _ = path;
+        let _ = (path, options);
     }
+    Ok(())
 }
 
 pub fn process_cwd() -> Result<JsString, PathError> {
