@@ -45,7 +45,7 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - RED status/custom shell: `/tmp/ext-b-bwrap-status-red.log`; GREEN `/tmp/ext-b-bwrap-status-green.log` (2/2, suite_extensions filter `bwrap_repin::`).
 - RED worker-null/zero-notice: `/tmp/ext-b-bwrap-worker-red.log`; GREEN `/tmp/ext-b-bwrap-worker-green.log` (8/8, extensions --lib filter `bwrap::index::operation_tests::`).
 - Commands use `cargo test -j3 -p <crate> --test <suite> <filter>` (or --lib). All proofs cover bwrap implementation commit (this change). No actual host sandbox.
-- Index stays partial: explicit unimplemented full-access detached-job/registry forwarding, recorded in traceability.
+- Temporary index detached-job/registry gap is closed by the real-process proof below.
 
 ## Usage (implementation in progress)
 
@@ -68,3 +68,10 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN `suite_interactive differential_default_footer::`: original matrix 1/1, `/tmp/ext-b-footer-oracle-green.log`.
 - GREEN new raw full-render test `suite_interactive differential_default_footer::footer_render_keeps`: 1/1, `/tmp/ext-b-footer-raw-green.log`.
 - All cover footer implementation commit (this change); relevant edits alone invalidate them. Oracle fixture change adds lifecycle invocation, not a transformed source.
+
+### Bwrap index closure
+
+- RED `cargo test -j3 -p pi-coding-agent --test bwrap-detached-lifecycle`: no detached result details, `/tmp/ext-b-bwrap-detach-red.log`.
+- GREEN same command: installed full-access extension forwards store/lifecycle/registry, registry detaches real runner, lifecycle reaches Completed, output.log is exactly `readydone`; `/tmp/ext-b-bwrap-detach-green.log`.
+- Standalone harness owns internal-runner dispatch; it does not invoke bwrap, a real sandbox, or providers. Mechanical new test target in Cargo.toml.
+- Proof covers bwrap index closure commit (this change). No realistic detached-job gap remains.
