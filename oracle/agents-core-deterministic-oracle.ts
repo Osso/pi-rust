@@ -45,6 +45,8 @@ type Case = {
 	message?: string;
 	prompt?: string;
 	sessionId?: string;
+    storeSessionId?: string;
+    trace?: boolean;
 	toAgentId?: string;
 };
 
@@ -64,7 +66,7 @@ type Api = {
 	errorToolResult(text: string, details: Record<string, unknown>): ToolResult;
 	emptyToolResult(): ToolResult;
 	listAgents(store: StoreStub, params: { parentId?: string }): ToolResult;
-	agentViewer(store: StoreStub, params: { agentId: string; sessionId?: string }): ToolResult;
+	agentViewer(store: StoreStub, params: { agentId: string; sessionId?: string; storeSessionId?: string; trace?: boolean }): ToolResult;
 	registerAgentsCoreTools(pi: unknown, options: unknown): void;
 	registerAllTools(pi: unknown, options: unknown): void;
 	assertNoWaitAgentsParams(params: unknown, apiName: string): void;
@@ -139,6 +141,8 @@ function executeCase(api: Api, testCase: Case): unknown {
 				api.agentViewer(storeStub(testCase), {
 					agentId: requireString(testCase.agentId, "agentId"),
 					...(testCase.sessionId === undefined ? {} : { sessionId: testCase.sessionId }),
+                    ...(testCase.storeSessionId === undefined ? {} : { storeSessionId: testCase.storeSessionId }),
+                    ...(testCase.trace === undefined ? {} : { trace: testCase.trace }),
 				}),
 			);
 		case "toolMetadata": {

@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 538, `gap` 21, `partial` 44, `todo` 83.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 540, `gap` 21, `partial` 43, `todo` 82.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -302,8 +302,8 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/examples/sdk/11-sessions.ts` | 52 | — | done | `crates/pi-coding-agent/examples/sdk/11_sessions.rs` | Native SDK program and pinned-program differential ([traceability](traceability/sdk-examples.md)). Test: `example_sdk_sessions`; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/examples/sdk/12-full-control.ts` | 79 | — | todo | `crates/pi-coding-agent/examples/sdk/12_full_control.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent/examples/sdk/12_full_control.rs`; Native SDK program and pinned-program differential ([traceability](traceability/sdk-examples.md)). Test: `example_sdk_full_control` |
 | `coding-agent/examples/sdk/13-session-runtime.ts` | 67 | — | done | `crates/pi-coding-agent/examples/sdk/13_session_runtime.rs` | Native SDK program and pinned-program differential ([traceability](traceability/sdk-examples.md)). Test: `example_sdk_session_runtime`; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/extensions/agent-viewer/src/index.ts` | 6 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs`; Factory registers the agent_viewer tool; registration differential covers metadata. |
-| `coding-agent/extensions/agent-viewer/src/runtime.ts` | 255 | — | partial | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/viewer.rs` | Persisted trace/storeSessionId validation; seven same-DB/files exact frozen text+JSON cases including ownership Number formatting/absence; remaining branch proofs in [traceability](traceability/agent-lifecycle-trace.md). |
+| `coding-agent/extensions/agent-viewer/src/index.ts` | 6 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agent_viewer/mod.rs` | Whole factory forwarding audit and exact frozen registration metadata differential; [traceability](traceability/agent-viewer.md). |
+| `coding-agent/extensions/agent-viewer/src/runtime.ts` | 255 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/viewer.rs` | Whole module audit; selector truthiness RED/GREEN; exact frozen text/details/metadata, memory and persisted behavioral branches plus seven same-DB/files historical trace cases; [traceability](traceability/agent-viewer.md). |
 | `coding-agent/extensions/agents-core/src/agent-model-tool.ts` | 154 | — | todo | — | new on master |
 | `coding-agent/extensions/agents-core/src/child-response.ts` | 22 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/child_response.rs` | Whole module with current-turn Arc identity filtering, terminal errors and UTF-16; actual dispatch RED/GREEN and nine frozen differential vectors; [traceability](traceability/child-response.md). |
 | `coding-agent/extensions/agents-core/src/child-session.ts` | 56 | — | todo | — | new on master |
