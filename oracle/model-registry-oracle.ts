@@ -81,6 +81,50 @@ async function main(): Promise<void> {
 			}
 			return { key, auth };
 		}
+		if (request.operation === "constructor_lifetime") {
+			if (typeof request.home !== "string")
+				throw new TypeError("Fixture home must be a string");
+			process.env.HOME = request.home;
+			if (typeof request.agentDir === "string")
+				process.env.PI_CODING_AGENT_DIR = request.agentDir;
+			else delete process.env.PI_CODING_AGENT_DIR;
+			try {
+				const registry = ModelRegistry.create(
+					AuthStorage.inMemory({}),
+					request.path,
+				);
+				const snapshot = () => {
+					const models = registry
+						.getAll()
+						.filter(
+							(model: { provider: string }) =>
+								model.provider === "constructor-fixture",
+						);
+					return {
+						error: registry.getError() ?? null,
+						models,
+						serializedModels: JSON.stringify(models),
+					};
+				};
+				const before = snapshot();
+				if (typeof request.nextHome === "string")
+					process.env.HOME = request.nextHome;
+				registry.refresh();
+				return { created: true, before, after: snapshot() };
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				return {
+					created: false,
+					error: {
+						name: error.name,
+						message: error.message,
+						...Object.fromEntries(
+							Object.entries(error).filter(([key]) => key !== "stack"),
+						),
+					},
+				};
+			}
+		}
 		const storage = AuthStorage.inMemory(request.auth ?? {});
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
