@@ -2,6 +2,7 @@
 
 pub mod detached_bridge;
 pub mod detached_evaluation;
+pub mod detached_output;
 pub mod detached_runner;
 pub mod eval_tool;
 pub mod index;

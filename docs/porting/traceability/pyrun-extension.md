@@ -85,3 +85,15 @@ Shared JS stringify/object enumeration is used at this module's audited observab
 
 
 Callable-status consumer adaptation (2026-10-24): create_pi_capability_snapshot and create_canonical_pyrun_eval_params return Result so the frozen footerData.getExtensionStatuses read propagates the original callback failure. The detached launch helper carries CallbackError to HandlerError::from; existing test data unwraps success. No launch/activation/order, process or detached-runtime behavior change. [Status contract](../../specs/extension-status.md).
+
+## Re-pin detached-output (2026-10-25)
+
+| Frozen symbol / branch | Native proof | Status |
+| --- | --- | --- |
+| `PyrunArtifactWriter.appendProgress`: immediate <=25 MiB head; permanent tail mode; FIFO drop to 50 MiB bound | `pyrun_capped_artifacts_match_frozen_bytes_and_preserve_live_offsets`, small and 56 MiB progress inputs | done |
+| `finish`: terminal reserve, 256-byte marker reserve, omitted byte/record counters, ordered tail, terminal wins above cap | same test, exact SHA256/byte lengths against actual frozen writer including 51 MiB terminal | done |
+| Live append-only offsets | exact pre-settlement head length and unchanged output prefix | done |
+| Runner progress and terminal writes | shared writer owned by settlement; no legacy uncapped output path | ported; runner process regression pending |
+| ENOSPC, exotic filesystem fault identity and numeric extremes | repository parity policy | gap |
+
+Writer differential: `/tmp/bundled3-pyrun-writer-green.log`.
