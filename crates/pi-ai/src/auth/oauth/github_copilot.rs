@@ -67,11 +67,10 @@ impl OAuthAuth for GitHubCopilotOAuth {
     }
 
     fn refresh(&self, credential: OAuthCredential) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
-        let signal = AbortSignal::default();
         let runtime = self.runtime.clone();
         Box::pin(async move {
             let enterprise_domain = copilot_enterprise_domain(&credential);
-            refresh_token(&runtime, &credential.refresh, enterprise_domain.as_deref(), signal).await
+            refresh_token(&runtime, &credential.refresh, enterprise_domain.as_deref()).await
         })
     }
 
@@ -121,10 +120,15 @@ fn get_urls(domain: &str) -> Urls {
 
 /// `getBaseUrlFromToken`: derives the API host from the token's `proxy-ep`.
 pub fn get_base_url_from_token(token: &JsString) -> Option<JsString> {
-    let start = token.find("proxy-ep=")? + "proxy-ep=".len();
-    let rest = token.slice(start, token.len());
-    let end = rest.find(";").unwrap_or(rest.len());
-    let proxy_host = rest.slice(0, end);
+    let mut rest = token.clone();
+    let proxy_host = loop {
+        let start = rest.find("proxy-ep=")? + "proxy-ep=".len();
+        rest = rest.slice(start, rest.len());
+        let end = rest.find(";").unwrap_or(rest.len());
+        if end > 0 {
+            break rest.slice(0, end);
+        }
+    };
     let api_host = if proxy_host.starts_with("proxy.") {
         js_format!("api.{}", proxy_host.slice(6, proxy_host.len()))
     } else {
@@ -221,9 +225,9 @@ fn to_auth_error(error: CallbackError) -> AuthError {
 async fn fetch_json(
     runtime: &OAuthRuntime,
     request: HttpRequest,
-    signal: &AbortSignal,
+    signal: Option<AbortSignal>,
 ) -> Result<Value, CallbackError> {
-    let response = send(&runtime.fetch, request, Some(signal.clone())).await?;
+    let response = send(&runtime.fetch, request, signal).await?;
     if !response.ok() {
         return Err(CallbackError::new(format!(
             "{} {}: {}",
@@ -238,18 +242,14 @@ async fn fetch_json(
 async fn fetch_json_with_timeout(runtime: &OAuthRuntime, request: HttpRequest) -> Result<Value, CallbackError> {
     let signal = AbortSignal::timeout(MODELS_TIMEOUT_MS)
         .map_err(|error| CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Error(error)))?;
-    fetch_json(runtime, request, &signal).await
+    fetch_json(runtime, request, Some(signal)).await
 }
 
-async fn start_device_flow(
-    runtime: &OAuthRuntime,
-    domain: &str,
-    signal: &AbortSignal,
-) -> Result<DeviceCodeResponse, CallbackError> {
+async fn start_device_flow(runtime: &OAuthRuntime, domain: &str) -> Result<DeviceCodeResponse, CallbackError> {
     let urls = get_urls(domain);
     let body = form_encode(&[("client_id", CLIENT_ID), ("scope", "read:user")]);
     let request = json_request(&urls.device_code, "POST", form_headers(), Some(body));
-    let data = fetch_json(runtime, request, signal).await?;
+    let data = fetch_json(runtime, request, None).await?;
 
     let device_code = data.get("device_code").and_then(Value::as_str);
     let user_code = data.get("user_code").and_then(Value::as_str);
@@ -303,7 +303,6 @@ async fn poll_for_github_access_token(
         let runtime = poll_runtime.clone();
         let url = urls.access_token.clone();
         let device_code = device_code.clone();
-        let signal = signal.clone();
         async move {
             let body = form_encode(&[
                 ("client_id", CLIENT_ID),
@@ -311,10 +310,7 @@ async fn poll_for_github_access_token(
                 ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
             ]);
             let request = json_request(&url, "POST", form_headers(), Some(body));
-            let raw = match fetch_json(&runtime, request, &signal).await {
-                Ok(raw) => raw,
-                Err(error) => return Ok(OAuthDeviceCodePollResult::Failed { message: error.message }),
-            };
+            let raw = fetch_json(&runtime, request, None).await?;
             let object = match raw.as_object() {
                 Some(object) => object,
                 None => {
@@ -356,7 +352,6 @@ async fn refresh_access_token(
     runtime: &OAuthRuntime,
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: &AbortSignal,
 ) -> Result<OAuthCredential, CallbackError> {
     let domain = enterprise_domain.unwrap_or(DEFAULT_DOMAIN);
     let urls = get_urls(domain);
@@ -369,7 +364,7 @@ async fn refresh_access_token(
     ];
     headers.extend(copilot_header_pairs());
     let request = json_request(&urls.copilot_token, "GET", headers, None);
-    let response = send(&runtime.fetch, request, Some(signal.clone())).await?;
+    let response = send(&runtime.fetch, request, None).await?;
     if !response.ok() {
         return Err(CallbackError::new(format!(
             "{} {}: {}",
@@ -402,9 +397,8 @@ async fn refresh_token(
     runtime: &OAuthRuntime,
     refresh_token: &JsString,
     enterprise_domain: Option<&str>,
-    signal: AbortSignal,
 ) -> Result<OAuthCredential, AuthError> {
-    let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain, &signal)
+    let mut credentials = refresh_access_token(runtime, refresh_token, enterprise_domain)
         .await
         .map_err(to_auth_error)?;
     let available = fetch_available_model_ids(runtime, &credentials.access, enterprise_domain)
@@ -515,9 +509,7 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     }
     let domain = enterprise_domain.clone().unwrap_or_else(|| DEFAULT_DOMAIN.to_owned());
 
-    let device = start_device_flow(runtime, &domain, &signal)
-        .await
-        .map_err(to_auth_error)?;
+    let device = start_device_flow(runtime, &domain).await.map_err(to_auth_error)?;
     interaction.notify(AuthEvent::DeviceCode {
         user_code: (device.user_code.clone()).into(),
         verification_uri: (device.verification_uri.clone()).into(),
@@ -528,14 +520,9 @@ async fn login(runtime: &OAuthRuntime, interaction: &Arc<dyn AuthInteraction>) -
     let github_access_token = poll_for_github_access_token(runtime, &domain, &device, &signal)
         .await
         .map_err(to_auth_error)?;
-    let mut credentials = refresh_access_token(
-        runtime,
-        &github_access_token.into(),
-        enterprise_domain.as_deref(),
-        &signal,
-    )
-    .await
-    .map_err(to_auth_error)?;
+    let mut credentials = refresh_access_token(runtime, &github_access_token.into(), enterprise_domain.as_deref())
+        .await
+        .map_err(to_auth_error)?;
 
     interaction.notify(AuthEvent::Progress {
         message: ("Enabling models...".to_owned()).into(),
