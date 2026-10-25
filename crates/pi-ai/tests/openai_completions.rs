@@ -1,6 +1,6 @@
 use pi_ai::api::openai_completions::{OpenAICompletionsOptions, build_params, convert_messages, get_compat};
 use pi_ai::request::StreamOptions;
-use pi_ai::types::{CacheRetention, Context, Model, Tool};
+use pi_ai::types::{CacheRetention, Context, Model};
 use serde_json::{Value, json};
 
 fn model(provider: &str, id: &str, base_url: &str, reasoning: bool) -> Model {
@@ -16,10 +16,6 @@ fn model(provider: &str, id: &str, base_url: &str, reasoning: bool) -> Model {
 
 fn context(value: Value) -> Context {
     serde_json::from_value(value).expect("context")
-}
-
-fn tool(name: &str, parameters: Value) -> Tool {
-    Tool::new(name, "Tool", parameters)
 }
 
 fn assistant(content: Value, provider: &str, model_id: &str) -> Value {
