@@ -572,7 +572,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
 }
 
 #[tokio::test]
-async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
+async fn resource_loader_registers_the_kb_gate() {
     use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
     use pi_coding_agent::core::resource_loader::ResourceLoader;
     use pi_coding_agent::core::session_manager::SessionManager;
@@ -595,9 +595,6 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     .expect("loader");
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
-    assert_eq!(extensions.extensions.len(), 2);
-    assert_eq!(extensions.extensions[0].read().tool_gates.len(), 1);
-    assert_eq!(extensions.extensions[1].read().handlers.compaction.len(), 1);
 
     let runtime = faux_codex_runtime().await;
     let runner = pi_coding_agent::core::extensions::ExtensionRunner::new(

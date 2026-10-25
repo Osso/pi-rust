@@ -15,6 +15,26 @@ use std::sync::{Arc, Mutex};
 const MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
 
 #[test]
+fn empty_file_paths_are_blocked_like_frozen() {
+    let directory = tempfile::tempdir().unwrap();
+    let kb = JsString::from(directory.path().to_str().unwrap());
+    let mut source = oracle::TsOracle::spawn("coding-agent-supervisor-main-oracle.ts", MODULE);
+    for (tool, input) in [
+        ("read", json!({"path":""})),
+        ("edit", json!({"path":""})),
+        ("write", json!({"path":""})),
+        ("read", json!({"path":"note.md"})),
+        ("bash", json!({})),
+    ] {
+        let expected = source.request(&json!({"id":1,"operation":"fileGate","kbDir":kb,"toolName":tool,"input":input}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let actual = pi_coding_agent::supervisor::main::block_supervisor_file_access(&kb, tool, &input);
+        let actual = actual.map(|result| json!({"block":result.block,"reason":result.reason}));
+        assert_eq!(json!(actual), expected["output"]);
+    }
+}
+
+#[test]
 fn opening_supervisor_session_prepares_and_removes_stale_files_like_frozen() {
     fn populate(root: &std::path::Path) {
         let sessions = root.join("supervisor-sessions");
