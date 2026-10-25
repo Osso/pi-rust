@@ -108,6 +108,23 @@ async function evaluateInstructions(api: Record<string, unknown>, request: Oracl
 
 void runOracle(async (api, request) => {
     if (request.operation === "evaluateInstructions") return evaluateInstructions(api, request);
+    if (request.operation === "consoleSnapshot") {
+        const create = api.createSupervisorConsoleSnapshot as (input: unknown) => {
+            identity: { pid: number; executable: string; entrypoint?: string; instanceId: string };
+        };
+        const input = { cwd: request.cwd, generation: request.generation, managedBy: request.managedBy,
+            session: { sessionId: request.sessionId, sessionManager: { getBranch: () => [] } } };
+        const snapshot = create(input);
+        if (snapshot.identity.pid !== process.pid || snapshot.identity.executable !== process.execPath || snapshot.identity.entrypoint !== process.argv[1]) {
+            throw new Error("snapshot does not identify the running process");
+        }
+        if (!/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(snapshot.identity.instanceId)) {
+            throw new Error("snapshot instance is not a v4 UUID");
+        }
+        if (create(input).identity.instanceId !== snapshot.identity.instanceId) throw new Error("unstable snapshot instance");
+        return { ...snapshot, identity: { ...snapshot.identity, pid: 0, executable: "<executable>",
+            entrypoint: "<entrypoint>", instanceId: "<uuid>" } };
+    }
     if (request.operation === "processRequest") return processRequest(api, request);
     if (request.operation === "modelRequirements") {
         const create = api.createSupervisorInstructionEvaluator as (agentDir: string) => unknown;

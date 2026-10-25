@@ -6,7 +6,7 @@
 
 use std::collections::VecDeque;
 use std::path::Path;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
 use pi_agent_core::agent::AgentMessage;
@@ -27,8 +27,8 @@ use crate::core::extensions::types::{
 use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::provider_attribution::merge_provider_attribution_headers;
 use crate::core::resident_console_transport::{
-    ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
-    ResidentConsoleSnapshot, Unsubscribe,
+    ResidentConsoleHost, ResidentConsoleIdentity, ResidentConsoleManagedBy, ResidentConsoleServer,
+    ResidentConsoleServerOptions, ResidentConsoleService, ResidentConsoleSnapshot, Unsubscribe,
 };
 use crate::core::resource_loader::{
     DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
@@ -388,15 +388,25 @@ fn is_path_within_root(path: &JsString, root: &JsString) -> bool {
 pub fn create_supervisor_console_snapshot(
     cwd: &JsString,
     generation: u64,
+    managed_by: ResidentConsoleManagedBy,
     session_id: Option<&JsString>,
     branch: Vec<SessionEntry>,
 ) -> ResidentConsoleSnapshot<SessionEntry> {
+    static INSTANCE_ID: OnceLock<JsString> = OnceLock::new();
+    let instance_id = INSTANCE_ID.get_or_init(|| {
+        pi_ai::utils::random_uuid::random_uuid()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught("Error", error.message))
+            .into()
+    });
     ResidentConsoleSnapshot {
         service: ResidentConsoleService::Supervisor,
         session_id: session_id.cloned().unwrap_or_else(|| SUPERVISOR_SESSION_ID.into()),
         cwd: cwd.to_owned(),
         generation,
-        identity: None,
+        identity: Some(ResidentConsoleIdentity::for_compiled_process(
+            instance_id.clone(),
+            managed_by,
+        )),
         branch,
     }
 }
@@ -1026,6 +1036,7 @@ struct SupervisorConsoleHost {
     session: AgentSession,
     cwd: JsString,
     generation: u64,
+    managed_by: ResidentConsoleManagedBy,
     prompts: Arc<Mutex<SupervisorConsolePromptQueue>>,
     control_db_path: JsString,
 }
@@ -1035,6 +1046,7 @@ impl ResidentConsoleHost<SessionEntry, AgentSessionEvent> for SupervisorConsoleH
         create_supervisor_console_snapshot(
             &self.cwd,
             self.generation,
+            self.managed_by,
             Some(&AgentSession::session_id(&self.session)),
             self.session.session_manager().get_branch(None),
         )
@@ -1094,6 +1106,13 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
             session: session.clone(),
             cwd: kb_dir,
             generation: std::process::id() as u64,
+            managed_by: if pi_js_compat::process_env::get(crate::supervisor::ensure_running::SUPERVISOR_AUTOSTART_ENV)
+                .is_some_and(|value| value == "1")
+            {
+                ResidentConsoleManagedBy::Pi
+            } else {
+                ResidentConsoleManagedBy::External
+            },
             prompts: Arc::clone(&console_prompts),
             control_db_path: control_db_path.clone(),
         }),
