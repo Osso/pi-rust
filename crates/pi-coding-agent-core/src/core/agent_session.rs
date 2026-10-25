@@ -2450,28 +2450,11 @@ impl AgentSession {
         } else {
             None
         };
-        let content = hook_result
-            .as_ref()
-            .and_then(|result| result.content.clone())
-            .unwrap_or_else(|| context.result.content.clone());
-        let auto_resize_images = lock(&self.inner.settings_manager).get_image_auto_resize();
-        let normalized = crate::utils::tool_result_images::normalize_tool_result_images(
-            &content,
-            Some(crate::utils::tool_result_images::NormalizeToolResultImagesOptions {
-                auto_resize_images: Some(auto_resize_images),
-            }),
-        )
-        .await;
-        if hook_result.is_none() && matches!(normalized, std::borrow::Cow::Borrowed(_)) {
-            return None;
-        }
+        let hook_result = hook_result?;
         Some(AfterToolCallResult {
-            content: Some(normalized.into_owned()),
-            details: hook_result.as_ref().and_then(|result| result.details.clone()),
-            is_error: hook_result
-                .as_ref()
-                .and_then(|result| result.is_error)
-                .or(Some(context.is_error)),
+            content: hook_result.content,
+            details: hook_result.details,
+            is_error: hook_result.is_error.or(Some(context.is_error)),
             terminate: None,
         })
     }

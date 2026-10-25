@@ -110,5 +110,3 @@ pub mod tool_definition_wrapper;
 pub mod tool_detach_registry;
 #[path = "tool_detach_snapshot.rs"]
 pub mod tool_detach_snapshot;
-#[path = "tool_result_images.rs"]
-pub mod tool_result_images;
