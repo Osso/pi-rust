@@ -148,6 +148,7 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel::<String>();
     let reader = attach_jsonl_line_reader(tokio::io::stdin(), move |line| {
         let _ = sender.send(line);
+        Ok(())
     });
     *lock(&state.input) = Some(reader);
 

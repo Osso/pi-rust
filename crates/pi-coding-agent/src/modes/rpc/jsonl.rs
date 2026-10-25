@@ -4,6 +4,7 @@ use std::str;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use pi_js_compat::callback_error::CallbackError;
 use serde::Serialize;
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio::task::JoinHandle;
@@ -145,7 +146,7 @@ impl JsonlLineReader {
 pub fn attach_jsonl_line_reader<R, F>(stream: R, on_line: F) -> JsonlLineReader
 where
     R: AsyncRead + Unpin + Send + 'static,
-    F: FnMut(String) + Send + 'static,
+    F: FnMut(String) -> Result<(), CallbackError> + Send + 'static,
 {
     let detached = Arc::new(AtomicBool::new(false));
     let task = tokio::spawn(read_lines(stream, on_line, Arc::clone(&detached)));
@@ -155,12 +156,16 @@ where
 async fn read_lines<R, F>(mut stream: R, mut on_line: F, detached: Arc<AtomicBool>) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
-    F: FnMut(String),
+    F: FnMut(String) -> Result<(), CallbackError>,
 {
     let mut decoder = JsonlLineDecoder::new();
     let mut chunk = vec![0; READ_CHUNK_BYTES];
     loop {
-        let length = stream.read(&mut chunk).await?;
+        let length = stream.read(&mut chunk).await.unwrap_or_else(|error| {
+            crate::utils::uncaught::throw_native_uncaught(
+                pi_js_compat::node_fs::node_stream_error_record(&error, "read").into(),
+            )
+        });
         if detached.load(Ordering::SeqCst) {
             return Ok(());
         }
@@ -169,7 +174,9 @@ where
         } else {
             decoder.push_bytes(&chunk[..length])
         };
-        lines.into_iter().for_each(&mut on_line);
+        for line in lines {
+            on_line(line).unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+        }
         if length == 0 {
             return Ok(());
         }

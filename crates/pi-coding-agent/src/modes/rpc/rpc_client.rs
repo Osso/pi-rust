@@ -1232,7 +1232,10 @@ fn install_process(inner: &Arc<ClientInner>, generation: u64, spawned: SpawnedPr
     });
 
     let reader_inner = Arc::clone(inner);
-    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| reader_inner.handle_line(&line));
+    let reader = attach_jsonl_line_reader(spawned.stdout, move |line| {
+        reader_inner.handle_line(&line);
+        Ok(())
+    });
 
     let wait_inner = Arc::clone(inner);
     tokio::spawn(async move {
@@ -1254,7 +1257,10 @@ async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin
     let mut buffer = vec![0_u8; STDERR_CHUNK_BYTES];
     loop {
         match reader.read(&mut buffer).await {
-            Ok(0) | Err(_) => return,
+            Ok(0) => return,
+            Err(error) => crate::utils::uncaught::throw_native_uncaught(
+                pi_js_compat::node_fs::node_stream_error_record(&error, "read").into(),
+            ),
             Ok(bytes_read) => {
                 let chunk = &buffer[..bytes_read];
                 inner
