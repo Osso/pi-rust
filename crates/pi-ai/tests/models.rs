@@ -255,8 +255,13 @@ impl Provider for TestProvider {
         None
     }
 
-    fn stream(&self, model: Model, _context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        self.respond(model, options)
+    fn stream(
+        &self,
+        model: Model,
+        _context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(self.respond(model, options))
     }
 
     fn stream_simple(
@@ -264,8 +269,8 @@ impl Provider for TestProvider {
         model: Model,
         _context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        self.respond(model, options.stream)
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(self.respond(model, options.stream))
     }
 }
 
@@ -951,7 +956,12 @@ struct RecordingStreams {
 }
 
 impl ProviderStreams for RecordingStreams {
-    fn stream(&self, model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        _context: Context,
+        _options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.calls.lock().unwrap().push(format!("{}:{}", self.label, model.id));
         let (sender, stream) = create_assistant_message_event_stream();
         let message = done_message(&model, "ok");
@@ -963,14 +973,14 @@ impl ProviderStreams for RecordingStreams {
             message: message.clone(),
         });
         sender.end(Some(message));
-        stream
+        Ok(stream)
     }
     fn stream_simple(
         &self,
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.stream(model, context, options.stream)
     }
 }
@@ -1042,7 +1052,12 @@ async fn applies_resolved_env_to_stream_options() {
         options: Arc<Mutex<Option<StreamOptions>>>,
     }
     impl ProviderStreams for EnvStreams {
-        fn stream(&self, model: Model, _context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+        fn stream(
+            &self,
+            model: Model,
+            _context: Context,
+            options: StreamOptions,
+        ) -> Result<AssistantMessageEventStream, CallbackError> {
             *self.options.lock().unwrap() = Some(options);
             let (sender, stream) = create_assistant_message_event_stream();
             let message = done_message(&model, "ok");
@@ -1054,14 +1069,14 @@ async fn applies_resolved_env_to_stream_options() {
                 message: message.clone(),
             });
             sender.end(Some(message));
-            stream
+            Ok(stream)
         }
         fn stream_simple(
             &self,
             model: Model,
             context: Context,
             options: SimpleStreamOptions,
-        ) -> AssistantMessageEventStream {
+        ) -> Result<AssistantMessageEventStream, CallbackError> {
             self.stream(model, context, options.stream)
         }
     }

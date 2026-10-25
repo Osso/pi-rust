@@ -119,8 +119,8 @@ fn crate_root_reexports_are_usable() {
         refresh_models: None,
         api: pi_ai::ProviderApi::Single(Arc::new(pi_ai::compat::ApiProvider::new(
             "custom-api",
-            |model, _context, _options| pi_ai::error_stream(&model, "unused"),
-            |model, _context, _options| pi_ai::error_stream(&model, "unused"),
+            |model, _context, _options| Ok(pi_ai::error_stream(&model, "unused")),
+            |model, _context, _options| Ok(pi_ai::error_stream(&model, "unused")),
         ))),
     });
     let _ = pi_ai::register_session_resource_cleanup(Box::new(|_| Ok(())));

@@ -74,15 +74,20 @@ fn backend_event() -> Value {
     json!({"type":"error","reason":"aborted","error":{"role":"assistant","api":"fixture-api","provider":"fixture","model":"fixture","content":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"aborted","errorMessage":"backend event","timestamp":12}})
 }
 impl ProviderStreams for Backend {
-    fn stream(&self, _: Model, _: Context, _: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(&self, _: Model, _: Context, _: StreamOptions) -> Result<AssistantMessageEventStream, CallbackError> {
         panic!("simple only")
     }
-    fn stream_simple(&self, m: Model, c: Context, o: SimpleStreamOptions) -> AssistantMessageEventStream {
+    fn stream_simple(
+        &self,
+        m: Model,
+        c: Context,
+        o: SimpleStreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.calls.lock().unwrap().push(json!({"type":"backend","backend":self.name,"model":m,"context":c,"apiKey":o.stream.request.api_key,"headers":o.stream.request.headers}));
         let (tx, rx) = create_assistant_message_event_stream();
         tx.push(serde_json::from_value(backend_event()).unwrap());
         tx.end(None);
-        rx
+        Ok(rx)
     }
 }
 struct Interaction {
@@ -130,7 +135,7 @@ fn stream_fixture(
         )
         .unwrap();
     let model = registry.find("gitlab-duo", id).unwrap();
-    (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
+    (config.stream_simple.as_ref().unwrap())(model, context, Some(options)).expect("acquisition")
 }
 async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> ProviderConfigInput {
     let now = clock.clone();

@@ -978,7 +978,11 @@ async fn lazy_api_wrapper_streams_without_deferred_capabilities() {
     let request_model: Model = serde_json::from_value(model("anthropic", "claude-haiku-4-5", None)).expect("model");
     let request_context: pi_ai::types::Context =
         serde_json::from_value(context(json!([user(json!("hi"))]), None, None)).expect("context");
-    let (_events, result) = collect(api.stream(request_model, request_context, options)).await;
+    let (_events, result) = collect(
+        api.stream(request_model, request_context, options)
+            .expect("acquisition"),
+    )
+    .await;
     assert_eq!(result.stop_reason, StopReason::Stop);
 }
 

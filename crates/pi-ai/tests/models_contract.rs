@@ -27,7 +27,12 @@ impl ApiKeyAuth for Ambient {
 }
 struct UnusedStreams;
 impl ProviderStreams for UnusedStreams {
-    fn stream(&self, _: Model, _: Context, _: pi_ai::request::StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        _: Model,
+        _: Context,
+        _: pi_ai::request::StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         unreachable!("must not stream")
     }
     fn stream_simple(
@@ -35,7 +40,7 @@ impl ProviderStreams for UnusedStreams {
         _: Model,
         _: Context,
         _: pi_ai::request::SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         unreachable!("must not stream")
     }
 }
@@ -130,7 +135,12 @@ impl Provider for CatalogProvider {
     fn refresh_models(&self) -> Option<RefreshModelsFn> {
         self.refresh.clone()
     }
-    fn stream(&self, _: Model, _: Context, _: pi_ai::request::StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        _: Model,
+        _: Context,
+        _: pi_ai::request::StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         unreachable!("must not stream")
     }
     fn stream_simple(
@@ -138,7 +148,7 @@ impl Provider for CatalogProvider {
         _: Model,
         _: Context,
         _: pi_ai::request::SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         unreachable!("must not stream")
     }
 }
@@ -363,16 +373,21 @@ impl CapturingStreams {
     }
 }
 impl ProviderStreams for CapturingStreams {
-    fn stream(&self, model: Model, _: Context, options: pi_ai::request::StreamOptions) -> AssistantMessageEventStream {
-        self.respond("stream", model, options)
+    fn stream(
+        &self,
+        model: Model,
+        _: Context,
+        options: pi_ai::request::StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(self.respond("stream", model, options))
     }
     fn stream_simple(
         &self,
         model: Model,
         _: Context,
         options: pi_ai::request::SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        self.respond("simple", model, options.stream)
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(self.respond("simple", model, options.stream))
     }
 }
 struct StreamCase {
