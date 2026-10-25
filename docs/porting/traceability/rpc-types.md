@@ -20,4 +20,4 @@ Frozen source: `packages/coding-agent/src/modes/rpc/rpc-types.ts` at [common pin
 - `RpcResponse.command` remains optional JsString for the frozen unknown-type error path whose undefined command is omitted; non-string external command echoes use the mode's raw envelope rather than this DTO.
 - The type-only source has no runtime branches or source bugs to classify. Actual process behavior and approved deep-return gaps are listed in the corresponding client/mode traces.
 
-Current proof ledger: `/tmp/pi-rust-repin-lossless-interactive/rpc-client-proof-ledger.md`. The13-case DTO target passed after UI/count fixes; true-literal validation and the final module checkpoint still require their focused/final gates. This is not yet whole-pair acceptance.
+Current proof ledger: `/tmp/pi-rust-repin-lossless-interactive/rpc-client-proof-ledger.md`. Final DTO target15/15 plus4 lossless lib cases pass after UI/count/true-literal/raw model-command fixes. Whole-pair behavior and scoped gates are recorded in the [checkpoint proof](../rpc-client-proof.md).

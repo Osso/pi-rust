@@ -400,7 +400,13 @@ async fn rpc_client_accepts_declared_model_shapes_without_requiring_full_models(
     ] {
         let request = pi_js_compat::js_json!({"operation":"typed","method":method,"reply":{"type":"response","command":"unused","success":true,"data":js_json::parse_lossless(data).unwrap()}});
         let expected = source.request(&request);
-        assert_eq!(native(&request).await, expected, "{method}");
+        let actual = native(&request).await;
+        assert_eq!(actual, expected, "{method}");
+        assert_eq!(
+            js_json::stringify_lossless(&actual["value"]),
+            js_json::stringify_lossless(&expected["value"]),
+            "declared model fields and raw extras keep source key order: {method}"
+        );
     }
 }
 

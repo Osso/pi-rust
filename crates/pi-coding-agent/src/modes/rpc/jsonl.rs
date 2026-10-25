@@ -129,7 +129,7 @@ impl JsonlLineReader {
         self.detached.store(true, Ordering::SeqCst);
     }
 
-    /// Waits until the stream ends, a read fails, or the reader is detached.
+    /// Waits for stream end; detach disables delivery but still drains the live pipe.
     pub async fn finished(self) -> io::Result<()> {
         match self.task.await {
             Ok(result) => result,
