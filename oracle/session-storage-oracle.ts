@@ -101,7 +101,10 @@ async function main() {
 		if (r.op === "historyAfterRemove" || r.op === "historyAfterRewrite") {
 			const session = manager.SessionManager.openReadOnly(r.path);
 			if (r.op === "historyAfterRemove") unlinkSync(r.path);
-			else writeFileSync(r.path, r.contents);
+			else {
+				writeFileSync(r.path, r.contents);
+				if (r.archive) archive.archiveSessionFile(r.path);
+			}
 			const entries: unknown[] = [];
 			for await (const entry of history.readSessionHistoryReverse(session)) {
 				entries.push(entry);

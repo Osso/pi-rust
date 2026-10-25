@@ -85,20 +85,17 @@ fn reverse_history_ignores_malformed_inactive_and_missing_ancestors() {
             }
             // A malformed complete line and an unterminated malformed tail must
             // not hide an older active ancestor or install inactive messages.
-            std::fs::write(path, lines.join("\n") + "\n{broken\n\n{partial").unwrap();
-            if archived {
-                call(&mut ts, json!({"op":"fileArchive","path":path}));
-            }
-            let expected = call(&mut ts, json!({"op":"read","path":path}));
             let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
+            let expected = call(
+                &mut ts,
+                json!({"op":"historyAfterRewrite","path":path,
+                "contents":lines.join("\n") + "\n{broken\n\n{partial", "archive":archived}),
+            );
             let actual = read_session_history_reverse(&manager)
                 .collect::<Result<Vec<_>, _>>()
                 .unwrap();
-            assert_eq!(serde_json::to_value(actual).unwrap(), expected["history"]);
-            assert_eq!(
-                expected["history"].as_array().unwrap().len(),
-                if missing_ancestor { 3 } else { 4 }
-            );
+            assert_eq!(serde_json::to_value(actual).unwrap(), expected);
+            assert_eq!(expected.as_array().unwrap().len(), if missing_ancestor { 3 } else { 4 });
         }
     }
 }
