@@ -1,5 +1,9 @@
 # session-history.ts
 
+## Storage re-pin falsy-parent correction (2026-10-25)
+
+`repin_storage_history::empty_parent_does_not_open_removed_transcript` uses a frozen-TS-created compacted session whose first retained entry has `parentId:""`. Both implementations open the same JSONL before the source reader removes it. Frozen `session-history.ts:75-76` returns the three retained entries without opening the removed transcript; native previously returned an ENOENT error. The native initial parent/path and subsequent parent updates now use the frozen string-truthiness guards. Actual-source RED/GREEN logs: `/tmp/pi-rust-repin-storage/history-empty-parent-{valid-red,green}.log`. The initial non-compacted probe was rejected at the manager loader by both implementations, so it is not history RED evidence. Whole-module acceptance is still pending.
+
 Frozen `readSessionHistoryReverse` → `read_session_history_reverse`. Iterator emits manager branch newest first; lazily scans physical transcript backwards for exact parent IDs, including compacted ancestors, skips inactive and malformed records/header.64KiB chunks + largest line memory. Archived history streams to private temporary disk without modifying source/context. Cleanup on exhaustion/error/drop.
 
 `repin_session_storage::frozen_compacted_archive_history_follows_only_active_ancestors`: TS API produces inactive branch + compaction, TS history yields compacted ancestor; branch-only Rust baseline RED missed ancestor. Large/chunked, partial-tail and early-drop evidence is recorded below and in the [integration ledger](session-storage-integration.md); whole-module proof remains todo.
