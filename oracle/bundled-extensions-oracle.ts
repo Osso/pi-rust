@@ -45,7 +45,7 @@ type Calls = {
 	showSandboxSelector: number;
 	showApprovalSelector: number;
 	inputs: Array<[string, string | null, Record<string, unknown> | undefined]>;
-	provision: Array<[Record<string, unknown>, string, string]>;
+	provision: Array<[Record<string, unknown>, string[]]>;
 	runCommand: Array<[string, string[], boolean]>;
 	debug: Array<[string, string | null]>;
 	gate: unknown[];
@@ -96,10 +96,9 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 
 	const provision = async (
 		request: Record<string, unknown>,
-		username: string,
-		password: string,
+		values: string[],
 	): Promise<void> => {
-		callsRef.calls.provision.push([request, username, password]);
+		callsRef.calls.provision.push([request, [...values]]);
 	};
 
 	const runCommand = async (

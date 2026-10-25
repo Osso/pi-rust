@@ -43,7 +43,7 @@ pub struct Calls {
     pub show_sandbox_selector: usize,
     pub show_approval_selector: usize,
     pub inputs: Vec<(JsString, Option<JsString>, Option<ExtensionUiDialogOptions>)>,
-    pub provision: Vec<(Value, JsString, JsString)>,
+    pub provision: Vec<(Value, Vec<JsString>)>,
     pub run_command: Vec<(JsString, Vec<JsString>, bool)>,
     pub debug: Vec<(JsString, Option<JsString>)>,
 }
@@ -364,7 +364,7 @@ pub fn calls_json(calls: &Calls) -> Value {
     let provision: Vec<Value> = calls
         .provision
         .iter()
-        .map(|(request, username, password)| json!([request, username, password]))
+        .map(|(request, values)| json!([request, values]))
         .collect();
     let run_command: Vec<Value> = calls
         .run_command
