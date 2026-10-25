@@ -1373,14 +1373,49 @@ async fn read_stderr(inner: Arc<ClientInner>, mut reader: impl AsyncRead + Unpin
                     .expect("sync state poisoned")
                     .stderr
                     .push_str(&String::from_utf8_lossy(chunk));
-                if let Err(error) = std::io::stderr().write_all(chunk) {
-                    crate::utils::uncaught::throw_native_uncaught(
-                        pi_js_compat::node_fs::node_pipe_write_error_record(&error).into(),
-                    );
+                if let Err(error) = write_stderr_chunk(chunk) {
+                    crate::utils::uncaught::throw_native_uncaught(error);
                 }
             }
         }
     }
+}
+
+fn read_stderr_stream_socket(stderr: &std::io::Stderr) -> bool {
+    let Ok(socket_type) = rustix::net::sockopt::socket_type(stderr) else {
+        return false;
+    };
+    let Ok(address) = rustix::net::getsockname(stderr) else {
+        return false;
+    };
+    socket_type == rustix::net::SocketType::STREAM
+        && matches!(
+            address.address_family(),
+            rustix::net::AddressFamily::INET | rustix::net::AddressFamily::INET6 | rustix::net::AddressFamily::UNIX
+        )
+}
+
+fn write_stderr_chunk(chunk: &[u8]) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
+    use std::io::IsTerminal as _;
+    let mut stderr = std::io::stderr();
+    // Node creates a dummy writable when guessHandleType cannot classify fd2.
+    let Ok(stat) = rustix::fs::fstat(&stderr) else {
+        return Ok(());
+    };
+    let is_stream = match rustix::fs::FileType::from_raw_mode(stat.st_mode) {
+        rustix::fs::FileType::Socket if read_stderr_stream_socket(&stderr) => true,
+        rustix::fs::FileType::Fifo => true,
+        rustix::fs::FileType::RegularFile | rustix::fs::FileType::CharacterDevice => stderr.is_terminal(),
+        _ => return Ok(()),
+    };
+    stderr.write_all(chunk).map_err(|error| {
+        if is_stream {
+            pi_js_compat::node_fs::node_pipe_write_error_record(&error)
+        } else {
+            pi_js_compat::node_fs::node_file_write_error_record(&error)
+        }
+        .into()
+    })
 }
 
 fn publish_exit(
@@ -1470,7 +1505,12 @@ mod tests {
         }
     }
 
-    fn broken_stderr() -> Stdio {
+    const MIRROR_CHILD: &str = r#"import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',line=>{const c=JSON.parse(line);process.stderr.write('mirror');process.stdout.write(JSON.stringify({id:c.id,type:'response',command:'get_state',success:true,data:{}})+'\n');});"#;
+
+    fn failing_stderr(file_sink: bool) -> Stdio {
+        if file_sink {
+            return Stdio::from(std::fs::OpenOptions::new().write(true).open("/dev/full").unwrap());
+        }
         let (reader, writer) = std::os::unix::net::UnixStream::pair().unwrap();
         drop(reader);
         Stdio::from(std::os::fd::OwnedFd::from(writer))
@@ -1486,92 +1526,198 @@ mod tests {
         output
     }
 
+    fn run_mirror_probe(output: String, discard: bool) {
+        rustix::process::setrlimit(
+            rustix::process::Resource::Core,
+            rustix::process::Rlimit {
+                current: Some(0),
+                maximum: Some(0),
+            },
+        )
+        .unwrap();
+        let crash_output = output.clone();
+        crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            let error = payload
+                .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+                .unwrap();
+            std::fs::write(&crash_output, js_json::stringify_lossless(&error.value())).unwrap();
+        })));
+        crate::utils::uncaught::install_uncaught_handler();
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(async {
+                let client = RpcClient::new(RpcClientOptions {
+                    cli_path: Some(std::env::var("PI_RPC_MIRROR_SCRIPT").unwrap().into()),
+                    ..Default::default()
+                });
+                client.start().await.unwrap();
+                if discard {
+                    let response = client.send(RpcCommandBody::GetState).await.unwrap();
+                    tokio::time::timeout(Duration::from_secs(2), async {
+                        while client.stderr().is_empty() {
+                            tokio::time::sleep(Duration::from_millis(1)).await;
+                        }
+                    })
+                    .await
+                    .unwrap();
+                    let stderr = client.stderr();
+                    client.stop().await.unwrap();
+                    std::fs::write(
+                        &output,
+                        js_json::stringify_lossless(&pi_js_compat::js_json!({"response":response,"stderr":stderr})),
+                    )
+                    .unwrap();
+                    std::process::exit(0);
+                }
+                let _ = tokio::time::timeout(Duration::from_millis(200), client.get_state()).await;
+                tokio::time::sleep(Duration::from_millis(200)).await;
+                std::process::exit(7);
+            });
+    }
+
     #[test]
     fn stderr_mirror_write_failure_reaches_native_uncaught_authority() {
         use std::os::unix::process::CommandExt;
         if let Ok(output) = std::env::var("PI_RPC_MIRROR_PROBE") {
-            rustix::process::setrlimit(
-                rustix::process::Resource::Core,
-                rustix::process::Rlimit {
-                    current: Some(0),
-                    maximum: Some(0),
-                },
-            )
-            .unwrap();
-            crate::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
-                let error = payload
-                    .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
-                    .unwrap();
-                std::fs::write(&output, js_json::stringify_lossless(&error.value())).unwrap();
-            })));
-            crate::utils::uncaught::install_uncaught_handler();
-            tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .unwrap()
-                .block_on(async {
-                    let client = RpcClient::new(RpcClientOptions {
-                        cli_path: Some(std::env::var("PI_RPC_MIRROR_SCRIPT").unwrap().into()),
-                        ..Default::default()
-                    });
-                    client.start().await.unwrap();
-                    let _ = tokio::time::timeout(Duration::from_millis(200), client.get_state()).await;
-                    std::process::exit(7);
-                });
+            run_mirror_probe(output, false);
             return;
         }
-        let (root, script) = temp_script(
-            "mirror.mjs",
-            "import {createInterface} from 'node:readline';createInterface({input:process.stdin}).on('line',()=>process.stderr.write('mirror'));",
-        );
+        let (root, script) = temp_script("mirror.mjs", MIRROR_CHILD);
         let lock = source_oracle::read_source_lock();
         source_oracle::verify_source_head(&lock);
-        let source = source_oracle::spawn_oracle_process(
-            &lock,
-            "rpc-stderr-mirror-oracle.mts",
-            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
-            &[("PI_RPC_MIRROR_SCRIPT", script.clone().into_os_string())],
-            broken_stderr(),
-        );
-        let source = wait_and_clean_private_child(source);
-        let node_default = std::process::Command::new("node")
-            .args(["-e", "process.stderr.write('uncaught broken fd2');"])
-            .process_group(0)
-            .stdout(Stdio::piped())
-            .stderr(broken_stderr())
-            .spawn()
-            .unwrap();
-        let node_default = wait_and_clean_private_child(node_default);
-        println!("actual Node unhandled write with broken fd2: {:?}", node_default.status);
-        assert_eq!(node_default.status.code(), Some(1));
-        assert_eq!(source.status.code(), node_default.status.code());
-        let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
-        assert_eq!(expected["code"], JsValue::String("EPIPE".into()));
-        let output_path = root.path().join("uncaught.json");
-        let native = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "modes::rpc::rpc_client::tests::stderr_mirror_write_failure_reaches_native_uncaught_authority",
-                "--nocapture",
-            ])
-            .env("PI_RPC_MIRROR_PROBE", &output_path)
-            .env("PI_RPC_MIRROR_SCRIPT", &script)
-            .process_group(0)
-            .stdout(Stdio::piped())
-            .stderr(broken_stderr())
-            .spawn()
-            .unwrap();
-        let native = wait_and_clean_private_child(native);
-        assert_eq!(
-            js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
-            expected
-        );
-        assert_eq!(
-            native.status.code(),
-            node_default.status.code(),
-            "native fatal status {:?} must match actual Node",
-            native.status
-        );
+        for file_sink in [false, true] {
+            let source = source_oracle::spawn_oracle_process(
+                &lock,
+                "rpc-stderr-mirror-oracle.mts",
+                "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+                &[("PI_RPC_MIRROR_SCRIPT", script.clone().into_os_string())],
+                failing_stderr(file_sink),
+            );
+            let source = wait_and_clean_private_child(source);
+            let node_default = std::process::Command::new("node")
+                .args(["-e", "process.stderr.write('uncaught broken fd2');"])
+                .process_group(0)
+                .stdout(Stdio::piped())
+                .stderr(failing_stderr(file_sink))
+                .spawn()
+                .unwrap();
+            let node_default = wait_and_clean_private_child(node_default);
+            println!("actual Node unhandled write with broken fd2: {:?}", node_default.status);
+            assert_eq!(node_default.status.code(), Some(1));
+            assert_eq!(source.status.code(), node_default.status.code());
+            let expected = js_json::parse_lossless(std::str::from_utf8(&source.stdout).unwrap()).unwrap();
+            assert_eq!(
+                expected["code"],
+                JsValue::String(if file_sink { "ENOSPC".into() } else { "EPIPE".into() })
+            );
+            let output_path = root.path().join("uncaught.json");
+            let native = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "modes::rpc::rpc_client::tests::stderr_mirror_write_failure_reaches_native_uncaught_authority",
+                    "--nocapture",
+                ])
+                .env("PI_RPC_MIRROR_PROBE", &output_path)
+                .env("PI_RPC_MIRROR_SCRIPT", &script)
+                .process_group(0)
+                .stdout(Stdio::piped())
+                .stderr(failing_stderr(file_sink))
+                .spawn()
+                .unwrap();
+            let native = wait_and_clean_private_child(native);
+            assert_eq!(
+                js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                expected
+            );
+            assert_eq!(
+                native.status.code(),
+                node_default.status.code(),
+                "native fatal status {:?} must match actual Node",
+                native.status
+            );
+        }
+    }
+
+    fn discarding_stderr(sink: &str, directory: &std::path::Path) -> Stdio {
+        match sink {
+            "directory" => Stdio::from(std::fs::File::open(directory).unwrap()),
+            "datagram" => Stdio::from(std::os::fd::OwnedFd::from(
+                std::os::unix::net::UnixDatagram::unbound().unwrap(),
+            )),
+            _ => panic!("closed stderr uses the exec launcher"),
+        }
+    }
+
+    fn command_with_closed_stderr(program: &std::path::Path) -> std::process::Command {
+        let mut command = std::process::Command::new("python3");
+        command
+            .args(["-c", "import os,sys;os.close(2);os.execv(sys.argv[1],sys.argv[1:])"])
+            .arg(program);
+        command
+    }
+
+    #[test]
+    fn closed_and_unrecognized_stderr_discard_mirrors_but_retain_captured_data() {
+        use std::os::unix::process::CommandExt;
+        if let Ok(output) = std::env::var("PI_RPC_MIRROR_PROBE") {
+            run_mirror_probe(output, true);
+            return;
+        }
+        let (root, script) = temp_script("mirror.mjs", MIRROR_CHILD);
+        source_oracle::verify_source_head(&source_oracle::read_source_lock());
+        let lock: serde_json::Value = serde_json::from_str(include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/porting/source-lock.json"
+        )))
+        .unwrap();
+        let source = PathBuf::from(lock["worktree"].as_str().unwrap());
+        let tsx = source.join("node_modules/.bin/tsx");
+        let executable = std::env::current_exe().unwrap();
+        for sink in ["directory", "closed", "datagram"] {
+            let closed = sink == "closed";
+            let mut command = if closed {
+                command_with_closed_stderr(&tsx)
+            } else {
+                std::process::Command::new(&tsx)
+            };
+            command
+                .arg("--tsconfig")
+                .arg(source.join("tsconfig.json"))
+                .arg(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../oracle/rpc-stderr-mirror-oracle.mts"))
+                .arg(source.join("packages/coding-agent/src/modes/rpc/rpc-client.ts"))
+                .env("PI_RPC_MIRROR_SCRIPT", &script)
+                .env("PI_RPC_MIRROR_DISCARD", "1")
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .process_group(0);
+            if !closed {
+                command.stderr(discarding_stderr(sink, root.path()));
+            }
+            let source_output = wait_and_clean_private_child(command.spawn().unwrap());
+            assert_eq!(source_output.status.code(), Some(0));
+            let expected = js_json::parse_lossless(std::str::from_utf8(&source_output.stdout).unwrap()).unwrap();
+            assert_eq!(expected["stderr"], JsValue::String("mirror".into()));
+            let output_path = root.path().join("discard.json");
+            let mut command = if closed {
+                command_with_closed_stderr(&executable)
+            } else {
+                std::process::Command::new(&executable)
+            };
+            command.args(["--exact", "modes::rpc::rpc_client::tests::closed_and_unrecognized_stderr_discard_mirrors_but_retain_captured_data", "--nocapture"])
+                .env("PI_RPC_MIRROR_PROBE", &output_path).env("PI_RPC_MIRROR_SCRIPT", &script)
+                .stdout(Stdio::piped()).process_group(0);
+            if !closed {
+                command.stderr(discarding_stderr(sink, root.path()));
+            }
+            let native = wait_and_clean_private_child(command.spawn().unwrap());
+            assert_eq!(native.status.code(), Some(0), "sink={sink}: {:?}", native.status);
+            assert_eq!(
+                js_json::parse_lossless(&std::fs::read_to_string(output_path).unwrap()).unwrap(),
+                expected
+            );
+        }
     }
 
     #[test]
