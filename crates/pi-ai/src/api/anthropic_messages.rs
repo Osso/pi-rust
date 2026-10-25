@@ -63,15 +63,8 @@ const CLAUDE_CODE_TOOLS: [&str; 17] = [
     "WebSearch",
 ];
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum AnthropicEffort {
-    Low,
-    Medium,
-    High,
-    Xhigh,
-    Max,
-}
+/// Standard effort tags and the native strings forwarded by frozen's map cast.
+pub type AnthropicEffort = JsString;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -850,9 +843,10 @@ fn insert_enabled_thinking(params: &mut JsObject, model: &Model, anthropic: &Ant
         thinking.insert("type".into(), JsValue::String("adaptive".into()));
         thinking.insert("display".into(), pi_js_compat::js_json!(display));
         params.insert("thinking".into(), JsValue::Object(thinking));
-        if let Some(effort) = anthropic.effort {
+        // Frozen966: even a schema-accepted empty mapped string is falsey.
+        if let Some(effort) = anthropic.effort.as_ref().filter(|effort| !effort.is_empty()) {
             let mut output_config = JsObject::new();
-            output_config.insert("effort".into(), pi_js_compat::js_json!(effort));
+            output_config.insert("effort".into(), JsValue::String(effort.clone()));
             params.insert("output_config".into(), JsValue::Object(output_config));
         }
         return;
@@ -944,9 +938,9 @@ async fn drive_stream(
     model: &Model,
     context: &Context,
     options: &StreamOptions,
+    anthropic: &AnthropicOptions,
     output: &mut AssistantMessage,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
-    let anthropic = AnthropicOptions::from_stream_options(options)?;
     let api_key = options.request.api_key.as_ref().filter(|key| !key.is_empty());
     assert_request_auth(&model.provider, api_key, options.request.headers.as_ref())?;
     let is_oauth = api_key.is_some_and(is_oauth_token);
@@ -954,8 +948,8 @@ async fn drive_stream(
     let session_id = (retention != CacheRetention::None)
         .then_some(options.session_id.as_ref())
         .flatten();
-    let client = create_client_headers(model, context, options, &anthropic, api_key, is_oauth, session_id);
-    let params = build_params(model, context, is_oauth, &anthropic, options)?;
+    let client = create_client_headers(model, context, options, anthropic, api_key, is_oauth, session_id);
+    let params = build_params(model, context, is_oauth, anthropic, options)?;
     let params = match &options.request.on_payload {
         Some(on_payload) => match on_payload(params.clone(), model.clone()).await {
             Ok(Some(next)) => next,
@@ -1534,14 +1528,33 @@ fn decode_available(pending: &mut Vec<u8>, flush: bool) -> String {
 }
 
 pub fn stream(model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+    let anthropic = AnthropicOptions::from_stream_options(&options);
+    spawn_stream(model, context, options, anthropic)
+}
+
+fn spawn_stream(
+    model: Model,
+    context: Context,
+    options: StreamOptions,
+    anthropic: Result<AnthropicOptions, String>,
+) -> AssistantMessageEventStream {
     let (sender, stream) = create_assistant_message_event_stream();
-    tokio::spawn(run_stream(sender, model, context, options));
+    tokio::spawn(run_stream(sender, model, context, options, anthropic));
     stream
 }
 
-async fn run_stream(sender: AssistantMessageEventSender, model: Model, context: Context, options: StreamOptions) {
+async fn run_stream(
+    sender: AssistantMessageEventSender,
+    model: Model,
+    context: Context,
+    options: StreamOptions,
+    anthropic: Result<AnthropicOptions, String>,
+) {
     let mut output = AssistantMessage::empty(&model.api, &model.provider, &model.id, now_millis() as f64);
-    let result = drive_stream(&sender, &model, &context, &options, &mut output).await;
+    let result = match anthropic {
+        Ok(anthropic) => drive_stream(&sender, &model, &context, &options, &anthropic, &mut output).await,
+        Err(message) => Err(message.into()),
+    };
     if let Err(message) = result {
         for block in &mut output.content {
             match block {
@@ -1577,16 +1590,15 @@ fn map_thinking_level_to_effort(model: &Model, level: ThinkingLevel) -> Anthropi
         .thinking_level_map
         .as_ref()
         .and_then(|map| map.get(&model_thinking_level(level)))
-        .and_then(|mapped| mapped.as_deref());
-    if let Some(mapped) = mapped
-        && let Ok(effort) = serde_json::from_value::<AnthropicEffort>(Value::String(mapped.to_owned()))
-    {
-        return effort;
+        .and_then(|mapped| mapped.as_ref());
+    // Frozen751-752 returns every mapped string via cast, not enum parsing.
+    if let Some(mapped) = mapped {
+        return mapped.clone();
     }
     match level {
-        ThinkingLevel::Minimal | ThinkingLevel::Low => AnthropicEffort::Low,
-        ThinkingLevel::Medium => AnthropicEffort::Medium,
-        ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max | ThinkingLevel::Ultra => AnthropicEffort::High,
+        ThinkingLevel::Minimal | ThinkingLevel::Low => "low".into(),
+        ThinkingLevel::Medium => "medium".into(),
+        ThinkingLevel::High | ThinkingLevel::Xhigh | ThinkingLevel::Max | ThinkingLevel::Ultra => "high".into(),
     }
 }
 
@@ -1610,8 +1622,13 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
         // frozen781
         let effort = map_thinking_level_to_effort(&model, reasoning);
         let base = with_extra(base, "thinkingEnabled", Value::Bool(true));
-        let base = with_extra(base, "effort", serde_json::to_value(effort).unwrap_or(Value::Null));
-        return stream(model, context, base);
+        // Keep the selected native string in the parsed API options instead
+        // of round-tripping it through StreamOptions.extra's scalar Value.
+        let anthropic = AnthropicOptions::from_stream_options(&base).map(|mut anthropic| {
+            anthropic.effort = Some(effort);
+            anthropic
+        });
+        return spawn_stream(model, context, base, anthropic);
     }
 
     let (adjusted_max_tokens, adjusted_budget) = adjust_max_tokens_for_thinking(

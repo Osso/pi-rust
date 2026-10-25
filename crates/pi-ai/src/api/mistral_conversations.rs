@@ -54,21 +54,8 @@ pub enum MistralPromptMode {
     Reasoning,
 }
 
-/// Provider-specific reasoning effort (`reasoning_effort`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum MistralReasoningEffort {
-    Disabled,
-    High,
-}
-
-impl MistralReasoningEffort {
-    fn wire_value(self) -> &'static str {
-        match self {
-            Self::Disabled => "none",
-            Self::High => "high",
-        }
-    }
-}
+/// Standard effort tags and native strings forwarded by frozen's map cast.
+pub type MistralReasoningEffort = JsString;
 
 /// Provider-specific options for the Mistral API (`MistralOptions`).
 #[derive(Clone, Default)]
@@ -87,11 +74,11 @@ impl MistralOptions {
             Some("reasoning") => Some(MistralPromptMode::Reasoning),
             _ => None,
         };
-        let reasoning_effort = match options.extra.get("reasoningEffort").and_then(Value::as_str) {
-            Some("none") => Some(MistralReasoningEffort::Disabled),
-            Some("high") => Some(MistralReasoningEffort::High),
-            _ => None,
-        };
+        let reasoning_effort = options
+            .extra
+            .get("reasoningEffort")
+            .and_then(Value::as_str)
+            .map(Into::into);
         Self {
             stream: options,
             tool_choice,
@@ -296,11 +283,9 @@ fn map_reasoning_effort(model: &Model, level: ModelThinkingLevel) -> MistralReas
         .thinking_level_map
         .as_ref()
         .and_then(|map| map.get(&level))
-        .and_then(|value| value.as_deref());
-    match mapped {
-        Some("none") => MistralReasoningEffort::Disabled,
-        _ => MistralReasoningEffort::High,
-    }
+        .and_then(|value| value.as_ref());
+    // Frozen633: ?? preserves every string, including empty and unmatched units.
+    mapped.cloned().unwrap_or_else(|| "high".into())
 }
 
 #[derive(Default)]
@@ -697,11 +682,9 @@ fn build_chat_payload(
     if options.prompt_mode == Some(MistralPromptMode::Reasoning) {
         payload.insert("promptMode".into(), JsValue::String("reasoning".into()));
     }
-    if let Some(reasoning_effort) = options.reasoning_effort {
-        payload.insert(
-            "reasoningEffort".into(),
-            JsValue::String(reasoning_effort.wire_value().into()),
-        );
+    // Frozen257 applies truthiness after the nullable mapping.
+    if let Some(reasoning_effort) = options.reasoning_effort.as_ref().filter(|effort| !effort.is_empty()) {
+        payload.insert("reasoningEffort".into(), JsValue::String(reasoning_effort.clone()));
     }
 
     if let Some(system_prompt) = &context.system_prompt

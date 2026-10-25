@@ -1207,11 +1207,15 @@ fn thinking_levels_clamp_to_supported_levels() {
         ModelThinkingLevel::High
     );
 
-    model.thinking_level_map = Some(IndexMap::from([
-        (ModelThinkingLevel::Xhigh, Some("x".to_owned())),
-        (ModelThinkingLevel::Max, None),
-        (ModelThinkingLevel::High, None),
-    ]));
+    model.thinking_level_map = Some(
+        [
+            (ModelThinkingLevel::Xhigh, Some("x".into())),
+            (ModelThinkingLevel::Max, None),
+            (ModelThinkingLevel::High, None),
+        ]
+        .into_iter()
+        .collect(),
+    );
     assert_eq!(
         get_supported_thinking_levels(&model),
         vec![
