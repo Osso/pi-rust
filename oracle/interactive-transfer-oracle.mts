@@ -57,6 +57,7 @@ async function capture(request: Request) {
 		"MOSH_CONNECTION",
 		"TERMUX_VERSION",
 		"XDG_SESSION_TYPE",
+		"DISPLAY",
 	];
 	const previous = isolated.map((name) => process.env[name]);
 	const date = globalThis.Date;
@@ -113,6 +114,19 @@ async function capture(request: Request) {
 			await mode.handleExportCommand(`/export '${request.exportPath}' ignored`);
 		} else if (request.case.startsWith("copy")) {
 			await mode.handleCopyCommand();
+			if (request.case === "copy-text") {
+				for (
+					let attempt = 0;
+					!existsSync(join(request.cwd, "clipboard")) ||
+					readFileSync(join(request.cwd, "clipboard"), "utf8") !==
+						"clipboard text";
+					attempt++
+				) {
+					if (attempt === 2000)
+						throw new Error("fake clipboard never received text");
+					await new Promise((resolve) => setTimeout(resolve, 1));
+				}
+			}
 		} else {
 			const operation = mode.handleShareCommand();
 			if (request.case === "share-cancel") {

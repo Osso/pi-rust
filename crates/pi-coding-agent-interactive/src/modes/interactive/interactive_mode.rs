@@ -8932,16 +8932,9 @@ impl InteractiveMode {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
-        match auth {
-            Err(_) => {
-                self.show_error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-                return;
-            }
-            Ok(status) if !status.success() => {
-                self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
-                return;
-            }
-            Ok(_) => {}
+        if !auth.is_ok_and(|status| status.success()) {
+            self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+            return;
         }
 
         let tmp_path = node_join(pi_js_compat::node_os::tmpdir(), "session.html");
@@ -9036,7 +9029,7 @@ impl InteractiveMode {
 
     async fn handle_copy_command(&self) {
         let Some(text) = self.session().get_last_assistant_text() else {
-            self.show_error("No assistant message to copy");
+            self.show_error("No agent messages to copy yet.");
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(

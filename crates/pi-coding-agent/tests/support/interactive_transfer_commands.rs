@@ -1,5 +1,25 @@
 #[test]
-fn transfer_commands_match_frozen_frames_and_private_effects() {
+fn export_commands_match_frozen_frames_and_private_effects() {
+    assert_transfer_cases(&["export-jsonl", "export-html"]);
+}
+
+#[test]
+fn copy_commands_match_frozen_frames_and_private_effects() {
+    assert_transfer_cases(&["copy-none", "copy-text", "copy-error"]);
+}
+
+#[test]
+fn share_commands_match_frozen_frames_and_private_effects() {
+    assert_transfer_cases(&[
+        "share-missing",
+        "share-auth",
+        "share-success",
+        "share-error",
+        "share-cancel",
+    ]);
+}
+
+fn assert_transfer_cases(cases: &[&str]) {
     mod oracle {
         include!(concat!(
             concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
@@ -7,17 +27,7 @@ fn transfer_commands_match_frozen_frames_and_private_effects() {
         ));
     }
     let mut source = oracle::TsOracle::spawn("interactive-transfer-oracle.mts", "packages/coding-agent/src");
-    for case in [
-        "export-jsonl",
-        "export-html",
-        "copy-none",
-        "copy-text",
-        "share-missing",
-        "share-auth",
-        "share-success",
-        "share-error",
-        "share-cancel",
-    ] {
+    for case in cases {
         let root = tempfile::tempdir().unwrap();
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
@@ -36,6 +46,7 @@ fn transfer_commands_match_frozen_frames_and_private_effects() {
             .env_remove("SSH_CLIENT")
             .env_remove("MOSH_CONNECTION")
             .env_remove("TERMUX_VERSION")
+            .env_remove("DISPLAY")
             .output()
             .unwrap();
         assert!(
@@ -64,7 +75,7 @@ fn transfer_commands_match_frozen_frames_and_private_effects() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "invoked by transfer_commands_match_frozen_frames_and_private_effects"]
+#[ignore = "invoked by export/copy/share process-boundary parents"]
 async fn transfer_command_child() {
     tokio::task::LocalSet::new().run_until(async {
         let case = std::env::var("PI_TRANSFER_CASE").unwrap();
@@ -82,6 +93,7 @@ async fn transfer_command_child() {
             _ => "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf 'https://gist.github.com/fixture/abc123\\n'\n".to_owned(),
         };
         if case != "share-missing" { write_transfer_program(&gh, &script); }
+        write_transfer_program(&bin.join("which"), if case == "copy-error" { "#!/bin/sh\nexit 1\n" } else { "#!/bin/sh\ntest \"$1\" = wl-copy\n" });
         write_transfer_program(&bin.join("wl-copy"), &format!("#!/usr/bin/python3\nimport pathlib, sys\npathlib.Path({:?}).write_bytes(sys.stdin.buffer.read())\n", root.join("clipboard").to_str().unwrap()));
         let (mode, terminal, faux, _temp) = build_mode_with_extra_providers(
             StaticResourceLoader::new(), None,
@@ -97,9 +109,10 @@ async fn transfer_command_child() {
                     input_source: None, provider_native: None,
                 })).unwrap();
             }
-            if case == "copy-text" {
+            if case == "copy-text" || case == "copy-error" {
+                let text = if case == "copy-error" { "x".repeat(80_000) } else { "  clipboard text  ".to_owned() };
                 manager.append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(faux_assistant_message(
-                    faux_text("  clipboard text  "), pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
+                    faux_text(text), pi_ai::providers::faux::FauxAssistantMessageOptions::default(),
                 )))).unwrap();
             }
             manager.persist_for_recovery().unwrap();
@@ -122,6 +135,11 @@ async fn transfer_command_child() {
             mode.handle_export_command(js_format!("/export '{}' ignored", export_path.to_str().unwrap())).await;
         } else if case.starts_with("copy") {
             mode.handle_copy_command().await;
+            if case == "copy-text" {
+                tokio::time::timeout(Duration::from_secs(5), async {
+                    while std::fs::read(root.join("clipboard")).ok().as_deref() != Some(b"clipboard text") { tokio::task::yield_now().await; }
+                }).await.expect("fake clipboard received text");
+            }
         } else if case == "share-cancel" {
             let drive = async {
                 tokio::time::timeout(Duration::from_secs(5), async {
