@@ -126,18 +126,9 @@ fn core_images(
 }
 
 fn decode_core_image(value: &JsValue, field: &str) -> Result<pi_ai::types::ImageContent, CallbackError> {
-    let image = value
+    value
         .as_object()
         .ok_or_else(|| boundary_error(field, "an image object"))?;
-    if image
-        .keys()
-        .any(|key| key != "type" && key != "data" && key != "mimeType")
-    {
-        return Err(boundary_error(
-            field,
-            "only type/data/mimeType properties; unknown image properties are not representable",
-        ));
-    }
     for key in ["type", "data", "mimeType"] {
         let text = value
             .get(key)

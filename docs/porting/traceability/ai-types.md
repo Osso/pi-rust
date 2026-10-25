@@ -12,6 +12,10 @@ Removed source-absent AssistantMessage.endTurn and all constructor literals; SSE
 
 Deferred request interfaces, constrained sampling and other pre-repin exports below remain pending deletion, not new-pin parity evidence. The historical mapping below is retained only for migration inventory.
 
+## ImageContent unknown-property carrier (2026-10-25)
+
+[Contract and proof targets](../../specs/image-content-properties.md). Frozen types.ts:363–367 known fields are stored once; public ModelProperties retains only unknown JsValue properties and original key order. Shared decode/serialize uses current typed known fields, preserving interleaved order after mutation. No unknown-field JSON/string projection occurs before serialization; native Infinity remains native, nested lone UTF16 keys/values remain exact. Frozen Completions :905–910 explicitly maps image_url/data URI and ignores extras; actual-source request negative control exercises that boundary. Real RPC prompt/get_messages and session append/load proofs cover the observable persistence/IPC paths. The obsolete RPC extra-key guard is removed with parent approval after actual-source RED; known-field scalar exclusions remain unchanged. Whole types.ts is still partial.
+
 # ai types + event stream traceability
 
 Sources: `packages/ai/src/types.ts`, `packages/ai/src/utils/event-stream.ts`.
