@@ -3,7 +3,7 @@ mod oracle;
 
 use pi_ai::types::Model;
 use pi_coding_agent::core::auth_storage::AuthStorage;
-use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput};
+use pi_coding_agent::core::model_registry::{ModelRegistry, ProviderConfigInput, ProviderModelInput};
 use pi_js_compat::{js_json, js_json::JsValue};
 use serde_json::Value;
 
@@ -13,11 +13,10 @@ fn model_definition() -> JsValue {
     js_json!({"id":"one","name":"One","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":128,"maxTokens":32})
 }
 
-fn current_native_model_input(definition: &JsValue) -> Model {
-    // The current API requires a full Model instead of the frozen inline model
-    // definition. Empty api/baseUrl are its existing absence sentinels. Use the
-    // source output key order here so it does not mask the value/retention REDs.
-    let mut wire = js_json!({"id":definition["id"],"name":definition["name"],"api":definition.get("api").cloned().unwrap_or(JsValue::String("".into())),"provider":"ignored-input-provider","baseUrl":definition.get("baseUrl").cloned().unwrap_or(JsValue::String("".into())),"reasoning":definition["reasoning"],"input":definition["input"],"cost":definition["cost"],"contextWindow":definition["contextWindow"],"maxTokens":definition["maxTokens"]});
+fn full_model_input(definition: &JsValue) -> Model {
+    // A complete Model is a valid structural source input too. This case uses
+    // an explicit endpoint/API and deliberately carries additional root fields.
+    let mut wire = js_json!({"id":definition["id"],"name":definition["name"],"api":definition.get("api").unwrap().clone(),"provider":"ignored-input-provider","baseUrl":definition.get("baseUrl").unwrap().clone(),"reasoning":definition["reasoning"],"input":definition["input"],"cost":definition["cost"],"contextWindow":definition["contextWindow"],"maxTokens":definition["maxTokens"]});
     for (key, value) in definition.as_object().unwrap() {
         if !wire.as_object().unwrap().contains_key(key) {
             wire.as_object_mut().unwrap().insert(key.clone(), value.clone());
@@ -45,6 +44,7 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
             "explicit-empty-endpoint" => definition["baseUrl"] = JsValue::String("".into()),
             "model-endpoint" => definition["baseUrl"] = JsValue::String("https://model.invalid".into()),
             "root-reconstruction" => {
+                definition["api"] = JsValue::String("openai-completions".into());
                 definition["baseUrl"] = JsValue::String("https://model.invalid".into());
                 definition["samplingParams"] = js_json!({"temperature":0.4});
                 definition["autoCompactionThreshold"] = JsValue::Number(0.5);
@@ -66,7 +66,11 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
                     api: Some("openai-completions".into()),
                     base_url: Some("https://provider.invalid".into()),
                     api_key: Some("fixture-key".into()),
-                    models: Some(vec![current_native_model_input(&definition)]),
+                    models: Some(vec![if name == "root-reconstruction" {
+                        ProviderModelInput::from(full_model_input(&definition))
+                    } else {
+                        js_json::from_value::<ProviderModelInput>(&definition).unwrap()
+                    }]),
                     ..Default::default()
                 },
             )

@@ -89,6 +89,14 @@ macro_rules! compat_record {
         }
 
         impl $name {
+            /// In-memory projection, not JSON serialization: native numbers
+            /// and units stay unchanged when registration reconstructs a model.
+            pub(super) fn to_raw_value(&self) -> JsValue {
+                let known: JsObject=[$(($key,self.$field.as_ref()),)*].into_iter()
+                    .filter_map(|(key,value)|value.map(|value|(key.into(),value.clone()))).collect();
+                JsValue::Object(self.properties.reorder(known))
+            }
+
             /// The persisted catalog's existing wrong-known-type boundary is
             /// separate from schema-validated models.json ingress.
             pub fn validate_catalog(value: &JsValue) -> Result<(), serde_json::Error> {

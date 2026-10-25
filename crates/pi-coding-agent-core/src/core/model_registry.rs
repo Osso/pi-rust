@@ -9,12 +9,16 @@ use indexmap::IndexMap;
 use pi_ai::compat::{self, ApiProvider};
 use pi_ai::oauth::{OAuthCredentials, OAuthLoginCallbacks, OAuthProviderInterface};
 use pi_ai::request::{BoxFuture, CallbackError, SimpleStreamOptions};
-use pi_ai::types::{Context, Model, ProviderEnv, ProviderHeaders, spread_compat_properties};
+use pi_ai::types::{
+    Context, Modality, Model, ModelCompat, ModelCost, ProviderEnv, ProviderHeaders, ThinkingLevelMap,
+    spread_compat_properties,
+};
 use pi_ai::utils::event_stream::AssistantMessageEventStream;
 use pi_ai::utils::headers::validate_opaque_header_names;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
+use serde::{Deserialize, Serialize};
 
 use crate::core::auth_storage::{AuthStatus, AuthStorage, GetApiKeyOptions, StorageError, stringify_auth_rejection};
 use crate::core::config_value::{
@@ -48,6 +52,55 @@ pub struct ExtensionOAuthConfig {
     pub modify_models: Option<ModifyModelsFn>,
 }
 
+/// Frozen ProviderConfigInput.models inline object. Absence and an explicit
+/// empty endpoint remain distinct; fields outside this object are not carried.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModelInput {
+    pub id: String,
+    pub name: JsString,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub api: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<JsString>,
+    pub reasoning: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thinking_level_map: Option<ThinkingLevelMap>,
+    pub input: Vec<Modality>,
+    pub cost: ModelCost,
+    pub context_window: f64,
+    pub max_tokens: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub headers: Option<IndexMap<String, JsString>>,
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "js_json::deserialize_present"
+    )]
+    pub compat: Option<JsValue>,
+}
+
+impl From<Model> for ProviderModelInput {
+    fn from(model: Model) -> Self {
+        // Frozen945-960 copies only these fields, not the input Model's root
+        // properties, samplingParams or autoCompactionThreshold. No JSON copy.
+        Self {
+            id: model.id,
+            name: model.name,
+            api: Some(model.api),
+            base_url: Some(model.base_url),
+            reasoning: model.reasoning,
+            thinking_level_map: model.thinking_level_map,
+            input: model.input,
+            cost: model.cost,
+            context_window: model.context_window,
+            max_tokens: model.max_tokens,
+            headers: model.headers,
+            compat: model.compat.map(|compat| compat.to_raw_value()),
+        }
+    }
+}
+
 /// Native representation of the frozen extension registration object.
 #[derive(Clone, Default)]
 pub struct ProviderConfigInput {
@@ -59,7 +112,7 @@ pub struct ProviderConfigInput {
     pub headers: Option<IndexMap<String, JsString>>,
     pub auth_header: Option<bool>,
     pub oauth: Option<ExtensionOAuthConfig>,
-    pub models: Option<Vec<Model>>,
+    pub models: Option<Vec<ProviderModelInput>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -610,18 +663,7 @@ impl ModelRegistry {
                         .collect()
                 });
                 store_typed_model_headers(&mut state, provider, &model.id, headers);
-                let mut model = model.clone();
-                model.provider = provider.into();
-                model.base_url = if model.base_url.is_empty() {
-                    config.base_url.clone().expect("validated baseUrl")
-                } else {
-                    model.base_url
-                };
-                if model.api.is_empty() {
-                    model.api = config.api.clone().expect("validated api");
-                }
-                model.headers = None;
-                state.models.push(model);
+                state.models.push(create_registered_model(provider, model, config));
             }
             if let Some(oauth) = &config.oauth {
                 if let Some(modify) = &oauth.modify_models {
@@ -639,6 +681,41 @@ impl ModelRegistry {
                 }
             }
         }
+    }
+}
+
+fn create_registered_model(provider: &str, input: &ProviderModelInput, config: &ProviderConfigInput) -> Model {
+    // Frozen940 uses || for api,943 uses ?? for endpoint,945-960 builds a new
+    // Model rather than cloning the registration input's additional fields.
+    let api = input
+        .api
+        .as_deref()
+        .filter(|api| !api.is_empty())
+        .or(config.api.as_deref())
+        .expect("validated api");
+    Model {
+        id: input.id.clone(),
+        name: input.name.clone(),
+        api: api.into(),
+        provider: provider.into(),
+        base_url: input
+            .base_url
+            .clone()
+            .unwrap_or_else(|| config.base_url.clone().expect("validated baseUrl")),
+        reasoning: input.reasoning,
+        thinking_level_map: input.thinking_level_map.clone(),
+        input: input.input.clone(),
+        cost: input.cost.clone(),
+        context_window: input.context_window,
+        max_tokens: input.max_tokens,
+        auto_compaction_threshold: None,
+        sampling_params: None,
+        headers: None,
+        compat: input
+            .compat
+            .as_ref()
+            .map(|value| ModelCompat::parse(api, value.clone()).expect("validated compatibility object")),
+        properties: Default::default(),
     }
 }
 
@@ -925,9 +1002,16 @@ fn validate_provider_config(provider: &str, config: &ProviderConfigInput) -> Res
         )));
     }
     for model in models {
-        if model.api.is_empty() && config.api.as_ref().is_none_or(|api| api.is_empty()) {
+        if model.api.as_ref().is_none_or(|api| api.is_empty()) && config.api.as_ref().is_none_or(|api| api.is_empty()) {
             return Err(ModelRegistryError(js_format!(
                 "Provider {}, model {}: no \"api\" specified.",
+                provider,
+                model.id
+            )));
+        }
+        if model.compat.as_ref().is_some_and(|value| !value.is_object()) {
+            return Err(ModelRegistryError(js_format!(
+                "Provider {}, model {}: compat must be an object.",
                 provider,
                 model.id
             )));
