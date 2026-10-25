@@ -39,7 +39,6 @@ pub fn app_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
             definition(&["ctrl+n"], "Toggle named session filter"),
         ),
         ("app.editor.external", definition(&["ctrl+g"], "Open external editor")),
-        ("app.message.copy", definition(&["ctrl+x"], "Copy message to clipboard")),
         (
             "app.message.followUp",
             definition(&["alt+enter"], "Queue follow-up message"),

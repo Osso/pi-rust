@@ -52,3 +52,7 @@ Frozen args.ts has no `--tui-mode` option/help entry. Removed native parser bran
 ## Discrepancies
 
 None found; differential comparison is byte-exact for help output and structural for parsed values.
+
+## Baseline registry re-pin (2026-10-25)
+
+Frozen help has the plain config command, both terminal-export flags, and no Anthropic bearer/Baseten environment-variable lines. Restore those exact lines; parser behavior is unchanged. Existing full-help differential was RED; no expected strings were edited.

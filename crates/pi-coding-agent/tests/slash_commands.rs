@@ -1,7 +1,7 @@
 use pi_coding_agent::core::slash_commands::builtin_slash_commands;
 
 #[test]
-fn builtin_commands_keep_source_order_and_argument_hints() {
+fn builtin_commands_keep_source_order_without_argument_hints() {
     let commands = builtin_slash_commands();
     let names: Vec<&str> = commands.iter().map(|command| command.name).collect();
 
@@ -10,9 +10,9 @@ fn builtin_commands_keep_source_order_and_argument_hints() {
     assert_eq!(names.len(), 28);
 
     let model = commands.iter().find(|command| command.name == "model").unwrap();
-    assert_eq!(model.argument_hint, Some("<provider/model>"));
+    assert_eq!(model.argument_hint, None);
     let login = commands.iter().find(|command| command.name == "login").unwrap();
-    assert_eq!(login.argument_hint, Some("<provider>"));
+    assert_eq!(login.argument_hint, None);
     let settings = commands.iter().find(|command| command.name == "settings").unwrap();
     assert_eq!(settings.argument_hint, None);
 }

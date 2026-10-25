@@ -178,3 +178,10 @@ registration are wired.
 `tests/startup_session_name.rs` ports both process-boundary cases: trimmed name persists in
 metadata even when later model selection fails; empty name exits 1 without a name. Neither
 path writes JSONL session-info entries.
+
+## Embedded package metadata re-pin (2026-10-25)
+
+`crates/pi-coding-agent/package.json` is refreshed byte-for-byte from the
+read-only common pin, not regenerated. The existing asset identity test was
+RED on the old embedded package metadata; its exact comparison is retained.
+Built-in theme files are checked in the same test.

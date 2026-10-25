@@ -30,9 +30,9 @@ Main decision (2026-10-22): process identity JSON is internal ASCII; not part of
 
 Actual Cargo RED (`claim-order-incrate-red-2.log`, test fixture corrected in `c1f1f098`) showed missing `updatedAt` appended before `claimantProcessIdentity`. Frozen source `session-control-db.ts:916–922` appends `claimedAt, claimantProcessIdentity, status, updatedAt`; ordinary claims now follow that order while retaining existing key positions. `lossless_control_claim_order` claims the same source-created raw row with real source/native runtime listeners, restores the exact original row between claims, then compares canonical bytes after normalizing only volatile claim values. Actual Cargo GREEN1 at `642c0167` (`claim-order-incrate-green.log`). The earlier `callWire` double-decoding fixture failure is not production RED evidence.
 
-## Blocking canonical JSON counterexample — current group is not accepted
+## Canonical JSON counterexample — bounded regression now GREEN
 
-`repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` is RED. A real frozen TS enqueue writes body `before\ud800after`; native runtime projection replaces U+D800 with U+FFFD. The original `489d4381` run also showed claim rewriting the canonical stored body; `canonical-raw-json-red.log` records both code-unit changes. Subsequent bounded status/recovery fixes below preserve the original canonical JSON, but the combined source→public regression remains OPEN.
+The historical `489d4381` failure replaced a real TS-created body `before\ud800after` on public projection and claim. At `65e23c966`, the unchanged `repin_control_raw_json::canonical_mailbox_source_surrogate_body_survives_native_projection_and_claim` now passes against the actual frozen producer/reader (`/tmp/storage2-public-payload-final.log`): public projection and claim preserve the exact raw units. No production edit or waiver was required in this successor slice; the integrated native carriers already resolve this counterexample. This supersedes its former RED/blocker classification, not whole-module acceptance. Reciprocal public persistence8, migration4 and store-operation differential1 also pass at the same revision; [current bounded ledger](../storage-successor-proof.md).
 
 ### Newer bounded branch proofs through `056d2861`
 

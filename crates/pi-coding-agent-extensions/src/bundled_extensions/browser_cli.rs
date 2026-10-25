@@ -14,9 +14,10 @@ use crate::utils::child_process::node_spawn_error_message;
 
 const BROWSER_CLI_EXECUTABLE: &str = "browser-cli";
 
-const BROWSER_CLI_PROMPT_GUIDELINES: [&str; 6] = [
+const BROWSER_CLI_PROMPT_GUIDELINES: [&str; 7] = [
     "When spawn_agent is available, use a fresh agentType \"browser\" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.",
     "Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
+    "Each agent drives its own dedicated background tab (BROWSER_CLI_SESSION is set automatically); `tabs list` marks it with *. Never activate or navigate other tabs.",
     "Observe with snapshot --interactive --compact before interacting. Re-observe after navigation or page mutation instead of repeatedly guessing selectors.",
     "Use open for navigation; fill, click, and press for interaction. `press` takes only a key, not a selector. Wait for bounded delays or selectors; use get url, get title, and visible text for completion proof.",
     "When a login form appears, attempt mapped authentication with broker-unlock --current-origin followed by broker-fill --current-origin. Never request or pass credential values.",
@@ -50,6 +51,7 @@ pub type BrowserCliCommandRunner = Arc<
     dyn Fn(
             String,
             Vec<JsString>,
+            JsString,
             Option<AbortSignal>,
         ) -> BoxFuture<'static, Result<BrowserCliCommandResult, HandlerError>>
         + Send
@@ -68,7 +70,9 @@ pub fn browser_cli_extension(pi: &ExtensionApi, options: BrowserCliExtensionOpti
 
 pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -> ToolDefinition {
     let run_command = options.run_command.unwrap_or_else(|| {
-        Arc::new(|executable, args, signal| Box::pin(run_browser_cli_command(executable, args, signal)))
+        Arc::new(|executable, args, session, signal| {
+            Box::pin(run_browser_cli_command(executable, args, session, signal))
+        })
     });
 
     ToolDefinition {
@@ -95,14 +99,35 @@ pub fn create_browser_cli_tool_definition(options: BrowserCliExtensionOptions) -
                   params: JsValue,
                   signal: Option<AbortSignal>,
                   _on_update: Option<AgentToolUpdateCallback>,
-                  _ctx: Option<ExtensionContext>| {
+                  ctx: Option<ExtensionContext>| {
                 let run_command = Arc::clone(&run_command);
-                Box::pin(async move { execute_browser_cli(run_command, params, signal).await })
+                Box::pin(async move {
+                    let session = browser_cli_session(ctx.as_ref())?;
+                    execute_browser_cli(run_command, params, session, signal).await
+                })
             },
         ),
         render_call: None,
         render_result: None,
     }
+}
+
+pub fn browser_cli_session(ctx: Option<&ExtensionContext>) -> Result<JsString, HandlerError> {
+    let ctx = ctx.ok_or_else(|| HandlerError::new("browser-cli needs a session ID to select its dedicated tab"))?;
+    let manager = ctx.session_manager()?;
+    let session_id = crate::core::session_manager::lock_session_manager(&manager)
+        .get_session_id()
+        .clone();
+    if session_id.is_empty() {
+        return Err(HandlerError::new(
+            "browser-cli needs a session ID to select its dedicated tab",
+        ));
+    }
+    let agent_id = match &ctx.tool_execution_agent_id {
+        Some(id) => JsString::from(id),
+        None => ctx.multi_agent_agent_id()?.unwrap_or_else(|| "main".into()),
+    };
+    Ok(pi_js_compat::js_format!("{}:{}", session_id, agent_id))
 }
 
 fn browser_cli_schema() -> serde_json::Value {
@@ -127,10 +152,11 @@ fn browser_cli_schema() -> serde_json::Value {
 async fn execute_browser_cli(
     run_command: BrowserCliCommandRunner,
     params: JsValue,
+    session: JsString,
     signal: Option<AbortSignal>,
 ) -> Result<AgentToolResult, HandlerError> {
     let commands = parse_commands(&params)?;
-    let executions = run_browser_cli_batch(run_command, commands, signal).await?;
+    let executions = run_browser_cli_batch(run_command, commands, session, signal).await?;
     let text = format_browser_cli_batch_output(&executions);
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
@@ -143,6 +169,20 @@ async fn execute_browser_cli(
 #[cfg(test)]
 mod lossless_tests {
     use super::*;
+    #[tokio::test]
+    async fn default_runner_passes_dedicated_browser_session_to_real_child() {
+        let result = run_browser_cli_command("env".to_owned(), Vec::new(), "browser-test:main".into(), None)
+            .await
+            .unwrap();
+        assert_eq!(result.exit_code, Some(0));
+        assert!(
+            result
+                .stdout
+                .lines()
+                .any(|line| line == "BROWSER_CLI_SESSION=browser-test:main")
+        );
+    }
+
     #[test]
     fn command_arguments_remain_raw_before_process_boundary() {
         let params = pi_js_compat::js_json::parse_lossless(r#"{"commands":[["fill","\ud800"]]}"#).unwrap();
@@ -177,12 +217,18 @@ fn parse_commands(params: &JsValue) -> Result<Vec<Vec<JsString>>, HandlerError> 
 async fn run_browser_cli_batch(
     run_command: BrowserCliCommandRunner,
     commands: Vec<Vec<JsString>>,
+    session: JsString,
     signal: Option<AbortSignal>,
 ) -> Result<Vec<BrowserCliCommandExecution>, HandlerError> {
     let mut results = Vec::new();
     for (index, args) in commands.into_iter().enumerate() {
         let result = wait_for_abort(
-            run_command(BROWSER_CLI_EXECUTABLE.to_owned(), args.clone(), signal.clone()),
+            run_command(
+                BROWSER_CLI_EXECUTABLE.to_owned(),
+                args.clone(),
+                session.clone(),
+                signal.clone(),
+            ),
             signal.clone(),
         )
         .await?;
@@ -219,6 +265,7 @@ async fn wait_for_abort<T>(
 async fn run_browser_cli_command(
     executable: String,
     args: Vec<JsString>,
+    session: JsString,
     signal: Option<AbortSignal>,
 ) -> Result<BrowserCliCommandResult, HandlerError> {
     if signal.as_ref().is_some_and(AbortSignal::aborted) {
@@ -226,6 +273,8 @@ async fn run_browser_cli_command(
     }
     let mut child = tokio::process::Command::new(&executable)
         .args(args.iter().map(encode_node_utf8))
+        .env_remove("BROWSER_CLI_TAB")
+        .env("BROWSER_CLI_SESSION", encode_node_utf8(&session))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

@@ -18,7 +18,6 @@ use pi_coding_agent::core::permissions::presets::{
     APPROVAL_PRESETS, SANDBOX_PROFILES, approval_preset_for_policy, approval_preset_to_bypass_permissions,
     find_approval_preset, is_approval_preset_name, is_sandbox_platform_supported, is_sandbox_profile_name,
 };
-use pi_coding_agent::core::pi_manifest::read_pi_manifest;
 use pi_coding_agent::core::provider_display_names::BUILT_IN_PROVIDER_DISPLAY_NAMES;
 use pi_coding_agent::core::runtime_process::command_line_is_pi_runtime;
 use pi_coding_agent::core::session_errors::SessionImportFileNotFoundError;
@@ -75,6 +74,171 @@ impl Oracle {
         assert_eq!(response["ok"], json!(true), "oracle failed: {response}");
         response["output"].clone()
     }
+}
+
+#[test]
+fn runtime_identity_snapshot_matches_frozen() {
+    use pi_coding_agent::core::runtime_process::{
+        is_process_identity_alive, read_process_group_id, read_process_identity,
+    };
+    let pid = std::process::id();
+    let identity = read_process_identity(pid).unwrap();
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/runtime-process.ts", "runtimeIdentitySnapshot", json!([pid]));
+    assert_eq!(
+        json!([{
+            "identity": identity,
+            "group": read_process_group_id(pid).unwrap(),
+            "alive": is_process_identity_alive(&identity),
+        }]),
+        expected
+    );
+}
+
+#[test]
+fn runtime_empty_executable_matches_frozen() {
+    let cases = vec![vec!["".to_owned(), "packages/coding-agent/src/cli.ts".to_owned()]];
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/runtime-process.ts", "runtimeProcess", json!(cases));
+    let actual = cases
+        .iter()
+        .map(|argv| command_line_is_pi_runtime(argv))
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), expected);
+}
+
+#[test]
+fn runtime_identity_missing_process_error_matches_frozen() {
+    let mut oracle = Oracle::spawn();
+    let pids = [4_194_303_u32];
+    let expected = oracle.call("core/runtime-process.ts", "runtimeIdentityError", json!(pids));
+    let actual = pids.map(|pid| {
+        json!({
+            "error": pi_coding_agent::core::runtime_process::read_process_identity(pid).unwrap_err().message,
+        })
+    });
+    assert_eq!(json!(actual), expected);
+}
+
+#[test]
+fn superseded_runtime_identity_matches_frozen() {
+    use pi_coding_agent::core::runtime_process::{ProcessIdentity, is_superseded_runtime_identity};
+    let base = ProcessIdentity {
+        pid: 123,
+        start_time_ticks: 456,
+        incarnation: Some("old".into()),
+    };
+    let replacements = [
+        base.clone(),
+        ProcessIdentity {
+            incarnation: Some("new".into()),
+            ..base.clone()
+        },
+        ProcessIdentity {
+            incarnation: Some("".into()),
+            ..base.clone()
+        },
+        ProcessIdentity {
+            incarnation: None,
+            ..base.clone()
+        },
+        ProcessIdentity {
+            pid: 124,
+            incarnation: Some("new".into()),
+            ..base.clone()
+        },
+        ProcessIdentity {
+            start_time_ticks: 457,
+            incarnation: Some("new".into()),
+            ..base.clone()
+        },
+    ];
+    let pairs = replacements
+        .iter()
+        .flat_map(|replacement| {
+            [
+                (base.clone(), replacement.clone()),
+                (
+                    ProcessIdentity {
+                        incarnation: None,
+                        ..base.clone()
+                    },
+                    replacement.clone(),
+                ),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/runtime-process.ts", "supersededRuntimeIdentity", json!(pairs));
+    let actual = pairs
+        .iter()
+        .map(|(current, replacement)| is_superseded_runtime_identity(current, replacement))
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), expected);
+}
+
+#[test]
+fn activity_detail_matches_frozen_for_priorities_whitespace_and_utf16_cut() {
+    use pi_coding_agent::core::agent_activity_detail::{MAX_ACTIVITY_DETAIL_LENGTH, summarize_tool_arguments};
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let mut cases = vec![
+        json!(null),
+        json!(false),
+        json!("command"),
+        json!([]),
+        json!({}),
+        json!({"command": 3, "code": "\t \n", "path": " /tmp/a\n b "}),
+        json!({"command": "first", "code": "second", "path": "third"}),
+        json!({"command": "a\u{0085}b\u{200b}c", "path": "other"}),
+        json!({"command": "x".repeat(160)}),
+        json!({"command": "x".repeat(161)}),
+        json!({"command": format!("{}😀end", "x".repeat(158))}),
+    ];
+    for key in [
+        "code",
+        "path",
+        "file_path",
+        "pattern",
+        "query",
+        "url",
+        "prompt",
+        "message",
+        "agentId",
+    ] {
+        cases.push(json!({key: " chosen\n value ", "unknown": "ignored"}));
+    }
+    for whitespace in [
+        0x9, 0xa, 0xb, 0xc, 0xd, 0x20, 0xa0, 0x1680, 0x2000, 0x200a, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff,
+    ] {
+        let character = char::from_u32(whitespace).unwrap();
+        cases.push(json!({"command": format!("{character}a{character}{character}b{character}")}));
+    }
+    let mut native = JsValue::from(json!(cases));
+    native
+        .as_array_mut()
+        .unwrap()
+        .push(parse_lossless(r#"{"command":"raw-\ud800"}"#).unwrap());
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    let request = JsValue::object([
+        ("id", JsValue::from(json!(28001))),
+        ("module", JsValue::String("core/agent-activity-detail.ts".into())),
+        ("operation", JsValue::String("activityDetail".into())),
+        ("cases", native.clone()),
+    ]);
+    let expected = oracle.request(&request);
+    assert_eq!(expected["ok"], JsValue::Bool(true));
+    let actual = native
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|args| {
+            summarize_tool_arguments(args)
+                .map(JsValue::String)
+                .unwrap_or(JsValue::Null)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(JsValue::Array(actual), expected["output"]);
+    assert_eq!(MAX_ACTIVITY_DETAIL_LENGTH, 160);
 }
 
 #[test]
@@ -223,44 +387,42 @@ fn all_tool_capability_exports_and_membership_match_frozen() {
     );
 }
 
-const MANIFEST_FIXTURES: [&[u8]; 14] = [
-    br#"{"pi":{"extensions":["a.ts"],"skills":["s"],"prompts":["p"],"themes":["t"]}}"#,
-    br#"{"pi":{"extensions":["a.ts",1],"skills":[],"prompts":null,"themes":{}}}"#,
-    br#"{"pi":{}}"#,
-    br#"{"pi":[]}"#,
-    br#"{"pi":null}"#,
-    br#"{"pi":"x"}"#,
-    br#"{"name":"pkg"}"#,
-    br#"[1,2]"#,
-    b"null",
-    b"{bad json",
-    b"",
-    b"\xEF\xBB\xBF{\"pi\":{}}",
-    b"{\"pi\":{\"skills\":[\"\xFF\"]}}",
-    br#"{"pi":{"skills":["first"],"skills":["second"]}}"#,
-];
-
 #[test]
-fn pi_manifest_matches_typescript() {
+fn pi_manifest_discovery_matches_frozen_public_consumer() {
+    use pi_coding_agent::core::extensions::loader::discover_extension_paths;
+
     let directory = tempfile::tempdir().unwrap();
-    let mut paths: Vec<String> = MANIFEST_FIXTURES
+    let cwd = JsString::from(directory.path().to_str().unwrap());
+    let agent_dir = JsString::from(directory.path().join("agent").to_str().unwrap());
+    let manifests = [
+        json!({"pi":{"extensions":["b.ts","a.ts"],"skills":["s"],"prompts":["p"],"themes":["t"]}}),
+        json!({"pi":{}}),
+        json!({"pi":{"extensions":[]}}),
+        json!({"pi":{"extensions":["missing.ts","a.ts","a.ts"]}}),
+        json!({"name":"without-pi"}),
+    ];
+    let paths = manifests
         .iter()
         .enumerate()
-        .map(|(index, contents)| {
-            let path = directory.path().join(format!("package-{index}.json"));
-            fs::write(&path, contents).unwrap();
-            path.to_string_lossy().into_owned()
+        .map(|(index, manifest)| {
+            let package = directory.path().join(format!("package-{index}"));
+            fs::create_dir(&package).unwrap();
+            fs::write(package.join("package.json"), manifest.to_string()).unwrap();
+            for name in ["a.ts", "b.ts", "index.ts"] {
+                fs::write(package.join(name), "export default function () {}\n").unwrap();
+            }
+            JsString::from(package.to_str().unwrap())
         })
-        .collect();
-    paths.push(directory.path().join("missing.json").to_string_lossy().into_owned());
-    paths.push(directory.path().to_string_lossy().into_owned());
-
+        .collect::<Vec<_>>();
     let mut oracle = Oracle::spawn();
-    let expected = oracle.call("core/pi-manifest.ts", "piManifest", json!(paths));
-    let actual: Vec<Value> = paths
+    let expected = oracle.call_raw(json!({
+        "module":"core/extensions/loader.ts", "operation":"manifestDiscovery",
+        "cases":paths, "cwd":cwd, "agentDir":agent_dir,
+    }));
+    let actual = paths
         .iter()
-        .map(|path| json!(read_pi_manifest(&path.as_str().into())))
-        .collect();
+        .map(|path| discover_extension_paths(std::slice::from_ref(path), &cwd, &agent_dir))
+        .collect::<Vec<_>>();
     assert_eq!(json!(actual), expected);
 }
 

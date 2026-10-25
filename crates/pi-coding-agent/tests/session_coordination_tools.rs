@@ -1,15 +1,18 @@
 //! Port of `packages/coding-agent/test/list-sessions-broadcast-tools.test.ts`.
 
+#[path = "support/advisory_fixture.rs"]
+mod advisory_fixture;
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
 
 use pi_coding_agent::core::extensions::ExtensionContext;
 use pi_coding_agent::core::extensions::types::ContextTool;
 use pi_coding_agent::core::session_control_db::{
-    RuntimeMailboxAddress, SupervisorResponse, WritableSessionMetadata, archive_session, claim_next_supervisor_request,
-    complete_supervisor_request, get_control_db_path, list_pending_architect_requests,
-    list_shared_channel_messages_after, read_shared_channel_cursor, register_runtime_mailbox_listener,
-    write_session_health, write_session_metadata,
+    RuntimeMailboxAddress, WritableSessionMetadata, archive_session, get_control_db_path,
+    list_pending_architect_requests, list_shared_channel_messages_after, read_shared_channel_cursor,
+    register_runtime_mailbox_listener, write_session_health, write_session_metadata,
 };
 use pi_coding_agent::core::session_health::{SessionCheckStatus, empty_session_health};
 use pi_coding_agent::core::tools::ask_architect::AskArchitectTool;
@@ -400,53 +403,17 @@ async fn ask_supervisor_rejects_subagent_runtimes() {
     assert_eq!(error.to_string(), "ask_supervisor is only available from main sessions");
 }
 
-#[tokio::test]
-async fn ask_supervisor_returns_the_advisory_answer() {
-    let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
-        .to_utf8()
-        .expect("fixture control path is scalar");
-    let responder_path = control_db_path.clone();
-    let responder = tokio::spawn(async move {
-        loop {
-            if let Some(request) =
-                claim_next_supervisor_request(&responder_path, &JsString::from("test-runtime")).expect("claim")
-            {
-                assert_eq!(request.sender_session_id, "main-session");
-                assert_eq!(request.payload["question"], json!("Is this complete?"));
-                complete_supervisor_request(
-                    &responder_path,
-                    request.id,
-                    &JsString::from("test-runtime"),
-                    &SupervisorResponse::Advisory {
-                        answer: "Continue.".to_owned().into(),
-                    },
-                )
-                .expect("complete");
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
-        }
-    });
+#[test]
+fn ask_supervisor_returns_the_advisory_answer() {
+    // The private child uses a ready resident IPC endpoint and real durable requests.
+    // Launching this libtest executable with `supervisor` would rerun this test.
+    advisory_fixture::run_isolated();
+}
 
-    let result = execute(
-        &AskSupervisorTool::new(),
-        json!({ "question": "Is this complete?" }),
-        context(&control_db_path, "main-session", false).await,
-    )
-    .await
-    .expect("ask supervisor");
-    responder.await.expect("responder");
-
-    assert_eq!(
-        js_json::to_value(&&result.content).expect("content"),
-        json!([{ "type": "text", "text": "Continue." }])
-    );
-    assert_eq!(
-        result.details.as_ref().expect("details")["senderSessionId"],
-        json!("main-session")
-    );
-    assert_eq!(result.details.as_ref().expect("details")["answer"], json!("Continue."));
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "private KB namespace probe invoked by ask_supervisor_returns_the_advisory_answer"]
+async fn isolated_advisory_probe() {
+    advisory_fixture::run_probe().await;
 }
 
 #[tokio::test]

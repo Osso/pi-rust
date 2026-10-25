@@ -235,6 +235,13 @@ fn build_cases() -> Vec<Case> {
     let raw = JsString::from_utf16(vec![0xd800]);
     vec![
         Case {
+            params: json!({"question":"Is this complete?"}),
+            response: SupervisorResponse::Advisory {
+                answer: "Continue.".into(),
+            },
+            aborted: false,
+        },
+        Case {
             params: json!({"question":JsString::from("  question-")+&raw+"  "}),
             response: SupervisorResponse::Advisory {
                 answer: JsString::from(" answer-") + &raw,
@@ -358,6 +365,14 @@ pub async fn run_probe() {
         let native_record = native_responder.await.unwrap();
         assert_request(&native_record, &case, before_native, after_native);
         assert_eq!(actual, expected["output"], "advisory case {index}");
+        if case.params["question"] == json!("Is this complete?") {
+            assert_eq!(
+                actual["result"]["content"],
+                json!([{ "type": "text", "text": "Continue." }])
+            );
+            assert_eq!(actual["result"]["details"]["senderSessionId"], json!("main-session"));
+            assert_eq!(actual["result"]["details"]["answer"], json!("Continue."));
+        }
         eprintln!("advisory fixture case {index}: closing identities");
         native_server.close().await.unwrap();
         source_server.close().await.unwrap();

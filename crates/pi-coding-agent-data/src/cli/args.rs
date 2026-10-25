@@ -571,7 +571,7 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   {app} sessions truncate-tool-output  Truncate oversized persisted tool results
   {app} tools                     List tools available to the current session
   {app} extensions                List extensions loaded for the current session
-  {app} config [-l]               Open TUI to enable/disable package resources (Tab switches scope)
+  {app} config                    Open TUI to enable/disable package resources
   {app} <command> --help          Show help for install/remove/uninstall/update/list
 
 {options}
@@ -613,6 +613,8 @@ fn render_help(extension_flags: &[ExtensionFlag], chalk: &Chalk) -> String {
   --no-themes                    Disable theme discovery and loading
   --no-context-files, -nc        Disable AGENTS.md, AGENTS.local.md, CLAUDE.md, and CLAUDE.local.md discovery/loading
   --export <file>                Export session file to HTML and exit
+  --export-terminal <file|id>    Read-only ANSI history to stdout (exit 4: session ID not found)
+  --export-columns <columns>     Positive integer width, required with --export-terminal
   --list-models [search]         List available models (with optional fuzzy search)
   --refresh-models               Refresh the cached OpenRouter model catalog and exit
   --verbose                      Force verbose startup (overrides quietStartup setting)
@@ -678,7 +680,6 @@ Extensions can register additional flags (e.g., --plan from plan-mode extension)
   {app} --export session.jsonl output.html
 
 {environment}
-  ANTHROPIC_AUTH_TOKEN             - Anthropic bearer auth token
   ANTHROPIC_API_KEY                - Anthropic Claude API key
   ANTHROPIC_OAUTH_TOKEN            - Anthropic OAuth token (alternative to API key)
   ANT_LING_API_KEY                 - Ant Ling API key
@@ -696,7 +697,6 @@ Extensions can register additional flags (e.g., --plan from plan-mode extension)
   XAI_API_KEY                      - xAI Grok API key
   FIREWORKS_API_KEY                - Fireworks API key
   TOGETHER_API_KEY                 - Together AI API key
-  BASETEN_API_KEY                  - Baseten API key
   OPENROUTER_API_KEY               - OpenRouter API key
   AI_GATEWAY_API_KEY               - Vercel AI Gateway API key
   ZAI_API_KEY                      - ZAI Coding Plan API key (Global)

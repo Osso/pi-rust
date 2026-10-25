@@ -2,7 +2,7 @@
 
 ## Update-listener catch boundary (2026-10-25)
 
-`AgentUpdateListener` and `subscribe_agent_updates` now return `Result<(), CallbackError>`. The store catches each rejection, logs `MultiAgentStore agent update listener failed:` with the shared original-throw console formatter, and continues remaining listeners and publication, matching frozen lines1202–1211. `repin_store_listener_failure` compares actual frozen/native state, subsequent-listener revisions and captured stderr for string, null and object throws. API RED `/tmp/storage2-listener-red.log`, frozen baseline `/tmp/storage2-listener-frozen.log`, GREEN `/tmp/storage2-listener-green.log` (1 parent test, 3 child processes). Core retry, agents-core wait, interactive channel and four test consumers return `Ok(())` mechanically; no callback panic wrapper or unwind catch remains on this boundary. V8 stack frames remain excluded under the standing gap.
+`AgentUpdateListener` and `subscribe_agent_updates` now return `Result<(), CallbackError>`. The store catches each rejection, logs `MultiAgentStore agent update listener failed:` with the shared original-throw console formatter, and continues remaining listeners and publication, matching frozen lines1202–1211. `repin_store_listener_failure` compares actual frozen/native state, subsequent-listener revisions and captured stderr for string, null and object throws. API RED `/tmp/storage2-listener-red.log`, frozen baseline `/tmp/storage2-listener-frozen.log`, GREEN `/tmp/storage2-listener-green.log` (1 parent test, 3 child processes). Core deferred-terminal retry propagates its original finalizer error into this catch (the temporary bool drain sink is removed; [proof](terminal-outbox-delivery.md)). Agents-core wait, interactive channel and four test consumers return `Ok(())` mechanically; no callback panic wrapper or unwind catch remains on this boundary. V8 stack frames remain excluded under the standing gap.
 
 ## Q18 native AgentNode slice
 
@@ -16,7 +16,7 @@ Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.
 
 Partial integration only; [integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) are authoritative.
 
-Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.
+The former [canonical JSON UTF16 counterexample](session-control-db.md#canonical-json-counterexample--bounded-regression-now-green) now passes against the actual frozen producer/reader at `65e23c966`; the old public-body RED is no longer a current blocker. This bounded result does not establish all store restoration/serialization or all payload egress. No whole-module acceptance/coverage advancement is claimed.
 
 Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `repin_control_whitespace`, sharing the JS whitespace helper rather than native Unicode trim.
 

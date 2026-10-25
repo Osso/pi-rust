@@ -229,8 +229,8 @@ async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
         "DRIFT: native inherited invocation flags differ from the frozen child invocation"
     );
     let inherited = records.iter().find(|r| r["task"] == "Task: hello").unwrap();
-    assert_eq!(inherited["model"], "fixture/inherited");
-    assert_eq!(inherited["thinking"], "high");
+    assert_eq!(inherited["model"], Value::Null);
+    assert_eq!(inherited["thinking"], Value::Null);
     assert_eq!(inherited["tools"], "read,bash");
     assert_eq!(inherited["prompt"], "Private system prompt");
     assert!(!std::path::Path::new(inherited["promptPath"].as_str().unwrap()).exists());
