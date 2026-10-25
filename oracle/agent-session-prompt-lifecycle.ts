@@ -1,7 +1,7 @@
 import { dirname, join, resolve } from "node:path";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 
-async function prepareSteeredSession(context) {
+async function persistSteeredSession(context) {
 	const { session, sessionManager, dir } = context;
 	const root = resolve(dirname(process.argv[2]), "../../..");
 	const { MultiAgentStore } = await import(
@@ -79,7 +79,7 @@ async function prepareSteeredSession(context) {
 export async function runPromptLifecycleScenario(context) {
 	const { session, core } = context;
 	try {
-		const store = await prepareSteeredSession(context);
+		const store = await persistSteeredSession(context);
 		let started;
 		let release;
 		const gate = new Promise((resolve) => {

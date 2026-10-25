@@ -1,8 +1,7 @@
 //! Real persisted steering lifecycle while an additional prompt only queues.
 use super::*;
 
-#[path = "support/oracle.rs"]
-mod frozen;
+use super::finalize::oracle as frozen;
 
 #[tokio::test]
 async fn queued_prompt_does_not_complete_an_active_steered_turn() {
@@ -20,7 +19,7 @@ async fn queued_prompt_does_not_complete_an_active_steered_turn() {
     let running = reserve_agent(&store, &env, "agent_1", None);
     let sender = RuntimeMailboxAddress {
         agent_id: None,
-        session_id: session_id(&env).into(),
+        session_id: session_id(&env),
     };
     pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
         &env.control_db,
@@ -41,7 +40,7 @@ async fn queued_prompt_does_not_complete_an_active_steered_turn() {
         &AgentSteeringRuntimeBinding {
             actor_agent_id: None,
             control_db_path: env.control_db.clone().into(),
-            session_id: session_id(&env).into(),
+            session_id: session_id(&env),
         },
         None,
     )
