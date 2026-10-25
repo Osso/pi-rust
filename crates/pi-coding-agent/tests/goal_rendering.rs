@@ -142,3 +142,76 @@ fn goal_rendering_grouped_entries_match_frozen_lifecycle() {
     }
     assert_eq!(json!(actual), expected["output"]);
 }
+
+#[tokio::test(flavor = "current_thread")]
+async fn goal_countdown_replaced_binding_retries_rejected_expiry_then_stops_like_frozen() {
+    use pi_coding_agent::bundled_extensions::goal::wait_countdown::create_wait_countdown_refresher;
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let directory = tempfile::tempdir().unwrap();
+            let harness = bundled::Harness::new(
+                Vec::new(),
+                pi_coding_agent::core::extensions::create_extension_runtime(),
+                bundled::HarnessOptions::new(directory.path().to_str().unwrap()),
+            )
+            .await;
+            let ctx = harness.context();
+            let session = ctx.session_manager().unwrap().get_session_id().clone();
+            let refresher = create_wait_countdown_refresher();
+            let at: JsString = pi_js_compat::date::to_iso_string_value(pi_js_compat::date::js_now_millis() + 100.0)
+                .unwrap()
+                .into();
+            let events = Rc::new(RefCell::new(Vec::new()));
+            let old = events.clone();
+            let cleanup = refresher.bind(
+                session.clone(),
+                at.clone(),
+                Rc::new(move || {
+                    old.borrow_mut().push("old");
+                    Ok(true)
+                }),
+            );
+            let new = events.clone();
+            let calls = Rc::new(std::cell::Cell::new(0));
+            let counter = calls.clone();
+            refresher.bind(
+                session.clone(),
+                at.clone(),
+                Rc::new(move || {
+                    new.borrow_mut().push("new");
+                    counter.set(counter.get() + 1);
+                    Ok(counter.get() > 1)
+                }),
+            );
+            cleanup();
+            refresher.start(ctx.clone(), &at).unwrap();
+            tokio::time::sleep(std::time::Duration::from_millis(1300)).await;
+            assert_eq!(calls.get(), 2, "rejected expiry retries once; accepted expiry stops");
+            refresher.start(ctx.clone(), &"invalid".into()).unwrap();
+            refresher.start(ctx.clone(), &at).unwrap();
+            let later: JsString = pi_js_compat::date::to_iso_string_value(pi_js_compat::date::js_now_millis() + 100.0)
+                .unwrap()
+                .into();
+            let cleared = events.clone();
+            refresher.bind(
+                session.clone(),
+                later.clone(),
+                Rc::new(move || {
+                    cleared.borrow_mut().push("cleared");
+                    Ok(true)
+                }),
+            );
+            refresher.start(ctx, &later).unwrap();
+            refresher.clear_session(&session);
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            let mut oracle = oracle::TsOracle::spawn(
+                "goal-countdown-oracle.ts",
+                "packages/coding-agent/extensions/goal/src/wait-countdown.ts",
+            );
+            let expected = oracle.request(&json!({"id":1}));
+            assert_eq!(expected["ok"], json!(true), "{expected:?}");
+            assert_eq!(json!(*events.borrow()), expected["output"]);
+            refresher.clear_all();
+        })
+        .await;
+}

@@ -11,3 +11,24 @@ Source: `extensions/goal/src/rendering.ts`, `wait-countdown.ts`.
 | Runtime fault/numeric extremes | Pathological dates, timer overflow and JS scheduling races are recorded gaps under the repository parity bar. | gap |
 
 The Send+Sync native renderer retains components in an owner-thread-local map. Entry cleanup removes only the component generation it created. Timers send repaint requests to that owner's LocalSet; they never call TUI components from a Tokio worker.
+
+## Successor audit and proof
+
+The complete rendering/countdown sources were compared. The obsolete native-only
+stateless renderer had no callers and was removed. The grouped factory is the
+only status renderer. The management differential now also compares hidden
+instruction messages and validates their UUID displayId equals the final persisted
+status displayId before normalizing the random label across runtimes.
+`goal_countdown_replaced_binding_retries_rejected_expiry_then_stops_like_frozen`
+compares an actual owner-LocalSet timer to frozen fake timers: replacing a binding,
+old cleanup token isolation, rejected expiration retry, accepted expiration stop,
+invalid/past start and clear-session cancellation. All four rendering/countdown tests
+are GREEN in the 35-test goal integration proof.
+
+| Remaining boundary | Status |
+| --- | --- |
+| Controller restore scans past non-status entries; stops at latest missing/invalid/past reviewAt; restarts a future timer | audited/ported; explicit dedicated restore-timer **proof gap** (not an approved semantic deviation) |
+| Pathological dates/overflow and runtime timer ordering | gap under repository policy |
+
+Countdown module bind/start/clear/expiry branches are closed by the source
+comparison and owner-thread behavioral differential; no root redraw was added.

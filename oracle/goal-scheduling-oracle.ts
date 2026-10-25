@@ -3,6 +3,24 @@ import { runOracle } from "./coding-agent-utils-oracle-support.ts";
 type Scheduler = { waitForAgentsOrScheduleReview(ctx: unknown, goal: unknown, turn: unknown[], callbacks: unknown): Promise<void>; clearAll(): void };
 
 runOracle(async (api, request) => {
+	if (request.operation === "branches") {
+		const events: unknown[] = [];
+		let release!: () => void;
+		const wake = new Promise<void>(resolve => { release = resolve; });
+		const variant = request.variant as string;
+		const scheduler = (api.createGoalScheduler as (options: unknown) => Scheduler)({
+			pi: { async callTool(name: string) { events.push(name); if (name === "wait_agent") await wake; return { content: [], details: name === "list_agents" ? { activeCount: variant === "none" ? 0 : 1 } : null, isError: variant === "list-error" && name === "list_agents" || variant === "wait-error" && name === "wait_agent" }; } },
+			reviewGoal: async (_ctx: unknown, _goal: unknown, _turn: unknown, evidence: unknown) => { events.push(["review", evidence]); return {}; }, applyDecision: async () => { events.push("apply"); }, isSameRunningGoal: () => variant !== "changed",
+			reportError: (error: Error) => { events.push(`error:${error.message}`); },
+		});
+		try {
+			await scheduler.waitForAgentsOrScheduleReview({ sessionManager: { getSessionId: () => "session" }, isIdle: () => true, hasPendingMessages: () => false }, {}, [], { onAgentWait() { events.push("waiting"); }, onAgentWake() { events.push("wake"); }, onReviewScheduled() { events.push("scheduled"); } });
+			if (variant === "clear") scheduler.clearAll();
+			release();
+			for (let index = 0; index < 12; index++) await Promise.resolve();
+			return events;
+		} finally { scheduler.clearAll(); }
+	}
 	if (request.operation === "report-error") {
 		let reject!: (error: Error) => void;
 		const wake = new Promise<void>((_resolve, onReject) => { reject = onReject; });

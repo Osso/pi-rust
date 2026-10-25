@@ -164,6 +164,8 @@ pub struct PyrunRunnerOptions {
     #[serde(default, with = "runner_environment")]
     pub env: Option<indexmap::IndexMap<JsString, JsString>>,
     pub inherit_env: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub inherited_process_group_id: Option<u32>,
 }
 
 mod runner_environment {
@@ -235,25 +237,32 @@ fn parse_runner_args(value: Option<&JsString>) -> Result<Option<Vec<JsString>>, 
     Ok(Some(args))
 }
 
+fn lookup_runner_environment(env: Option<&[(JsString, JsString)]>, key: &str) -> Option<JsString> {
+    match env {
+        Some(env) => env
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .map(|(_, value)| value.clone()),
+        None => pi_js_compat::process_env::get_native(key),
+    }
+}
+
+/// Command availability does not parse the runner's arguments.
+pub fn resolve_pyrun_runner_command(env: Option<&[(JsString, JsString)]>) -> JsString {
+    lookup_runner_environment(env, "PI_PYRUN_RUNNER_COMMAND")
+        .or_else(|| lookup_runner_environment(env, "PI_PYRUN_RUNNER"))
+        .unwrap_or_else(|| "pyrun-jsonl".into())
+}
+
 /// `resolvePyrunRunnerOptions`.
 pub fn resolve_pyrun_runner_options(
     env: Option<&[(JsString, JsString)]>,
 ) -> Result<ResolvedPyrunRunnerOptions, PyrunRunnerError> {
-    let lookup = |key: &str| -> Option<JsString> {
-        match env {
-            Some(env) => env
-                .iter()
-                .rev()
-                .find(|(name, _)| name == key)
-                .map(|(_, value)| value.clone()),
-            None => pi_js_compat::process_env::get(key).map(JsString::from),
-        }
-    };
-    let args = parse_runner_args(lookup("PI_PYRUN_RUNNER_ARGS").as_ref())?.unwrap_or_default();
-    let command_override = lookup("PI_PYRUN_RUNNER_COMMAND").or_else(|| lookup("PI_PYRUN_RUNNER"));
+    let args = parse_runner_args(lookup_runner_environment(env, "PI_PYRUN_RUNNER_ARGS").as_ref())?.unwrap_or_default();
     Ok(ResolvedPyrunRunnerOptions {
         args,
-        command: command_override.unwrap_or_else(|| "pyrun-jsonl".into()),
+        command: resolve_pyrun_runner_command(env),
         env: Vec::new(),
     })
 }
@@ -358,9 +367,10 @@ impl PyrunRunnerClient {
             let state = Arc::clone(&self.state);
             let pid = process.pid;
             let detached = should_detach(&self.options);
+            let inherited_group = self.options.inherited_process_group_id;
             tokio::spawn(async move {
                 signal.wait().await;
-                terminate_generation(&state, generation, pid, detached);
+                terminate_generation(&state, generation, pid, detached, inherited_group);
                 let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 reject_generation_locked(
                     &mut state,
@@ -404,7 +414,11 @@ impl PyrunRunnerClient {
             .process
             .take();
         if let Some(process) = process {
-            terminate_process(process.pid, should_detach(&self.options));
+            terminate_process(
+                process.pid,
+                should_detach(&self.options),
+                self.options.inherited_process_group_id,
+            );
         }
     }
 
@@ -521,7 +535,7 @@ impl PyrunRunnerClient {
         tokio::spawn(async move {
             let status = child.wait().await;
             if detached && let Some(pid) = pid {
-                terminate_process(Some(pid), true);
+                terminate_process(Some(pid), true, None);
             }
             let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if state
@@ -587,26 +601,83 @@ fn signal_name(signal: i32) -> String {
     }
 }
 
-fn terminate_process(pid: Option<u32>, detached: bool) {
-    #[cfg(unix)]
-    {
-        use rustix::process::{Pid, Signal, kill_process, kill_process_group};
-        let Some(pid) = pid.and_then(|pid| Pid::from_raw(i32::try_from(pid).ok()?)) else {
-            return;
-        };
-        if detached {
-            let _ = kill_process_group(pid, Signal::TERM);
-        } else {
-            let _ = kill_process(pid, Signal::TERM);
-        }
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = (pid, detached);
+fn terminate_process(pid: Option<u32>, detached: bool, inherited_group: Option<u32>) {
+    if let Err(error) = terminate_runner_tree(pid, detached, inherited_group) {
+        crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
     }
 }
 
-fn terminate_generation(state: &Arc<Mutex<RunnerState>>, generation: u64, pid: Option<u32>, detached: bool) {
+fn terminate_runner_tree(
+    pid: Option<u32>,
+    detached: bool,
+    inherited_group: Option<u32>,
+) -> Result<(), PyrunRunnerError> {
+    use rustix::process::{Pid, Signal, kill_process, kill_process_group};
+    let Some(pid) = pid.and_then(|pid| Pid::from_raw(i32::try_from(pid).ok()?)) else {
+        return Ok(());
+    };
+    if detached {
+        match kill_process_group(pid, Signal::TERM) {
+            Ok(()) => return Ok(()),
+            Err(error) if error == rustix::io::Errno::SRCH => {}
+            Err(error) => return Err(PyrunRunnerError::new(error.to_string())),
+        }
+    }
+    if let Some(group) = inherited_group {
+        signal_inherited_process_group_members(group)?;
+    }
+    match kill_process(pid, Signal::TERM) {
+        Ok(()) => Ok(()),
+        Err(error) if error == rustix::io::Errno::SRCH => Ok(()),
+        Err(error) => Err(PyrunRunnerError::new(error.to_string())),
+    }
+}
+
+fn read_linux_process_group_id(pid: u32) -> Option<u32> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    let command_end = stat.rfind(')')?;
+    stat.get(command_end + 2..)?.split(' ').nth(2)?.parse().ok()
+}
+
+fn signal_inherited_process_group_members(group: u32) -> Result<(), PyrunRunnerError> {
+    if !cfg!(target_os = "linux") {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir("/proc").map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| PyrunRunnerError::new(error.to_string()))?;
+        if !entry
+            .file_type()
+            .map_err(|error| PyrunRunnerError::new(error.to_string()))?
+            .is_dir()
+        {
+            continue;
+        }
+        let Some(pid) = entry.file_name().to_str().and_then(|name| name.parse::<u32>().ok()) else {
+            continue;
+        };
+        if pid == std::process::id() || read_linux_process_group_id(pid) != Some(group) {
+            continue;
+        }
+        let Some(pid) = rustix::process::Pid::from_raw(pid as i32) else {
+            continue;
+        };
+        if let Err(error) = rustix::process::kill_process(pid, rustix::process::Signal::TERM)
+            && error != rustix::io::Errno::SRCH
+        {
+            return Err(PyrunRunnerError::new(error.to_string()));
+        }
+    }
+    Ok(())
+}
+
+fn terminate_generation(
+    state: &Arc<Mutex<RunnerState>>,
+    generation: u64,
+    pid: Option<u32>,
+    detached: bool,
+    inherited_group: Option<u32>,
+) {
     let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
     if state
         .process
@@ -616,7 +687,7 @@ fn terminate_generation(state: &Arc<Mutex<RunnerState>>, generation: u64, pid: O
         state.process = None;
     }
     drop(state);
-    terminate_process(pid, detached);
+    terminate_process(pid, detached, inherited_group);
 }
 
 fn reject_generation_locked(state: &mut RunnerState, generation: u64, error: PyrunRunnerError) {

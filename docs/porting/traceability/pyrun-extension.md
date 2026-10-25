@@ -110,3 +110,72 @@ Writer differential: `/tmp/bundled3-pyrun-writer-green.log`.
 | Callback throw from timer | process-uncaught authority; synchronous consume failures return the error | runtime failure-shape gap under repository policy |
 
 Differential: `/tmp/bundled3-pyrun-progress-green.log`.
+
+## Re-pin detached-evaluation (2026-10-25)
+
+| Frozen surface | Native implementation / proof | Status |
+| --- | --- | --- |
+| Artifact root/manifest correlation, cancellation settlement, replay/error/lost runtime, script existence | existing real control-DB replay/collision/cancellation tests | proven |
+| Restore ignores truncation markers | `repin_replays_capped_artifacts_without_treating_truncation_as_terminal` RED/GREEN | proven |
+| Restore diagnostic before lost runtime; live diagnostic before liveness; empty diagnostic default; completion marker | `repin_restored_runner_error_writes_failure_before_lost_runtime`, `repin_observed_runner_error_wakes_and_keeps_the_original_diagnostic` RED/GREEN, live child terminated | proven |
+| Read cursor: 1 MiB bounded reads, fragmentation, immediate drain before liveness/wait | seek/read chunk replaces whole-file read; existing fragmented UTF-16 test; explicit unread-byte state | ported |
+| Watch-driven wakeups, 1-second timer, watcher error close and pending notification permit | native fs-watch utility + Notify, watcher dropped on completion/error, real live-runner test | proven normal path |
+| Progress flush timing | one 1-second accumulator across observation reads; separate frozen progress differential | proven |
+| Foreground/detached observation, abort, detached signal removal | real live child resume/detach/abort tests; activated ownership excludes further signal handling | proven |
+| Initial launch via compiled current executable; activation write-failure injection | existing foreground-launch/activation-seam **proof gaps**, not parity approvals | gap |
+| Watch setup/runtime OS faults, exotic I/O error shapes and scheduling races | repository exclusion policy | gap |
+
+All sixteen observation/replay tests passed: `/tmp/bundled3-evaluation-green.log`.
+No live provider or user state was used.
+
+## Re-pin index registration and durable bridge
+
+Whole index comparison found missing command availability gating, stale prompt
+guidelines, absent runtime-mailbox registration, and incorrect detaching of an
+in-memory store. These now match frozen. `pyrun_registration` is a standalone
+process-global-env target: frozen/native exact prompt definition and unavailable/
+available command behavior (malformed runner arguments are deferred), installed
+mailbox missing-database error, and a real foreground child exit with a non-persisted
+store plus detach registry. RED/GREEN logs: `/tmp/bundled3-pyrun-registration-red.log`,
+`/tmp/bundled3-pyrun-registration-red2.log`, `/tmp/bundled3-pyrun-registration-green2.log`.
+Resolved runner options are captured in executor state, not re-read at launch.
+Settings/context/store accessors now propagate errors instead of defaulting them.
+
+Runtime bridge validates sender/owner/process, dispatches with original toolCallId
+and context signal, and durably replies with result/undefined or exact error text.
+Successful DB-backed mailbox dispatch still needs a dedicated end-to-end proof.
+Remaining index audit work: standalone supervisor/active-tool dispatch checks,
+custom tool-definition prompt options and custom handler disposal.
+
+Dispatcher follow-up: eleven frozen/native scenarios prove standalone rejection
+for agents/messages/session-resume, all seven active-tool mappings, and custom
+handler fall-through. RED accepted an unavailable standalone capability; GREEN
+`/tmp/bundled3-pyrun-dispatcher-green.log` rejects it before custom dispatch.
+
+Custom API follow-up: `PyrunToolDefinitionOptions` now preserves explicit empty
+prompt snippets/guidelines. `PyrunPiRequestHandler` models the source callable plus
+optional dispose property; shutdown disposes the runner, then each handler in order
+with fallible propagation. Actual-frozen prompt/disposal differential is GREEN in
+`/tmp/bundled3-pyrun-custom-green2.log` (three standalone registration tests).
+Mechanical fallout: `crates/pi-coding-agent/src/main.rs` wraps its existing dispatcher
+with no disposer; existing custom-handler and tool-definition tests adapt to the
+explicit native option structures. No handler behavior was changed outside this lane.
+
+## Re-pin inherited process groups
+
+Frozen `runner.ts` adds `inheritedProcessGroupId`: native options now retain it,
+Linux `/proc/<pid>/stat` group lookup uses the final `)` boundary, current process
+is excluded, and disposal/abort signals every inherited group member before the
+runner when no detached group was signalled. Detached runners pass their own PID,
+matching source; control polling is now the frozen one second, not 25 ms.
+`pyrun_dispose_terminates_inherited_process_group_members_like_frozen` creates a
+private process group with a real parent/grandchild and proves both frozen and
+native disposal stop the whole group. RED missing option; GREEN
+`/tmp/bundled3-pyrun-inherited-green2.log`. Cleanup is bounded and group-owned.
+
+Three existing detached-runner cases now run through a dedicated self-spawn child
+in its own process group instead of executing a process-owning runner in the test
+supervisor. They still assert the exact returned terminal revision, not just exit
+success. Four complete fixture option literals gained `inherited_process_group_id: None`.
+Windows taskkill is a platform gap; uncommon signal/proc filesystem fault identity
+and races follow the repository runtime-fault gap policy.
