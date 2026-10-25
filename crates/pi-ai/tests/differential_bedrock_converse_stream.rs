@@ -32,6 +32,10 @@ enum FrameSpec {
         exception_type: String,
         payload: Value,
     },
+    RawEvent {
+        event_type: String,
+        payload: String,
+    },
 }
 
 impl FrameSpec {
@@ -53,6 +57,9 @@ impl FrameSpec {
 
     fn to_ts(&self) -> Value {
         match self {
+            Self::RawEvent { event_type, payload } => {
+                json!({"kind":"event","type":event_type,"payload":null,"rawPayload":payload})
+            }
             Self::Event {
                 event_type,
                 payload,
@@ -78,6 +85,7 @@ impl FrameSpec {
 
     fn to_bytes(&self) -> Vec<u8> {
         match self {
+            Self::RawEvent { event_type, payload } => encode_frame_bytes(event_type, payload.as_bytes(), false),
             Self::Event {
                 event_type,
                 payload,
@@ -857,6 +865,31 @@ fn scenarios() -> Vec<Scenario> {
         simple: None,
     });
 
+    let replay_model = model();
+    let mut replay = AssistantMessage::empty(&replay_model.api, &replay_model.provider, &replay_model.id, 0.0);
+    replay.stop_reason = StopReason::ToolUse;
+    replay
+        .content
+        .push(AssistantContent::ToolCall(pi_ai::types::ToolCall::new(
+            "call😀tail",
+            "read",
+            Default::default(),
+        )));
+    let result: Message = serde_json::from_value(json!({"role":"toolResult","toolCallId":"call😀tail","toolName":"read","content":[{"type":"text","text":"done"}],"isError":false,"timestamp":1})).unwrap();
+    scenarios.push(Scenario {
+        name: "utf16-tool-id-replay",
+        model: replay_model,
+        context: Context {
+            system_prompt: None,
+            messages: vec![Message::Assistant(Box::new(replay)), result],
+            tools: None,
+        },
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: true,
+        simple: None,
+    });
     scenarios
 }
 
@@ -1087,7 +1120,32 @@ fn parse_amz_date(value: &str) -> i64 {
 }
 
 fn verify_signature(scenario: &Scenario, oracle_request: &Value) {
-    if let Some(api_key) = scenario.options.extra.get("bearerToken").and_then(Value::as_str) {
+    let bearer_token = scenario
+        .options
+        .extra
+        .get("bearerToken")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .map(pi_js_compat::js_json::JsString::from)
+        .or_else(|| {
+            scenario
+                .options
+                .request
+                .env
+                .as_ref()
+                .and_then(|env| env.get("AWS_BEARER_TOKEN_BEDROCK"))
+                .filter(|value| !value.is_empty())
+                .cloned()
+        })
+        .or_else(|| {
+            scenario
+                .process_env
+                .get("AWS_BEARER_TOKEN_BEDROCK")
+                .filter(|value| !value.is_empty())
+                .cloned()
+                .map(Into::into)
+        });
+    if let Some(api_key) = bearer_token {
         assert_eq!(
             oracle_request["headers"]["Authorization"].as_str(),
             Some(pi_js_compat::js_json::encode_node_utf8(&pi_js_compat::js_format!("Bearer {}", api_key)).as_str()),
@@ -1329,10 +1387,10 @@ async fn bedrock_custom_abort_reasons_match_real_smithy_header_and_body_boundari
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
-#[tokio::test]
-async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
+async fn compare_bedrock_scenarios(cases: Vec<Scenario>) {
+    assert!(!cases.is_empty());
     let mut oracle = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
-    for (index, scenario) in scenarios().into_iter().enumerate() {
+    for (index, scenario) in cases.into_iter().enumerate() {
         let id = index + 1;
         let response = oracle.request(&scenario_to_oracle_request(id, &scenario));
         assert_eq!(
@@ -1400,10 +1458,154 @@ async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
         assert_eq!(rust_message, oracle_message, "message mismatch for {}", scenario.name);
 
         if scenario.capture_payload {
-            let rust_payload = captured.expect("captured payload");
+            let rust_payload = json!(captured);
             let oracle_payload = output["capturedPayload"].clone();
             assert_eq!(rust_payload, oracle_payload, "payload mismatch for {}", scenario.name);
         }
+    }
+}
+
+#[tokio::test]
+async fn bedrock_converse_stream_matches_the_pinned_typescript_module() {
+    compare_bedrock_scenarios(scenarios()).await;
+}
+
+async fn compare_bedrock_configuration(name: &'static str, field: &str, value: &str) {
+    let mut request_options = options();
+    request_options.extra.insert(field.to_owned(), json!(value));
+    let env = request_options.request.env.as_mut().unwrap();
+    if name == "empty-bearer-option" {
+        env.insert("AWS_BEARER_TOKEN_BEDROCK".to_owned(), "token-from-env".into());
+    }
+    if name == "scoped-profile-is-not-ambient" {
+        env.insert("AWS_PROFILE".to_owned(), "unused-profile".into());
+        env.shift_remove("AWS_REGION");
+    }
+    compare_bedrock_scenarios(vec![Scenario {
+        name,
+        model: model(),
+        context: context(),
+        options: request_options,
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: false,
+        simple: None,
+    }])
+    .await;
+}
+
+#[tokio::test]
+async fn bedrock_configuration_empty_region_uses_environment() {
+    compare_bedrock_configuration("empty-region-option", "region", "").await;
+}
+#[tokio::test]
+async fn bedrock_configuration_empty_bearer_uses_environment() {
+    compare_bedrock_configuration("empty-bearer-option", "bearerToken", "").await;
+}
+#[tokio::test]
+async fn bedrock_configuration_explicit_profile_keeps_configured_credentials() {
+    compare_bedrock_configuration("explicit-profile-env-credentials", "profile", "unused-profile").await;
+}
+#[tokio::test]
+async fn bedrock_configuration_scoped_profile_is_not_ambient() {
+    compare_bedrock_configuration("scoped-profile-is-not-ambient", "profile", "").await;
+}
+
+#[tokio::test]
+async fn bedrock_source_unsupported_images_fail_instead_of_silent_omission() {
+    let unsupported: Context=serde_json::from_value(json!({"messages":[{"role":"user","content":[{"type":"image","mimeType":"image/svg+xml","data":"AAAA"}],"timestamp":1}]})).unwrap();
+    compare_bedrock_scenarios(vec![Scenario {
+        name: "unsupported-image",
+        model: model(),
+        context: unsupported,
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: true,
+        simple: None,
+    }])
+    .await;
+}
+
+#[tokio::test]
+async fn bedrock_source_blank_bom_text_uses_the_empty_placeholder() {
+    let mut ctx = context();
+    if let Message::User(message) = &mut ctx.messages[0] {
+        message.content = UserContent::Text("\u{feff}".into());
+    }
+    compare_bedrock_scenarios(vec![Scenario {
+        name: "blank-bom-text",
+        model: model(),
+        context: ctx,
+        options: options(),
+        process_env: BTreeMap::new(),
+        script: text_script(),
+        capture_payload: true,
+        simple: None,
+    }])
+    .await;
+}
+
+#[tokio::test]
+async fn bedrock_source_streamed_human_text_retains_native_utf16() {
+    use pi_js_compat::{js_json, js_json::JsValue};
+    for content in [
+        vec![FrameSpec::RawEvent {
+            event_type: "contentBlockDelta".into(),
+            payload: r#"{"contentBlockIndex":0,"delta":{"text":"before\ud800after"}}"#.into(),
+        }],
+        vec![FrameSpec::RawEvent {
+            event_type: "contentBlockDelta".into(),
+            payload: r#"{"contentBlockIndex":0,"delta":{"reasoningContent":{"text":"thought\ud800"}}}"#.into(),
+        }],
+        vec![
+            FrameSpec::event(
+                "contentBlockStart",
+                json!({"contentBlockIndex":0,"start":{"toolUse":{"toolUseId":"call","name":"read"}}}),
+            ),
+            FrameSpec::RawEvent {
+                event_type: "contentBlockDelta".into(),
+                payload: r#"{"contentBlockIndex":0,"delta":{"toolUse":{"input":"{\"x\":\"\\ud800\"}"}}}"#.into(),
+            },
+        ],
+    ] {
+        let mut frames = vec![FrameSpec::event("messageStart", json!({"role":"assistant"}))];
+        frames.extend(content);
+        frames.push(FrameSpec::event("contentBlockStop", json!({"contentBlockIndex":0})));
+        frames.push(FrameSpec::event("messageStop", json!({"stopReason":"end_turn"})));
+        let response = ResponseSpec::eventstream(frames);
+        let case = Scenario {
+            name: "native-utf16-text",
+            model: model(),
+            context: context(),
+            options: options(),
+            process_env: BTreeMap::new(),
+            script: vec![response],
+            capture_payload: false,
+            simple: None,
+        };
+        let request = JsValue::from(scenario_to_oracle_request(1, &case));
+        let mut source = oracle::TsOracle::spawn("bedrock-converse-stream-oracle.ts", "packages/ai/src");
+        let expected = source.request(&request);
+        assert_eq!(expected["ok"], js_json!(true));
+        let (_, events, message, _) = run_rust(&case).await;
+        let mut actual_events = js_json!(events);
+        let mut expected_events = expected["output"]["events"].clone();
+        for events in [&mut actual_events, &mut expected_events] {
+            for event in events.as_array_mut().unwrap() {
+                for field in ["partial", "message", "error"] {
+                    if let Some(message) = event.get_mut(field) {
+                        message["timestamp"] = js_json!(0);
+                    }
+                }
+            }
+        }
+        assert_eq!(actual_events, expected_events);
+        let mut actual = js_json!(message);
+        actual["timestamp"] = js_json!(0);
+        let mut expected_message = expected["output"]["message"].clone();
+        expected_message["timestamp"] = js_json!(0);
+        assert_eq!(actual, expected_message);
     }
 }
 
