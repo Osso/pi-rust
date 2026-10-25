@@ -48,7 +48,7 @@ async fn main() -> ExitCode {
     match run_cli_entry(&args, &CliDetachedRunnerHost, main).await {
         Ok(code) => exit_code(code),
         Err(message) => {
-            console_error(&Chalk::stderr().red(&format!("Error: {message}")));
+            console_error(Chalk::stderr().red(format!("Error: {message}")));
             exit_code(1)
         }
     }

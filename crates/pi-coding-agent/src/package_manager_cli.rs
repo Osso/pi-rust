@@ -106,11 +106,11 @@ pub struct CommandOutcome {
 }
 
 fn app_name() -> JsString {
-    config::package_config().app_name.clone().into()
+    config::package_config().app_name.clone()
 }
 
 fn config_dir_name() -> JsString {
-    config::package_config().config_dir_name.clone().into()
+    config::package_config().config_dir_name.clone()
 }
 
 /// `getPackageCommandUsage`.
@@ -565,7 +565,7 @@ pub fn format_package_list(packages: &[crate::core::package_manager::ConfiguredP
         } else {
             package.source.clone()
         };
-        lines.push(pi_js_compat::js_format!("  {}", display).into());
+        lines.push(pi_js_compat::js_format!("  {}", display));
         if let Some(installed_path) = &package.installed_path {
             lines.push(chalk.dim(&pi_js_compat::js_format!("    {}", installed_path)));
         }
@@ -776,11 +776,7 @@ pub fn report_settings_errors(store: &Arc<SettingsManagerStore>, context: &str) 
     let mut lines = Vec::new();
     for error in errors {
         lines.push(chalk.yellow(
-            JsString::from(pi_js_compat::js_format!(
-                "Warning ({}, {} settings): ",
-                context,
-                error.scope.as_str()
-            )) + error.message,
+            pi_js_compat::js_format!("Warning ({}, {} settings): ", context, error.scope.as_str()) + error.message,
         ));
     }
     lines
@@ -815,7 +811,7 @@ pub fn self_update_plan(
     let package_name = release
         .package_name
         .clone()
-        .unwrap_or_else(|| config::package_config().package_name.clone().into());
+        .unwrap_or_else(|| config::package_config().package_name.clone());
     let install_spec = pi_js_compat::js_format!("{}@{}", package_name, release.version);
     if force
         || package_name != config::package_config().package_name
@@ -823,9 +819,9 @@ pub fn self_update_plan(
     {
         return (
             SelfUpdatePlan {
-                package_name: package_name.into(),
+                package_name,
                 install_spec,
-                version: release.version.clone().into(),
+                version: release.version.clone(),
                 should_run: true,
                 note: release.note.clone(),
             },
@@ -835,9 +831,9 @@ pub fn self_update_plan(
     let chalk = Chalk::stdout();
     (
         SelfUpdatePlan {
-            package_name: package_name.into(),
+            package_name,
             install_spec,
-            version: release.version.clone().into(),
+            version: release.version.clone(),
             should_run: false,
             note: None,
         },
@@ -889,19 +885,18 @@ pub fn self_update_unavailable_lines(
     target: &config::SelfUpdatePackageTarget,
     entrypoint: Option<&JsString>,
 ) -> Result<Vec<JsString>, JsString> {
-    let package_name = JsString::from(config::package_config().package_name.clone());
+    let package_name = config::package_config().package_name.clone();
     let mut lines = vec![
         pi_js_compat::js_format!(
             "error: {} cannot self-update this installation.",
             config::package_config().app_name
-        )
-        .into(),
+        ),
         config::get_self_update_unavailable_instruction(context, &package_name, npm_command, Some(target))
             .map_err(|error| error.message().clone())?,
     ];
     if let Some(entrypoint) = entrypoint {
         lines.push(JsString::default());
-        lines.push(pi_js_compat::js_format!("Location of pi executable: {}", entrypoint).into());
+        lines.push(pi_js_compat::js_format!("Location of pi executable: {}", entrypoint));
     }
     Ok(lines)
 }
@@ -934,7 +929,7 @@ pub fn self_update_note_lines(note: &JsString, columns: Option<usize>) -> Vec<Js
     }
     let width = columns.unwrap_or(80).max(20);
     let chalk = Chalk::stdout();
-    let mut lines = vec![JsString::default(), chalk.bold(&chalk.yellow("Update note"))];
+    let mut lines = vec![JsString::default(), chalk.bold(chalk.yellow("Update note"))];
     let mut markdown = pi_tui::Markdown::new(
         trimmed_note,
         0,
@@ -945,7 +940,7 @@ pub fn self_update_note_lines(note: &JsString, columns: Option<usize>) -> Vec<Js
     );
     let rendered: Vec<JsString> = pi_tui::Component::render(&mut markdown, width)
         .into_iter()
-        .map(|line| JsString::from(line.trim_end()))
+        .map(|line| line.trim_end())
         .collect();
     lines.extend(rendered);
     lines.push(JsString::default());
@@ -958,7 +953,7 @@ struct SelfUpdateNoteMarkdownTheme;
 impl pi_tui::MarkdownTheme for SelfUpdateNoteMarkdownTheme {
     fn heading(&self, text: &JsString) -> JsString {
         let chalk = Chalk::stdout();
-        chalk.bold(&chalk.yellow(text))
+        chalk.bold(chalk.yellow(text))
     }
 
     fn link(&self, text: &JsString) -> JsString {
@@ -1326,13 +1321,9 @@ async fn run_self_update_target(
         package_name: plan.package_name.clone(),
         install_spec: Some(plan.install_spec.clone()),
     };
-    let Some(command) = config::get_self_update_command(
-        &install_context,
-        &package_name.clone().into(),
-        npm_command,
-        Some(&target),
-    )
-    .map_err(|error| error.message().clone())?
+    let Some(command) =
+        config::get_self_update_command(&install_context, &package_name.clone(), npm_command, Some(&target))
+            .map_err(|error| error.message().clone())?
     else {
         outcome.stderr.extend(self_update_unavailable_lines(
             &install_context,
