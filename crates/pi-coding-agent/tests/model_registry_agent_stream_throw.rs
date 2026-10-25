@@ -114,7 +114,9 @@ async fn native_snapshot(kind: &str, value: &JsString) -> JsValue {
         },
     };
     let state = agent.state();
-    registry.unregister_provider("registry-agent-throw").unwrap();
+    // unregister_provider refreshes and resets every API provider (frozen :381-396).
+    // This test owns its API id; retain it until this test process exits so the
+    // parallel low-level fixture keeps its independent registrations.
     let mut snapshot = js_json!({"callbackCount":calls.load(Ordering::SeqCst),"result":result,"events":events.lock().unwrap().clone(),"state":{
         "messages":state.messages,"isStreaming":state.is_streaming,"isModelRequestActive":state.is_model_request_active,
         "streamingMessage":state.streaming_message,"pendingToolCalls":state.pending_tool_calls,"errorMessage":state.error_message
@@ -222,7 +224,8 @@ async fn native_loop_snapshot(consumer: &str, kind: &str, value: &JsString) -> J
         }
     }
     let result = stream_rejection(stream.result().await.expect_err("acquisition must fail"));
-    registry.unregister_provider(&provider).unwrap();
+    // Do not reset the process-global API registry while the Agent test runs.
+    // Loop and continue each own a distinct API id until process exit.
     let mut snapshot =
         js_json!({"callbackCount":calls.load(Ordering::SeqCst),"events":events,"iteration":iteration,"result":result});
     normalize_timestamps(&mut snapshot, before, pi_ai::request::now_millis() as f64);
