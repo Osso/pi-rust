@@ -1,6 +1,9 @@
 //! Real persisted steering lifecycle while an additional prompt only queues.
 use super::*;
 
+#[path = "support/oracle.rs"]
+mod frozen;
+
 #[tokio::test]
 async fn queued_prompt_does_not_complete_an_active_steered_turn() {
     use pi_ai::providers::faux::FauxResponseStep;
@@ -92,4 +95,20 @@ async fn queued_prompt_does_not_complete_an_active_steered_turn() {
         completed.result.as_ref().and_then(|result| result.summary.as_ref()),
         Some(&JsString::from("follow-up done"))
     );
+    let mut oracle = frozen::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&serde_json::json!({
+        "operation": "prompt-steering-lifecycle", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(
+        expected,
+        serde_json::json!({"ok": true, "value": {
+            "whileRunning": "running", "finalLifecycle": "completed", "summary": "follow-up done"
+        }})
+    );
+    let actual = serde_json::json!({
+        "whileRunning": while_running.lifecycle,
+        "finalLifecycle": completed.lifecycle,
+        "summary": completed.result.as_ref().and_then(|result| result.summary.as_ref()),
+    });
+    assert_eq!(actual, expected["value"]);
 }
