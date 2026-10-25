@@ -5,7 +5,8 @@ const NativeDate = Date;
 globalThis.Date = class extends NativeDate {
     constructor(...args) { super(...(args.length ? args : ["2026-10-21T00:00:00.000Z"])); }
 };
-Math.random = () => 0.5;
+let randomCalls = 0;
+Math.random = () => scenario === "random_consumption" ? (++randomCalls === 1 ? 0.1 : 0.9) : 0.5;
 const schedules = [], errors = [], requests = [], updates = [];
 globalThis.setTimeout = (_callback, delay) => { schedules.push(delay); return schedules.length; };
 globalThis.clearTimeout = () => {};
@@ -14,7 +15,8 @@ const registration = (id, interval) => ({ id, heartbeatIntervalMs: interval, exp
 const machine = scenario.startsWith("machine");
 const sequence = [[200, registration("m1", machine ? 10 : 1000000)]];
 if (!machine) sequence.push([200, registration("p1", 10)]);
-sequence.push([404, "gone"], [404, "gone"], [404, "gone"]);
+if (scenario === "random_consumption") sequence.push([404, "gone"], [500, "transient"]);
+else sequence.push([404, "gone"], [404, "gone"], [404, "gone"]);
 if (scenario === "machine_failure") {
     sequence.push([503, "recover"], [200, {}]);
 } else if (scenario === "machine_pi_failure") {
@@ -38,6 +40,7 @@ globalThis.fetch = async (url, init) => {
     return new Response(typeof data === "string" ? data : JSON.stringify(data), { status });
 };
 const { RadiusPresence } = await import(pathToFileURL(`${root}/packages/orchestrator/src/radius.ts`).href);
+randomCalls = 0;
 const radius = new RadiusPresence();
 let instance = { id: "local", cwd: "/tmp", sessionId: "session" };
 let available = true;
@@ -48,7 +51,7 @@ radius.setCoordinator({
 });
 await radius.start("desk");
 if (!machine) instance = await radius.registerPi(instance);
-for (let index = 0; index < 3; index++) {
+for (let index = 0; index < (scenario === "random_consumption" ? 2 : 3); index++) {
     if (scenario === "pi_disappeared" && index === 2) available = false;
     if (machine) await radius.heartbeatMachine();
     else await radius.heartbeatPi(instance.id);

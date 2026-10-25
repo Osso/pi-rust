@@ -91,11 +91,15 @@ fn responses(scenario: &str) -> VecDeque<(u16, Value)> {
     if !machine {
         responses.push((200, registration("p1", 10)));
     }
-    responses.extend([(404, json!("gone")), (404, json!("gone")), (404, json!("gone"))]);
+    if scenario == "random_consumption" {
+        responses.extend([(404, json!("gone")), (500, json!("transient"))]);
+    } else {
+        responses.extend([(404, json!("gone")), (404, json!("gone")), (404, json!("gone"))]);
+    }
     match scenario {
         "machine_failure" | "pi_failure" => responses.extend([(503, json!("recover")), (200, json!({}))]),
         "machine_pi_failure" => responses.extend([(200, registration("m2", 10)), (503, json!("recover"))]),
-        "pi_disappeared" => {}
+        "pi_disappeared" | "random_consumption" => {}
         _ => panic!("unknown fixture scenario"),
     }
     if !machine {
@@ -119,6 +123,8 @@ async fn radius_failure_child() {
         responses: Mutex::new(responses(&scenario)),
         requests: Mutex::new(Vec::new()),
     });
+    let random_calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let random_scenario = scenario == "random_consumption";
     let presence = RadiusPresence::new(
         Storage(directory.into()),
         fetch.clone(),
@@ -126,7 +132,17 @@ async fn radius_failure_child() {
             env: Arc::new(|| [("PI_RADIUS_API_KEY".into(), "key".into())].into()),
             credential: Arc::new(|| None),
             now: Arc::new(|| "2026-10-21T00:00:00.000Z".into()),
-            random: Arc::new(|| 0.5),
+            random: Arc::new(move || {
+                if random_scenario {
+                    if random_calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                        0.1
+                    } else {
+                        0.9
+                    }
+                } else {
+                    0.5
+                }
+            }),
             hostname: "test".into(),
             platform: "linux".into(),
             arch: "x64".into(),
@@ -151,6 +167,8 @@ async fn radius_failure_child() {
     };
     let delays = if scenario == "machine_failure" || scenario == "pi_failure" {
         vec![10, 10, 10, 1125]
+    } else if scenario == "random_consumption" {
+        vec![10, 10]
     } else {
         vec![10, 10, 10]
     };
@@ -199,7 +217,13 @@ async fn frozen_radius_failure_matrix() {
     let lock: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
     let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
-    for scenario in ["machine_failure", "machine_pi_failure", "pi_failure", "pi_disappeared"] {
+    for scenario in [
+        "machine_failure",
+        "machine_pi_failure",
+        "pi_failure",
+        "pi_disappeared",
+        "random_consumption",
+    ] {
         let directory = tempfile::tempdir().unwrap();
         let expected = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
             .arg("--tsconfig")

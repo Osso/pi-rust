@@ -389,7 +389,9 @@ impl RadiusPresence {
     async fn retry_machine(self: &Arc<Self>, error: RadiusError) {
         let (recover, delay, count) = {
             let mut state = self.state.lock().unwrap();
-            retry_decision(&mut state.machine_heartbeat, error.not_found(), (self.options.random)())
+            retry_decision(&mut state.machine_heartbeat, error.not_found(), || {
+                (self.options.random)()
+            })
         };
         if !recover {
             if !error.not_found() {
@@ -447,7 +449,7 @@ impl RadiusPresence {
             let Some(heartbeat) = state.pis.get_mut(id) else {
                 return;
             };
-            retry_decision(heartbeat, error.not_found(), (self.options.random)())
+            retry_decision(heartbeat, error.not_found(), || (self.options.random)())
         };
         if !recover {
             if !error.not_found() {
@@ -580,7 +582,7 @@ fn abort_timer(heartbeat: &mut Heartbeat) {
         timer.abort();
     }
 }
-fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (bool, u64, u32) {
+fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: impl FnOnce() -> f64) -> (bool, u64, u32) {
     if not_found {
         heartbeat.transient = 0;
         heartbeat.not_found += 1;
@@ -589,7 +591,7 @@ fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (b
     heartbeat.transient += 1;
     (
         false,
-        compute_backoff_delay_ms(heartbeat.transient, random),
+        compute_backoff_delay_ms(heartbeat.transient, random()),
         heartbeat.transient,
     )
 }
