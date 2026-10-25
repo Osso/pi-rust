@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { createRequire } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -40,6 +40,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 		calls.push({ operation: "state", length });
 		if (request.reject === "state") throw rejection;
 		return Buffer.alloc(length);
+	};
+	syncBuiltinESMExports();
+	globalThis.fetch = async () => {
+		throw new Error("unexpected entropy fixture fetch");
 	};
 	Object.defineProperty(globalThis, "crypto", {
 		configurable: true,
