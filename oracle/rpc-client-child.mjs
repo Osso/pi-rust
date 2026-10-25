@@ -14,7 +14,12 @@ if (process.env.PI_RPC_WRITING === "1") {
 	setInterval(() => process.stdout.write('{"type":"pulse"}\n'), 10);
 }
 if (process.env.PI_RPC_BLOCK_INPUT === "close") {
-	setTimeout(() => closeSync(0), 200);
+	process.stdin.once("data", () => {
+		process.stdin.pause();
+		closeSync(0);
+		process.stdout.write('{"type":"stdin_closed"}\n');
+	});
+	process.stdin.resume();
 	setInterval(() => {}, 1000);
 } else if (process.env.PI_RPC_BLOCK_INPUT === "1") setInterval(() => {}, 1000);
 else
