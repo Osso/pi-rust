@@ -207,6 +207,17 @@ async fn collect_body(mut body: Box<dyn HttpBody>) -> Result<Vec<u8>, CallbackEr
     Ok(bytes)
 }
 
+/// The browser helpers preserve Error rejections and wrap other manual input rejections.
+pub fn normalize_manual_rejection(error: CallbackError) -> CallbackError {
+    match error.thrown_value() {
+        pi_js_compat::abort::AbortReason::Value(_) => match error.error_or_string_message() {
+            Ok(message) => CallbackError::new(message),
+            Err(error) => error,
+        },
+        _ => error,
+    }
+}
+
 /// `Response.json()` retains UTF-16 and throws the shared V8-compatible SyntaxError.
 pub fn parse_response_json(body: &str) -> Result<pi_js_compat::js_json::JsValue, CallbackError> {
     pi_js_compat::js_json::parse_lossless(body)
