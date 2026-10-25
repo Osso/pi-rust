@@ -177,6 +177,9 @@ async fn approval_controls_matches_typescript() {
     );
     harness
         .runner
+        .bind_command_context(Some(support::command_actions(&harness.calls)));
+    harness
+        .runner
         .set_ui_context(Some(ui), pi_coding_agent::core::extensions::types::ExtensionMode::Tui);
     let actions = args
         .iter()
@@ -194,7 +197,7 @@ async fn approval_controls_matches_typescript() {
         let error = harness.run_command(&name, &args).await.err().map(|error| error.message);
         let calls = harness.take_calls();
         assert_eq!(
-            json!({"error":error,"notify":calls.notify,"status":calls.set_status,"profile":settings.lock().unwrap().get_explicit_sandbox_profile()}),
+            json!({"error":error,"notify":calls.notify,"status":calls.set_status,"editor":calls.set_editor_text,"sandboxSelector":calls.show_sandbox_selector,"approvalSelector":calls.show_approval_selector,"profile":settings.lock().unwrap().get_explicit_sandbox_profile()}),
             expected["output"][index],
             "{name} {args}"
         );

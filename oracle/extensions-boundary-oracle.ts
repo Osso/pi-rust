@@ -27,14 +27,16 @@ async function main(): Promise<void> {
 		if (request.operation === "approval_commands") {
 			initTheme("dark", false);
 			const { theme } = await load("../modes/interactive/theme/theme.ts");
-			let notify: unknown[] = [], status: unknown[] = [];
-			runner.setUIContext({ theme, notify: (message: string, type?: string) => notify.push([message, type ?? null]), setStatus: (key: string, text?: string) => status.push([key, text ?? null]) }, "tui");
+			let notify: unknown[] = [], status: unknown[] = [], editor: string[] = [];
+			let sandboxSelector = 0, approvalSelector = 0;
+			runner.bindCommandContext({ showSandboxSelector: () => { sandboxSelector++; }, showApprovalSelector: () => { approvalSelector++; }, waitForIdle: async () => {}, newSession: async () => ({ cancelled: false }), fork: async () => ({ cancelled: false }), navigateTree: async () => ({ cancelled: false }), switchSession: async () => ({ cancelled: false }), reload: async () => {}, restart: async () => {} });
+			runner.setUIContext({ theme, notify: (message: string, type?: string) => notify.push([message, type ?? null]), setStatus: (key: string, text?: string) => status.push([key, text ?? null]), setEditorText: (text: string) => editor.push(text) }, "tui");
 			const steps: unknown[] = [];
 			for (const action of request.actions) {
 				let error: string | null = null;
 				try { await runner.getCommand(action.name).handler(action.args, runner.createCommandContext()); } catch (failure) { error = failure instanceof Error ? failure.message : String(failure); }
-				steps.push({ error, notify, status, profile: settings.getExplicitSandboxProfile() ?? null });
-				notify = []; status = [];
+				steps.push({ error, notify, status, editor, sandboxSelector, approvalSelector, profile: settings.getExplicitSandboxProfile() ?? null });
+				notify = []; status = []; editor = []; sandboxSelector = 0; approvalSelector = 0;
 			}
 			output = steps;
 		} else if (request.operation === "sandbox") {
