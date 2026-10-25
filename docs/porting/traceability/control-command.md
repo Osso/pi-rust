@@ -17,3 +17,5 @@ Frozen: `packages/coding-agent/src/cli/control-command.ts` at `4f9e6f8a4c0065d81
 The default Rust signal effect maps errno through the shared Node code authority, producing `kill <code>`. Known runtime/fault/numeric-extreme shapes remain outside the current parity bar; no additional carrier is introduced for out-of-range JavaScript pids. POSIX signal behavior is covered; Windows remains the approved platform gap.
 
 Post-commit GREEN, warning-mode clippy and changed-line readability results are recorded in `/tmp/settings-models-proof-ledger.md`.
+
+GREEN: 8617ea9dd: /tmp/settings-models-control-green.log (10 tests;17 source vectors). Targeted warning-mode clippy at69513786b: `/tmp/settings-models-checkpoint-clippy.log`, exit0; existing warnings at control_command.rs:55 and sessions_command.rs:136 are unchanged conversions, none on changed lines. Changed Rust/TS manually audited for readability; no in-scope violations.

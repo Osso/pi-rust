@@ -18,3 +18,5 @@ RED `/tmp/settings-models-sessions-red.log`: frozen compression command/help abs
 OS/runtime fault and numeric-extreme shapes remain excluded by the parity bar. Default stdout/stderr exotic-fd failures are in that excluded boundary; no API widening for them. No new dependency, provider call or source delta.
 
 Focused post-commit GREEN and changed-line warning/readability evidence: `/tmp/settings-models-proof-ledger.md`.
+
+GREEN: 9a68390bb: /tmp/settings-models-sessions-green-final.log (10 tests;12 console+6 candidate source scenarios;real zstd/metadata relocation). Targeted warning-mode clippy at69513786b: `/tmp/settings-models-checkpoint-clippy.log`, exit0; existing warnings at control_command.rs:55 and sessions_command.rs:136 are unchanged conversions, none on changed lines. Changed Rust/TS manually audited for readability; no in-scope violations.

@@ -30,3 +30,5 @@ Source `loadSessions` is private; no source rewriting or test-only export is int
 ## Native terminal-boundary proof
 
 `startup_ui::session_picker_validation_retry_and_cancel_reach_the_terminal_boundary` runs real select_session with a scripted terminal in a fresh process: explicit dark theme prevents probe input consumption, and input waits for the rendered validation error before retry. It asserts the selected path, visible error text, terminal stopped state, and Escape/Ctrl+C cancellation. No production timing changes were made. Frozen `SessionList.handleInput` never invokes onExit; that keyboard path is unreachable (parent-confirmed 2026-10-25), not a missing native keyboard feature.
+
+GREEN: df6a73a6e: /tmp/settings-models-picker-green.log (7 loaders);9ad0f9f28: /tmp/settings-models-picker-ui-green.log (visible validation retry and both cancel keys). Targeted warning-mode clippy at69513786b: `/tmp/settings-models-checkpoint-clippy.log`, exit0; existing warnings at control_command.rs:55 and sessions_command.rs:136 are unchanged conversions, none on changed lines. Changed Rust/TS manually audited for readability; no in-scope violations.

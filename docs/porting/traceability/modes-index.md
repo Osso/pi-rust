@@ -14,3 +14,5 @@ Frozen: `packages/coding-agent/src/modes/index.ts` at `4f9e6f8a4c0065d81b10e7177
 `tests/modes_index.rs::public_modes_forward_rpc_model_and_listener_contracts` imports the modes surface externally, round-trips a concrete ModelInfo with unknown property, and delivers a concrete agent_end event through the public listener. RED `/tmp/settings-models-modes-red.log` proves missing ModelInfo/RpcEventListener re-exports. The intermediate rpc/mod.rs forwarding is mechanical cross-lane visibility, not a new algorithm/carrier. Existing native TUI helper and result-type exports remain implementation conveniences, not additional frozen behavior.
 
 No runtime differential is required for a pure export module; source types are mapped above. Focused GREEN/clippy evidence follows the commit in the lane ledger.
+
+GREEN: 69513786b: /tmp/settings-models-modes-green.log. Targeted warning-mode clippy at69513786b: `/tmp/settings-models-checkpoint-clippy.log`, exit0; existing warnings at control_command.rs:55 and sessions_command.rs:136 are unchanged conversions, none on changed lines. Changed Rust/TS manually audited for readability; no in-scope violations.
