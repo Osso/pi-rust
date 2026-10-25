@@ -44,6 +44,8 @@ const WATCH_DEBOUNCE_MS: u64 = 500;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_refresh;
+#[cfg(test)]
 mod tests_runtime_watch;
 /// Poll interval for WSL Windows-mounted `HEAD` files only.
 const GIT_FILE_POLL_INTERVAL_MS: u64 = 1_000;

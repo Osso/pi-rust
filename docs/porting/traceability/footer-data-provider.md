@@ -14,6 +14,10 @@ Git process7-case actual-source RED found missing default1MiB output limits (syn
 
 Metadata-kind actual-source6-case RED: FIFO/socket `.git` markers must continue upward, unlike native's previous early null. Missing HEAD/worktree HEAD still stop discovery; malformed file/broken symlink continue upward. Match now separates unknown successful metadata kinds from actual stat failures; focused GREEN pending.
 
+Refresh-lifetime6-scenario source/real-watcher proof passed24.47s: pending changes coalesce, disposal suppresses stale completion, cwd changes preserve source ordering, initial lazy cache emits no change, same branch emits no change and HEAD read errors cache/notify null. Callback-error/finally recovery is additionally tested through the actual source refresh promise with an attached rejection handler; native original Result errors use the same boundary.
+
+DISCREPANCY (parent classification2026-10-24, preserved): an old-repo git lookup remains active across setCwd and can temporarily overwrite the new cache. A pending refresh self-corrects it; the pinned notification trace is direct→next→direct. No generation guard or delta is added.
+
 The older audit below is historical and contains superseded type/gap descriptions; it will be replaced by the full current branch map before acceptance.
 
 ## Native representation checkpoint
