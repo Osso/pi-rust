@@ -1,7 +1,7 @@
 # config-selector.ts
 
 Frozen: `4f9e6f8a4`, `coding-agent/src/modes/interactive/components/config-selector.ts`.
-Native: `crates/pi-coding-agent-interactive/src/modes/interactive/components/config_selector.rs`.
+Native: `crates/pi-coding-agent-ui/src/modes/interactive/components/config_selector.rs`.
 
 | Symbol / branch | Native | Behavioral proof |
 |---|---|---|

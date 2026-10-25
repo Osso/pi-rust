@@ -1,7 +1,7 @@
 # `components/custom-editor.ts`
 
 Authority: whole 138-line [common-pin](../source-lock.json) module; [contract](../../specs/custom-editor.md).
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/custom_editor.rs`.
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/custom_editor.rs`.
 
 | Export / branch | Rust representation | Proof |
 |---|---|---|
