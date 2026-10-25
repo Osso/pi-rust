@@ -1,6 +1,6 @@
 //! Lifecycle command coordinator (`core/lifecycle-coordinator.ts`).
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -35,37 +35,52 @@ use crate::utils::iso_time;
 const MAIN_THREAD_AGENT_ID: &str = "main";
 const DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS: u64 = 250;
 
-fn retry_paths() -> &'static Mutex<HashSet<JsString>> {
-    static PATHS: OnceLock<Mutex<HashSet<JsString>>> = OnceLock::new();
-    PATHS.get_or_init(|| Mutex::new(HashSet::new()))
+type RetryTimers = HashMap<JsString, Arc<()>>;
+
+fn retry_timers() -> &'static Mutex<RetryTimers> {
+    static TIMERS: OnceLock<Mutex<RetryTimers>> = OnceLock::new();
+    TIMERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 fn schedule_dead_detached_reconciliation_retry(control_db_path: &JsString, artifact_root: Option<&JsString>) {
-    let mut paths = retry_paths().lock().expect("retry paths mutex");
-    if !paths.insert(control_db_path.clone()) {
+    let mut timers = retry_timers().lock().expect("retry timers mutex");
+    if timers.contains_key(control_db_path) {
         return;
     }
-    drop(paths);
+    let timer = Arc::new(());
+    timers.insert(control_db_path.clone(), timer.clone());
+    drop(timers);
     let path = control_db_path.clone();
     let artifact_root = artifact_root.cloned();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS));
-        retry_paths().lock().expect("retry paths mutex").remove(&path);
-        if let Err(error) = LifecycleCoordinator::reconcile_dead_detached_runtimes(
-            &path,
-            &iso_time::now_iso_string(),
-            artifact_root.as_ref(),
-        ) {
-            if let Some(native) = error.native_error() {
-                crate::utils::uncaught::throw_native_uncaught(native.clone());
-            }
-            crate::utils::uncaught::throw_uncaught("Error", error.message().clone());
+    std::thread::spawn(move || run_dead_detached_reconciliation_retry(path, artifact_root, timer));
+}
+
+fn run_dead_detached_reconciliation_retry(path: JsString, artifact_root: Option<JsString>, timer: Arc<()>) {
+    std::thread::sleep(Duration::from_millis(DEAD_DETACHED_RECONCILIATION_RETRY_DELAY_MS));
+    let mut timers = retry_timers().lock().expect("retry timers mutex");
+    let is_pending = timers.get(&path).is_some_and(|pending| Arc::ptr_eq(pending, &timer));
+    if !is_pending {
+        return;
+    }
+    timers.remove(&path);
+    drop(timers);
+    if let Err(error) = LifecycleCoordinator::reconcile_dead_detached_runtimes(
+        &path,
+        &iso_time::now_iso_string(),
+        artifact_root.as_ref(),
+    ) {
+        if let Some(native) = error.native_error() {
+            crate::utils::uncaught::throw_native_uncaught(native.clone());
         }
-    });
+        crate::utils::uncaught::throw_uncaught("Error", error.message().clone());
+    }
 }
 
 fn clear_dead_detached_reconciliation_retry(control_db_path: &JsString) {
-    retry_paths().lock().expect("retry paths mutex").remove(control_db_path);
+    retry_timers()
+        .lock()
+        .expect("retry timers mutex")
+        .remove(control_db_path);
 }
 
 #[derive(Clone)]

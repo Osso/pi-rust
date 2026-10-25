@@ -1002,6 +1002,65 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
 }
 
 #[test]
+fn successful_reconciliation_cancels_the_pending_retry_like_frozen() {
+    for frozen in [false, true] {
+        let (_directory, db) = temp_db();
+        let coordinator = create_coordinator(&db, SESSION_PATH);
+        let identity = test_process_identity("cancel-retry");
+        let mut dead = coordinator
+            .prepare_child(&PrepareChildCommandInput {
+                spawn: child_input(None),
+                agent_id: Some("dead".into()),
+                detached: Some(true),
+                result: None,
+            })
+            .unwrap();
+        dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+            adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+            handle_id: identity.pid.to_string().into(),
+            cwd: None,
+            tool_call_id: None,
+        });
+        expect_created(
+            coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &identity, None)
+                .unwrap(),
+        );
+        let writer = rusqlite::Connection::open(&db).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut oracle =
+            frozen.then(|| oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src"));
+        let mut reconcile = || {
+            let now = pi_coding_agent::utils::iso_time::now_iso_string();
+            match oracle.as_mut() {
+                Some(source) => {
+                    let response = source.request(&pi_js_compat::js_json!({
+                        "id": 28303,"module":"core/lifecycle-coordinator.ts","operation":"lifecycleReconcile",
+                        "db":db,"now":now,
+                    }));
+                    assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+                    response["output"].as_f64().unwrap() as i64
+                }
+                None => {
+                    LifecycleCoordinator::reconcile_dead_detached_runtimes(&JsString::from(&db), &now, None).unwrap()
+                }
+            }
+        };
+        assert_eq!(reconcile(), 0, "contention schedules a retry");
+        writer.execute_batch("ROLLBACK").unwrap();
+        assert_eq!(reconcile(), 1, "manual recovery clears the pending retry");
+        drop(reconcile);
+        drop(writer);
+        std::fs::remove_file(&db).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert!(
+            !std::path::Path::new(&db).exists(),
+            "cancelled retry must not reopen a removed DB, frozen={frozen}"
+        );
+    }
+}
+
+#[test]
 fn dead_runtime_reconciliation_cleans_expired_artifacts() {
     for frozen in [false, true] {
         for explicit_root in [false, true] {
