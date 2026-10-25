@@ -2334,6 +2334,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "pi-coding-agent-tool-support"
+version = "0.0.0"
+dependencies = [
+ "futures-util",
+ "gethostname",
+ "getrandom 0.4.3",
+ "icu_normalizer",
+ "indexmap",
+ "nix",
+ "notify",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-base",
+ "pi-coding-agent-data",
+ "pi-coding-agent-packages",
+ "pi-js-compat",
+ "pi-tui",
+ "regex",
+ "rusqlite",
+ "rustix 1.1.5",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+ "url",
+ "zstd",
+]
+
+[[package]]
 name = "pi-coding-agent-tools"
 version = "0.0.0"
 dependencies = [
@@ -2350,6 +2380,7 @@ dependencies = [
  "pi-coding-agent-data",
  "pi-coding-agent-packages",
  "pi-coding-agent-storage",
+ "pi-coding-agent-tool-support",
  "pi-js-compat",
  "pi-tui",
  "regex",

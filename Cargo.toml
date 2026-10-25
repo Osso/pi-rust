@@ -9,6 +9,7 @@ members = [
     "crates/pi-coding-agent-data",
     "crates/pi-coding-agent-storage",
     "crates/pi-coding-agent-packages",
+    "crates/pi-coding-agent-tool-support",
     "crates/pi-coding-agent-tools",
     "crates/pi-coding-agent-core",
     "crates/pi-coding-agent-extensions",

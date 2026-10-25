@@ -23,7 +23,7 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 
 ## Implementation inventory
 - `crates/pi-coding-agent-tools/src/core/tools/write.rs` — write schema, operations, execution and rendering.
-- `crates/pi-coding-agent-tools/src/core/tools/file_mutation_queue.rs` — shared file serialization.
+- `crates/pi-coding-agent-tool-support/src/core/tools/file_mutation_queue.rs` — shared file serialization.
 - `crates/pi-coding-agent-tools/src/core/tools/render_utils.rs` — display/path normalization.
 
 ## Tests asserting this spec

@@ -9,7 +9,7 @@ pub mod modes {
         pub mod components {
             pub use pi_coding_agent_tools::modes::interactive::components::*;
             pub mod footer;
-            pub mod footer_format;
+            pub use pi_coding_agent_tools::modes::interactive::components::footer_format;
         }
     }
 }

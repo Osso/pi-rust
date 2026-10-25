@@ -1,7 +1,7 @@
 # diff.ts
 
 Source: `coding-agent/src/modes/interactive/components/diff.ts`
-Rust: `crates/pi-coding-agent-tools/src/modes/interactive/components/diff.rs`
+Rust: `crates/pi-coding-agent-tool-support/src/modes/interactive/components/diff.rs`
 Shared diff: `crates/pi-agent-core/src/jsdiff.rs` (`diff_words`)
 
 | Symbol / branch | Rust item | Proof |

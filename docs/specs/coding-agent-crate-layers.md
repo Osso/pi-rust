@@ -21,6 +21,7 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 - `crates/pi-coding-agent-data/src/lib.rs`: auth, settings, models, CLI arguments, permission policy/presets and shared leaves.
 - `crates/pi-coding-agent-storage/src/lib.rs`: SQLite control database, sessions/transcripts and lifecycle storage.
 - `crates/pi-coding-agent-packages/src/lib.rs`: package manager and source metadata.
+- `crates/pi-coding-agent-tool-support/src/lib.rs`: shared tool algorithms, extension failure values and theme/UI leaves.
 - `crates/pi-coding-agent-tools/src/lib.rs`: tools, native extension contracts, resources, shared theme/UI and Supervisor adapters.
 - `crates/pi-coding-agent-core/src/lib.rs`: session runtime and compatibility exports for every lower module.
 - `crates/pi-coding-agent-extensions/src/lib.rs`: bundled native extensions.

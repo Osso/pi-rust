@@ -21,7 +21,7 @@ The `usize` mapping is the approved typed non-negative truncation-limit boundary
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-tools/src/core/tools/truncate.rs` — direct constants and existing formatter wrapper.
+- `crates/pi-coding-agent-tool-support/src/core/tools/truncate.rs` — direct constants and existing formatter wrapper.
 - `crates/pi-coding-agent-tools/src/core/tools/mod.rs` — mixed tools-index export boundary.
 - `crates/pi-coding-agent/src/lib.rs` — mixed crate-root export boundary.
 - `crates/pi-coding-agent/tests/truncation_constants.rs` — focused behavioral compile/value proof.

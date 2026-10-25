@@ -27,3 +27,7 @@ New roots preserve `crate::core::...` trees and all old paths through re-exports
 Artifacts: `/tmp/pi-crate-split-2-proof/` on the development host. Baseline revision `726033aa`: workspace/all-target/all-feature clippy exits 0 with **1,676 warnings, zero errors**. Before-touch check/debug-build logs and uptime records are `before-timings.json` and `before-*.log`. CLI stdout/stderr bytes are saved as `before-{version,help}.{stdout,stderr}`.
 
 Checkpoint proof and final timing table remain pending. No completion claim is made by this initial wiring checkpoint.
+
+## Second cut
+
+The first tools touch took **30.22s** (wall 30.31s) at uptime load 30.14/29.78/30.98, so it failed the 30s goal. Main approved a further tool-support cut. `pi-coding-agent-tool-support` owns shared theme/UI, edit/diff/truncation/output helpers and the unchanged `HandlerError` implementation, re-exported under its former extension-types path. Its only widened function is compiler-proven cross-crate `observe_tool_producer`. Storage and support are sibling branches; support depends on data/packages, never session runtime or tools.
