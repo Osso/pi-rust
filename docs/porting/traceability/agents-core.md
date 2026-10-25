@@ -1,5 +1,7 @@
 # agents-core traceability
 
+Agent-cap stop: see [successor handoff](../handoff-agents-core.md). Current merged code compiles under the workspace/all-target gate (`/tmp/agents-core-2-merged-check.log`). The final background construction-error UTF-16 fix has a frozen/native RED (`/tmp/agents-core-2-background-utf16-red.log`); its GREEN and final trace cleanup remain pending. Runtime coverage stays partial.
+
 ## Runtime re-pin lane — 2026-10-25
 
 Successor factory slice: child and attached factories now forward the parent's model registry, install browser-only restricted read definitions (including the configurable root), augment profile tools with ask_questions and browser read, and exclude change_working_directory. Attached sessions restore archived files through the control DB and leave settings creation to SDK instead of overriding policy. Actual frozen factory-option differential RED: `/tmp/agents-core-2-factory-red.log`; archive/policy behavioral RED: `/tmp/agents-core-2-attached-red.log`. Factory differential, archive and no-policy-override cases pass at `4fc421ff5` (`/tmp/agents-core-2-factory-green2.log`); one legacy tool-order assertion still needed the frozen ask_questions insertion order and is corrected in the next slice. Mechanical API fallout: main.rs and native factory fixtures initialize browser_agent_config_root. No storage internals changed.

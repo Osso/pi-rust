@@ -725,13 +725,11 @@ async fn prepare_background_runtime(
                 .commit_failed_child(&prepared, runtime_error)
                 .map_err(|error| HandlerError::new(error.message()))?;
             if let crate::core::session_control_db::CreateFailedMultiAgentChildResult::Ok { agent } = failed {
-                let _ = publish_coordinator_snapshot(&background.store, &agent);
+                publish_coordinator_snapshot(&background.store, &agent).map_err(HandlerError::from)?;
             }
             notify(
                 ctx,
-                &pi_js_compat::js_json::encode_node_utf8(
-                    &(pi_js_compat::js_json::JsString::from("Could not create background job: ") + &error),
-                ),
+                pi_js_compat::js_json::JsString::from("Could not create background job: ") + &error,
                 NotifyType::Error,
             )?;
             Ok(None)

@@ -452,8 +452,61 @@ async function runIsDetached(request: Request): Promise<unknown> {
 	return isDetachedRuntimeAgent(request.agent);
 }
 
+async function runBackgroundFailure(request: Request): Promise<unknown> {
+	const api = await load<RuntimeModule>("runtime.ts");
+	const { SessionManager } = await load<{
+		SessionManager: {
+			create(
+				cwd: unknown,
+				directory: unknown,
+			): { setMetadataControlDbPath(db: unknown): void };
+		};
+	}>("../../../src/core/session-manager.ts");
+	const { MultiAgentStore } = await load<{
+		MultiAgentStore: new () => {
+			setPersistenceSessionManager(manager: unknown): void;
+		};
+	}>("../../../src/core/multi-agent-store.ts");
+	const manager = SessionManager.create(request.cwd, request.sessionDir);
+	manager.setMetadataControlDbPath(request.db);
+	const store = new MultiAgentStore();
+	store.setPersistenceSessionManager(manager);
+	let background: ((args: string, ctx: unknown) => Promise<void>) | undefined;
+	const notifications: unknown[] = [];
+	api.registerAgentsCoreTools(
+		{
+			on: () => {},
+			registerTool: () => {},
+			registerCommand: (
+				name: string,
+				definition: { handler: typeof background },
+			) => {
+				if (name === "bg") background = definition.handler;
+			},
+		},
+		{
+			store,
+			createChildSession: async () => {
+				throw new Error(request.error as string);
+			},
+		},
+	);
+	if (!background) throw new Error("missing background command");
+	await background("task", {
+		cwd: request.cwd,
+		sessionManager: manager,
+		ui: {
+			notify: (text: unknown, level: unknown) =>
+				notifications.push([text, level]),
+		},
+	});
+	return notifications;
+}
+
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
+		case "backgroundFailure":
+			return runBackgroundFailure(request);
 		case "settlementAbort":
 			return runSettlementAbort(request.cancelling === true);
 		case "spawnProfile":
