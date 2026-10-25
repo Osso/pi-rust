@@ -47,11 +47,16 @@ Raw lists, parsed names, the 6,364-entry name bijection, command logs, isolation
 classification, and measurement stamps are saved in `/tmp/test-consolidate-proof/`.
 
 - Before/after `cargo test -j8 --workspace -- --list`: 6,364 entries each,
-  including the unchanged documentation test. Every original `(crate, target,
-  name)` maps exactly once to either itself or `(crate, suite, file::name)`.
+  including the unchanged documentation test. Before the UI merge, every original
+  `(crate, target, name)` maps exactly once to itself or `(crate, suite, file::name)`.
+  The post-UI bijection also records four unit-test crate relocations from
+  `pi-coding-agent-interactive` to `pi-coding-agent-ui`, with unchanged function
+  paths. All 6,364 entries still map exactly once; no test is lost.
 - First slice: 26 targets become one; all 98 tests pass in 10.24 seconds.
 - `cargo check -j4 --workspace --all-targets --keep-going --message-format=json`:
-  success, zero errors and warnings after moving root-only attributes.
+  success, zero errors and warnings, repeated after the UI integration at
+  `7ffde48b1` (101.6 seconds). The post-UI list/bijection also passes at that
+  revision. Later documentation-only changes do not invalidate those proofs.
 - `cargo fmt --all --check`: PASS.
 - `python3 scripts/source-inventory.py`: PASS, 686 rows / 186,679 source lines.
 - Rust readability: added Rust files contain only explicit module declarations
@@ -108,4 +113,6 @@ sandbox was terminated so the full run could continue; only the corrected
 helper-counter collision was reproduced as `AlreadyExists` at
 `support/mode_harness.rs:359`; one shared module fixes it without changing the
 helper or any assertion. Final workspace integration-test targets fall from
-1,112 to 325; existing unit and documentation tests remain.
+1,112 to 325; existing unit and documentation tests remain. The UI merge also
+brings the sibling lane's `incremental = true` configuration; the timing samples
+above precede that merge and isolate the test-layout change.
