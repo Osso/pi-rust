@@ -52,7 +52,8 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Reject relative nested snapshot/reference paths in frozen copy order before publication; canonicalize copied file references and preserve frozen empty-parent rejection.
 - [x] Preserve snapshot root and spread-copied child JSON key order with order-only metadata; emit fixed-copy nested objects in frozen constructor order.
 - [x] Preserve original connection/transaction callback throws and rollback state through the existing shared SQLite error source.
-- [ ] Match legacy prompt-history `slice(0, limit)` return semantics independently of SQLite LIMIT, including negative/zero limits and whitespace-only legacy entries.
+- [x] Match legacy prompt-history `slice(0, limit)` return semantics independently of SQLite LIMIT, including negative/zero limits and whitespace-only legacy entries.
+- [ ] Sort archive candidates by frozen date/UTF-16 path comparison, exclude cutoff-equal/archived/subagent rows and keep selection read-only.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.

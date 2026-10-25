@@ -60,6 +60,10 @@ async function main(): Promise<void> {
 		}
 		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "archiveCandidates") {
+			const [path, cutoff] = step.args as [string, string];
+			return api.archiveSessionsOlderThan(path, new Date(cutoff));
+		}
 		if (step.op === "callWire") {
 			const [fn, wire] = step.args as [string, string];
 			const implementation = api[fn];
