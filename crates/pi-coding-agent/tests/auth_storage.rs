@@ -102,9 +102,7 @@ fn reads_command_backed_api_key_credentials() {
 fn returns_oauth_credentials_unchanged() {
     let _guard = serial();
     let credential = OAuthCredential::new("refresh-token", "access-token", 1_760_000_000_000.0).to_js_value();
-    let mut data = Map::new();
-    data.insert("anthropic".to_owned(), credential.clone());
-    let storage = AuthStorage::in_memory(data);
+    let storage = AuthStorage::in_memory([("anthropic", credential.clone())]);
     let read = storage.get("anthropic");
     assert_eq!(read, Some(credential));
 }
