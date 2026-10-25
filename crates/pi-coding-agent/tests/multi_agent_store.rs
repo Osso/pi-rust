@@ -25,6 +25,7 @@ fn new_store() -> MultiAgentStore {
 
 fn scout_input(parent: Option<&JsString>) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         id: JsString::default(),
         parent_id: parent.map(JsString::from),
         display_name: "Scout".into(),

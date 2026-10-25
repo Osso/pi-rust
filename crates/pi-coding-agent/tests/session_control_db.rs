@@ -87,6 +87,7 @@ fn metadata(session_path: &str, id: &str, name: Option<&str>) -> WritableSession
 
 fn agent_node(id: &str, parent: Option<&str>, lifecycle: AgentLifecycle) -> AgentNode {
     AgentNode {
+        key_order: Vec::new(),
         id: id.into(),
         parent_id: parent.map(JsString::from),
         display_name: "Scout".into(),
