@@ -2,6 +2,7 @@
 mod oracle;
 
 use pi_coding_agent::core::desktop_notification::{DesktopNotification, DesktopNotificationHandle, DesktopNotifier};
+use pi_coding_agent::core::extensions::types::{ExtensionUiContext, NotifyType};
 use pi_js_compat::abort::AbortReason;
 use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -15,6 +16,12 @@ impl DesktopNotifier for RejectingNotification {
 }
 impl DesktopNotificationHandle for RejectingNotification {
     fn close(&self) -> Result<(), CallbackError> {
+        Err(self.0.clone())
+    }
+}
+
+impl ExtensionUiContext for RejectingNotification {
+    fn notify(&self, _: &JsString, _: Option<NotifyType>) -> Result<(), CallbackError> {
         Err(self.0.clone())
     }
 }
@@ -114,6 +121,7 @@ fn native_notification_boundaries_retain_typed_errors_and_arbitrary_throws() {
         let host = RejectingNotification(expected.clone());
         let desktop: &dyn DesktopNotifier = &host;
         let handle: &dyn DesktopNotificationHandle = &host;
+        let ui: &dyn ExtensionUiContext = &host;
         let notification = DesktopNotification {
             title: "fixture".into(),
             body: "fixture".into(),
@@ -123,6 +131,7 @@ fn native_notification_boundaries_retain_typed_errors_and_arbitrary_throws() {
         let errors = [
             desktop.notify(&notification).err().expect("desktop rejection"),
             handle.close().expect_err("close rejection"),
+            ui.notify(&"fixture".into(), None).expect_err("UI rejection"),
         ];
         for error in errors {
             assert_eq!(error.thrown_value(), expected.thrown_value());

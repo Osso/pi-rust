@@ -582,7 +582,7 @@ fn register_bwrap_session_start(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Re
                                 theme.fg(ThemeColor::Error, "bwrap unavailable"),
                             )),
                         )?;
-                        ui.notify(&message.into(), Some(NotifyType::Error));
+                        ui.notify(&message, Some(NotifyType::Error))?;
                     }
                 }
             }
@@ -853,7 +853,7 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
                             "\n",
                         ),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 }
                 Ok(())
             }) as BoxFuture<'static, Result<(), HandlerError>>

@@ -33,12 +33,12 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ui.notify(
                         &JsString::from(pi_js_compat::js_format!("Bookmarked as: {}", label)),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 } else {
                     ui.notify(
                         &JsString::from("No assistant message to bookmark"),
                         Some(NotifyType::Warning),
-                    );
+                    )?;
                 }
                 Ok(())
             })
@@ -59,9 +59,9 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     ui.notify(
                         &JsString::from(pi_js_compat::js_format!("Removed bookmark: {}", label)),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 } else {
-                    ui.notify(&JsString::from("No bookmarked entry found"), Some(NotifyType::Warning));
+                    ui.notify(&JsString::from("No bookmarked entry found"), Some(NotifyType::Warning))?;
                 }
                 Ok(())
             })

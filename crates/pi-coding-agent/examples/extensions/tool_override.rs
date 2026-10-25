@@ -79,18 +79,23 @@ let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ct
         Arc::new(move |_, ctx| {
             let log = log.clone();
             Box::pin(async move {
-                let message = match std::fs::read(encode_node_utf8(&log)) {
-                    Ok(bytes) => {
-                        let content = String::from_utf8_lossy(&bytes);
-                        let lines: Vec<_> = js_trim(&content).split('\n').collect();
-                        format!(
-                            "Recent file access:\n{}",
-                            lines[lines.len().saturating_sub(20)..].join("\n")
-                        )
-                    }
-                    Err(_) => "No access log found".into(),
-                };
-                ctx.ui()?.notify(&JsString::from(&message), Some(NotifyType::Info));
+                // Frozen tool-override.ts:135-142 catches reading AND the first notification.
+                let shown = (|| -> Result<(), pi_js_compat::callback_error::CallbackError> {
+                    let bytes = std::fs::read(encode_node_utf8(&log))?;
+                    let content = String::from_utf8_lossy(&bytes);
+                    let lines: Vec<_> = js_trim(&content).split('\n').collect();
+                    let message = format!(
+                        "Recent file access:\n{}",
+                        lines[lines.len().saturating_sub(20)..].join("\n")
+                    );
+                    ctx.ui()
+                        .map_err(pi_js_compat::callback_error::CallbackError::from)?
+                        .notify(&JsString::from(&message), Some(NotifyType::Info))
+                })();
+                if shown.is_err() {
+                    ctx.ui()?
+                        .notify(&JsString::from("No access log found"), Some(NotifyType::Info))?;
+                }
                 Ok(())
             })
         }),

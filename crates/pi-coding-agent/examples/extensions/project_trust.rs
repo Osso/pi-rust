@@ -17,7 +17,7 @@ pub fn project_trust_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         mode.as_str().unwrap()
                     ),
                     Some(NotifyType::Info),
-                );
+                )?;
                 let undecided = ProjectTrustEventResult {
                     trusted: ProjectTrustEventDecision::Undecided,
                     remember: None,
@@ -55,7 +55,7 @@ pub fn project_trust_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             || "No demo note entered".into(),
                             |n| js_format!("Recorded demo note: {}", n),
                         );
-                        ctx.ui.notify(&JsString::from(&message), Some(NotifyType::Info));
+                        ctx.ui.notify(&JsString::from(&message), Some(NotifyType::Info))?;
                         ProjectTrustEventResult {
                             trusted: ProjectTrustEventDecision::Yes,
                             remember: Some(true),
@@ -85,7 +85,7 @@ pub fn project_trust_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 ctx.ui()?.notify(
                     &js_format!("project-trust example loaded after trust resolution in {}", ctx.cwd()?),
                     Some(NotifyType::Info),
-                );
+                )?;
                 Ok(None)
             })
         },

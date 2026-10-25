@@ -626,9 +626,13 @@ impl ExtensionUiContext for RpcUiContext {
         })
     }
 
-    fn notify(&self, message: &JsString, notify_type: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        notify_type: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         let Some(state) = self.state() else {
-            return;
+            return Ok(());
         };
         output_ui_request(
             &state,
@@ -637,6 +641,7 @@ impl ExtensionUiContext for RpcUiContext {
                 notify_type,
             },
         );
+        Ok(())
     }
 
     fn set_status(&self, key: &JsString, text: Option<ExtensionStatus>) -> Result<(), CallbackError> {

@@ -44,7 +44,7 @@ pub fn auto_commit_on_exit_extension(pi: &ExtensionApi) -> Result<(), HandlerErr
                     ctx.ui()?.notify(
                         &JsString::from(format!("Auto-committed: {commit}")),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                 }
                 Ok(None)
             })

@@ -707,7 +707,7 @@ fn provider_config() -> ProviderConfigInput {
         base_url: Some(JsString::from("https://provider.test/v1")),
         api_key: Some(JsString::from("provider-test-key")),
         api: Some("openai-completions".to_owned()),
-        models: Some(vec![model]),
+        models: Some(vec![model.into()]),
         ..Default::default()
     }
 }
@@ -2286,7 +2286,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                         None,
                         command_handler(|_, ctx| {
                             Box::pin(async move {
-                                ctx.ui()?.notify(&JsString::from("late command ran"), None);
+                                ctx.ui()?.notify(&JsString::from("late command ran"), None)?;
                                 Ok(())
                             })
                         }),
@@ -2320,7 +2320,7 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                             as BoxFuture<'static, Result<Option<ApprovalReviewerResult>, HandlerError>>
                     }))?;
                     live.on_agent_start(h!(AgentStartEvent, |_event, ctx| {
-                        ctx.ui()?.notify(&JsString::from("late handler ran"), None);
+                        ctx.ui()?.notify(&JsString::from("late handler ran"), None)?;
                         Ok(None)
                     }))?;
                     Ok(())

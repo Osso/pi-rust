@@ -61,7 +61,7 @@ pub(crate) fn snake_extension_with_random(pi: &ExtensionApi, random: Random) -> 
                     ctx.ui()?.notify(
                         &JsString::from("Snake requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let entries = ctx.session_manager()?.lock().unwrap().get_entries();

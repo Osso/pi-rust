@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 use pi_coding_agent::core::event_bus::{EventBus, EventBusController, create_event_bus};
 use pi_js_compat::js_json::{JsString, JsValue};
 
-type Handler = Box<dyn Fn(&JsValue) -> Result<(), JsString> + Send + Sync>;
+type Handler = Box<dyn Fn(&JsValue) -> Result<(), pi_js_compat::callback_error::CallbackError> + Send + Sync>;
 
 fn recorder() -> (Arc<Mutex<Vec<String>>>, impl Fn(&'static str) -> Handler) {
     let calls = Arc::new(Mutex::new(Vec::new()));
@@ -81,7 +81,7 @@ fn one_failing_listener_does_not_stop_the_others() {
     let (calls, handler) = recorder();
     let _before = bus.on_handler(&JsString::from("reload:test"), handler("before"));
     let _failing = bus.on_handler(&JsString::from("reload:test"), |_| {
-        Err(JsString::from("handler exploded"))
+        Err(JsString::from("handler exploded").into())
     });
     let _after = bus.on_handler(&JsString::from("reload:test"), handler("after"));
 
@@ -90,7 +90,7 @@ fn one_failing_listener_does_not_stop_the_others() {
     assert_eq!(*calls.lock().unwrap(), vec!["before", "after"]);
     assert_eq!(errors.len(), 1);
     assert_eq!(errors[0].channel, "reload:test");
-    assert_eq!(errors[0].message, "handler exploded");
+    assert_eq!(errors[0].error.message, "handler exploded");
 }
 
 #[test]
@@ -134,7 +134,7 @@ fn channel_and_payload_keep_raw_utf16_units() {
     let sink = Arc::clone(&received);
     let _subscription = bus.on_handler(&channel, move |data: &JsValue| {
         sink.lock().unwrap().push(data.clone());
-        Err(JsString::from_utf16(vec![0x65, 0xdfff]))
+        Err(JsString::from_utf16(vec![0x65, 0xdfff]).into())
     });
     let payload = JsValue::object([("text", JsValue::String(JsString::from_utf16(vec![0xdc00, 0x61])))]);
 
@@ -149,7 +149,7 @@ fn channel_and_payload_keep_raw_utf16_units() {
 
     assert_eq!(*received.lock().unwrap(), vec![payload]);
     assert_eq!(errors[0].channel, channel);
-    assert_eq!(errors[0].message.units(), [0x65, 0xdfff]);
+    assert_eq!(errors[0].error.message.units(), [0x65, 0xdfff]);
 }
 
 #[tokio::test]
@@ -171,7 +171,7 @@ async fn request_claims_run_every_listener_and_last_assignment_wins() {
     let sink = calls.clone();
     bus.on_handler(&channel, move |_| {
         sink.lock().unwrap().push("ordinary");
-        Err(JsString::from_utf16(vec![0xdfff]))
+        Err(JsString::from_utf16(vec![0xdfff]).into())
     });
     let sink = calls.clone();
     bus.on_request(
@@ -196,8 +196,8 @@ async fn request_claims_run_every_listener_and_last_assignment_wins() {
     let errors = bus.emit_request(&channel, &mut request);
     assert_eq!(*calls.lock().unwrap(), ["first", "ordinary", "last", "unclaimed"]);
     assert_eq!(errors.len(), 2);
-    assert_eq!(errors[0].message.units(), [0xdfff]);
-    assert_eq!(errors[1].message, "claimed then threw");
+    assert_eq!(errors[0].error.message.units(), [0xdfff]);
+    assert_eq!(errors[1].error.message, "claimed then threw");
     assert_eq!(
         request.response.unwrap().await.unwrap(),
         JsValue::String(JsString::from_utf16(vec![0xd801]))

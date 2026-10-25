@@ -204,12 +204,12 @@ pub async fn handle_fast_command(
         ui.notify(
             &"Fast mode is controlled by the main thread".into(),
             Some(NotifyType::Warning),
-        );
+        )?;
         ui.set_editor_text(&JsString::default());
         return Ok(());
     }
     let Some(requested) = requested_fast_mode(args, authority.service_tier()) else {
-        ui.notify(&"Usage: /fast [on|off|ultra]".into(), Some(NotifyType::Warning));
+        ui.notify(&"Usage: /fast [on|off|ultra]".into(), Some(NotifyType::Warning))?;
         ui.set_editor_text(&JsString::default());
         return Ok(());
     };
@@ -219,7 +219,7 @@ pub async fn handle_fast_command(
         ui.notify(
             &"Fast mode requires openai-codex or openai-codex-gc".into(),
             Some(NotifyType::Warning),
-        );
+        )?;
         ui.set_editor_text(&JsString::default());
         return Ok(());
     }
@@ -233,7 +233,7 @@ pub async fn handle_fast_command(
     ui.notify(
         &format!("Fast mode: {}", fast_mode_label(authority.service_tier())).into(),
         Some(NotifyType::Info),
-    );
+    )?;
     ui.set_editor_text(&JsString::default());
     Ok(())
 }
@@ -303,7 +303,7 @@ pub fn codex_fast_extension(pi: &ExtensionApi, options: &CodexFastOptions) -> Re
                     ctx.ui()?.notify(
                         &"Fast mode skipped: provider payload is not an object".into(),
                         Some(NotifyType::Warning),
-                    );
+                    )?;
                     return Ok(None);
                 };
                 payload.insert(

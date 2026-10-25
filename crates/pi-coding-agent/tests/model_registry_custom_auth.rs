@@ -29,7 +29,7 @@ async fn custom_provider_key_propagates_only_after_frozen_registration_validatio
                     api: Some(model.api.clone()),
                     api_key: Some("private-fixture-key".into()),
                     base_url: has_base_url.then(|| model.base_url.clone()),
-                    models: Some(vec![model.clone()]),
+                    models: Some(vec![model.clone().into()]),
                     ..Default::default()
                 },
             )

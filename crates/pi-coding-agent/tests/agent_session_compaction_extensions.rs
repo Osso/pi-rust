@@ -2,6 +2,9 @@
 //! `core/agent-session.ts`: the `session_before_compact` preflight, the
 //! `compaction` provider event, and the background-cache `compaction` override.
 
+#[path = "support/oracle.rs"]
+mod callbacks_oracle;
+
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
 use std::sync::{Arc, Mutex};
@@ -233,6 +236,159 @@ fn compaction_entry(session: &AgentSession) -> SessionEntry {
         .into_iter()
         .find(|entry| entry.entry_type() == "compaction")
         .expect("compaction entry")
+}
+
+#[tokio::test]
+async fn extension_compact_callback_histories_match_actual_source_boundaries() {
+    use pi_js_compat::js_json as lossless_json;
+    let mut oracle = callbacks_oracle::TsOracle::spawn(
+        "extension-compact-callbacks-oracle.ts",
+        "packages/coding-agent/src/core/agent-session.ts",
+    );
+    let mut expected = Vec::new();
+    let mut actual = Vec::new();
+    for mode in ["success", "completeThrow", "errorThrow"] {
+        let response=oracle.request(&lossless_json!({"id":1,"mode":mode,"completeError":JsString::from_utf16(vec![0xd800]),"handlerError":JsString::from_utf16(vec![0xdfff])}));
+        assert_eq!(response["ok"], lossless_json!(true), "{response:?}");
+        expected.push(response["output"].clone());
+        if mode == "errorThrow" {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args(["--exact", "compact_callback_escape_probe", "--ignored", "--nocapture"])
+                .env("PI_COMPACT_CALLBACK_ESCAPE", "1")
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            let text = String::from_utf8(output.stdout).unwrap();
+            let record = text
+                .lines()
+                .find_map(|line| line.strip_prefix("COMPACT_EVENTS="))
+                .expect("child callback events");
+            actual.push(pi_js_compat::js_json::parse_lossless(record).unwrap());
+        } else {
+            actual.push(run_compact_callback_history(mode).await);
+        }
+    }
+    assert_eq!(lossless_json!(actual), lossless_json!(expected));
+}
+
+#[tokio::test]
+#[ignore = "explicit private child probe for the uncaught callback boundary"]
+async fn compact_callback_escape_probe() {
+    assert!(std::env::var_os("PI_COMPACT_CALLBACK_ESCAPE").is_some());
+    let events = run_compact_callback_history("errorThrow").await;
+    println!("COMPACT_EVENTS={}", pi_js_compat::js_json::stringify_lossless(&events));
+}
+
+fn callback_error_snapshot(error: &pi_js_compat::callback_error::CallbackError) -> JsValue {
+    use pi_js_compat::abort::AbortReason;
+    let reason = error.thrown_value();
+    let kind = if matches!(reason, AbortReason::Error(_) | AbortReason::DomException(_)) {
+        "error"
+    } else {
+        "value"
+    };
+    pi_js_compat::js_json!({"kind":kind,"value":reason.value()})
+}
+
+async fn run_compact_callback_history(mode: &str) -> JsValue {
+    use pi_coding_agent::core::extensions::types::CompactOptions;
+    use pi_js_compat::{
+        callback_error::CallbackError,
+        js_json as lossless_json,
+        node_error::{NativeErrorClass, NativeNodeError},
+    };
+    let mode = mode.to_owned();
+    let events = Arc::new(Mutex::new(Vec::<JsValue>::new()));
+    if mode == "errorThrow" {
+        let captured = events.clone();
+        pi_coding_agent::utils::uncaught::install_uncaught_handler();
+        pi_coding_agent::utils::uncaught::set_process_crash_handler(Some(Arc::new(move |payload| {
+            let error = payload
+                .downcast_ref::<CallbackError>()
+                .expect("original escaped callback");
+            captured
+                .lock()
+                .unwrap()
+                .push(lossless_json!(["unhandled", callback_error_snapshot(error)]));
+            println!(
+                "COMPACT_EVENTS={}",
+                pi_js_compat::js_json::stringify_lossless(&lossless_json!(captured.lock().unwrap().clone()))
+            );
+            std::process::exit(0);
+        })));
+    }
+    let producer = events.clone();
+    let env = env_with(
+        json!({"keepRecentTokens":1}),
+        None,
+        Some(Arc::new(move |event| {
+            producer
+                .lock()
+                .unwrap()
+                .push(lossless_json!(["produce", event.custom_instructions]));
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("callback summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    let completed = events.clone();
+    let failed = events.clone();
+    let complete_mode = mode.clone();
+    let complete_error = CallbackError::from(
+        NativeNodeError::from_constructor(NativeErrorClass::TypeError, JsString::from_utf16(vec![0xd800]))
+            .with_property("code", lossless_json!("E_COMPLETE")),
+    );
+    let handler_error = CallbackError::from(
+        NativeNodeError::from_constructor(NativeErrorClass::RangeError, JsString::from_utf16(vec![0xdfff]))
+            .with_property("code", lossless_json!("E_HANDLER")),
+    );
+    env.session
+        .extension_runner()
+        .create_context()
+        .compact(Some(CompactOptions {
+            custom_instructions: Some("callback instructions".into()),
+            on_complete: Some(Arc::new(move |result| {
+                completed
+                    .lock()
+                    .unwrap()
+                    .push(lossless_json!(["complete", result.summary]));
+                if complete_mode != "success" {
+                    return Err(complete_error.clone());
+                }
+                Ok(())
+            })),
+            on_error: Some(Arc::new(move |error| {
+                failed
+                    .lock()
+                    .unwrap()
+                    .push(lossless_json!(["error", callback_error_snapshot(error)]));
+                if mode == "errorThrow" {
+                    return Err(handler_error.clone());
+                }
+                Ok(())
+            })),
+        }))
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if env
+                .events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|event| matches!(event, AgentSessionEvent::CompactionEnd(_)))
+            {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("real compaction boundary");
+    let captured = events.lock().unwrap().clone();
+    lossless_json!(captured)
 }
 
 #[tokio::test]

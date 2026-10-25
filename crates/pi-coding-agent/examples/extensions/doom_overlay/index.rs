@@ -40,11 +40,11 @@ pub fn doom_overlay_extension(
                     ctx.ui()?.notify(
                         &JsString::from("DOOM requires interactive mode"),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let ui = ctx.ui()?;
-                ui.notify(&JsString::from("Loading DOOM..."), Some(NotifyType::Info));
+                ui.notify(&JsString::from("Loading DOOM..."), Some(NotifyType::Info))?;
                 let args = (&args).trim();
                 let wad = if args.is_empty() {
                     ensure_wad().await
@@ -55,14 +55,17 @@ pub fn doom_overlay_extension(
                     ui.notify(
                         &JsString::from("Failed to download DOOM WAD file. Check your internet connection."),
                         Some(NotifyType::Error),
-                    );
+                    )?;
                     return Ok(());
                 };
                 if let Err(error) = show_game(&*ui, &active, &load_engine, wad).await {
-                    ui.notify(
-                        &JsString::from(js_format!("Failed to load DOOM: Error: {}", error)),
-                        Some(NotifyType::Error),
-                    );
+                    // Frozen doom-overlay/index.ts:40-78 uses String(error) in this catch.
+                    let message = match error.thrown_value() {
+                        pi_js_compat::abort::AbortReason::Error(error)
+                        | pi_js_compat::abort::AbortReason::DomException(error) => error.string_value(),
+                        pi_js_compat::abort::AbortReason::Value(_) => error.error_or_string_message()?,
+                    };
+                    ui.notify(&js_format!("Failed to load DOOM: {}", message), Some(NotifyType::Error))?;
                     *active.lock().unwrap() = Active::default();
                 }
                 Ok(())
@@ -77,7 +80,7 @@ async fn show_game(
     active: &Mutex<Active>,
     load_engine: &LoadEngine,
     wad: JsString,
-) -> Result<(), JsString> {
+) -> Result<(), pi_js_compat::callback_error::CallbackError> {
     let existing = {
         let active = active.lock().unwrap();
         active
@@ -87,10 +90,10 @@ async fn show_game(
     };
     let resume = existing.is_some();
     let engine = if let Some(engine) = existing {
-        ui.notify(&JsString::from("Resuming DOOM..."), Some(NotifyType::Info));
+        ui.notify(&JsString::from("Resuming DOOM..."), Some(NotifyType::Info))?;
         engine
     } else {
-        ui.notify(&js_format!("Loading DOOM from {}...", wad), Some(NotifyType::Info));
+        ui.notify(&js_format!("Loading DOOM from {}...", wad), Some(NotifyType::Info))?;
         let engine = Arc::new(Mutex::new(load_engine(JsString::from(wad.clone())).await?));
         *active.lock().unwrap() = Active {
             engine: Some(engine.clone()),

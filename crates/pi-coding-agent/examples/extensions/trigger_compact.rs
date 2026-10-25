@@ -46,7 +46,7 @@ fn trigger_compaction(ctx: ExtensionContext, instructions: Option<JsString>) -> 
     let has_ui = ctx.has_ui()?;
     if has_ui {
         ctx.ui()?
-            .notify(&JsString::from("Compaction started"), Some(NotifyType::Info));
+            .notify(&JsString::from("Compaction started"), Some(NotifyType::Info))?;
     }
     let complete_ui = ctx.ui()?;
     let error_ui = complete_ui.clone();
@@ -54,13 +54,18 @@ fn trigger_compaction(ctx: ExtensionContext, instructions: Option<JsString>) -> 
         custom_instructions: instructions,
         on_complete: Some(Arc::new(move |_| {
             if has_ui {
-                complete_ui.notify(&JsString::from("Compaction completed"), Some(NotifyType::Info));
+                complete_ui.notify(&JsString::from("Compaction completed"), Some(NotifyType::Info))?;
             }
+            Ok(())
         })),
         on_error: Some(Arc::new(move |error| {
             if has_ui {
-                error_ui.notify(&js_format!("Compaction failed: {}", error), Some(NotifyType::Error));
+                error_ui.notify(
+                    &js_format!("Compaction failed: {}", error.message),
+                    Some(NotifyType::Error),
+                )?;
             }
+            Ok(())
         })),
     }))
 }

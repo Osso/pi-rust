@@ -119,12 +119,12 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     if js_trim(&conversation).is_empty() {
         if has_ui {
-            ui.notify(&JsString::from("No conversation text found"), Some(NotifyType::Warning));
+            ui.notify(&JsString::from("No conversation text found"), Some(NotifyType::Warning))?;
         }
         return Ok(());
     }
     if has_ui {
-        ui.notify(&JsString::from("Preparing summary..."), Some(NotifyType::Info));
+        ui.notify(&JsString::from("Preparing summary..."), Some(NotifyType::Info))?;
     }
     let registry = ctx.model_registry()?;
     let Some(model) = pi_ai::compat::get_model("openai", "gpt-5.2") else {
@@ -132,7 +132,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
             ui.notify(
                 &JsString::from("Model openai/gpt-5.2 not found"),
                 Some(NotifyType::Warning),
-            );
+            )?;
         }
         return Ok(());
     };
@@ -143,7 +143,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
     {
         pi_coding_agent::core::model_registry::ResolvedRequestAuth::Err { error } => {
             if has_ui {
-                ui.notify(&error, Some(NotifyType::Warning));
+                ui.notify(&error, Some(NotifyType::Warning))?;
             }
             return Ok(());
         }
@@ -154,7 +154,7 @@ async fn run_summary(ctx: ExtensionCommandContext) -> Result<(), HandlerError> {
                 ui.notify(
                     &JsString::from("No API key for openai/gpt-5.2"),
                     Some(NotifyType::Warning),
-                );
+                )?;
             }
             return Ok(());
         }

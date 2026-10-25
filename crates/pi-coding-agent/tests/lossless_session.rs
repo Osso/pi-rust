@@ -182,13 +182,19 @@ fn extension_notification_callback_receives_original_units() {
     #[derive(Default)]
     struct Notifications(Mutex<Vec<JsString>>);
     impl ExtensionUiContext for Notifications {
-        fn notify(&self, message: &JsString, _kind: Option<NotifyType>) {
+        fn notify(
+            &self,
+            message: &JsString,
+            _kind: Option<NotifyType>,
+        ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
             self.0.lock().unwrap().push(message.clone());
+            Ok(())
         }
     }
     let ui = Notifications::default();
     let message = JsString::from_utf16(vec![0xd800, 0x78, 0xdfff]);
-    ui.notify(&message, Some(NotifyType::Error));
+    ui.notify(&message, Some(NotifyType::Error))
+        .expect("notification callback");
     assert_eq!(*ui.0.lock().unwrap(), vec![message]);
 }
 

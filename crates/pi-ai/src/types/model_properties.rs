@@ -42,9 +42,13 @@ impl ModelProperties {
     pub fn serialize<S: Serializer, T: Serialize>(&self, fields: &T, serializer: S) -> Result<S::Ok, S::Error> {
         let wire = serde_json::to_string(fields).map_err(serde::ser::Error::custom)?;
         let value = js_json::parse_lossless(wire).map_err(serde::ser::Error::custom)?;
-        let JsValue::Object(mut known) = value else {
+        let JsValue::Object(known) = value else {
             return Err(serde::ser::Error::custom("model fields must serialize as an object"));
         };
+        JsValue::Object(self.reorder(known)).serialize(serializer)
+    }
+
+    pub(super) fn reorder(&self, mut known: JsObject) -> JsObject {
         let mut ordered = JsObject::new();
         for key in &self.order {
             if let Some(value) = known.shift_remove(key).or_else(|| self.extra.get(key).cloned()) {
@@ -52,6 +56,6 @@ impl ModelProperties {
             }
         }
         ordered.extend(known);
-        JsValue::Object(ordered).serialize(serializer)
+        ordered
     }
 }

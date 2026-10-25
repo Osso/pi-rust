@@ -90,7 +90,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                     ui.notify(
                         &JsString::from(format!("Working indicator: {}", current.lock().unwrap().description())),
                         Some(NotifyType::Info),
-                    );
+                    )?;
                     return Ok(());
                 }
                 let mode = match &next {
@@ -103,7 +103,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                         ui.notify(
                             &JsString::from("Usage: /working-indicator [dot|pulse|none|spinner|reset]"),
                             Some(NotifyType::Error),
-                        );
+                        )?;
                         return Ok(());
                     }
                 };
@@ -112,7 +112,7 @@ pub fn working_indicator_extension(pi: &ExtensionApi) -> Result<(), HandlerError
                 ui.notify(
                     &JsString::from(format!("Working indicator set to: {}", mode.description())),
                     Some(NotifyType::Info),
-                );
+                )?;
                 Ok(())
             })
         }),

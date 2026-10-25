@@ -53,6 +53,34 @@ impl ControlDbError {
         })
     }
 
+    fn from_sqlite_open(error: rusqlite::Error) -> Self {
+        let rusqlite::Error::SqliteFailure(failure, Some(message)) = error else {
+            return Self::from_sqlite(error);
+        };
+        // node:sqlite exposes SQLite's message, not rusqlite's added open-path suffix.
+        let message = if failure.code == ErrorCode::CannotOpen {
+            JsString::from("unable to open database file")
+        } else {
+            JsString::from(message)
+        };
+        let original = NativeNodeError::new("Error", message.clone())
+            .with_property(
+                "code",
+                pi_js_compat::js_json::JsValue::String("ERR_SQLITE_ERROR".into()),
+            )
+            .with_property(
+                "errcode",
+                pi_js_compat::js_json::JsValue::Number(f64::from(failure.extended_code)),
+            )
+            .with_property("errstr", pi_js_compat::js_json::JsValue::String(message.clone()));
+        Self {
+            message,
+            contention: matches!(failure.code, ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked),
+            config: None,
+            original: Some(original),
+        }
+    }
+
     fn from_sqlite(error: rusqlite::Error) -> Self {
         let contention = matches!(
             error.sqlite_error_code(),
@@ -116,12 +144,12 @@ impl From<rusqlite::Error> for ControlDbError {
 
 /// `createSqliteDatabase(path)`.
 pub fn create_sqlite_database(path: &str) -> Result<Connection, ControlDbError> {
-    Ok(Connection::open(path)?)
+    Connection::open(path).map_err(ControlDbError::from_sqlite_open)
 }
 
 /// `createReadOnlySqliteDatabase(path)`.
 pub fn create_read_only_sqlite_database(path: &str) -> Result<Connection, ControlDbError> {
-    Ok(Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?)
+    Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(ControlDbError::from_sqlite_open)
 }
 
 /// `configureReadOnlySqliteDatabase`.

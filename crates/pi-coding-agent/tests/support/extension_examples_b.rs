@@ -139,8 +139,13 @@ impl ExtensionUiContext for Ui {
     fn set_editor_text(&self, text: &JsString) {
         self.calls.lock().unwrap().push(json!(["editorText", text]));
     }
-    fn notify(&self, message: &JsString, level: Option<NotifyType>) {
+    fn notify(
+        &self,
+        message: &JsString,
+        level: Option<NotifyType>,
+    ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         self.calls.lock().unwrap().push(json!(["notify", message, level]));
+        Ok(())
     }
     fn select<'a>(
         &'a self,

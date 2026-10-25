@@ -101,10 +101,10 @@ pub fn custom_footer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                             subscription: Mutex::new(Some(subscription)),
                         })
                     })));
-                    ui.notify(&JsString::from("Custom footer enabled"), Some(NotifyType::Info));
+                    ui.notify(&JsString::from("Custom footer enabled"), Some(NotifyType::Info))?;
                 } else {
                     ui.set_footer(None);
-                    ui.notify(&JsString::from("Default footer restored"), Some(NotifyType::Info));
+                    ui.notify(&JsString::from("Default footer restored"), Some(NotifyType::Info))?;
                 }
                 Ok(())
             })
