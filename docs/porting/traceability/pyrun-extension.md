@@ -204,3 +204,10 @@ RED caught `createdAt` inserted by the shared DB writer at the end of the object
 source inserts it second. Native bridge now supplies it at the source position.
 `/tmp/bundled3-pyrun-bridge-both.log` is GREEN. Random IDs and wall-clock timestamps
 are normalized only after checking the persisted IDs correlate with their bodies.
+
+Index follow-up: actual frozen dispatcher resolves a metadata-only name from a
+nondefault context control DB; native previously omitted that DB and reported
+`No session found`. Context DB forwarding now matches, with real JSONL+SQLite
+RED/GREEN `/tmp/bundled3-pyrun-resume-{red,green}.log`. Empty optional session ID,
+code and executed prefix now follow JS truthiness. Exact rendered lines with
+blank leading output rows match frozen: `/tmp/bundled3-pyrun-render-{red,green}.log`.
