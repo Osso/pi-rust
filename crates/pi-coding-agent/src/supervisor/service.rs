@@ -120,7 +120,7 @@ pub fn build_supervisor_instruction_review_context(instructions: &JsString, time
     Context {
         system_prompt: Some(SUPERVISOR_INSTRUCTION_REVIEW_SYSTEM_PROMPT.into()),
         messages: vec![Message::User(UserMessage {
-            role: UserRole::User,
+            role: UserRole::Tag,
             content: UserContent::Text(instructions.clone()),
             input_source: None,
             provider_native: None,
