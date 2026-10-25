@@ -266,7 +266,18 @@ pub fn serialize_session_entry(entry: &SessionEntry) -> Result<String, Box<Nativ
 }
 
 /// Serialize a header or entry without projecting through scalar JSON.
+fn assert_non_null_record(entry: &FileEntry) -> Result<(), Box<NativeNodeError>> {
+    if matches!(entry, FileEntry::Json(value) if value.is_null()) {
+        return Err(Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            "Cannot read properties of null (reading 'type')",
+        )));
+    }
+    Ok(())
+}
+
 pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> Result<String, Box<NativeNodeError>> {
+    assert_non_null_record(entry)?;
     match entry {
         FileEntry::Header(header) => Ok(serde_json::to_string(header).expect("header serializes losslessly")),
         FileEntry::Entry(entry) => serialize_session_entry(entry),
@@ -497,6 +508,7 @@ fn cap_session_entries(entries: &[FileEntry]) -> Result<(Vec<FileEntry>, Vec<usi
     let mut capped_entries = Vec::with_capacity(entries.len());
     let mut changed_indexes = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
+        assert_non_null_record(entry).map_err(|error| error.message)?;
         let capped = match entry {
             FileEntry::Entry(entry) => {
                 let (truncated, changed) =

@@ -9,8 +9,9 @@ const manager = await import(pathToFileURL(join(root, "session-manager.ts")).hre
 
 type Request = { id: number; op: string; dir: string; text?: string; path?: string; advanceMtime?: number; entry?: unknown };
 function runRequest(request: Request): unknown {
-    if (request.op === "truncate") {
+    if (request.op === "truncate" || request.op === "serialize") {
         try {
+            if (request.op === "serialize") return { ok: true, line: tools.serializeSessionEntryForPersistence(request.entry) };
             return { ok: true, entry: tools.truncateToolResultForPersistence(request.entry) };
         } catch (error) {
             if (!(error instanceof Error)) throw error;

@@ -102,6 +102,31 @@ fn buffer_like_tool_identity_is_explicit_approved_gap_not_silent_omission() {
 }
 
 #[test]
+fn null_record_serializer_and_migration_throw_before_writing() {
+    use pi_coding_agent::core::session_manager::parse_session_entries;
+    use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
+    // Frozen session-tool-output.ts:217-219,355-357 access entry.type directly.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("null-record.jsonl");
+    let original = "{\"type\":\"session\",\"id\":\"fixture\"}\nnull\n";
+    std::fs::write(&path, original).unwrap();
+    let mut ts = oracle::TsOracle::spawn("storage-tool-output-oracle.mts", "packages/coding-agent/src/core");
+    let expected = ts.request(&json!({"id":1,"op":"serialize","entry":null}));
+    assert_eq!(expected["output"]["ok"], false);
+    let actual = match serialize_session_entry_for_persistence(&parse_session_entries("null").remove(0)) {
+        Ok(line) => json!({"ok":true,"line":line}),
+        Err(error) => json!({"ok":false,"error":error.value().to_serde().unwrap()}),
+    };
+    let source_report = ts.request(&json!({"id":2,"op":"migrate","dir":tmp.path()}));
+    assert_eq!(source_report["output"]["skippedErrorFiles"], 1);
+    let report = migrate_tool_result_session_files(&tmp.path().to_str().unwrap().into(), || 1792584000000);
+    let expected_pair = json!([expected["output"], source_report["output"]]);
+    let actual_pair = json!([actual, report_value(report)]);
+    assert_eq!(actual_pair, expected_pair);
+    assert_eq!(std::fs::read_to_string(path).unwrap(), original);
+}
+
+#[test]
 fn migration_reports_follow_frozen_directory_entry_order() {
     // Frozen session-tool-output.ts:215-238 iterates readdirSync entries in returned order.
     let tmp = tempfile::tempdir().unwrap();
