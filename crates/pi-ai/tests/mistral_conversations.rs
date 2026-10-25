@@ -1,9 +1,7 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use pi_ai::api::mistral_conversations::{
-    MistralOptions, MistralPromptMode, MistralReasoningEffort, MistralToolChoice, stream, stream_simple,
-};
+use pi_ai::api::mistral_conversations::{MistralOptions, MistralPromptMode, MistralToolChoice, stream, stream_simple};
 use pi_ai::request::{BoxFuture, CallbackError, Fetch, HttpBody, HttpRequest, HttpResponse, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, Context, Modality, Model, ModelCost, ModelCostRates,
@@ -212,7 +210,7 @@ async fn serializes_sdk_style_payloads_to_the_mistral_wire_format() {
     let mut options = options(fetch, "secret");
     options.stream.max_tokens = Some(123.0);
     options.prompt_mode = Some(MistralPromptMode::Reasoning);
-    options.reasoning_effort = Some(MistralReasoningEffort::High);
+    options.reasoning_effort = Some("high".into());
     options.tool_choice = Some(MistralToolChoice::Function {
         name: "lookup".to_owned(),
     });

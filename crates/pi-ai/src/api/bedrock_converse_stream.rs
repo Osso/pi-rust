@@ -10,7 +10,7 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue, encode_node_utf8};
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 
 use crate::api::bedrock_credentials::{env_credentials, profile_credentials, profile_name, profile_region};
 use crate::api::bedrock_eventstream::EventStreamDecoder;
@@ -437,7 +437,7 @@ fn build_command_input(
         input.insert("toolConfig".into(), tool_config);
     }
     if let Some(fields) = build_additional_model_request_fields(model, options) {
-        input.insert("additionalModelRequestFields".into(), fields.into());
+        input.insert("additionalModelRequestFields".into(), fields);
     }
     if let Some(metadata) = &options.request_metadata {
         input.insert("requestMetadata".into(), JsValue::from(Value::Object(metadata.clone())));
@@ -818,7 +818,8 @@ fn supports_native_xhigh_effort(model: &Model) -> bool {
         })
 }
 
-fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> String {
+// Frozen594-595 returns every mapped string via cast, without scalar projection.
+fn map_thinking_level_to_effort(model: &Model, level: Option<ThinkingLevel>) -> JsString {
     if level == Some(ThinkingLevel::Xhigh) && supports_native_xhigh_effort(model) {
         return "xhigh".into();
     }
@@ -856,7 +857,7 @@ fn supports_thinking_signature(model: &Model) -> bool {
     is_anthropic_claude_model(model)
 }
 
-fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions) -> Option<Value> {
+fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions) -> Option<JsValue> {
     let reasoning = options.reasoning?;
     if !model.reasoning {
         return None;
@@ -872,17 +873,20 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
     };
     let adaptive = supports_adaptive_thinking(&model.id, Some(&model.name));
 
-    let mut fields = Map::new();
+    let mut fields = JsObject::new();
     if adaptive {
-        let mut thinking = Map::new();
-        thinking.insert("type".to_owned(), json!("adaptive"));
+        let mut thinking = JsObject::new();
+        thinking.insert("type".into(), JsValue::String("adaptive".into()));
         if let Some(display) = display {
-            thinking.insert("display".to_owned(), json!(display));
+            thinking.insert("display".into(), json!(display).into());
         }
-        fields.insert("thinking".to_owned(), Value::Object(thinking));
+        fields.insert("thinking".into(), JsValue::Object(thinking));
         fields.insert(
-            "output_config".to_owned(),
-            json!({"effort": map_thinking_level_to_effort(model, Some(reasoning))}),
+            "output_config".into(),
+            object(vec![(
+                "effort",
+                JsValue::String(map_thinking_level_to_effort(model, Some(reasoning))),
+            )]),
         );
     } else {
         let level = match reasoning {
@@ -905,18 +909,21 @@ fn build_additional_model_request_fields(model: &Model, options: &BedrockOptions
                 _ => budgets.high,
             })
             .unwrap_or(default_budget);
-        let mut thinking = Map::new();
-        thinking.insert("type".to_owned(), json!("enabled"));
-        thinking.insert("budget_tokens".to_owned(), js_number_value(budget));
+        let mut thinking = JsObject::new();
+        thinking.insert("type".into(), JsValue::String("enabled".into()));
+        thinking.insert("budget_tokens".into(), js_number_value(budget).into());
         if let Some(display) = display {
-            thinking.insert("display".to_owned(), json!(display));
+            thinking.insert("display".into(), json!(display).into());
         }
-        fields.insert("thinking".to_owned(), Value::Object(thinking));
+        fields.insert("thinking".into(), JsValue::Object(thinking));
         if options.interleaved_thinking.unwrap_or(true) {
-            fields.insert("anthropic_beta".to_owned(), json!(["interleaved-thinking-2025-05-14"]));
+            fields.insert(
+                "anthropic_beta".into(),
+                json!(["interleaved-thinking-2025-05-14"]).into(),
+            );
         }
     }
-    Some(Value::Object(fields))
+    Some(JsValue::Object(fields))
 }
 
 fn is_gov_cloud_bedrock_target(model: &Model, options: &BedrockOptions) -> bool {

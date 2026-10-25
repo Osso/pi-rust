@@ -324,9 +324,9 @@ async fn model_registry_with(auth: Option<JsObject>) -> Arc<ModelRegistry> {
 
 pub fn test_model(reasoning: bool) -> Model {
     let mut thinking_level_map = pi_ai::types::ThinkingLevelMap::new();
-    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Xhigh, Some("xhigh".to_owned()));
-    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Max, Some("max".to_owned()));
-    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Ultra, Some("max".to_owned()));
+    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Xhigh, Some("xhigh".into()));
+    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Max, Some("max".into()));
+    thinking_level_map.insert(pi_ai::types::ModelThinkingLevel::Ultra, Some("max".into()));
     Model {
         properties: Default::default(),
         id: "reasoner".to_owned(),

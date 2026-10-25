@@ -56,6 +56,22 @@ fn configuration_cases() -> Vec<(&'static str, &'static str)> {
             r#"{"providers":{"openai":{"compat":{"openRouterRouting":{"only":["provider-one"],"max_price":{"prompt":"1.25"}},"chatTemplateKwargs":{"shared":"provider","providerOnly":true}},"modelOverrides":{"gpt-5.5":{"compat":{"openRouterRouting":{"order":["provider-two"],"max_price":{"completion":2}},"chatTemplateKwargs":{"shared":"model","modelOnly":null}}}}}}"#,
         ),
         (
+            "thinking-map-unknown-custom",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"unknown-thinking","thinkingLevelMap":{"unknownBefore":{"human":"\ud800"},"high":"high","unknownAfter":[1]}}]}}}"#,
+        ),
+        (
+            "thinking-map-unknown-override",
+            r#"{"providers":{"anthropic":{"modelOverrides":{"claude-opus-4-8":{"thinkingLevelMap":{"sourceOnly":"custom","high":null}}}}}}"#,
+        ),
+        (
+            "thinking-map-known-unit",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"known-thinking","thinkingLevelMap":{"high":"\ud800"}}]}}}"#,
+        ),
+        (
+            "thinking-map-known-rejects-number",
+            r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"invalid-thinking","thinkingLevelMap":{"high":0}}]}}}"#,
+        ),
+        (
             "compat-optional-union",
             r#"{"providers":{"local":{"api":"openai-completions","baseUrl":"https://fixture.invalid","models":[{"id":"optional-union","compat":{"supportsStore":null}}]}}}"#,
         ),
