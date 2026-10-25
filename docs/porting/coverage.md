@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 513, `gap` 21, `partial` 45, `todo` 107.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 514, `gap` 21, `partial` 45, `todo` 106.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -345,7 +345,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/goal/src/goal-objective.ts` | 14 | 0 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_objective.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-parsing.ts` | 77 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_parsing.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-presentation.ts` | 34 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_presentation.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
-| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 128 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_review_evidence.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_review_evidence.rs`; Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
+| `coding-agent/extensions/goal/src/goal-review-evidence.ts` | 128 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_review_evidence.rs` | Whole frozen controller: latest session request, blocking question answers, durable event prefix consumption and exact payload merges. Thirty frozen/native state-transition snapshots including raw UTF-16; [map](traceability/goal-review-evidence.md). |
 | `coding-agent/extensions/goal/src/goal-scheduling.ts` | 320 | 22 | todo | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_scheduling.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_scheduling.rs`; Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`. |
 | `coding-agent/extensions/goal/src/goal-state.ts` | 117 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_state.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/goal/src/goal-tool.ts` | 43 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/goal_tool.rs` | Behavioral `goal_extension`; differential `differential_goal_extension`; traceability `goal-extension.md`.; re-run vs 4f9e6f8a4 pending |
