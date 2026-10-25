@@ -126,10 +126,8 @@ fn parses_every_state_model_and_thinking_command() {
         parse(r#"{"type":"cycle_thinking_level"}"#).body,
         RpcCommandBody::CycleThinkingLevel
     );
-    assert_eq!(
-        parse(r#"{"type":"get_available_thinking_levels"}"#).body,
-        RpcCommandBody::GetAvailableThinkingLevels
-    );
+    // Frozen rpc-types.ts:20-79 has no available-thinking-level command.
+    assert!(serde_json::from_str::<RpcCommand>(r#"{"type":"get_available_thinking_levels"}"#).is_err());
 }
 
 #[test]

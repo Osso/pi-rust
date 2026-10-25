@@ -11,6 +11,11 @@ type Client = {
 	collectEvents(timeout: number): Promise<unknown[]>;
 	waitForIdle(timeout: number): Promise<void>;
 	prompt(message: string): Promise<void>;
+	setModel(provider: string, id: string): Promise<unknown>;
+	cycleModel(): Promise<unknown>;
+	getAvailableModels(): Promise<unknown>;
+	newSession(): Promise<unknown>;
+	getLastAssistantText(): Promise<unknown>;
 };
 type Api = {
 	RpcClient: new (options: {
@@ -18,7 +23,31 @@ type Api = {
 		env: Record<string, string>;
 	}) => Client;
 };
-type Request = { operation: "send" | "collect" | "idle"; reply: unknown };
+type Request = {
+	operation: "send" | "collect" | "idle" | "typed";
+	reply: unknown;
+	method?: "model" | "cycle" | "models" | "new" | "text";
+};
+
+async function sendTyped(
+	client: Client,
+	method: Request["method"],
+): Promise<unknown> {
+	switch (method) {
+		case "model":
+			return client.setModel("provider", "id");
+		case "cycle":
+			return client.cycleModel();
+		case "models":
+			return client.getAvailableModels();
+		case "new":
+			return client.newSession();
+		case "text":
+			return client.getLastAssistantText();
+		default:
+			throw new Error("unknown test method");
+	}
+}
 
 // Real private stdio child; no provider or network. Both clients run these exact bytes.
 const child = await readFile(
@@ -36,6 +65,8 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 	});
 	try {
 		await client.start();
+		if (request.operation === "typed")
+			return { ok: true, value: await sendTyped(client, request.method) };
 		if (request.operation === "send")
 			return { ok: true, value: await client.send({ type: "get_state" }) };
 		if (request.operation === "collect") {

@@ -14,7 +14,11 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use pi_agent_core::harness::ThinkingLevel;
-use pi_ai::types::{ImageContent, Model};
+use pi_ai::types::ImageContent;
+
+#[path = "rpc_client_models.rs"]
+mod model_records;
+pub use model_records::{ModelInfo, ModelReference};
 use pi_js_compat::js_json::{self, JsString, JsValue, encode_node_utf8};
 use rustix::process::Signal;
 use serde::Serialize;
@@ -74,7 +78,7 @@ pub struct CancelledResult {
 #[derive(Debug, Clone, PartialEq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CycleModelResult {
-    pub model: Model,
+    pub model: ModelReference,
     pub thinking_level: ThinkingLevel,
     pub is_scoped: bool,
 }
@@ -175,8 +179,8 @@ pub enum RpcClientError {
         command: String,
         message: String,
     },
-    MalformedResponse {
-        message: String,
+    TypeError {
+        message: JsString,
     },
     Serialize {
         message: String,
@@ -229,9 +233,7 @@ impl fmt::Display for RpcClientError {
             Self::InvalidData { command, message } => {
                 write!(formatter, "Invalid response data for {command}: {message}")
             }
-            Self::MalformedResponse { message } => {
-                write!(formatter, "Malformed response: {message}")
-            }
+            Self::TypeError { message } => formatter.write_str(&encode_node_utf8(message)),
             Self::Serialize { message } => write!(formatter, "Failed to serialize command: {message}"),
         }
     }
@@ -690,7 +692,7 @@ impl RpcClient {
         &self,
         provider: impl Into<String>,
         model_id: impl Into<String>,
-    ) -> Result<Model, RpcClientError> {
+    ) -> Result<ModelReference, RpcClientError> {
         let response = self
             .send(RpcCommandBody::SetModel {
                 provider: provider.into(),
@@ -705,10 +707,9 @@ impl RpcClient {
         response_data(response, "cycle_model")
     }
 
-    pub async fn get_available_models(&self) -> Result<Vec<Model>, RpcClientError> {
+    pub async fn get_available_models(&self) -> Result<Vec<ModelInfo>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetAvailableModels).await?;
-        let data: AvailableModels = response_data(response, "get_available_models")?;
-        Ok(data.models)
+        response_field_data(response, "get_available_models", "models")
     }
 
     pub async fn set_thinking_level(&self, level: ThinkingLevel) -> Result<(), RpcClientError> {
@@ -719,12 +720,6 @@ impl RpcClient {
     pub async fn cycle_thinking_level(&self) -> Result<Option<CycleThinkingLevelResult>, RpcClientError> {
         let response = self.send(RpcCommandBody::CycleThinkingLevel).await?;
         response_data(response, "cycle_thinking_level")
-    }
-
-    pub async fn get_available_thinking_levels(&self) -> Result<Vec<ThinkingLevel>, RpcClientError> {
-        let response = self.send(RpcCommandBody::GetAvailableThinkingLevels).await?;
-        let data: AvailableThinkingLevels = response_data(response, "get_available_thinking_levels")?;
-        Ok(data.levels)
     }
 
     pub async fn set_steering_mode(&self, mode: QueueMode) -> Result<(), RpcClientError> {
@@ -807,8 +802,7 @@ impl RpcClient {
 
     pub async fn get_fork_messages(&self) -> Result<Vec<ForkMessage>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetForkMessages).await?;
-        let data: ForkMessages = response_data(response, "get_fork_messages")?;
-        Ok(data.messages)
+        response_field_data(response, "get_fork_messages", "messages")
     }
 
     pub async fn get_entries(&self, since: Option<JsString>) -> Result<EntriesResult, RpcClientError> {
@@ -823,8 +817,7 @@ impl RpcClient {
 
     pub async fn get_last_assistant_text(&self) -> Result<Option<JsString>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetLastAssistantText).await?;
-        let data: LastAssistantText = response_data(response, "get_last_assistant_text")?;
-        Ok(data.text)
+        response_field_data(response, "get_last_assistant_text", "text")
     }
 
     pub async fn set_session_name(&self, name: impl Into<JsString>) -> Result<(), RpcClientError> {
@@ -834,14 +827,12 @@ impl RpcClient {
 
     pub async fn get_messages(&self) -> Result<Vec<pi_agent_core::agent::AgentMessage>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetMessages).await?;
-        let data: Messages = response_data(response, "get_messages")?;
-        Ok(data.messages)
+        response_field_data(response, "get_messages", "messages")
     }
 
     pub async fn get_commands(&self) -> Result<Vec<RpcSlashCommand>, RpcClientError> {
         let response = self.send(RpcCommandBody::GetCommands).await?;
-        let data: Commands = response_data(response, "get_commands")?;
-        Ok(data.commands)
+        response_field_data(response, "get_commands", "commands")
     }
 
     // =========================================================================
@@ -899,37 +890,6 @@ impl RpcClient {
     }
 }
 
-#[derive(serde::Deserialize)]
-struct AvailableModels {
-    models: Vec<Model>,
-}
-
-#[derive(serde::Deserialize)]
-struct AvailableThinkingLevels {
-    levels: Vec<ThinkingLevel>,
-}
-
-#[derive(serde::Deserialize)]
-struct ForkMessages {
-    messages: Vec<ForkMessage>,
-}
-
-#[derive(serde::Deserialize)]
-struct LastAssistantText {
-    #[serde(default)]
-    text: Option<JsString>,
-}
-
-#[derive(serde::Deserialize)]
-struct Messages {
-    messages: Vec<pi_agent_core::agent::AgentMessage>,
-}
-
-#[derive(serde::Deserialize)]
-struct Commands {
-    commands: Vec<RpcSlashCommand>,
-}
-
 struct EventCollector {
     receiver: mpsc::UnboundedReceiver<JsValue>,
     subscription: RpcEventSubscription,
@@ -980,23 +940,61 @@ fn is_final_agent_end(event: &JsValue) -> bool {
     event.get("type").and_then(JsValue::as_string) == Some(&"agent_end".into())
 }
 
-fn response_data<T: DeserializeOwned>(response: JsValue, command: &str) -> Result<T, RpcClientError> {
-    if !response.get("success").is_some_and(js_json::is_truthy) {
-        let message = match response.get("error") {
-            None => JsString::default(),
-            Some(value) => js_json::to_js_string(value).map_err(|message| RpcClientError::CommandFailed {
-                message: message.into(),
-            })?,
-        };
-        return Err(RpcClientError::CommandFailed { message });
+fn get_data(response: &JsValue) -> Result<Option<&JsValue>, RpcClientError> {
+    if response.get("success").is_some_and(js_json::is_truthy) {
+        return Ok(response.get("data"));
     }
-    let data = response.get("data").ok_or_else(|| RpcClientError::MissingData {
+    let message = match response.get("error") {
+        None => JsString::default(),
+        Some(value) => js_json::to_js_string(value).map_err(|message| RpcClientError::TypeError {
+            message: message.into(),
+        })?,
+    };
+    Err(RpcClientError::CommandFailed { message })
+}
+
+fn response_data<T: DeserializeOwned + Serialize>(response: JsValue, command: &str) -> Result<T, RpcClientError> {
+    decode_data(get_data(&response)?, command)
+}
+
+fn response_field_data<T: DeserializeOwned + Serialize>(
+    response: JsValue,
+    command: &str,
+    field: &str,
+) -> Result<T, RpcClientError> {
+    let data = get_data(&response)?;
+    let absent = match data {
+        None => Some("undefined"),
+        Some(JsValue::Null) => Some("null"),
+        _ => None,
+    };
+    if let Some(absent) = absent {
+        return Err(RpcClientError::TypeError {
+            message: format!("Cannot read properties of {absent} (reading '{field}')").into(),
+        });
+    }
+    decode_data(data.and_then(|data| data.get(field)), command)
+}
+
+fn decode_data<T: DeserializeOwned + Serialize>(data: Option<&JsValue>, command: &str) -> Result<T, RpcClientError> {
+    let data = data.ok_or_else(|| RpcClientError::MissingData {
         command: command.to_owned(),
     })?;
-    js_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
+    let value: T = js_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
         command: command.to_owned(),
         message: error.to_string(),
-    })
+    })?;
+    let encoded = js_json::to_value(&value).map_err(|error| RpcClientError::InvalidData {
+        command: command.to_owned(),
+        message: error.to_string(),
+    })?;
+    if &encoded != data {
+        return Err(RpcClientError::InvalidData {
+            command: command.to_owned(),
+            message: "declared return type cannot preserve this response value".to_owned(),
+        });
+    }
+    Ok(value)
 }
 
 fn process_exit_error(exit: ExitInfo, stderr: &str) -> RpcClientError {

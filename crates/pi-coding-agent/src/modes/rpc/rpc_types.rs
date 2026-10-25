@@ -66,7 +66,6 @@ pub enum RpcCommandBody {
         level: ThinkingLevel,
     },
     CycleThinkingLevel,
-    GetAvailableThinkingLevels,
 
     // Queue modes
     SetSteeringMode {
@@ -185,7 +184,6 @@ fn decode_command_body(value: &JsValue) -> Result<RpcCommandBody, String> {
             level: command_field(value, "level")?,
         },
         "cycle_thinking_level" => Body::CycleThinkingLevel,
-        "get_available_thinking_levels" => Body::GetAvailableThinkingLevels,
         "set_steering_mode" => Body::SetSteeringMode {
             mode: command_field(value, "mode")?,
         },
@@ -249,7 +247,6 @@ impl RpcCommandBody {
             Self::GetAvailableModels => "get_available_models",
             Self::SetThinkingLevel { .. } => "set_thinking_level",
             Self::CycleThinkingLevel => "cycle_thinking_level",
-            Self::GetAvailableThinkingLevels => "get_available_thinking_levels",
             Self::SetSteeringMode { .. } => "set_steering_mode",
             Self::SetFollowUpMode { .. } => "set_follow_up_mode",
             Self::Compact { .. } => "compact",
@@ -403,7 +400,7 @@ pub fn is_known_command_type(name: &str) -> bool {
 }
 
 /// Every `RpcCommand["type"]` discriminator in declaration order.
-pub const COMMAND_TYPES: [&str; 33] = [
+pub const COMMAND_TYPES: [&str; 32] = [
     "prompt",
     "steer",
     "follow_up",
@@ -416,7 +413,6 @@ pub const COMMAND_TYPES: [&str; 33] = [
     "get_available_models",
     "set_thinking_level",
     "cycle_thinking_level",
-    "get_available_thinking_levels",
     "set_steering_mode",
     "set_follow_up_mode",
     "compact",

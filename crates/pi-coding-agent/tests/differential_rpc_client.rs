@@ -1,7 +1,7 @@
 #[path = "support/oracle.rs"]
 mod oracle;
 
-use pi_coding_agent::modes::rpc::{RpcClient, RpcClientOptions, RpcCommandBody};
+use pi_coding_agent::modes::rpc::{RpcClient, RpcClientError, RpcClientOptions, RpcCommandBody};
 use pi_js_compat::js_json::{self, JsValue};
 use std::time::Duration;
 
@@ -22,7 +22,36 @@ async fn native(request: &JsValue) -> JsValue {
     );
     let client = RpcClient::new(options);
     client.start().await.unwrap();
-    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"send".into()) {
+    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"typed".into()) {
+        match request
+            .get("method")
+            .and_then(JsValue::as_string)
+            .and_then(|s| s.to_utf8().ok())
+            .as_deref()
+        {
+            Some("model") => client
+                .set_model("provider", "id")
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("cycle") => client
+                .cycle_model()
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("models") => client
+                .get_available_models()
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("new") => client
+                .new_session(None)
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("text") => client
+                .get_last_assistant_text()
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            _ => panic!("unknown fixture method"),
+        }
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"send".into()) {
         client
             .send(RpcCommandBody::GetState)
             .await
@@ -38,7 +67,53 @@ async fn native(request: &JsValue) -> JsValue {
     client.stop().await.unwrap();
     match result {
         Ok(value) => value,
+        Err(RpcClientError::CommandFailed { message }) => {
+            pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":message}})
+        }
+        Err(RpcClientError::TypeError { message }) => {
+            pi_js_compat::js_json!({"ok":false,"error":{"name":"TypeError","message":message}})
+        }
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_accepts_declared_model_shapes_without_requiring_full_models() {
+    // Frozen client :262-288 and :46-51 declare reference/info shapes, not full Models.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for (method, data) in [
+        (
+            "model",
+            r#"{"extra":"\ud800","id":"i\udfff","provider":"p\ud800","tail":{"raw":17}}"#,
+        ),
+        (
+            "cycle",
+            r#"{"model":{"id":"i","unknown":false,"provider":"p"},"thinkingLevel":"high","isScoped":true}"#,
+        ),
+        (
+            "models",
+            r#"{"models":[{"contextWindow":4096.5,"extra":"\ud800","reasoning":true,"provider":"p","id":"i"}]}"#,
+        ),
+    ] {
+        let request = pi_js_compat::js_json!({"operation":"typed","method":method,"reply":{"type":"response","command":"unused","success":true,"data":js_json::parse_lossless(data).unwrap()}});
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected, "{method}");
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_error_construction_follows_external_success_truthiness() {
+    // Frozen :631-639 uses Boolean(success), then new Error(error), not DTO bool/string parsing.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for reply in [
+        r#"{"type":"response","success":[],"data":{"cancelled":true}}"#,
+        r#"{"type":"response","success":false,"error":null}"#,
+        r#"{"type":"response","success":0,"error":["a",null,"\ud800"]}"#,
+        r#"{"type":"response","success":false,"error":{"toString":0}}"#,
+    ] {
+        let request = pi_js_compat::js_json!({"operation":"typed","method":"new","reply":js_json::parse_lossless(reply).unwrap()});
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected, "{reply}");
     }
 }
 

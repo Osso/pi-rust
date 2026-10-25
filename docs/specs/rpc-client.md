@@ -18,7 +18,8 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 ## Implementation inventory
 
 - `crates/pi-coding-agent/src/modes/rpc/rpc_client.rs`: private child, correlation, events and typed getters.
-- `crates/pi-coding-agent/src/modes/rpc/rpc_types.rs`: native declared wire records.
+- `crates/pi-coding-agent/src/modes/rpc/rpc_types.rs`: native declared wire records; the old-only available-thinking-level query is excluded.
+- `crates/pi-coding-agent/src/modes/rpc/rpc_client_models.rs`: declared ModelReference/ModelInfo fields plus raw ordered extras.
 - `crates/pi-ai/src/types/model_properties.rs`: shared raw-property/order authority; decode/serialize visibility only is approved for client records.
 
 ## Tests asserting this spec
@@ -30,7 +31,7 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 ## Known gaps (current cycle)
 
 - [ ] Whole-module revalidation is in progress; pre-repin proof is not current acceptance.
-- [ ] Main approved explicit Result errors where an external value cannot inhabit a declared getter type. Enumerate each getter and rejected field in traceability; frozen unchecked casts can return such mistyped values.
+- [ ] Main approved explicit Result errors where an external value cannot inhabit a declared getter type, including foreign-server extras that no frozen server emits. Each native decoding must preserve its parsed value on reserialization or reject explicitly. This does not permit rejecting any actual frozen-server response; cross-process getter proof must cover those. Enumerate each getter and rejected field in traceability; frozen unchecked casts can return such mistyped values.
 
 ## Out of scope
 
