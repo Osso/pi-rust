@@ -86,15 +86,15 @@ Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](trace
 
 ## Interleaved event display checkpoint
 
-The bounded [event-display contract](../specs/interactive-event-display.md) now has twelve actual-source/native event steps and24 complete three-surface frames at widths25/120. RED reproduces premature tool rows/final-order changes, empty retry/compaction truthiness errors and missing provider retry/fallback details. GREEN preserves complete UTF-16 frames and terminal-progress calls. This does not close the event table or message replay.
+`689fc1a50`: the bounded [event-display contract](../specs/interactive-event-display.md) now has twelve actual-source/native event steps and24 complete three-surface frames at widths25/120. RED reproduces premature tool rows/final-order changes, empty retry/compaction truthiness errors and missing provider retry/fallback details. GREEN preserves complete UTF-16 frames and terminal-progress calls. This does not close the event table or message replay.
 
-| Command / current event patch | Result | Artifact |
+| Command / Rust scope `689fc1a50` | Result | Artifact |
 |---|---|---|
 | Focused interactive lib `interleaved_text_tool_and_retry_compaction_frames_match_frozen` | 1/1, twelve steps at both widths | `event-frames-final.log`; earlier `event-frames-red-expanded.log` |
 | `cargo check -j3 --workspace --all-targets --message-format=json` | PASS before commit | `event-workspace.log` |
 | `cargo fmt --all --check`; source inventory | PASS;686/186679;634 done/25 gap/18 partial/9 todo | Current checkpoint |
 
-Strict TS passed on the unmodified common pin with the approved target/lib ES2024. Final post-commit type/style/clippy/readability proof is recorded after the code checkpoint. No carrier, dependency, TS delta or adjacent lane algorithm changes.
+Post-commit strict TS and Biome pass on the unmodified common pin with the approved target/lib ES2024 (`event-{typecheck,biome}-final.log`). Scoped interactive lib/tests clippy passes with100 existing diagnostics and zero changed-line primary findings (`event-clippy*`). Manual changed-line Rust/TS readability audit is complete; the optional metric binary is not installed. The new formatter is a short pure function; sequential event capture remains ordered. Source changes invalidate this proof; documentation-only changes do not. No carrier, dependency, TS delta or adjacent lane algorithm changes.
 
 ## Next work
 
