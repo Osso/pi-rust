@@ -64,7 +64,6 @@ fn assistant(text: &str, usage: Usage) -> AgentMessage {
         usage,
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 0.0,
     }))
 }
@@ -246,19 +245,20 @@ fn estimates_message_tokens_with_chars_over_four() {
 #[test]
 fn decides_compaction_from_settings_and_explicit_threshold() {
     let settings = CompactionSettings {
+        threshold_percent: None,
         enabled: true,
         reserve_tokens: 10_000.0,
         keep_recent_tokens: 20_000.0,
     };
-    assert!(should_compact(95_000.0, 100_000.0, &settings, None));
-    assert!(!should_compact(89_000.0, 100_000.0, &settings, None));
-    assert!(!should_compact(271_999.0, 372_000.0, &settings, Some(272_000.0)));
-    assert!(should_compact(272_000.0, 372_000.0, &settings, Some(272_000.0)));
+    assert!(should_compact(95_000.0, 100_000.0, &settings, None).unwrap());
+    assert!(!should_compact(89_000.0, 100_000.0, &settings, None).unwrap());
+    assert!(!should_compact(271_999.0, 372_000.0, &settings, Some(272_000.0)).unwrap());
+    assert!(should_compact(272_000.0, 372_000.0, &settings, Some(272_000.0)).unwrap());
     let disabled = CompactionSettings {
         enabled: false,
         ..settings
     };
-    assert!(!should_compact(95_000.0, 100_000.0, &disabled, None));
+    assert!(!should_compact(95_000.0, 100_000.0, &disabled, None).unwrap());
 }
 
 #[test]
@@ -346,8 +346,6 @@ fn retains_latest_user_when_active_tool_suffix_exceeds_token_cap() {
             "x".repeat(40_000),
         ))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 0.0,
     }));
@@ -444,7 +442,7 @@ fn indicates_split_turn_when_cutting_at_assistant_message() {
 }
 
 #[test]
-fn budgets_context_visible_custom_message_entries() {
+fn protected_suffix_ignores_old_budget_for_context_visible_custom_message_entries() {
     let mut builder = EntryBuilder::new();
     let entries = vec![
         builder.message(&user("hi")),
@@ -454,14 +452,15 @@ fn budgets_context_visible_custom_message_entries() {
     ];
 
     let tiny = find_cut_point(&entries, 0, entries.len(), 1.0);
-    assert_eq!(tiny.first_kept_entry_index, 3);
+    assert_eq!(tiny.first_kept_entry_index, 1);
     assert!(tiny.is_split_turn);
-    assert_eq!(tiny.turn_start_index, 2);
+    assert_eq!(tiny.turn_start_index, 0);
 
     let fits = find_cut_point(&entries, 0, entries.len(), 2.0);
-    assert_eq!(fits.first_kept_entry_index, 2);
-    assert!(!fits.is_split_turn);
-    assert_eq!(fits.turn_start_index, -1);
+    assert_eq!(fits.first_kept_entry_index, 1);
+    assert!(fits.is_split_turn);
+    assert_eq!(fits.turn_start_index, 0);
+    assert_eq!(tiny, fits);
 }
 
 #[test]

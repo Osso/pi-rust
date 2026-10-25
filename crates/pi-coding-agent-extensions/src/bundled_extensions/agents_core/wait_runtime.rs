@@ -213,7 +213,12 @@ impl WaitAgentsWakeWatcher {
 
     fn reconcile_dead_detached_runtimes(&self) -> Option<WaitNotificationsWake> {
         let now_iso = crate::utils::iso_time::now_iso_string();
-        match LifecycleCoordinator::reconcile_dead_detached_runtimes(&self.control_db_path, &now_iso) {
+        let artifact_root = super::runtime::artifact_root_for_store(&self.store);
+        match LifecycleCoordinator::reconcile_dead_detached_runtimes(
+            &self.control_db_path,
+            &now_iso,
+            artifact_root.as_ref(),
+        ) {
             Ok(0) => None,
             Ok(_) => {
                 let claim_id = match pi_ai::utils::random_uuid::random_uuid() {
@@ -223,7 +228,7 @@ impl WaitAgentsWakeWatcher {
                 // Frozen runtime.ts:2244-2253 reuses this reconciliation's nowIso.
                 let outbox_now = now_iso.clone();
                 if let Err(error) = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
-                    artifact_root: None,
+                    artifact_root,
                     claim_id: claim_id.into(),
                     control_db_path: self.control_db_path.clone(),
                     now: Arc::new(move || Ok(outbox_now.clone().into())),

@@ -12,12 +12,11 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use pi_js_compat::abort::AbortSignal;
-use serde_json::Value;
 
 use crate::types::{AssistantMessage, AssistantMessageEvent, ErrorReason, StopReason};
 use crate::types::{
-    CacheRetention, Context, DeferredHandle, ImagesContext, ImagesModel, JsonObject, Model, ProviderEnv,
-    ProviderHeaders, ProviderResponse, ProviderRetryEvent, ThinkingBudgets, ThinkingLevel, Transport,
+    CacheRetention, Context, ImagesContext, ImagesModel, JsonObject, Model, ProviderEnv, ProviderHeaders,
+    ProviderResponse, ProviderRetryEvent, ThinkingBudgets, ThinkingLevel, Transport,
 };
 use crate::utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream};
 
@@ -130,6 +129,8 @@ pub struct ProviderRequestOptions {
 /// `StreamOptions` plus the untyped API-specific remainder.
 #[derive(Clone, Default)]
 pub struct StreamOptions {
+    /// Caller working directory for local/subprocess providers, never a server payload field.
+    pub cwd: Option<JsString>,
     pub request: ProviderRequestOptions,
     pub temperature: Option<f64>,
     /// Merged into OpenAI-compatible request bodies after named fields.
@@ -146,53 +147,17 @@ pub struct StreamOptions {
     pub extra: JsonObject,
 }
 
-/// `deferred?: boolean | { window?: "15m" | "1h" | "24h" }`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeferredRequest {
-    Disabled,
-    Enabled { window: Option<DeferredWindow> },
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DeferredWindow {
-    Minutes15,
-    Hour1,
-    Hours24,
-}
-
-impl DeferredWindow {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Minutes15 => "15m",
-            Self::Hour1 => "1h",
-            Self::Hours24 => "24h",
-        }
-    }
-}
-
 /// `SimpleStreamOptions`: unified reasoning options for `streamSimple()`.
 #[derive(Clone, Default)]
 pub struct SimpleStreamOptions {
     pub stream: StreamOptions,
     pub reasoning: Option<ThinkingLevel>,
-    pub deferred: Option<DeferredRequest>,
     pub thinking_budgets: Option<ThinkingBudgets>,
 }
 
-/// `DeferredFetchOptions`.
-#[derive(Clone, Default)]
-pub struct DeferredFetchOptions {
-    pub request: ProviderRequestOptions,
-    /// Maximum long-poll duration in ms; default 0 performs one status check.
-    pub wait: Option<f64>,
-}
-
-/// `DeferredCancelOptions`.
-pub type DeferredCancelOptions = ProviderRequestOptions;
-
 /// `onPayload(payload, model)` for image requests.
 pub type ImagesOnPayload =
-    Arc<dyn Fn(Value, ImagesModel) -> BoxFuture<'static, Result<Option<Value>, CallbackError>> + Send + Sync>;
+    Arc<dyn Fn(JsValue, ImagesModel) -> BoxFuture<'static, Result<Option<JsValue>, CallbackError>> + Send + Sync>;
 /// `onResponse(response, model)` for image requests.
 pub type ImagesOnResponse =
     Arc<dyn Fn(ProviderResponse, ImagesModel) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
@@ -246,34 +211,6 @@ pub trait ProviderStreams: Send + Sync {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, CallbackError>;
-
-    /// Whether `fetch_deferred` exists (method presence in TS).
-    fn supports_fetch_deferred(&self) -> bool {
-        false
-    }
-
-    fn fetch_deferred(
-        &self,
-        model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredFetchOptions,
-    ) -> AssistantMessageEventStream {
-        error_stream(&model, "API does not support deferred responses")
-    }
-
-    /// Whether `cancel_deferred` exists (method presence in TS).
-    fn supports_cancel_deferred(&self) -> bool {
-        false
-    }
-
-    fn cancel_deferred(
-        &self,
-        _model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredCancelOptions,
-    ) -> BoxFuture<'_, Result<(), CallbackError>> {
-        Box::pin(async { Err(CallbackError::new("API cannot cancel deferred responses")) })
-    }
 }
 
 /// `ProviderImages`: image-generation API contract.

@@ -106,6 +106,8 @@ async fn run_hook_process(command: &str, input: &Value, timeout_ms: u64) -> Resu
     let child = Command::new(command)
         .arg("--harness")
         .arg("codex")
+        .env_clear()
+        .envs(pi_js_compat::process_env::vars())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -119,20 +121,37 @@ async fn run_hook_process(command: &str, input: &Value, timeout_ms: u64) -> Resu
                 stderr: String::new(),
             });
         }
-        Err(error) => return Err(HandlerError::new(error.to_string())),
+        Err(error) => {
+            return Err(HandlerError::new(
+                crate::utils::child_process::node_spawn_error_message("spawn", &command.into(), &error),
+            ));
+        }
     };
-    if let Some(mut stdin) = child.stdin.take() {
-        let body = serde_json::to_vec(input).expect("hook input serializes");
-        stdin
-            .write_all(&body)
-            .await
-            .map_err(|error| HandlerError::new(error.to_string()))?;
-        drop(stdin);
-    }
-    let output = match tokio::time::timeout(Duration::from_millis(timeout_ms), child.wait_with_output()).await {
+    let pid = child.id().and_then(|id| rustix::process::Pid::from_raw(id as i32));
+    let body = js_json::stringify_lossless(input).into_bytes();
+    let mut output = Box::pin(async move {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin.write_all(&body).await?;
+        }
+        child.wait_with_output().await
+    });
+    let output = match tokio::time::timeout(Duration::from_millis(timeout_ms), &mut output).await {
         Ok(Ok(output)) => output,
         Ok(Err(error)) => return Err(HandlerError::new(error.to_string())),
-        Err(_) => return Err(HandlerError::new("claude-bash-hook timed out")),
+        Err(_) => {
+            if let Some(pid) = pid {
+                match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+                    Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+                    Err(error) => return Err(HandlerError::new(error.to_string())),
+                }
+            }
+            tokio::spawn(async move {
+                if let Err(error) = output.await {
+                    eprintln!("claude-bash-hook: {error}");
+                }
+            });
+            return Err(HandlerError::new("The operation was aborted"));
+        }
     };
     Ok(HookProcessResult {
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -200,6 +219,14 @@ fn to_reviewer_result(result: ClaudeBashHookReviewResult) -> Option<ApprovalRevi
 
 /// Bundled `claude-bash-hook` extension.
 pub fn claude_bash_hook_extension(pi: &ExtensionApi, options: &ClaudeBashHookOptions) -> Result<(), HandlerError> {
+    let Some(command) = read_claude_bash_hook_command(options) else {
+        return Ok(());
+    };
+    let available = crate::utils::executable::is_executable_available(&command.into(), &Default::default())
+        .map_err(|error| HandlerError::from(*error))?;
+    if !available {
+        return Ok(());
+    }
     let options = options.clone();
     pi.register_approval_reviewer(Arc::new(
         move |event: ToolCallEvent,

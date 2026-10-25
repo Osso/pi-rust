@@ -25,7 +25,6 @@ use crate::core::session_directory::{
     BroadcastSessionFilters, BroadcastSessionsInput, SessionDirectoryOptions, broadcast_to_sessions,
 };
 use crate::core::session_health::{SessionBroadcastOutcome, SessionBroadcastResult, SessionLiveStatus};
-use crate::core::session_manager::lock_session_manager;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 pub const NAME: &str = "broadcast";
@@ -188,7 +187,7 @@ impl ContextTool<Option<ExtensionContext>> for BroadcastTool {
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
             let (session_id, session_path) = {
-                let manager = lock_session_manager(&session);
+                let manager = session;
                 let session_path = manager
                     .get_session_file()
                     .ok_or_else(|| ToolError::new("broadcast requires a persisted session file"))?

@@ -10,7 +10,6 @@ async fn empty_options_down_enter_are_no_ops_and_escape_cancels() {
         "questionnaire",
         example::questionnaire_extension,
         json!({
-            "postPin":true,
             "params":{"questions":[{"id":"none","prompt":"No choices","options":[],"allowOther":false}]},
             "widths":[24,40],
             "steps":[{"input":"\x1b[B"},{"input":"\r"},{"input":"\x1b"}]

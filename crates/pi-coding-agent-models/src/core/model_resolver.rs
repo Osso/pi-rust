@@ -18,6 +18,7 @@ use pi_js_compat::{
 use crate::cli::args::is_valid_thinking_level;
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
 use crate::core::model_registry::ModelRegistry;
+use crate::utils::chalk::Chalk;
 
 /// Default model IDs for each known provider.
 pub const DEFAULT_MODEL_PER_PROVIDER: &[(&str, &str)] = &[
@@ -415,7 +416,8 @@ pub async fn resolve_model_scope(
 ) -> Result<Vec<ScopedModel>, NativeNodeError> {
     let result = resolve_model_scope_with_diagnostics(patterns, registry).await?;
     for diagnostic in &result.diagnostics {
-        eprintln!("{}", encode_node_utf8(&js_format!("Warning: {}", diagnostic.message)));
+        let message = Chalk::stdout().yellow(js_format!("Warning: {}", diagnostic.message));
+        eprintln!("{}", encode_node_utf8(&message));
     }
     Ok(result.scoped_models)
 }
@@ -680,7 +682,10 @@ pub async fn find_initial_model(
     options: &FindInitialModelOptions,
     registry: &dyn ModelResolverRegistry,
 ) -> Result<InitialModelResult, NativeNodeError> {
-    if let (Some(cli_provider), Some(cli_model)) = (&options.cli_provider, &options.cli_model) {
+    if let (Some(cli_provider), Some(cli_model)) = (
+        options.cli_provider.as_ref().filter(|provider| !provider.is_empty()),
+        options.cli_model.as_ref().filter(|model| !model.is_empty()),
+    ) {
         let resolved = resolve_cli_model(
             &ResolveCliModelOptions {
                 cli_provider: Some(cli_provider.clone()),
@@ -753,6 +758,11 @@ fn preferred_available_model(available: &[Model]) -> Option<Model> {
     available.first().cloned()
 }
 
+fn print_dimmed_model(prefix: &str, provider: &str, id: &str) {
+    let message = Chalk::stdout().dim(format!("{prefix}: {provider}/{id}"));
+    println!("{}", encode_node_utf8(&message));
+}
+
 /// Restores a model from session state, falling back to an available model.
 pub async fn restore_model_from_session(
     saved_provider: &str,
@@ -770,7 +780,7 @@ pub async fn restore_model_from_session(
         && has_configured_auth
     {
         if should_print_messages {
-            eprintln!("Restored model: {saved_provider}/{saved_model_id}");
+            print_dimmed_model("Restored model", saved_provider, saved_model_id);
         }
         return Ok((Some(model.clone()), None));
     }
@@ -781,11 +791,14 @@ pub async fn restore_model_from_session(
         "no auth configured"
     };
     if should_print_messages {
-        eprintln!("Warning: Could not restore model {saved_provider}/{saved_model_id} ({reason}).");
+        let message = Chalk::stdout().yellow(format!(
+            "Warning: Could not restore model {saved_provider}/{saved_model_id} ({reason})."
+        ));
+        eprintln!("{}", encode_node_utf8(&message));
     }
     if let Some(current) = current_model {
         if should_print_messages {
-            eprintln!("Falling back to: {}/{}", current.provider, current.id);
+            print_dimmed_model("Falling back to", &current.provider, &current.id);
         }
         return Ok((
             Some(current.clone()),
@@ -803,7 +816,7 @@ pub async fn restore_model_from_session(
     let available = registry.get_available()?;
     if let Some(model) = preferred_available_model(&available) {
         if should_print_messages {
-            eprintln!("Falling back to: {}/{}", model.provider, model.id);
+            print_dimmed_model("Falling back to", &model.provider, &model.id);
         }
         return Ok((
             Some(model.clone()),

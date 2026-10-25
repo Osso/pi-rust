@@ -147,6 +147,7 @@ fn stream_options(stream: &Value, extra: &Value, fetch: Arc<dyn Fetch>, signal: 
     }
     StreamOptions {
         request,
+        cwd: None,
         temperature: stream.get("temperature").and_then(Value::as_f64),
         sampling_params: stream.get("samplingParams").and_then(Value::as_object).cloned(),
         max_tokens: stream.get("maxTokens").and_then(Value::as_f64),
@@ -369,6 +370,7 @@ async fn run_scenario(oracle: &mut TsOracle, scenario: Scenario) {
                 ..Default::default()
             },
         )
+        .expect("simple acquisition")
     } else {
         stream(model, context, options)
     };
@@ -629,6 +631,181 @@ async fn open_tool_scratch_matches_frozen_success_error_and_argument_done() {
         run_scenario(
             &mut oracle,
             Scenario::new(100 + index as i64, base_model("openai", "gpt-5.5", true), &events),
+        )
+        .await;
+    }
+}
+
+#[tokio::test]
+async fn responses_options_match_frozen_selection_empty_session_and_sdk_retry() {
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let text = text_events("boundary");
+    run_scenario(
+        &mut source,
+        Scenario::new(200, base_model("openai", "gpt-5.5", true), &text)
+            .extra(json!({"toolChoice":"none"}))
+            .stream(json!({"samplingParams":{"seed":42,"store":true},"maxTokens":4.5})),
+    )
+    .await;
+    run_scenario(
+        &mut source,
+        Scenario::new(201, base_model("openai", "gpt-5.5", true), &text).stream(json!({"sessionId":""})),
+    )
+    .await;
+    run_scenario(
+        &mut source,
+        Scenario::new(202, base_model("openai", "gpt-5.5", true), &text)
+            .extra(json!({"serviceTier":null,"reasoningSummary":null})),
+    )
+    .await;
+    let chunks = sse_chunks(&text, 100);
+    run_scenario(
+        &mut source,
+        Scenario::new(203, base_model("openai", "gpt-5.5", true), &text)
+            .stream(json!({"maxRetries":1,"maxRetryDelayMs":1}))
+            .responses(vec![
+                ScriptedResponse::json(429, r#"{"error":{"message":"retry"}}"#).with_header("retry-after-ms", "2"),
+                ScriptedResponse::sse(&chunks.iter().map(String::as_str).collect::<Vec<_>>()),
+            ]),
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn response_auth_headers_and_service_tier_precedence_match_frozen() {
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let text = text_events("header auth");
+    for (index, headers) in [
+        json!({"Authorization":"Bearer caller"}),
+        json!({"CF-AIG-Authorization":"gateway"}),
+        json!({"Authorization":"  "}),
+        json!({"Authorization":null}),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        run_scenario(
+            &mut source,
+            Scenario::new(300 + index as i64, base_model("openai", "gpt-5.5", true), &text)
+                .stream(json!({"apiKey":"","headers":headers})),
+        )
+        .await;
+    }
+    for (index, id) in ["gpt-5.5", "gpt-4.1"].into_iter().enumerate() {
+        for (case, (request_tier, response_tier)) in [
+            (json!("priority"), None),
+            (json!("priority"), Some(json!("flex"))),
+            (json!("flex"), Some(json!("default"))),
+            (Value::Null, Some(json!("priority"))),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let mut events = text.clone();
+            if let Some(tier) = response_tier {
+                events.last_mut().unwrap()["response"]["service_tier"] = tier;
+            }
+            run_scenario(
+                &mut source,
+                Scenario::new(310 + (index * 4 + case) as i64, base_model("openai", id, true), &events)
+                    .extra(json!({"serviceTier":request_tier})),
+            )
+            .await;
+        }
+    }
+}
+
+#[test]
+fn malformed_sse_console_diagnostics_match_frozen_sdk() {
+    use std::process::{Command, Stdio};
+    use std::time::{Duration, Instant};
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let cases = [
+        "data: {bad}\n\n",
+        ": heartbeat\n\ndata: {bad}\n\n",
+        "event: response.error\ndata: {\ndata: broken}\n\n",
+    ];
+    for (id, body) in cases.into_iter().enumerate() {
+        let expected=source.request(&json!({"id":id,"operation":"stream","model":base_model("openai","gpt-5.5",false),"context":{"messages":[]},"captureConsole":true,"responses":[{"status":200,"headers":{"content-type":"text/event-stream"},"chunks":[body]}]}));
+        assert_eq!(expected["ok"], json!(true));
+        let lines = expected["output"]["consoleErrors"].as_array().unwrap();
+        assert_eq!(lines.len(), 2, "{expected}");
+        let expected = lines
+            .iter()
+            .map(|line| line.as_str().unwrap())
+            .collect::<Vec<_>>()
+            .join("\n")
+            + "\n";
+        let mut child = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "differential_openai_responses::sse_console_child",
+                "--ignored",
+                "--nocapture",
+            ])
+            .env("PI_SSE_CONSOLE_DATA", body)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
+            .unwrap();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while child.try_wait().unwrap().is_none() {
+            if Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("native SSE child timed out");
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let result = child.wait_with_output().unwrap();
+        assert!(result.status.success(), "{result:?}");
+        assert_eq!(result.stderr, expected.as_bytes(), "SSE console case {id}");
+    }
+}
+
+#[tokio::test]
+#[ignore = "isolated stderr helper invoked by malformed_sse_console_diagnostics_match_frozen_sdk"]
+async fn sse_console_child() {
+    let body = std::env::var("PI_SSE_CONSOLE_DATA").expect("parent supplies SSE data");
+    let fetch = RecordingFetch::new(vec![ScriptedResponse::sse(&[body.as_str()])]);
+    let options = StreamOptions {
+        request: ProviderRequestOptions {
+            api_key: Some("test-key".into()),
+            fetch: Some(fetch),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let stream = stream(
+        serde_json::from_value(base_model("openai", "gpt-5.5", false)).unwrap(),
+        serde_json::from_value(json!({"messages":[]})).unwrap(),
+        options,
+    );
+    let (_, result) = collect_stream(stream).await;
+    assert_eq!(result["stopReason"], json!("error"));
+}
+
+#[tokio::test]
+async fn sdk_sse_line_framing_comments_thread_events_and_eof_match_frozen() {
+    let mut source = TsOracle::spawn("openai-responses-oracle.ts", "packages/ai/src/api/openai-responses.ts");
+    let terminal = r#"{"type":"response.completed","response":{"status":"completed"}}"#;
+    let complete = format!("data: {terminal}\n\n");
+    let cases = [
+        complete.clone(),
+        complete.replace('\n', "\r\n"),
+        complete.replace('\n', "\r"),
+        format!(": heartbeat\n\nunknown: value\n{complete}"),
+        "data: {\ndata: \"type\":\"response.completed\",\ndata: \"response\":{\"status\":\"completed\"}}\n\n".into(),
+        format!("data: {terminal}\n"),
+        format!(
+            "event: thread.ignore\ndata: {{\"type\":\"response.output_item.added\",\"output_index\":0,\"item\":{{\"type\":\"message\",\"id\":\"ignored\"}}}}\n\n{complete}"
+        ),
+    ];
+    for (id, body) in cases.into_iter().enumerate() {
+        run_scenario(
+            &mut source,
+            Scenario::new(400 + id as i64, base_model("openai", "gpt-5.5", false), &[])
+                .responses(vec![ScriptedResponse::sse(&[body.as_str()])]),
         )
         .await;
     }

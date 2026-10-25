@@ -1,5 +1,52 @@
 # Baseline workspace failures before test consolidation
 
+## Successor baseline recheck (2026-10-25)
+
+Rechecked each assigned extant target separately with `cargo test -j3 -p <package> --test <suite> <original-module-filter>` at `146eb5622`. Current repairs retain exact frozen assertions except the explicitly approved NUL environment-name runtime gap and approved editor-scroll-width delta. The five handed-off failures remain open here; their owners provide integration proof. Retired targets are not passing tests. Original evidence below is historical.
+
+| Package | Original target | Current status / proof |
+| --- | --- | --- |
+| `pi-coding-agent` | `differential_core_leaves` | Resolved: `/tmp/triage2-core-leaves-green2.log` |
+| `pi-coding-agent` | `differential_export_html` | Resolved on parent baseline: `/tmp/triage2-differential_export_html.log` |
+| `pi-coding-agent` | `differential_image_pipeline` | Resolved on parent baseline: `/tmp/triage2-differential_image_pipeline.log` |
+| `pi-coding-agent` | `differential_package_manager_cli` | Resolved on parent baseline: `/tmp/triage2-differential_package_manager_cli.log` |
+| `pi-coding-agent` | `example_kimi_deferred_tools` | Retired: frozen-absent module/target deleted in predecessor commits |
+| `pi-telemetry` | `differential_telemetry` | Retired: frozen-absent module/crate deleted in predecessor commits |
+| `pi-coding-agent` | `example_qna` | Resolved: `/tmp/triage2-final-example_qna.log` |
+| `pi-coding-agent` | `export_html` | Resolved on parent baseline: `/tmp/triage2-export_html.log` |
+| `pi-coding-agent` | `example_input_transform_streaming` | Resolved on parent baseline: `/tmp/triage2-example_input_transform_streaming.log` |
+| `pi-coding-agent` | `example_permission_gate` | Resolved on parent baseline: `/tmp/triage2-example_permission_gate.log` |
+| `pi-coding-agent` | `claude_bash_hook_extension` | Resolved on parent baseline: `/tmp/triage2-claude_bash_hook_extension.log` |
+| `pi-coding-agent` | `detached_pyrun_runner_process` | Resolved on parent baseline: `/tmp/triage2-detached_pyrun_runner_process.log` |
+| `pi-coding-agent` | `differential_claude_bash_hook` | Resolved on parent baseline: `/tmp/triage2-differential_claude_bash_hook.log` |
+| `pi-coding-agent` | `host_relay_resident` | Resolved on parent baseline: `/tmp/triage2-host_relay_resident.log` |
+| `pi-js-compat` | `process_env` | Resolved on parent baseline: `/tmp/triage2-process_env.log` |
+| `pi-coding-agent` | `bundled_extensions_context` | Remaining: handed to agent_278 by main; `/tmp/triage2-bundled_extensions_context.log` |
+| `pi-coding-agent` | `bundled_extensions_tools` | Resolved on parent baseline: `/tmp/triage2-bundled_extensions_tools.log` |
+| `pi-coding-agent` | `differential_args` | Resolved on parent baseline: `/tmp/triage2-differential_args.log` |
+| `pi-coding-agent` | `differential_bundled_extensions` | Resolved on parent baseline: `/tmp/triage2-differential_bundled_extensions.log` |
+| `pi-coding-agent` | `differential_compaction` | Remaining: handed to agent_267 by main; `/tmp/triage2-differential_compaction.log` |
+| `pi-coding-agent` | `differential_config_lossless_package` | Resolved: `/tmp/triage2-final2-differential_config_lossless_package.log` |
+| `pi-coding-agent` | `differential_interactive_components` | Resolved: `/tmp/triage2-final2-differential_interactive_components.log` |
+| `pi-coding-agent` | `differential_keybindings` | Resolved on parent baseline: `/tmp/triage2-differential_keybindings.log` |
+| `pi-coding-agent` | `differential_openai_remote_compact` | Remaining: handed to agent_278 by main; `/tmp/triage2-differential_openai_remote_compact.log` |
+| `pi-coding-agent` | `differential_slash_commands` | Resolved on parent baseline: `/tmp/triage2-differential_slash_commands.log` |
+| `pi-coding-agent` | `differential_supervisor_request_loop` | Remaining: handed to agent_265 by main; `/tmp/triage2-differential_supervisor_request_loop.log` |
+| `pi-coding-agent` | `differential_supervisor_service` | Remaining: handed to agent_265 by main; `/tmp/triage2-differential_supervisor_service.log` |
+| `pi-coding-agent` | `differential_tree_selector` | Resolved: `/tmp/triage2-final-differential_tree_selector.log` |
+| `pi-coding-agent` | `example_bash_spawn_hook` | Resolved: `/tmp/triage2-bash-spawn-green.log` |
+| `pi-coding-agent` | `example_file_trigger` | Resolved on parent baseline: `/tmp/triage2-example_file_trigger.log` |
+| `pi-coding-agent` | `example_reload_runtime` | Resolved on parent baseline: `/tmp/triage2-example_reload_runtime.log` |
+| `pi-coding-agent` | `example_subagent` | Resolved on parent baseline: `/tmp/triage2-example_subagent.log` |
+| `pi-coding-agent` | `experimental_cli` | Retired: frozen-absent module/target deleted in predecessor commits |
+| `pi-coding-agent` | `main_process` | Resolved: `/tmp/triage2-suite_core_3-green.log + /tmp/triage2-final-suite_core_3.log` |
+| `pi-coding-agent` | `package_manager_cli` | Resolved on parent baseline: `/tmp/triage2-package_manager_cli.log` |
+| `pi-coding-agent` | `session_autoname` | Resolved on parent baseline: `/tmp/triage2-session_autoname.log` |
+| `pi-tui` | `raw_editor` | Resolved: `/tmp/triage2-final-suite_interactive.log` |
+| `pi-tui` | `verifier_regressions` | Resolved on parent baseline: `/tmp/triage2-verifier_regressions.log` |
+
+Excluded: pi-ai targets; interactive lib and session_coordination_tools (already repaired); differential_version_check (agent_266). No new ignored cases were added; reported ignored cases are existing child helpers.
+
 Baseline source: `09f10e9c073adba93dbf60eda3ffca1e4578cc23`; parent build configuration includes the incremental-only merge `bbc0ed0`. Command: `cargo test -j8 --workspace --no-fail-fast`. There are **50 failed targets**, **76 FAILED test outcomes**, and **two unfinished interactive tests** at the approved timeout. These failures precede the test-layout change. No product fix or assertion change is included here.
 
 Evidence: `/tmp/test-consolidate-proof/before-suite.log`, `baseline-results.json`, `baseline-target-evidence.json`, and `baseline-failure-classification.json`. The sections distinguish evidenced failure mechanisms from assertion differences whose root cause remains uninvestigated; they must not be treated as verified product diagnoses.

@@ -11,6 +11,10 @@ Frozen common pin4f9e6f8a4, `packages/coding-agent/src/core/idle-compaction.ts`1
 | AgentSession2693,5197,2269 finalization/start/reload/disposal | production lifecycle call sites/timer cancellation | finalization/disposal exercised; dedicated restart/reload proof pending |
 | target.message reference guard and branch-order boundary | Agent token + SessionManager entry-token lookup; timestamp only when no shared reference exists | equal-valued replacement rejection, manual-boundary rejection; stored identity differentials in agent_identity_paths |
 
+## Current helper proof
+
+2026-10-25 whole 33-line common-pin helper comparison and surviving 24-case frozen differential GREEN at 2683e5cbc: `cargo test -j3 -p pi-coding-agent --test suite_session_1 differential_idle_compaction` (`/tmp/ext-api-suite_session_1-differential_idle_compaction.log`). This closes the helper row; AgentSession lifecycle proofs below remain a separate consumer scope.
+
 ## Approved inherited-table gap
 
 Frozen TTL map leaks inherited Object.prototype values, yielding NaN deadlines. The 2026-10-23 runtime-oddity exclusion removes this emulation and its exclusive 1ms scheduler test. Native supports only explicit API keys. [Policy](../../specs/object-prototype-lookups.md). Historical 96-case proof below predates this removal; surviving 24-case differential covers all explicit API branches.

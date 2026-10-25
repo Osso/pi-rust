@@ -62,6 +62,7 @@ pub(crate) fn run_context_files() {
         assert_eq!(response["ok"], true, "oracle failed: {response}");
         let actual: Vec<Value> =
             load_project_context_files(&JsString::from(&fixture.cwd), &JsString::from(&fixture.agent_dir))
+                .unwrap()
                 .into_iter()
                 .map(|file| json!({"path": file.path, "content": file.content}))
                 .collect();

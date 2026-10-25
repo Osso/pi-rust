@@ -2,9 +2,9 @@
 pub mod utils;
 use pi_coding_agent::{core::extensions::*, modes::interactive::theme::ThemeColor as C};
 use pi_js_compat::js_format;
+use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
-use serde_json::{Value, json};
+use pi_js_compat::js_json::{self, JsValue as Value};
 use std::sync::{Arc, Mutex};
 use utils::{TodoItem, extract_todo_items, is_safe_command, mark_completed_steps};
 
@@ -55,24 +55,15 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                         Some(NotifyType::Info),
                     )?;
                 } else {
-                    let list = s
-                        .todos
-                        .iter()
-                        .enumerate()
-                        .map(|(i, t)| {
-                            format!(
-                                "{}. {} {}",
-                                i + 1,
-                                if t.completed { "✓" } else { "○" },
-                                t.text.to_utf8_lossy()
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                        .join("\n");
-                    ctx.ui()?.notify(
-                        &JsString::from(format!("Plan Progress:\n{list}")),
-                        Some(NotifyType::Info),
-                    )?;
+                    let list = JsString::join(
+                        s.todos
+                            .iter()
+                            .enumerate()
+                            .map(|(i, t)| js_format!("{}. {} {}", i + 1, if t.completed { "✓" } else { "○" }, t.text)),
+                        "\n",
+                    );
+                    ctx.ui()?
+                        .notify(&js_format!("Plan Progress:\n{}", list), Some(NotifyType::Info))?;
                 }
                 Ok(())
             })
@@ -112,18 +103,19 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     .messages
                     .into_iter()
                     .filter(|m| {
-                        let v = serde_json::to_value(m).expect("message JSON");
-                        if v["customType"] == "plan-mode-context" {
+                        let v = js_json::to_value(m).expect("message JSON");
+                        if v["customType"] == json!("plan-mode-context") {
                             return false;
                         }
-                        if v["role"] != "user" {
+                        if v["role"] != json!("user") {
                             return true;
                         }
-                        if let Some(s) = v["content"].as_str() {
+                        if let Some(s) = v["content"].as_string() {
                             return !s.contains("[PLAN MODE ACTIVE]");
                         }
                         !v["content"].as_array().into_iter().flatten().any(|b| {
-                            b["type"] == "text" && b["text"].as_str().is_some_and(|s| s.contains("[PLAN MODE ACTIVE]"))
+                            b["type"] == json!("text")
+                                && b["text"].as_string().is_some_and(|s| s.contains("[PLAN MODE ACTIVE]"))
                         })
                     })
                     .collect();
@@ -137,7 +129,7 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.on_before_agent_start(move|_:BeforeAgentStartEvent,_:ExtensionContext|->BoxFuture<'static,Result<Option<BeforeAgentStartEventResult>,HandlerError>>{
         let s=shared.lock().unwrap();
         let message=if s.enabled {Some(custom_message("plan-mode-context",PLAN_CONTEXT.into(),false))}
-        else if s.executing&&!s.todos.is_empty(){Some(custom_message("plan-execution-context",format!("[EXECUTING PLAN - Full tool access enabled]\n\nRemaining steps:\n{}\n\nExecute each step in order.\nAfter completing a step, include a [DONE:n] tag in your response.",remaining(&s.todos)),false))}else{None};
+        else if s.executing&&!s.todos.is_empty(){Some(custom_message("plan-execution-context",js_format!("[EXECUTING PLAN - Full tool access enabled]\n\nRemaining steps:\n{}\n\nExecute each step in order.\nAfter completing a step, include a [DONE:n] tag in your response.",remaining(&s.todos)),false))}else{None};
         Box::pin(async move{Ok(message.map(|message|BeforeAgentStartEventResult{message:Some(message),system_prompt:None}))})
     })?;
     let api = pi.clone();
@@ -151,7 +143,7 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 if !s.executing || s.todos.is_empty() {
                     return Ok(None);
                 }
-                let Some(text) = assistant_text(&serde_json::to_value(event.message).unwrap()) else {
+                let Some(text) = assistant_text(&js_json::to_value(&event.message).unwrap()) else {
                     return Ok(None);
                 };
                 if mark_completed_steps(&text, &mut s.todos) > 0 {
@@ -169,7 +161,7 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let api = api.clone();
             let shared = shared.clone();
             Box::pin(async move {
-                finish_turn(&api, &shared, &ctx, &serde_json::to_value(event.messages).unwrap()).await?;
+                finish_turn(&api, &shared, &ctx, &js_json::to_value(&event.messages).unwrap()).await?;
                 Ok(None)
             })
         },
@@ -188,27 +180,26 @@ pub fn plan_mode_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     )?;
     Ok(())
 }
-fn custom_message(kind: &str, content: String, display: bool) -> CustomMessagePayload {
+fn custom_message(kind: &str, content: JsString, display: bool) -> CustomMessagePayload {
     CustomMessagePayload {
         custom_type: kind.into(),
-        content: serde_json::from_value(json!(content)).unwrap(),
+        content: CustomMessageContent::Text(content),
         display,
         details: None,
     }
 }
-fn assistant_text(v: &Value) -> Option<String> {
-    if v["role"] != "assistant" {
+fn assistant_text(v: &Value) -> Option<JsString> {
+    if v["role"] != json!("assistant") {
         return None;
     }
-    Some(
+    Some(JsString::join(
         v["content"]
             .as_array()?
             .iter()
-            .filter(|b| b["type"] == "text")
-            .filter_map(|b| b["text"].as_str())
-            .collect::<Vec<_>>()
-            .join("\n"),
-    )
+            .filter(|b| b["type"] == json!("text"))
+            .filter_map(|b| b["text"].as_string()),
+        "\n",
+    ))
 }
 fn unique(names: impl IntoIterator<Item = String>) -> Vec<String> {
     let mut out = Vec::new();
@@ -269,7 +260,7 @@ fn toggle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<
 }
 fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    let th = ui.theme();
+    let th = ui.theme()?;
     let status = if s.executing && !s.todos.is_empty() {
         Some(th.fg(
             C::Accent,
@@ -290,9 +281,9 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
             .iter()
             .map(|t| {
                 if t.completed {
-                    th.fg(C::Success, "☑ ") + &th.fg(C::Muted, &th.strikethrough(&t.text.to_utf8_lossy()))
+                    th.fg(C::Success, "☑ ") + &th.fg(C::Muted, th.strikethrough(&t.text))
                 } else {
-                    th.fg(C::Muted, "☐ ") + &t.text.to_utf8_lossy()
+                    th.fg(C::Muted, "☐ ") + &t.text
                 }
             })
             .collect::<Vec<_>>()
@@ -304,21 +295,22 @@ fn persist(pi: &ExtensionApi, s: &State) -> Result<(), HandlerError> {
     let todos: Vec<_> = s
         .todos
         .iter()
-        .map(|t| json!({"step":t.step,"text":t.text.to_utf8_lossy(),"completed":t.completed}))
+        .map(|t| json!({"step":t.step,"text":t.text.clone(),"completed":t.completed}))
         .collect();
     let mut data = json!({"enabled":s.enabled,"executing":s.executing,"todos":todos});
     if let Some(tools) = &s.tools {
         data["toolsBeforePlanMode"] = json!(tools)
     }
-    pi.append_entry(&JsString::from("plan-mode"), Some(JsValue::from(data)))
+    pi.append_entry(&JsString::from("plan-mode"), Some(data))
 }
-fn remaining(todos: &[TodoItem]) -> String {
-    todos
-        .iter()
-        .filter(|t| !t.completed)
-        .map(|t| format!("{}. {}", t.step, t.text.to_utf8_lossy()))
-        .collect::<Vec<_>>()
-        .join("\n")
+fn remaining(todos: &[TodoItem]) -> JsString {
+    JsString::join(
+        todos
+            .iter()
+            .filter(|t| !t.completed)
+            .map(|t| js_format!("{}. {}", t.step, t.text)),
+        "\n",
+    )
 }
 async fn finish_turn(
     pi: &ExtensionApi,
@@ -330,13 +322,14 @@ async fn finish_turn(
         let mut s = shared.lock().unwrap();
         if s.executing && !s.todos.is_empty() {
             if s.todos.iter().all(|t| t.completed) {
-                let list = s
-                    .todos
-                    .iter()
-                    .map(|t| format!("~~{}~~", t.text.to_utf8_lossy()))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                pi.send_message(serde_json::from_value(json!({"customType":"plan-complete","content":format!("**Plan Complete!** ✓\n\n{list}"),"display":true})).unwrap(),Some(SendMessageOptions{trigger_turn:Some(false),..Default::default()}))?;
+                let list = JsString::join(s.todos.iter().map(|t| js_format!("~~{}~~", t.text)), "\n");
+                pi.send_message(
+                    custom_message("plan-complete", js_format!("**Plan Complete!** ✓\n\n{}", list), true),
+                    Some(SendMessageOptions {
+                        trigger_turn: Some(false),
+                        ..Default::default()
+                    }),
+                )?;
                 s.executing = false;
                 s.todos.clear();
                 update(&s, ctx)?;
@@ -359,13 +352,18 @@ async fn finish_turn(
         persist(pi, &s)?;
     }
     let todos = shared.lock().unwrap().todos.clone();
-    let list = todos
-        .iter()
-        .enumerate()
-        .map(|(i, t)| format!("{}. ☐ {}", i + 1, t.text.to_utf8_lossy()))
-        .collect::<Vec<_>>()
-        .join("\n");
-    let plan_message=serde_json::from_value(json!({"customType":"plan-todo-list","content":format!("**Plan Steps ({}):**\n\n{list}",todos.len()),"display":true})).unwrap();
+    let list = JsString::join(
+        todos
+            .iter()
+            .enumerate()
+            .map(|(i, t)| js_format!("{}. ☐ {}", i + 1, t.text)),
+        "\n",
+    );
+    let plan_message = custom_message(
+        "plan-todo-list",
+        js_format!("**Plan Steps ({}):**\n\n{}", todos.len(), list),
+        true,
+    );
     let choice = ctx
         .ui()?
         .select(
@@ -385,10 +383,10 @@ async fn finish_turn(
         normal(pi, &mut s)?;
         update(&s, ctx)?;
         persist(pi, &s)?;
-        let content = format!(
+        let content = js_format!(
             "Execute the plan.\n\nRemaining steps:\n{}\n\nStart with: {}\nAfter completing a step, include a [DONE:n] tag in your response.",
             remaining(&s.todos),
-            s.todos[0].text.to_utf8_lossy()
+            s.todos[0].text.clone()
         );
         pi.send_message(
             plan_message,
@@ -398,7 +396,7 @@ async fn finish_turn(
             }),
         )?;
         pi.send_message(
-            serde_json::from_value(json!({"customType":"plan-mode-execute","content":content,"display":true})).unwrap(),
+            custom_message("plan-mode-execute", content, true),
             Some(SendMessageOptions {
                 trigger_turn: Some(true),
                 deliver_as: Some(MessageDelivery::FollowUp),
@@ -429,13 +427,13 @@ async fn finish_turn(
     Ok(())
 }
 fn restore(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
-    let entries = ctx.session_manager()?.lock().unwrap().get_entries();
-    let entries = serde_json::to_value(entries).unwrap();
+    let entries = ctx.session_manager()?.get_entries();
+    let entries = js_json::to_value(&entries).unwrap();
     let entries = entries.as_array().unwrap();
     let saved = entries
         .iter()
         .rev()
-        .find(|e| e["type"] == "custom" && e["customType"] == "plan-mode");
+        .find(|e| e["type"] == json!("custom") && e["customType"] == json!("plan-mode"));
     let mut s = shared.lock().unwrap();
     if pi.get_flag("plan")? == Some(FlagValue::Boolean(true)) {
         s.enabled = true;
@@ -452,29 +450,28 @@ fn restore(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result
                 .iter()
                 .map(|t| TodoItem {
                     step: t["step"].as_u64().unwrap() as usize,
-                    text: t["text"].as_str().unwrap().into(),
+                    text: t["text"].as_string().unwrap().into(),
                     completed: t["completed"].as_bool().unwrap(),
                 })
                 .collect();
         }
         if !data["toolsBeforePlanMode"].is_null() {
-            s.tools = Some(
-                serde_json::from_value(data["toolsBeforePlanMode"].clone())
-                    .map_err(|e| HandlerError::new(e.to_string()))?,
-            );
+            s.tools =
+                Some(js_json::from_value(&data["toolsBeforePlanMode"]).map_err(|e| HandlerError::new(e.to_string()))?);
         }
     }
     if saved.is_some() && s.executing && !s.todos.is_empty() {
         let start = entries
             .iter()
-            .rposition(|e| e["customType"] == "plan-mode-execute")
+            .rposition(|e| e["customType"] == json!("plan-mode-execute"))
             .map_or(0, |i| i + 1);
-        let text = entries[start..]
-            .iter()
-            .filter(|e| e["type"] == "message")
-            .filter_map(|e| assistant_text(&e["message"]))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let text = JsString::join(
+            entries[start..]
+                .iter()
+                .filter(|e| e["type"] == json!("message"))
+                .filter_map(|e| assistant_text(&e["message"])),
+            "\n",
+        );
         mark_completed_steps(&text, &mut s.todos);
     }
     if s.enabled {

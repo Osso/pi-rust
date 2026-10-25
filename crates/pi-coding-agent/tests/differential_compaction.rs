@@ -3,6 +3,7 @@
 
 #[path = "support/oracle.rs"]
 mod oracle;
+pub(crate) use oracle::TsOracle;
 
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::fs;
@@ -13,7 +14,7 @@ use pi_coding_agent::core::compaction::{
     CompactionSettings, DEFAULT_COMPACTION_SETTINGS, FileOperations, calculate_context_tokens,
     collect_entries_for_branch_summary, compute_file_lists, create_file_ops, estimate_context_tokens, estimate_tokens,
     extract_file_ops_from_message, find_cut_point, find_turn_start_index, format_file_operations,
-    prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
+    get_last_assistant_usage, prepare_branch_entries, prepare_compaction, serialize_conversation, should_compact,
 };
 use pi_coding_agent::core::session_manager::{SessionEntry, SessionManager};
 use serde_json::{Value, json};
@@ -52,11 +53,15 @@ fn js_num(value: f64) -> Value {
 }
 
 fn settings_value(settings: &CompactionSettings) -> Value {
-    json!({
+    let mut value = json!({
         "enabled": settings.enabled,
         "reserveTokens": js_num(settings.reserve_tokens),
         "keepRecentTokens": js_num(settings.keep_recent_tokens),
-    })
+    });
+    if let Some(percent) = settings.threshold_percent {
+        value["thresholdPercent"] = js_num(percent);
+    }
+    value
 }
 
 fn entries(value: &Value) -> Vec<SessionEntry> {
@@ -248,6 +253,31 @@ fn differential_token_calculation_and_estimation() {
 }
 
 #[test]
+fn differential_last_assistant_usage_skips_errors_aborts_and_zero_usage() {
+    let mut oracle = Oracle::new();
+    let first = assistant_message("valid", usage(10.0, 3.0, 2.0, 1.0));
+    let zero = assistant_message("zero", usage(0.0, 0.0, 0.0, 0.0));
+    let mut aborted = assistant_message("aborted", usage(99.0, 99.0, 0.0, 0.0));
+    aborted["stopReason"] = json!("aborted");
+    let mut failed = aborted.clone();
+    failed["stopReason"] = json!("error");
+    let cases = [
+        json!([]),
+        json!([message_entry("1", None, user_message("only user"))]),
+        json!([
+            message_entry("1", None, first),
+            message_entry("2", Some("1"), aborted),
+            message_entry("3", Some("2"), failed),
+            message_entry("4", Some("3"), zero)
+        ]),
+    ];
+    for case in cases {
+        let expected = oracle.request(COMPACTION, "lastAssistantUsage", json!({"entries": case}));
+        assert_eq!(json!(get_last_assistant_usage(&entries(&case))), expected);
+    }
+}
+
+#[test]
 fn differential_should_compact() {
     let mut oracle = Oracle::new();
     let cases = json!([
@@ -256,6 +286,11 @@ fn differential_should_compact() {
         { "contextTokens": 271999, "contextWindow": 372000, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }, "threshold": 272000 },
         { "contextTokens": 272000, "contextWindow": 372000, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000 }, "threshold": 272000 },
         { "contextTokens": 95000, "contextWindow": 100000, "settings": { "enabled": false, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 49999, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "threshold": 90000, "settings": { "thresholdPercent": 50, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 50000, "contextWindow": 100000, "threshold": 10000, "settings": { "thresholdPercent": 75, "enabled": true, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
+        { "contextTokens": 100000, "contextWindow": 100000, "settings": { "thresholdPercent": 50, "enabled": false, "reserveTokens": 10000, "keepRecentTokens": 20000 } },
     ]);
     let expected = oracle.request(COMPACTION, "shouldCompact", json!({ "cases": cases }));
     let actual: Vec<Value> = cases
@@ -263,15 +298,43 @@ fn differential_should_compact() {
         .unwrap()
         .iter()
         .map(|case| {
-            json!(should_compact(
-                case["contextTokens"].as_f64().unwrap(),
-                case["contextWindow"].as_f64().unwrap(),
-                &settings(&case["settings"]),
-                case.get("threshold").and_then(Value::as_f64),
-            ))
+            json!(
+                should_compact(
+                    case["contextTokens"].as_f64().unwrap(),
+                    case["contextWindow"].as_f64().unwrap(),
+                    &settings(&case["settings"]),
+                    case.get("threshold").and_then(Value::as_f64),
+                )
+                .expect("valid threshold")
+            )
         })
         .collect();
     assert_eq!(actual, *expected.as_array().unwrap());
+}
+
+#[test]
+fn differential_percentage_validation_precedes_disabled_flag() {
+    let mut oracle = Oracle::new();
+    let cases: Vec<Value> = [0.0, -1.0, 101.0, 0.5, 100.0]
+        .into_iter()
+        .flat_map(|percent| {
+            [true, false].into_iter().map(move |enabled| json!({
+            "contextTokens": 100000, "contextWindow": 100000,
+            "settings": {"thresholdPercent": percent, "enabled": enabled, "reserveTokens": 0, "keepRecentTokens": 1}
+        }))
+        })
+        .collect();
+    let expected = oracle.request(COMPACTION, "shouldCompactResults", json!({"cases": cases}));
+    let actual: Vec<Value> = cases
+        .iter()
+        .map(
+            |case| match should_compact(100000.0, 100000.0, &settings(&case["settings"]), None) {
+                Ok(value) => json!({"value": value}),
+                Err(error) => json!({"error": {"name": "Error", "message": error.message()}}),
+            },
+        )
+        .collect();
+    assert_eq!(json!(actual), expected);
 }
 
 #[test]
@@ -290,6 +353,15 @@ fn differential_find_cut_point_and_turn_start() {
             "startIndex": 0,
             "endIndex": 4,
             "keepRecentTokens": 20000,
+        },
+        {
+            "entries": [
+                message_entry("1", None, user_message("old user")),
+                message_entry("2", Some("1"), assistant_message("old assistant", usage(0.0, 0.0, 0.0, 0.0))),
+                entry("3", Some("2"), "2026-01-01T00:00:00.000Z", json!({ "type": "custom_message", "customType": "test", "content": "new turn", "display": true })),
+                message_entry("4", Some("3"), assistant_message("part one", usage(0.0, 0.0, 0.0, 0.0))),
+                message_entry("5", Some("4"), assistant_message("part two", usage(0.0, 0.0, 0.0, 0.0)))
+            ], "startIndex": 0, "endIndex": 5, "keepRecentTokens": 20000
         },
         {
             "entries": [
@@ -438,6 +510,7 @@ fn differential_prepare_compaction() {
 
     let cases = [
         json!({ "entries": linear_entries(), "settings": DEFAULT_COMPACTION_SETTINGS }),
+        json!({ "entries": linear_entries(), "settings": {"thresholdPercent": 37.5, "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 20000} }),
         json!({ "entries": goal_reminders, "settings": DEFAULT_COMPACTION_SETTINGS }),
         json!({ "entries": repeated, "settings": DEFAULT_COMPACTION_SETTINGS }),
         json!({ "entries": repeated, "settings": { "enabled": true, "reserveTokens": 16384, "keepRecentTokens": 100 } }),

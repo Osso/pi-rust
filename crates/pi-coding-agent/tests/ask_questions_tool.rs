@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 struct Backend(std::sync::atomic::AtomicUsize);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editor")
     }
@@ -58,8 +59,8 @@ impl Ui {
     }
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<pi_coding_agent::modes::interactive::theme::Theme> {
-        Arc::new(
+    fn theme(&self) -> Result<Arc<pi_coding_agent::modes::interactive::theme::Theme>, pi_ai::request::CallbackError> {
+        Ok(Arc::new(
             pi_coding_agent::modes::interactive::theme::load_theme_from_path(
                 &JsString::from(
                     std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -70,7 +71,7 @@ impl ExtensionUiContext for Ui {
                 Some(pi_coding_agent::modes::interactive::theme::ColorMode::Truecolor),
             )
             .unwrap(),
-        )
+        ))
     }
     fn custom<'a>(
         &'a self,
@@ -84,7 +85,7 @@ impl ExtensionUiContext for Ui {
             let component = factory(
                 ExtensionUiFactoryContext {
                     tui: ExtensionUiTui::new(Arc::new(Backend::default())),
-                    theme: self.theme(),
+                    theme: self.theme().unwrap(),
                     keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(Vec::new(), None),
                 },
                 ExtensionUiDone::new(Rc::new(move |value| *output.lock().unwrap() = value)),
@@ -289,7 +290,7 @@ fn check_panel_history(oracle: &mut oracle::TsOracle, request: Value) {
         js_json::from_value(questions).unwrap(),
         ExtensionUiFactoryContext {
             tui: ExtensionUiTui::new(backend.clone()),
-            theme: Ui::new(Vec::new()).theme(),
+            theme: Ui::new(Vec::new()).theme().unwrap(),
             keybindings: pi_coding_agent::core::keybindings::KeybindingsManager::new(bindings, None),
         },
         ExtensionUiDone::new(Rc::new(move |value| {

@@ -1,7 +1,7 @@
 //! Port of `packages/ai/src/api/openrouter-images.ts`.
 
 use indexmap::IndexMap;
-use pi_js_compat::js_json::JsString;
+use pi_js_compat::js_json::{JsString, JsValue};
 
 use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
@@ -13,12 +13,8 @@ use crate::types::{
     TextContent, TextOrImageContent, Usage, UsageCost,
 };
 use crate::utils::headers::headers_to_record;
-use crate::utils::provider_retry::{
-    ProviderError, ProviderErrorHeaders, ProviderRequestError, ProviderRetryOptions, retry_provider_request,
-};
+use crate::utils::provider_retry::{ProviderRetryOptions, retry_provider_request};
 use crate::utils::sanitize_unicode::sanitize_surrogates;
-
-const DEFAULT_TIMEOUT_MS: f64 = 600_000.0;
 
 /// `generateImages` for the OpenRouter image API.
 ///
@@ -57,7 +53,7 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
         usage: None,
         stop_reason: ImagesStopReason::Stop,
         error_message: None,
-        timestamp: now_millis(),
+        timestamp: now_millis() as f64,
     };
 
     match request_images(&model, &context, &options).await {
@@ -65,10 +61,16 @@ async fn run_generate_images(model: ImagesModel, context: ImagesContext, options
             if let Some(on_response) = &options.request.on_response
                 && let Err(error) = on_response(response, model.clone()).await
             {
-                return fail(&mut output, &options, error.message);
+                return fail(
+                    &mut output,
+                    &options,
+                    super::openai_sdk::format_callback_error(&error, None),
+                );
             }
-            apply_response(&mut output, &data, &model);
-            output
+            match apply_response(&mut output, &data, &model) {
+                Ok(()) => output,
+                Err(message) => fail(&mut output, &options, message),
+            }
         }
         Err(message) => fail(&mut output, &options, message),
     }
@@ -92,11 +94,12 @@ async fn request_images(
     model: &ImagesModel,
     context: &ImagesContext,
     options: &ImagesOptions,
-) -> Result<(Value, ProviderResponse), pi_js_compat::js_json::JsString> {
+) -> Result<(JsValue, ProviderResponse), pi_js_compat::js_json::JsString> {
     let api_key = options
         .request
         .api_key
         .as_ref()
+        .filter(|key| !key.is_empty())
         .ok_or_else(|| format!("No API key for provider: {}", model.provider))?;
     let params = build_effective_params(model, context, options).await?;
     let client = build_client(model, api_key, options);
@@ -108,14 +111,14 @@ async fn build_effective_params(
     model: &ImagesModel,
     context: &ImagesContext,
     options: &ImagesOptions,
-) -> Result<Value, pi_js_compat::js_json::JsString> {
-    let params = build_params(model, context);
+) -> Result<JsValue, pi_js_compat::js_json::JsString> {
+    let params = JsValue::from(build_params(model, context));
     let Some(on_payload) = &options.request.on_payload else {
         return Ok(params);
     };
     let next_params = on_payload(params.clone(), model.clone())
         .await
-        .map_err(|error| error.message)?;
+        .map_err(|error| super::openai_sdk::format_callback_error(&error, None))?;
     Ok(next_params.unwrap_or(params))
 }
 
@@ -132,44 +135,35 @@ fn build_client(model: &ImagesModel, api_key: &JsString, options: &ImagesOptions
 
 async fn send_with_retries(
     client: &SdkClient,
-    params: Value,
+    params: JsValue,
     options: &ImagesOptions,
 ) -> Result<SdkJsonResponse, pi_js_compat::js_json::JsString> {
     let signal = options.request.signal.clone();
-    let timeout = timeout_duration(options.request.timeout_ms);
     let retry_options = ProviderRetryOptions {
         max_retries: options
             .request
             .max_retries
             .map_or(0, |retries| retries.max(0.0) as usize),
-        max_retry_delay_ms: options.request.max_retry_delay_ms,
+        // The SDK request path does not consume pi's maxRetryDelayMs option.
+        max_retry_delay_ms: Some(0.0),
         signal: signal.clone(),
     };
+    let mut attempt = 0;
     retry_provider_request(
-        || send_once(client, params.clone(), signal.clone(), timeout),
+        || {
+            let client = client.for_retry(attempt);
+            attempt += 1;
+            let params = params.clone();
+            let signal = signal.clone();
+            async move { client.create_chat_completion(params, signal).await }
+        },
         retry_options,
     )
     .await
     .map_err(|error| format_request_error(&error, None))
 }
 
-async fn send_once(
-    client: &SdkClient,
-    params: Value,
-    signal: Option<AbortSignal>,
-    timeout: Option<std::time::Duration>,
-) -> Result<SdkJsonResponse, ProviderRequestError<CallbackError>> {
-    let Some(timeout) = timeout else {
-        return client.create_chat_completion(params.into(), signal).await;
-    };
-    tokio::select! {
-        biased;
-        () = tokio::time::sleep(timeout) => Err(timeout_error()),
-        result = client.create_chat_completion(params.into(), signal) => result,
-    }
-}
-
-fn provider_response(response: SdkJsonResponse) -> (Value, ProviderResponse) {
+fn provider_response(response: SdkJsonResponse) -> (JsValue, ProviderResponse) {
     (
         response.data,
         ProviderResponse {
@@ -177,24 +171,6 @@ fn provider_response(response: SdkJsonResponse) -> (Value, ProviderResponse) {
             headers: headers_to_record(response.headers),
         },
     )
-}
-
-fn timeout_duration(timeout_ms: Option<f64>) -> Option<std::time::Duration> {
-    let timeout_ms = timeout_ms.unwrap_or(DEFAULT_TIMEOUT_MS);
-    if timeout_ms <= 0.0 {
-        return None;
-    }
-    std::time::Duration::try_from_secs_f64(timeout_ms / 1000.0).ok()
-}
-
-fn timeout_error() -> ProviderRequestError<CallbackError> {
-    ProviderRequestError::Provider(ProviderError {
-        message: "Request timed out.".to_owned().into(),
-        status: None,
-        headers: ProviderErrorHeaders::new(),
-        body: None,
-        inner_error: None,
-    })
 }
 
 fn merged_headers(model: &ImagesModel, options: &ImagesOptions) -> IndexMap<String, Option<JsString>> {
@@ -272,54 +248,68 @@ fn request_modalities(model: &ImagesModel) -> Vec<&'static str> {
     }
 }
 
-fn apply_response(output: &mut AssistantImages, data: &Value, model: &ImagesModel) {
-    output.response_id = data.get("id").and_then(Value::as_str).map(str::to_owned);
+fn apply_response(output: &mut AssistantImages, data: &JsValue, model: &ImagesModel) -> Result<(), JsString> {
+    if data.is_null() {
+        return Err("Cannot read properties of null (reading 'id')".into());
+    }
+    super::openai_sdk::validate_metadata_fields(data, &["id"]).map_err(JsString::from)?;
+    output.response_id = data
+        .get("id")
+        .and_then(JsValue::as_string)
+        .map(|id| id.to_utf8().expect("response ID validated as opaque scalar metadata"));
     if let Some(usage) = data.get("usage").filter(|usage| !usage.is_null()) {
         output.usage = Some(parse_usage(usage, model));
     }
 
-    let Some(message) = first_choice_message(data) else {
-        return;
+    let choices = data
+        .get("choices")
+        .ok_or_else(|| JsString::from("Cannot read properties of undefined (reading '0')"))?;
+    let Some(choice) = choices.as_array().and_then(|choices| choices.first()) else {
+        return Ok(());
     };
+    let message = choice
+        .get("message")
+        .ok_or_else(|| JsString::from("Cannot read properties of undefined (reading 'content')"))?;
     push_text(output, message);
-    push_images(output, message);
+    push_images(output, message)?;
+    Ok(())
 }
 
-fn first_choice_message(data: &Value) -> Option<&Value> {
-    data.get("choices")
-        .and_then(Value::as_array)
-        .and_then(|choices| choices.first())
-        .and_then(|choice| choice.get("message"))
-}
-
-fn push_text(output: &mut AssistantImages, message: &Value) {
-    if let Some(content) = message.get("content").and_then(Value::as_str)
+fn push_text(output: &mut AssistantImages, message: &JsValue) {
+    if let Some(content) = message.get("content").and_then(JsValue::as_string)
         && !content.is_empty()
     {
         output.output.push(TextOrImageContent::Text(TextContent::new(content)));
     }
 }
 
-fn push_images(output: &mut AssistantImages, message: &Value) {
+fn push_images(output: &mut AssistantImages, message: &JsValue) -> Result<(), JsString> {
     let images = message
         .get("images")
-        .and_then(Value::as_array)
+        .and_then(JsValue::as_array)
         .map(Vec::as_slice)
         .unwrap_or_default();
     for image in images {
-        let Some((mime_type, data)) = image_url(image).and_then(parse_data_url) else {
+        let Some(url) = image_url(image) else {
+            continue;
+        };
+        let url = url
+            .to_utf8()
+            .map_err(|_| JsString::from("OpenRouter image URL contains an unpaired surrogate"))?;
+        let Some((mime_type, data)) = parse_data_url(&url) else {
             continue;
         };
         output
             .output
             .push(TextOrImageContent::Image(ImageContent::new(data, mime_type)));
     }
+    Ok(())
 }
 
-fn image_url(image: &Value) -> Option<&str> {
+fn image_url(image: &JsValue) -> Option<&JsString> {
     match image.get("image_url") {
-        Some(Value::String(url)) => Some(url.as_str()),
-        Some(Value::Object(object)) => object.get("url").and_then(Value::as_str),
+        Some(JsValue::String(url)) => Some(url),
+        Some(JsValue::Object(object)) => object.get("url").and_then(JsValue::as_string),
         _ => None,
     }
 }
@@ -344,7 +334,7 @@ struct TokenCounts {
     cache_write: f64,
 }
 
-fn parse_usage(raw: &Value, model: &ImagesModel) -> Usage {
+fn parse_usage(raw: &JsValue, model: &ImagesModel) -> Usage {
     let tokens = token_counts(raw);
     Usage {
         input: tokens.input,
@@ -358,13 +348,13 @@ fn parse_usage(raw: &Value, model: &ImagesModel) -> Usage {
     }
 }
 
-fn token_counts(raw: &Value) -> TokenCounts {
-    let number = |name: &str| raw.get(name).and_then(Value::as_f64).unwrap_or(0.0);
+fn token_counts(raw: &JsValue) -> TokenCounts {
+    let number = |name: &str| raw.get(name).and_then(JsValue::as_f64).unwrap_or(0.0);
     let details = raw.get("prompt_tokens_details");
     let detail = |name: &str| {
         details
             .and_then(|details| details.get(name))
-            .and_then(Value::as_f64)
+            .and_then(JsValue::as_f64)
             .unwrap_or(0.0)
     };
 

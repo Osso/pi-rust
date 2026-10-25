@@ -21,14 +21,16 @@ pub struct GoalAgentEndOptions {
     pub review_goal: GoalEvidenceReview,
     pub select_goal: Arc<dyn Fn() -> Result<Option<Goal>, HandlerError> + Send + Sync>,
     pub is_same_goal: IsSameGoal,
-    pub is_review_current: Arc<dyn Fn() -> bool + Send + Sync>,
+    pub is_review_current: Arc<dyn Fn() -> Result<bool, HandlerError> + Send + Sync>,
     pub apply_decision: ApplyDecision,
-    pub defer_decision: Arc<dyn Fn(ReviewedGoalResponse, Goal, ExtensionContext, TerminalTurn) + Send + Sync>,
-    pub defer_review: Arc<dyn Fn(Goal, ExtensionContext, TerminalTurn) + Send + Sync>,
+    pub defer_decision: Arc<
+        dyn Fn(ReviewedGoalResponse, Goal, ExtensionContext, TerminalTurn) -> Result<(), HandlerError> + Send + Sync,
+    >,
+    pub defer_review: Arc<dyn Fn(Goal, ExtensionContext, TerminalTurn) -> Result<(), HandlerError> + Send + Sync>,
 }
 
 fn review_still_applies(options: &GoalAgentEndOptions, goal: &Goal) -> Result<bool, HandlerError> {
-    Ok((options.is_review_current)() && (options.is_same_goal)(options.ctx.clone(), goal)?)
+    Ok((options.is_review_current)()? && (options.is_same_goal)(options.ctx.clone(), goal)?)
 }
 
 /// `handleGoalAgentEnd`.
@@ -37,7 +39,7 @@ pub async fn handle_goal_agent_end(options: GoalAgentEndOptions) -> Result<(), H
         return Ok(());
     };
     if options.ctx.has_pending_messages()? {
-        (options.defer_review)(goal, options.ctx.clone(), options.event.messages.clone());
+        (options.defer_review)(goal, options.ctx.clone(), options.event.messages.clone())?;
         return Ok(());
     }
     let mut payload = pi_js_compat::js_json::JsObject::new();
@@ -55,7 +57,7 @@ pub async fn handle_goal_agent_end(options: GoalAgentEndOptions) -> Result<(), H
         return Ok(());
     }
     if options.ctx.has_pending_messages()? {
-        (options.defer_decision)(reviewed, goal, options.ctx.clone(), options.event.messages.clone());
+        (options.defer_decision)(reviewed, goal, options.ctx.clone(), options.event.messages.clone())?;
         return Ok(());
     }
     (options.apply_decision)(reviewed, goal, options.ctx.clone(), options.event.messages.clone()).await

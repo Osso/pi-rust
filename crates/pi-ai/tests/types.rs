@@ -1,6 +1,6 @@
 use pi_ai::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason, Message, Model,
-    ModelCompat, StopReason, ToolResultContent, Usage, UserContent,
+    AssistantContent, AssistantImages, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ErrorReason,
+    Message, Model, ModelCompat, StopReason, ToolResultContent, Usage, UserContent,
 };
 use serde_json::{Value, json};
 
@@ -118,6 +118,24 @@ fn message_timestamp_numbers_serialize_exactly_like_node_and_round_trip_raw() {
 }
 
 #[test]
+fn fractional_image_timestamps_round_trip_like_frozen_numbers() {
+    let mut source = oracle::TsOracle::spawn("message-timestamp-oracle.ts", "packages/ai/src/types.ts");
+    let image = json!({
+        "api": "openrouter-images", "provider": "openrouter", "model": "image-model",
+        "output": [], "stopReason": "stop", "timestamp": 0,
+    });
+    let expected = source.request(&json!({"message": image, "value": 12.75}));
+    let decoded: AssistantImages = serde_json::from_value(expected["roundTrip"].clone())
+        .expect("frozen number timestamp permits ordinary fractions");
+    let actual = serde_json::to_string(&decoded).unwrap();
+    assert_eq!(actual, expected["wire"].as_str().unwrap());
+    let reverse = source.request(&json!({
+        "message": serde_json::to_value(&decoded).unwrap(), "value": 12.75,
+    }));
+    assert_eq!(reverse["roundTrip"], expected["roundTrip"]);
+}
+
+#[test]
 fn empty_stream_message_starts_with_frozen_stop_reason() {
     let message = AssistantMessage::empty("anthropic-messages", "anthropic", "test", 0.0);
     assert_eq!(message.stop_reason, StopReason::Stop);
@@ -207,7 +225,6 @@ fn tool_result_message_round_trips_with_arbitrary_details() {
         "toolName": "bash",
         "content": [{"type": "text", "text": "ok"}],
         "details": {"exitCode": 0, "truncated": null},
-        "addedToolNames": ["grep"],
         "isError": false,
         "timestamp": 3
     }));
@@ -323,10 +340,9 @@ fn context_round_trips_tools_with_json_schema_parameters() {
         "messages": [{"role": "user", "content": "hi", "timestamp": 1}],
         "tools": [{
             "name": "read", "description": "Read a file",
-            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]},
-            "constrainedSampling": {"type": "json_schema", "strict": "prefer"}
+            "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
         }, {
-            "name": "noop", "description": "", "parameters": {"type": "object"}, "constrainedSampling": false
+            "name": "noop", "description": "", "parameters": {"type": "object"}
         }]
     }));
     assert_eq!(context.tools.as_ref().map(Vec::len), Some(2));

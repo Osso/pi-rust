@@ -220,7 +220,7 @@ fn format_codex_account_label(usage: &CodexUsage, provider: &str, selected: &str
         .plan_type
         .as_ref()
         .filter(|plan| !plan.is_empty())
-        .map(|plan| js_format!(" ({})", sanitize_usage_text(&plan.into())))
+        .map(|plan| js_format!(" ({})", sanitize_usage_text(plan)))
         .unwrap_or_default();
     js_format!("{}{} [{}]{}", sanitize_usage_text(&identity), plan, provider, selected)
 }
@@ -360,11 +360,20 @@ fn send_usage_all_report(
     table: JsString,
 ) -> Result<(), HandlerError> {
     let content = js_format!("{}\n\n```\n{}\n```", ALL_TITLE, table);
+    send_usage_report(ctx, pi, "usage-all", content, js_format!("{}\n{}", ALL_TITLE, table))
+}
+
+pub(super) fn send_usage_report(
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    custom_type: &str,
+    content: JsString,
+    notification: JsString,
+) -> Result<(), HandlerError> {
     let options = if ctx.is_idle()? {
         None
     } else {
-        ctx.ui()?
-            .notify(&js_format!("{}\n{}", ALL_TITLE, table), Some(NotifyType::Info))?;
+        ctx.ui()?.notify(&notification, Some(NotifyType::Info))?;
         Some(SendMessageOptions {
             deliver_as: Some(MessageDelivery::NextTurn),
             ..Default::default()
@@ -372,7 +381,7 @@ fn send_usage_all_report(
     };
     pi.send_message(
         CustomMessagePayload {
-            custom_type: "usage-all".into(),
+            custom_type: custom_type.into(),
             content: CustomMessageContent::Text(content),
             display: true,
             details: None,

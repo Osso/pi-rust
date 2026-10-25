@@ -839,7 +839,8 @@ fn compaction_preparation() -> CompactionPreparation {
         tokens_before: 10.0,
         previous_summary: None,
         file_ops: pi_agent_core::FileOperations::default(),
-        settings: pi_agent_core::CompactionSettings {
+        settings: pi_coding_agent::core::compaction::CompactionSettings {
+            threshold_percent: None,
             enabled: true,
             reserve_tokens: 1.0,
             keep_recent_tokens: 2.0,
@@ -876,10 +877,7 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
         }))
         .unwrap();
         api.on_session_before_compact(h!(SessionBeforeCompactEvent, |_e, _c| {
-            Ok(Some(SessionBeforeCompactResult {
-                cancel: Some(true),
-                compaction: None,
-            }))
+            Ok(Some(SessionBeforeCompactResult { cancel: Some(true) }))
         }))
         .unwrap();
         let l3 = Arc::clone(&l);
@@ -901,7 +899,6 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
                     compacted_result_tokens: None,
                     compacted_result_bytes: None,
                     source: None,
-                    usage: None,
                     provider_native: None,
                     details: None,
                 }),
@@ -1107,6 +1104,7 @@ async fn context_live_scenario(temp_dir: &str) -> Value {
                 get_multi_agent_parent_session_id: Some(Arc::new(move || {
                     parent_getter.lock().unwrap().clone().map(JsString::from)
                 })),
+                register_supervisor_review_cancellation: None,
                 get_no_supervisor: None,
                 get_multi_agent_requires_agent_id: Some(Arc::new(move || *requires_getter.lock().unwrap())),
                 ..support::context_actions()
@@ -1279,7 +1277,6 @@ fn tool_definition(name: &str, description: &str) -> ToolDefinition {
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -1322,11 +1319,9 @@ async fn keeps_the_first_registered_tool_and_definition() {
 }
 
 #[tokio::test]
-async fn collects_renderers_and_transformers_in_load_order() {
+async fn collects_renderers_in_load_order() {
     let runtime = support::runtime();
     let a = support::extension(&runtime, "/tmp", "/tmp/a.ts", |api| {
-        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}a")))
-            .unwrap();
         api.register_message_renderer("my-type", Arc::new(|_, _, _| None))
             .unwrap();
         api.register_entry_renderer("my-entry", Arc::new(|_, _, _| None))
@@ -1334,13 +1329,13 @@ async fn collects_renderers_and_transformers_in_load_order() {
     })
     .await;
     let b = support::extension(&runtime, "/tmp", "/tmp/b.ts", |api| {
-        api.register_markdown_transformer(Arc::new(|markdown, _| format!("{markdown}b")))
+        api.register_message_renderer("other-type", Arc::new(|_, _, _| None))
             .unwrap();
     })
     .await;
     let runner = support::runner_for(vec![a, b], "/tmp", runtime, support::model_registry().await);
 
-    assert_eq!(runner.get_markdown_transformers().len(), 2);
+    assert!(runner.get_message_renderer("other-type").is_some());
     assert!(runner.get_message_renderer("my-type").is_some());
     assert!(runner.get_message_renderer("missing").is_none());
     assert!(runner.get_entry_renderer("my-entry").is_some());
@@ -1357,7 +1352,6 @@ async fn command_context_passes_fork_options_through() {
     runner.bind_command_context(Some(ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
-        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(move |entry_id, options| {
@@ -1434,9 +1428,14 @@ async fn context_members_read_live_runner_state() {
     assert_eq!(ctx.cwd().unwrap(), "/tmp/moved");
     assert_eq!(ctx.mode().unwrap(), ExtensionMode::Json);
     assert!(!ctx.has_ui().unwrap());
-    assert_eq!(ctx.model().unwrap().unwrap().id, "model-a");
+    // Frozen createContext captures getModel, unlike its other live callback members.
+    assert!(ctx.model().unwrap().is_none());
     assert_eq!(command.cwd().unwrap(), "/tmp/moved");
-    assert_eq!(command.model().unwrap().unwrap().id, "model-a");
+    assert!(command.model().unwrap().is_none());
+    let bound_context = runner.create_context();
+    assert_eq!(bound_context.model().unwrap().unwrap().id, "model-a");
+    *model.lock().unwrap() = Some(test_model("model-b"));
+    assert_eq!(bound_context.model().unwrap().unwrap().id, "model-b");
 }
 
 #[tokio::test]
@@ -1831,7 +1830,8 @@ fn discovers_direct_files_and_index_entries() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1872,7 +1872,8 @@ fn package_manifest_entries_keep_declared_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1902,7 +1903,8 @@ fn configured_directories_use_manifest_or_index() {
         ],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     let names: Vec<String> = paths
         .iter()
         .map(|path| {
@@ -1968,7 +1970,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
         &[],
         &JsString::from(dir.to_str().unwrap()),
         &JsString::from(dir.to_str().unwrap()),
-    );
+    )
+    .unwrap();
     assert_eq!(paths.len(), 2);
 
     let mut registry = ExtensionRegistry::new();
@@ -1989,7 +1992,8 @@ async fn registry_loads_enabled_factories_in_registration_order() {
                     .into_owned(),
             )],
         )
-        .await;
+        .await
+        .unwrap();
     assert!(result.errors.is_empty(), "{:?}", result.errors);
     assert_eq!(result.extensions.len(), 1);
     assert_eq!(
@@ -2014,7 +2018,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.extensions.len(), 0);
     assert_eq!(
         result.errors[0].error,
@@ -2033,7 +2038,8 @@ async fn registry_reports_missing_and_failing_factories() {
             None,
             None,
         )
-        .await;
+        .await
+        .unwrap();
     assert_eq!(result.errors[0].error, "Failed to load extension: boom");
     fs::remove_dir_all(dir).ok();
 }
@@ -2060,7 +2066,7 @@ async fn registered_extensions_honor_hidden_and_disabled_ids() {
 }
 
 #[tokio::test]
-async fn context_session_manager_is_the_live_shared_handle() {
+async fn context_session_manager_is_a_live_readonly_view() {
     let temp = tempfile::tempdir().expect("temp dir");
     let cwd = temp.path().display().to_string();
     let session_dir = temp.path().join("sessions").display().to_string();
@@ -2084,14 +2090,13 @@ async fn context_session_manager_is_the_live_shared_handle() {
     );
     let context = runner.create_context();
     let extension_handle = context.session_manager().expect("session manager");
-    assert!(Arc::ptr_eq(&extension_handle, &manager));
-
-    {
-        let mut extension_manager = lock_session_manager(&extension_handle);
-        extension_manager
-            .set_session_goal_json(&JsString::from("{\"objective\":\"shared\"}"))
-            .expect("extension goal write");
-    }
+    assert_eq!(
+        extension_handle.get_session_id(),
+        lock_session_manager(&manager).get_session_id().clone()
+    );
+    extension_handle
+        .set_session_goal_json(&JsString::from("{\"objective\":\"shared\"}"))
+        .expect("extension goal write");
     assert_eq!(
         lock_session_manager(&manager)
             .get_session_goal_json()
@@ -2108,7 +2113,7 @@ async fn context_session_manager_is_the_live_shared_handle() {
             timestamp: 1_700_000_000_000.0,
         }))
         .expect("session append");
-    let entries = lock_session_manager(&extension_handle).get_entries();
+    let entries = extension_handle.get_entries();
     assert_eq!(
         entries.len(),
         1,
@@ -2136,7 +2141,6 @@ fn text_definition(
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -2306,7 +2310,6 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
                     live.register_shortcut("ctrl+9".into(), None, shortcut_handler(|_| Box::pin(async { Ok(()) })))?;
                     live.register_message_renderer("late", Arc::new(|_, _, _| None))?;
                     live.register_entry_renderer("late", Arc::new(|_, _, _| None))?;
-                    live.register_markdown_transformer(Arc::new(|text, _| format!("{text}!")))?;
                     live.register_tool_gate(Arc::new(|mut event: ToolCallEvent, _: ExtensionContext| {
                         event.input.insert("late_gate".into(), JsValue::from(json!(true)));
                         Box::pin(async move {
@@ -2360,7 +2363,6 @@ async fn runtime_registration_from_command_is_visible_to_runner() {
     assert!(runner.get_shortcuts(&Default::default()).contains_key("ctrl+9"));
     assert!(runner.get_message_renderer("late").is_some());
     assert!(runner.get_entry_renderer("late").is_some());
-    assert_eq!(runner.get_markdown_transformers().len(), 1);
     assert!(runner.has_handlers("agent_start"));
     runner.emit(&mut ExtensionEvent::AgentStart(AgentStartEvent {})).await;
     assert!(runner.has_tool_gates());

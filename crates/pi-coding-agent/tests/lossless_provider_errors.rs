@@ -10,7 +10,7 @@ async fn coding_compaction_propagates_failed_stream_message_without_adding_a_pre
     use pi_agent_core::agent::StreamFn;
     use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
     use pi_ai::utils::event_stream::{StreamFailure, create_assistant_message_event_stream};
-    use pi_coding_agent::core::compaction::{GenerateSummaryWithUsageOptions, generate_summary};
+    use pi_coding_agent::core::compaction::{GenerateSummaryOptions, generate_summary};
     use std::sync::Arc;
     let model = faux_provider(RegisterFauxProviderOptions::default())
         .get_model(None)
@@ -22,7 +22,7 @@ async fn coding_compaction_propagates_failed_stream_message_without_adding_a_pre
             Ok(stream)
         })
     });
-    let error = generate_summary(&GenerateSummaryWithUsageOptions {
+    let error = generate_summary(&GenerateSummaryOptions {
         current_messages: &[],
         model: &model,
         reserve_tokens: 100.0,

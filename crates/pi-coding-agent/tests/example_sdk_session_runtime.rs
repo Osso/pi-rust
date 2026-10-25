@@ -144,7 +144,8 @@ async fn queue_subscription_rebinds_without_duplicate_or_stale_output() {
     );
     let extensions = registry
         .load_extensions(&["fixture".into()], fixture.options.cwd.as_ref().unwrap(), None, None)
-        .await;
+        .await
+        .unwrap();
     assert!(extensions.errors.is_empty());
     fixture.options.resource_loader = Some(std::sync::Arc::new(
         pi_coding_agent::core::resource_loader::StaticResourceLoader {

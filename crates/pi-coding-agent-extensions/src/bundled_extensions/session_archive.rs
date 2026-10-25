@@ -10,7 +10,6 @@ use crate::core::extensions::types::{
 use crate::core::session_archive_storage::archive_persisted_session;
 use crate::core::session_control_db::{read_session_metadata, unarchive_session};
 use crate::core::session_delete::delete_session_tree;
-use crate::core::session_manager::lock_session_manager;
 
 struct CurrentSession {
     db: JsString,
@@ -39,9 +38,7 @@ fn read_current_session_and_notify(
         )?;
         return Ok(None);
     };
-    let path = lock_session_manager(&ctx.session_manager()?)
-        .get_session_file()
-        .cloned();
+    let path = ctx.session_manager()?.get_session_file();
     let Some(path) = path.filter(|path| !path.is_empty()) else {
         ctx.ui()?.notify(
             &"The current session is not persisted.".into(),

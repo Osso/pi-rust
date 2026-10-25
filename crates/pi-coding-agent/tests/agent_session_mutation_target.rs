@@ -258,7 +258,7 @@ async fn resolve_selected_session_mutation_target_requires_a_live_mutable_sessio
     // A session without a mutation surface is rejected like the TS structural check.
     struct PlainSession;
     impl pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSession for PlainSession {
-        fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
+        fn messages(&self) -> Vec<std::sync::Arc<pi_agent_core::agent::types::AgentMessage>> {
             Vec::new()
         }
         fn prompt(&self, _text: JsString) -> BoxFuture<'static, Result<(), JsString>> {

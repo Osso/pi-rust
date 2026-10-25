@@ -1,5 +1,4 @@
 // Batch G extends A/B's real loader/runner fixture pattern with mode state/actions.
-import { createReadonlySessionManager } from "./extension-examples-l-readonly-session-manager.ts";
 import { resolve, dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 async function main() {
@@ -19,7 +18,6 @@ async function main() {
   if(request.models)registry.registerProvider("fixture",{name:"fixture",api:"openai-completions",baseUrl:"https://fixture.invalid/v1",apiKey:"fixture-key",models:request.models});
   let tools=request.tools??["read","bash","edit","write","custom"],thinking=request.thinking??"off",model:any=request.initialModel;
   const runner=new runnerModule.ExtensionRunner([extension],runtime,cwd,manager,registry);
-  if(request.fixed){const original=runner.createContext.bind(runner);runner.createContext=()=>({...original(),sessionManager:createReadonlySessionManager(manager)});}
   const allTools=["read","bash","edit","write","grep","find","ls","ask_questions","custom"].map(name=>({name,description:name,parameters:{}}));
   runner.bindCore({
    getActiveTools:()=>tools,setActiveTools:(value:string[])=>{tools=value;trace.push(["tools",value]);},getAllTools:()=>allTools,
@@ -58,7 +56,7 @@ async function main() {
   console.error=originalError;return {metadata,trace,tools,thinking,model:model??null,entries};
  }
  process.stdin.setEncoding("utf8");let pending="";
- for await(const chunk of process.stdin){pending+=chunk;let end:number;while((end=pending.indexOf("\n"))!==-1){const request=JSON.parse(pending.slice(0,end));pending=pending.slice(end+1);const output=await run(request);console.log(JSON.stringify(request.projectSurrogates?JSON.parse(JSON.stringify(output),(_k,v)=>typeof v==="string"?v.toWellFormed():v):output));}}
+ for await(const chunk of process.stdin){pending+=chunk;let end:number;while((end=pending.indexOf("\n"))!==-1){const request=JSON.parse(pending.slice(0,end));pending=pending.slice(end+1);const output=await run(request);console.log(JSON.stringify(output));}}
  if(pending)throw new Error("Unterminated request");
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

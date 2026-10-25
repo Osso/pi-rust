@@ -88,6 +88,14 @@ impl BorderedLoader {
         }
     }
 
+    /// Return the cancellation callback for invocation after shared caller guards are released.
+    pub fn abort_for_input(&self, data: &JsString) -> Option<Rc<dyn Fn()>> {
+        match &self.loader {
+            LoaderHandle::Cancellable(loader) => loader.borrow_mut().abort_for_input(data),
+            LoaderHandle::Plain(_) => None,
+        }
+    }
+
     pub fn dispose(&mut self) {
         self.loader.dispose();
     }
@@ -147,8 +155,8 @@ impl Component for BorderedLoader {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        if let LoaderHandle::Cancellable(loader) = &self.loader {
-            loader.borrow_mut().handle_input(data);
+        if let Some(on_abort) = self.abort_for_input(data) {
+            on_abort();
         }
     }
 

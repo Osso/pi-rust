@@ -324,6 +324,7 @@ impl DetachedJobLifecycleController {
                 ownership: ownership.control_ownership.clone(),
                 output_label: ownership.identity.output_label.clone(),
                 reason: reason.cloned(),
+                suppress_terminal_notification: None,
             })?;
         if let LifecycleCommandResult::Ok { agent } = &cancelled {
             self.options.store.publish_lifecycle_coordinator_snapshot(agent)?;

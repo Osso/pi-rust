@@ -1,4 +1,6 @@
-# transform-messages traceability
+# transform-messages — common pin
+
+Complete for realistic inputs at frozen 4f9e6f8a4. Current native 10 and actual-source 18-scenario differential (1 test) pass at ef3448a48: `/tmp/ai-transform-suite_core_{1,2}.log`. No production change was needed for this closure.
 
 Source: `packages/ai/src/api/transform-messages.ts`.
 Rust: `crates/pi-ai/src/api/transform_messages.rs`.
@@ -25,9 +27,11 @@ Tests: `crates/pi-ai/tests/transform_messages.rs` (10 behavioral), `crates/pi-ai
 | user interrupts tool flow | `insert_synthetic_tool_results` | `user_messages_interrupt_tool_flow_with_synthetic_results`; differential 13 |
 | synthetic result shape (`No result provided`, `isError`, `now`) | `PendingToolCalls::insert_synthetic` | `adds_synthetic_tool_results_for_trailing_orphaned_tool_calls` |
 
-## Gaps
-- Normalizing `null`/missing `content` is unreachable: `Message` requires `content` in the typed Rust API (explicit typed-input exclusion, August 12 2026 decision). The image-downgrade path for empty block arrays is covered.
-- `Message`/`ToolCall` variants outside the three declared roles/blocks are rejected at deserialization, matching the TS type contract rather than untyped callers.
+## Boundary
+
+GAP (2026-10-25): intra-call live-clock movement uses the approved single native `now` snapshot and existing synthetic-time normalization; undeclared roles/content and out-of-contract callback outputs follow the typed/pathological input exclusion, without new carriers or APIs.
+
+Owned return values follow the general 2026-10-22 approval. The six frozen conversion consumers (Anthropic, Completions, Responses-shared, Google-shared, Bedrock and Mistral, covering nine APIs) read the transformed sequence into new wire-request structures; no built-in consumer relies on mutation through a returned message reference. Private maps/sets are used for lookup only, so native ordered-tree representation does not change output order.
 
 ## Discrepancies
 - None. Source ordering is preserved: ID mappings are built during the first pass, stray tool results are kept, and only pending tool calls receive synthetic results.

@@ -307,3 +307,46 @@ async fn registers_an_approval_reviewer() {
         })
     );
 }
+
+#[tokio::test]
+async fn unavailable_hook_does_not_register_a_reviewer() {
+    let dir = TestDir::new();
+    let extension = load_extension(&dir.path().join("missing")).await;
+    assert_eq!(extension.read().approval_reviewers.len(), 0);
+    let file = dir.path().join("not-executable");
+    std::fs::write(&file, "not executable").unwrap();
+    let extension = load_extension(&file).await;
+    assert_eq!(extension.read().approval_reviewers.len(), 0);
+}
+
+#[tokio::test]
+async fn hook_timeout_reports_node_abort_and_sends_sigterm() {
+    let dir = TestDir::new();
+    let script = dir.path().join("slow.py");
+    let term = dir.path().join("term");
+    executable_script::write_executable_script(
+        &script,
+        &format!(
+            "#!/usr/bin/python3\nimport pathlib,signal,sys,time\nsignal.signal(signal.SIGTERM, lambda *args: (pathlib.Path({:?}).write_text('term'), sys.exit(0)))\nsys.stdin.read()\ntime.sleep(10)\n",
+            term.to_str().unwrap()
+        ),
+    );
+    let error = review_tool_with_claude_bash_hook(
+        &event("bash", json!({"command":"ls"})),
+        &JsString::from("/repo"),
+        &ClaudeBashHookOptions {
+            command: Some(script.to_str().unwrap().to_owned()),
+            timeout_ms: Some(300),
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(error.message, "The operation was aborted");
+    tokio::time::timeout(std::time::Duration::from_secs(3), async {
+        while !term.exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("SIGTERM received");
+}

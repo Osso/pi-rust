@@ -9,7 +9,7 @@ use indexmap::IndexMap;
 use pi_js_compat::abort::AbortSignal;
 use serde_json::Value;
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     OpenAIResponsesStreamOptions, convert_responses_messages, convert_responses_tools, process_responses_stream,
@@ -72,7 +72,8 @@ fn parse_deployment_name_map(value: Option<&JsString>) -> BTreeMap<JsString, JsS
             continue;
         };
         let model_id = trimmed.slice(0, index);
-        let deployment_name = trimmed.slice(index + 1, trimmed.len());
+        let remainder = trimmed.slice(index + 1, trimmed.len());
+        let deployment_name = remainder.split('=').into_iter().next().unwrap_or_default();
         if model_id.is_empty() || deployment_name.is_empty() {
             continue;
         }
@@ -86,11 +87,12 @@ fn resolve_deployment_name(
     options: &AzureOpenAIResponsesOptions,
     env: Option<&crate::types::ProviderEnv>,
 ) -> JsString {
-    if let Some(deployment_name) = &options.azure_deployment_name {
+    if let Some(deployment_name) = options.azure_deployment_name.as_ref().filter(|name| !name.is_empty()) {
         return deployment_name.clone();
     }
     let map = parse_deployment_name_map(get_provider_env_value("AZURE_OPENAI_DEPLOYMENT_NAME_MAP", env).as_ref());
     map.get(&JsString::from(&model.id))
+        .filter(|name| !name.is_empty())
         .cloned()
         .unwrap_or_else(|| model.id.clone().into())
 }
@@ -129,7 +131,8 @@ fn resolve_azure_config(
     let api_version = options
         .azure_api_version
         .clone()
-        .or_else(|| get_provider_env_value("AZURE_OPENAI_API_VERSION", env))
+        .filter(|version| !version.is_empty())
+        .or_else(|| get_provider_env_value("AZURE_OPENAI_API_VERSION", env).filter(|version| !version.is_empty()))
         .unwrap_or_else(|| DEFAULT_AZURE_API_VERSION.into());
 
     let base_url = options
@@ -145,7 +148,8 @@ fn resolve_azure_config(
     let resource_name = options
         .azure_resource_name
         .clone()
-        .or_else(|| get_provider_env_value("AZURE_OPENAI_RESOURCE_NAME", env));
+        .filter(|name| !name.is_empty())
+        .or_else(|| get_provider_env_value("AZURE_OPENAI_RESOURCE_NAME", env).filter(|name| !name.is_empty()));
 
     let resolved_base_url = base_url
         .or_else(|| resource_name.as_ref().map(build_default_base_url))
@@ -203,7 +207,7 @@ pub fn build_params(
     options: &AzureOpenAIResponsesOptions,
     stream_options: &StreamOptions,
     deployment_name: &JsString,
-) -> Result<JsValue, String> {
+) -> Result<JsValue, JsString> {
     let messages = convert_responses_messages(
         model,
         context,
@@ -263,11 +267,6 @@ pub fn build_params(
         }
     }
 
-    if let Some(sampling_params) = &stream_options.sampling_params {
-        for (key, value) in sampling_params {
-            params.insert(key.clone().into(), value.clone().into());
-        }
-    }
     Ok(JsValue::Object(params))
 }
 
@@ -325,7 +324,7 @@ fn retry_options(options: &ProviderRequestOptions) -> ProviderRetryOptions {
             .filter(|retries| *retries > 0.0)
             .map(|retries| retries as usize)
             .unwrap_or(0),
-        max_retry_delay_ms: options.max_retry_delay_ms,
+        max_retry_delay_ms: Some(0.0),
         signal: options.signal.clone(),
     }
 }
@@ -351,9 +350,12 @@ async fn run_stream(
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
-        && let Some(next_params) = on_payload(params.clone(), model.clone())
-            .await
-            .map_err(|error| Failure::Message(error.message))?
+        && let Some(next_params) = on_payload(params.clone(), model.clone()).await.map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("Azure OpenAI API error"),
+            ))
+        })?
     {
         params = next_params;
     }
@@ -382,7 +384,12 @@ async fn run_stream(
             model.clone(),
         )
         .await
-        .map_err(|error| Failure::Message(error.message))?;
+        .map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("Azure OpenAI API error"),
+            ))
+        })?;
     }
     sender.push(crate::types::AssistantMessageEvent::Start {
         partial: output.clone(),
@@ -472,7 +479,7 @@ pub fn stream_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> crate::utils::event_stream::AssistantMessageEventStream {
+) -> Result<crate::utils::event_stream::AssistantMessageEventStream, CallbackError> {
     let Some(api_key) = options
         .stream
         .request
@@ -480,7 +487,10 @@ pub fn stream_simple(
         .clone()
         .filter(|api_key| !api_key.is_empty())
     else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
+        return Err(CallbackError::new(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options
@@ -493,7 +503,7 @@ pub fn stream_simple(
             .extra
             .insert("reasoningEffort".to_owned(), Value::String(reasoning_effort));
     }
-    run_and_emit(&model, &context, stream_options)
+    Ok(run_and_emit(&model, &context, stream_options))
 }
 
 /// `ProviderStreams` adapter for `azureOpenAIResponsesApi()`.
@@ -516,19 +526,16 @@ impl ProviderStreams for AzureOpenAIResponsesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 
 /// `azureOpenAIResponsesApi()` from `azure-openai-responses.lazy.ts`.
 pub fn azure_open_ai_responses_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| {
-            Box::pin(async { Ok(Arc::new(AzureOpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
-                as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
-        }),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(AzureOpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
+            as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
+    }))
 }
 
 #[cfg(test)]

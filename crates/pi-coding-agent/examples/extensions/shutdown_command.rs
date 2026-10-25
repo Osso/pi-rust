@@ -38,7 +38,6 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         prompt_guidelines: None,
         approval_required: None,
         approval_kind: None,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -61,7 +60,7 @@ pub fn shutdown_command_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         description: "Deploy the application and exit pi".into(),
         parameters: json!({"type":"object","properties":{"environment":{"type":"string","description":"Target environment (e.g., production, staging)"}},"required":["environment"]}),
         prompt_snippet: None, prompt_guidelines: None, approval_required: None, approval_kind: None,
-        constrained_sampling: None, render_shell: None, prepare_arguments: None, prepare_execution: None,
+        render_shell: None, prepare_arguments: None, prepare_execution: None,
         execution_mode: None, render_call: None, render_result: None,
         execute: Arc::new(|_, params, _, on_update, ctx| Box::pin(async move {
 let ctx = pi_coding_agent::core::extensions::types::require_extension_context(ctx)?;

@@ -1,26 +1,21 @@
 # Coding-agent control command traceability
 
-Pinned source: `packages/coding-agent/src/cli/control-command.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen: `packages/coding-agent/src/cli/control-command.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. All 128 lines compared with `crates/pi-coding-agent/src/cli/control_command.rs`.
 
-Rust: `crates/pi-coding-agent/src/cli/control_command.rs`.
+| Export / branches | Proof |
+| --- | --- |
+| `handleControlCommand`: non-control ignored; help/unknown output destination and exitCode | 17-case actual-source `suite_core_1::control_command::control_help_and_argument_rejections_match_frozen_without_side_effects`; exact complete writes and no DB creation |
+| `send`: help takes precedence over invalid pid/message, stdout help/exit0, no queue/signal | Same differential; RED `/tmp/settings-models-control-red.log` shows old Rust queued `--help` as a message |
+| `parseSendCommand`: iterate args, Number conversion/integer/positive validation, last pid wins, remaining words join and JS trim; empty rejected | Actual-source invalid/empty/missing/decimal pid cases; native enqueue/signaled pid/content fixture |
+| `send`: enqueue precedes stdout, then optional signal and second stdout; errors propagate | Native real SQLite `queues_a_control_message_and_signals_a_running_process`; actual frozen default signal failure against a reaped child |
+| `restart`: exact flag/count/trim, health missing/dead rejection; healthy SIGHUP and success line; signal failure catch/exit1 | Native health DB fixtures and malformed-restart actual-source differential; explicit signal-failure behavior test |
+| `last`: optional last record, exact content plus newline | Native real DB `prints_the_last_assistant_reply`; empty branch has no output by inspection |
+| `path`: state-root DB path plus newline | Native injected-state-root fixture |
+| `printControlHelp`: exact multiline output | All 17 differential scenarios compare full writes |
+| Default `process.kill`: syscall error text | `signaling_an_exited_process_preserves_node_error_text`: actual frozen send against reaped child returns `kill ESRCH`; RED `/tmp/settings-models-control-signal-red.log` showed Rust OS prose |
 
-Process module (control SQLite database, process signals). Behavioral proof with injected effects: `tests/control_command.rs` (7 tests, ports of `test/control-command.test.ts`).
+The default Rust signal effect maps errno through the shared Node code authority, producing `kill <code>`. Known runtime/fault/numeric-extreme shapes remain outside the current parity bar; no additional carrier is introduced for out-of-range JavaScript pids. POSIX signal behavior is covered; Windows remains the approved platform gap.
 
-| TypeScript source | Observable behavior | Rust proof |
-|---|---|---|
-| `control-command.ts:17-19` | Ignore non-`control` argv | `ignores_non_control_commands_and_prints_help` |
-| `control-command.ts:23-36` | `send` queues one incoming message, prints `queued <id>`, optionally signals `SIGHUP` and prints `signaled <pid>` | `queues_a_control_message_and_signals_a_running_process` |
-| `control-command.ts:38-56` | `restart` requires a live `ok` health row; signals the recorded pid; unknown/dead sessions print the exact message and exit 1; signal failures print the wrapped message | `restarts_a_running_session_by_exact_session_id`, `reports_restart_of_unknown_or_dead_sessions` |
-| `control-command.ts:58-71` | `last` prints the stored last message content; `path` prints the control DB path | `prints_the_last_assistant_reply`, `prints_the_state_root_control_database_path` |
-| `control-command.ts:73-76` | Help goes to stdout for `--help`/`-h` (exit 0) and stderr otherwise (exit 1) | `ignores_non_control_commands_and_prints_help` |
-| `control-command.ts:78-97` | `parseSendCommand`: `--pid` must be a positive integer; remaining args join with spaces and trim; empty message is invalid | `rejects_invalid_send_arguments` |
-| `control-command.ts:99-102` | `parseRestartCommand`: exactly `--session-id <non-empty>` | `reports_restart_of_unknown_or_dead_sessions` |
+Post-commit GREEN, warning-mode clippy and changed-line readability results are recorded in `/tmp/settings-models-proof-ledger.md`.
 
-## Semantics
-
-- `signal_process` defaults to `rustix::process::kill_process(pid, Signal::HUP)`; errors surface as their OS message.
-- The default control DB path and the signal function are trait methods so tests inject both without mutating process env.
-
-## Discrepancies
-
-None found.
+GREEN: 8617ea9dd: /tmp/settings-models-control-green.log (10 tests;17 source vectors). Targeted warning-mode clippy at69513786b: `/tmp/settings-models-checkpoint-clippy.log`, exit0; existing warnings at control_command.rs:55 and sessions_command.rs:136 are unchanged conversions, none on changed lines. Changed Rust/TS manually audited for readability; no in-scope violations.

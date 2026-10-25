@@ -19,7 +19,6 @@ pub fn with_deps_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
         prompt_guidelines: None,
         approval_required: None,
         approval_kind: None,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

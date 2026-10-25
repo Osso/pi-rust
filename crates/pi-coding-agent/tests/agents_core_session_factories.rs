@@ -1,6 +1,8 @@
 //! Behavioral tests for `extensions/agents-core/src/session-factories.ts`
 //! production child and attached session factories.
 
+#[path = "support/oracle.rs"]
+mod oracle;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -23,7 +25,6 @@ use pi_coding_agent::core::model_registry::ModelRegistry;
 use pi_coding_agent::core::multi_agent_store::{
     AgentModel, AgentPermission, AgentSnapshot, AgentTranscriptMetadata, MultiAgentStore, MultiAgentStoreOptions,
 };
-use pi_coding_agent::core::permissions::policy::ApprovalPolicy;
 use pi_coding_agent::core::resource_loader::{InlineExtension, StaticResourceLoader};
 use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
 use pi_coding_agent::core::session_manager::{SessionManager, SharedSessionManager, lock_session_manager};
@@ -224,6 +225,9 @@ fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
 struct FakeChildSession {
     session_manager: SharedSessionManager,
     summary: String,
+    events: Arc<Mutex<Vec<&'static str>>>,
+    shutdown_error: Option<JsString>,
+    dispose_error: Option<JsString>,
 }
 
 impl FakeChildSession {
@@ -231,15 +235,29 @@ impl FakeChildSession {
         Self {
             session_manager,
             summary: summary.to_owned(),
+            events: Default::default(),
+            shutdown_error: None,
+            dispose_error: None,
         }
     }
 }
 
 impl ChildAgentSession for FakeChildSession {
-    fn messages(&self) -> Vec<AgentMessage> {
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let events = Arc::clone(&self.events);
+        let error = self.dispose_error.clone();
+        Box::pin(async move {
+            events.lock().unwrap().push("dispose");
+            error.map_or(Ok(()), Err)
+        })
+    }
+    fn messages(&self) -> Vec<Arc<AgentMessage>> {
         lock_session_manager(&self.session_manager)
             .build_session_context()
             .messages
+            .into_iter()
+            .map(Arc::new)
+            .collect()
     }
 
     fn prompt(&self, text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
@@ -258,6 +276,14 @@ impl ChildAgentSession for FakeChildSession {
 }
 
 impl UnboundChildAgentSession for FakeChildSession {
+    fn emit_session_shutdown(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let events = Arc::clone(&self.events);
+        let error = self.shutdown_error.clone();
+        Box::pin(async move {
+            events.lock().unwrap().push("shutdown");
+            error.map_or(Ok(()), Err)
+        })
+    }
     fn bind_extensions(&self) -> BoxFuture<'static, Result<(), JsString>> {
         Box::pin(async { Ok(()) })
     }
@@ -272,6 +298,9 @@ struct Captured {
     options: Mutex<Option<CreateAgentSessionOptions>>,
     manager: Mutex<Option<SharedSessionManager>>,
     calls: Mutex<usize>,
+    events: Arc<Mutex<Vec<&'static str>>>,
+    shutdown_error: Mutex<Option<JsString>>,
+    dispose_error: Mutex<Option<JsString>>,
 }
 
 type TestCreateSession = Arc<
@@ -286,9 +315,16 @@ fn create_child_session(captured: Arc<Captured>, summary: &'static str) -> TestC
         let manager = Arc::new(Mutex::new(options.session_manager.clone().expect("session manager")));
         *captured.manager.lock().expect("manager") = Some(Arc::clone(&manager));
         *captured.options.lock().expect("options") = Some(options);
-        Box::pin(
-            async move { Ok(Arc::new(FakeChildSession::new(manager, summary)) as Arc<dyn UnboundChildAgentSession>) },
-        )
+        let events = Arc::clone(&captured.events);
+        let shutdown_error = captured.shutdown_error.lock().unwrap().clone();
+        let dispose_error = captured.dispose_error.lock().unwrap().clone();
+        Box::pin(async move {
+            let mut session = FakeChildSession::new(manager, summary);
+            session.events = events;
+            session.shutdown_error = shutdown_error;
+            session.dispose_error = dispose_error;
+            Ok(Arc::new(session) as Arc<dyn UnboundChildAgentSession>)
+        })
     })
 }
 
@@ -305,6 +341,7 @@ fn child_options(
     store: Option<Arc<MultiAgentStore>>,
 ) -> ProductionChildAgentSessionFactoryOptions {
     ProductionChildAgentSessionFactoryOptions {
+        browser_agent_config_root: None,
         agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(captured, "fresh child done"),
         create_session_manager: create_session_manager(),
@@ -332,6 +369,161 @@ fn captured_session_manager(captured: &Captured) -> SharedSessionManager {
         .expect("manager")
         .clone()
         .expect("session manager")
+}
+
+#[tokio::test]
+async fn production_bound_child_exposes_the_live_model_and_effort_surface() {
+    let env = test_env().await;
+    let mut options = child_options(&env, Arc::new(Captured::default()), None, None);
+    options.create_session = Arc::new(|mut options| {
+        options.resource_loader = Some(StaticResourceLoader::new());
+        Box::pin(async move {
+            let faux = faux();
+            let registry = faux_runtime(&faux).await;
+            registry.refresh().unwrap();
+            options.model_registry = Some(registry);
+            let created = create_agent_session(options).await.map_err(|error| error.message)?;
+            Ok(Arc::new(
+                pi_coding_agent::bundled_extensions::agents_core::session_factories::AgentSessionChildSession::new(
+                    created.session,
+                ),
+            ) as Arc<dyn UnboundChildAgentSession>)
+        })
+    });
+    let factory = create_production_child_agent_session_factory(options);
+    let child = factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "child", "worker"),
+            SpawnContext::Fresh,
+            "task",
+        ))
+        .await
+        .unwrap();
+    let target = child
+        .session_mutation_target()
+        .expect("bound child must retain the live mutation surface");
+    assert_eq!(target.model().unwrap().id, "faux-1");
+    target
+        .set_thinking_level(pi_agent_core::harness::ThinkingLevel::High)
+        .unwrap();
+    assert_eq!(target.thinking_level(), pi_agent_core::harness::ThinkingLevel::High);
+    assert!(target.model_registry().find("faux", "faux-1").is_some());
+    assert!(
+        target
+            .cycle_model(pi_coding_agent::core::agent_session::CycleDirection::Forward)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    child.dispose().await.unwrap();
+}
+
+#[tokio::test]
+async fn bound_child_dispose_emits_shutdown_before_releasing_the_session() {
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for (shutdown_error, dispose_error) in [
+        (None, None),
+        (Some("shutdown failed"), None),
+        (None, Some("dispose failed")),
+        (Some("shutdown failed"), Some("dispose failed")),
+    ] {
+        let source = ts.request(
+            &json!({"id":5,"op":"childSessionDisposal","shutdownError":shutdown_error,"disposeError":dispose_error}),
+        );
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let env = test_env().await;
+        let captured = Arc::new(Captured::default());
+        *captured.shutdown_error.lock().unwrap() = shutdown_error.map(JsString::from);
+        *captured.dispose_error.lock().unwrap() = dispose_error.map(JsString::from);
+        let factory =
+            create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+        let child = factory
+            .call(child_input(
+                &env,
+                child_agent(&env, "child", "worker"),
+                SpawnContext::Fresh,
+                "task",
+            ))
+            .await
+            .unwrap();
+        let error = child.dispose().await.err();
+        assert_eq!(
+            source["output"],
+            json!({"events":*captured.events.lock().unwrap(),"error":error})
+        );
+    }
+}
+
+#[tokio::test]
+async fn factory_options_match_frozen_parent_registry_tools_and_settings() {
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for attached in [false, true] {
+        for agent_type in ["explore", "browser"] {
+            let env =
+                test_env_with_settings(Some(json!({"agents": {agent_type: {"tools": ["grep", "end_turn"]}}}))).await;
+            let captured = Arc::new(Captured::default());
+            let mut agent = child_agent(&env, "child", "worker");
+            agent.agent_type = agent_type.into();
+            agent.model = None;
+            let session_dir = lock_session_manager(&env.session_manager).get_session_dir().clone();
+            append_user(&env.session_manager, "existing");
+            lock_session_manager(&env.session_manager)
+                .persist_for_recovery()
+                .unwrap();
+            let session_path = lock_session_manager(&env.session_manager)
+                .get_session_file()
+                .cloned()
+                .unwrap();
+            let source = ts.request(&json!({
+                "id": 20, "op": "factoryOptions", "agentType": agent_type,
+                "cwd": env.cwd, "agentDir": env.agent_dir, "sessionDir": session_dir,
+                "controlDbPath": env.control_db, "sessionPath": session_path,
+                "tools": ["grep", "end_turn"], "attached": attached,
+            }));
+            assert_eq!(source["ok"], json!(true), "{source:?}");
+            if attached {
+                create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                    browser_agent_config_root: None,
+                    agent_dir: Some(env.agent_dir.clone().into()),
+                    create_session: create_child_session(Arc::clone(&captured), "done"),
+                    extension_factories: None,
+                    multi_agent_store: None,
+                    session_dir: None,
+                })
+                .call(AttachedSessionDispatchInput {
+                    active_tool_call_id: None,
+                    agent,
+                    ctx: env.session.extension_runner().create_context(),
+                    prompt: "task".into(),
+                    signal: None,
+                    session_path,
+                })
+                .await
+                .unwrap();
+            } else {
+                create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None))
+                    .call(child_input(&env, agent, SpawnContext::Fresh, "task"))
+                    .await
+                    .unwrap();
+            }
+            let options = captured.options.lock().unwrap().take().unwrap();
+            let native = json!({
+                "excludeTools": options.exclude_tools,
+                "tools": options.tools,
+                "customTools": options.custom_tool_definitions.iter().map(|tool| tool.name.clone()).collect::<Vec<_>>(),
+                "parentRegistry": options.model_registry.as_ref().is_some_and(|registry| registry.find("faux", "faux-1").is_some()),
+                "settingsOverride": options.settings_manager.is_some(),
+            });
+            assert_eq!(native, source["output"], "attached={attached}, type={agent_type}");
+        }
+    }
 }
 
 #[tokio::test]
@@ -391,6 +583,7 @@ async fn fresh_child_gets_its_own_session_with_only_the_assignment() {
                 "wait_agent",
                 "ask_supervisor",
                 "manage_goal",
+                "change_working_directory",
             ]
         );
         assert_eq!(
@@ -439,10 +632,27 @@ async fn inherited_child_forks_the_parent_prefix() {
         ))
         .await
         .expect("child session");
+    let previous_messages = child.messages();
+    assert_eq!(
+        pi_coding_agent::bundled_extensions::agents_core::child_response::read_current_child_assistant_text(
+            &child.messages(),
+            &previous_messages
+        )
+        .unwrap(),
+        None
+    );
     child
         .prompt("Continue integrated task".to_owned().into())
         .await
         .expect("prompt");
+    assert_eq!(
+        pi_coding_agent::bundled_extensions::agents_core::child_response::read_current_child_assistant_text(
+            &child.messages(),
+            &previous_messages
+        )
+        .unwrap(),
+        Some("fresh child done".into())
+    );
 
     let child_manager = captured_session_manager(&captured);
     assert_eq!(
@@ -701,6 +911,7 @@ async fn child_agent_tools_append_control_tools_in_order() {
             "read".to_owned(),
             "end_turn".to_owned(),
             "grep".to_owned(),
+            "ask_questions".to_owned(),
             "contact_parent".to_owned(),
             "send_agent_message".to_owned(),
         ]
@@ -721,7 +932,7 @@ fn assistant_with_tool_call(name: &str, id: &str) -> AgentMessage {
 }
 
 #[tokio::test]
-async fn attached_session_opens_the_transcript_and_applies_its_policy() {
+async fn attached_session_opens_the_transcript_without_overriding_settings() {
     let env = test_env().await;
     let target_dir = env._dir.path().join("target").display().to_string();
     std::fs::create_dir_all(&target_dir).expect("target dir");
@@ -741,6 +952,7 @@ async fn attached_session_opens_the_transcript_and_applies_its_policy() {
     let parent_session_file = lock_session_manager(&env.session_manager).get_session_file().cloned();
     let captured = Arc::new(Captured::default());
     let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        browser_agent_config_root: None,
         agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(Arc::clone(&captured), "attached done"),
         extension_factories: None,
@@ -778,15 +990,9 @@ async fn attached_session_opens_the_transcript_and_applies_its_policy() {
     let event = options.session_start_event.clone().expect("session start event");
     assert_eq!(event.reason, SessionStartReason::Resume);
     assert_eq!(event.previous_session_file, parent_session_file);
-    let settings = options.settings_manager.expect("attached settings");
-    let settings = settings.lock().expect("settings");
-    assert_eq!(settings.get_approval_policy(), ApprovalPolicy::Never);
-    assert_eq!(
-        settings
-            .get_merged_settings()
-            .get("approvalPreset")
-            .and_then(Value::as_string),
-        Some(&JsString::from("never-ask-deny"))
+    assert!(
+        options.settings_manager.is_none(),
+        "frozen factory leaves settings to SDK"
     );
     let control_db = lock_session_manager(&manager).get_metadata_control_db_path().cloned();
     assert_eq!(control_db.clone(), Some(JsString::from(&env.control_db)));
@@ -797,6 +1003,7 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
     let env = test_env().await;
     let captured = Arc::new(Captured::default());
     let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        browser_agent_config_root: None,
         agent_dir: Some(env.agent_dir.clone().into()),
         create_session: create_child_session(Arc::clone(&captured), "attached done"),
         extension_factories: None,
@@ -864,6 +1071,46 @@ async fn attached_session_rejects_missing_paths_and_session_mismatches() {
         )
     );
     assert_eq!(*captured.calls.lock().expect("calls"), 0);
+}
+
+#[tokio::test]
+async fn attached_factory_restores_archived_transcript_before_opening() {
+    use pi_coding_agent::core::session_archive_storage::archive_session_file;
+    let env = test_env().await;
+    let mut target = SessionManager::create(&env.cwd.clone().into(), None, None).unwrap();
+    target
+        .append_message(user_message("archived conversation".into()))
+        .unwrap();
+    target.persist_for_recovery().unwrap();
+    let original = target.get_session_file().cloned().unwrap();
+    let archived = archive_session_file(&original).unwrap();
+    let captured = Arc::new(Captured::default());
+    let factory = create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+        browser_agent_config_root: None,
+        agent_dir: Some(env.agent_dir.clone().into()),
+        create_session: create_child_session(Arc::clone(&captured), "done"),
+        extension_factories: None,
+        multi_agent_store: None,
+        session_dir: None,
+    });
+    let child = factory
+        .call(AttachedSessionDispatchInput {
+            active_tool_call_id: None,
+            agent: child_agent(&env, "restored", "worker"),
+            ctx: env.session.extension_runner().create_context(),
+            prompt: "resume".into(),
+            signal: None,
+            session_path: archived.clone(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(child.transcript().unwrap().path, Some(original.clone()));
+    assert!(std::path::Path::new(&original.to_utf8().unwrap()).exists());
+    assert!(!std::path::Path::new(&archived.to_utf8().unwrap()).exists());
+    assert_eq!(
+        session_texts(&captured_session_manager(&captured)),
+        vec![JsString::from("archived conversation")]
+    );
 }
 
 /// A real `AgentSession` wrapped by the adapter behaves like a child session.

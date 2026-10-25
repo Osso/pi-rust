@@ -1,9 +1,14 @@
 //! Ports `packages/coding-agent/test/sessions-command.test.ts`.
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+use serde_json::json;
 use std::sync::Mutex;
 
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::cli::{SessionsCommandDependencies, handle_sessions_command};
+use pi_coding_agent::core::session_control_db::SessionMetadata;
 use pi_coding_agent::core::session_tool_output::ToolResultSessionMigrationReport;
 use pi_js_compat::js_json::JsString;
 
@@ -16,6 +21,8 @@ struct Harness {
     archived: Vec<JsString>,
     truncate: Mutex<Option<ToolResultSessionMigrationReport>>,
     refreshed: Mutex<bool>,
+    sessions: Vec<SessionMetadata>,
+    compressed: Mutex<Vec<JsString>>,
 }
 
 impl SessionsCommandDependencies for Harness {
@@ -42,6 +49,27 @@ impl SessionsCommandDependencies for Harness {
     fn archive_older_than(&self, _control_db_path: &JsString, cutoff_iso: &str) -> Result<Vec<JsString>, JsString> {
         *self.cutoff.lock().unwrap() = Some(cutoff_iso.to_owned());
         Ok(self.archived.clone())
+    }
+
+    fn control_db_path(&self) -> Result<JsString, pi_ai::request::CallbackError> {
+        Ok("/tmp/injected-control.sqlite".into())
+    }
+
+    fn list_archived_sessions(&self, _db: &JsString) -> Result<Vec<SessionMetadata>, pi_ai::request::CallbackError> {
+        Ok(self.sessions.clone())
+    }
+
+    fn compress_archived_session(
+        &self,
+        _db: &JsString,
+        path: &JsString,
+    ) -> Result<JsString, pi_ai::request::CallbackError> {
+        if path.ends_with("broken.jsonl") {
+            return Err(JsString::from("compression failed").into());
+        }
+        let archived = path.clone() + ".zst";
+        self.compressed.lock().unwrap().push(archived.clone());
+        Ok(archived)
     }
 
     fn agent_dir(&self) -> Result<JsString, pi_ai::request::CallbackError> {
@@ -89,6 +117,136 @@ fn runtime() -> tokio::runtime::Runtime {
         .enable_all()
         .build()
         .unwrap()
+}
+
+#[test]
+fn sessions_console_branches_match_frozen() {
+    runtime().block_on(async {
+        let mut source = oracle::TsOracle::spawn(
+            "sessions-command-oracle.ts",
+            "packages/coding-agent/src/cli/sessions-command.ts",
+        );
+        for argv in [
+            vec!["other"],
+            vec!["sessions"],
+            vec!["sessions", "--help"],
+            vec!["sessions", "-h"],
+            vec!["sessions", "unknown"],
+            vec!["sessions", "compress-archived"],
+            vec!["sessions", "compress-archived", "--dry-run"],
+            vec!["sessions", "compress-archived", "--invalid"],
+            vec!["sessions", "archive"],
+            vec!["sessions", "archive", "--older-than", "1.5"],
+            vec!["sessions", "archive", "--older-than", "0"],
+            vec!["sessions", "truncate-tool-output", "extra"],
+        ] {
+            let harness = Harness::default();
+            let expected = source.request(&json!({"id": 1, "args": argv}));
+            assert_eq!(expected["ok"], true, "{expected}");
+            let actual = handle_sessions_command(&args(&argv), &harness).await.unwrap();
+            assert_eq!(
+                json!({
+                    "handled": actual.handled, "exitCode": actual.exit_code,
+                    "stdout": lines(&harness.stdout), "stderr": lines(&harness.stderr),
+                }),
+                expected["output"],
+                "argv={argv:?}"
+            );
+        }
+    });
+}
+
+fn archived_metadata(id: &str, path: &str) -> SessionMetadata {
+    serde_json::from_value(json!({
+        "id": id, "sessionPath": path, "cwd": "/work", "messageCount": 0, "firstMessage": "",
+        "createdAt": "2020-01-01T00:00:00.000Z", "modifiedAt": "2020-01-01T00:00:00.000Z",
+        "updatedAt": "2020-01-01T00:00:00.000Z",
+    }))
+    .unwrap()
+}
+
+#[test]
+fn compression_reports_and_candidates_match_frozen() {
+    runtime().block_on(async {
+        let mut source = oracle::TsOracle::spawn(
+            "sessions-command-oracle.ts",
+            "packages/coding-agent/src/cli/sessions-command.ts",
+        );
+        for sessions in [
+            vec![],
+            vec![archived_metadata("one", "/sessions/one.jsonl")],
+            vec![
+                archived_metadata("good", "/sessions/good.jsonl"),
+                archived_metadata("failed", "/sessions/broken.jsonl"),
+                archived_metadata("packed", "/sessions/packed.jsonl.zst"),
+                archived_metadata("supervisor", "/sessions/renamed.jsonl"),
+                archived_metadata("architect", "/sessions/architect.jsonl"),
+                archived_metadata("old-supervisor", "/sessions/supervisor-sessions/old.jsonl"),
+                archived_metadata("old-architect", "C:\\sessions\\architect-sessions\\old.jsonl"),
+                archived_metadata("lookalike", "/sessions/not-supervisor-sessions/valid.jsonl"),
+            ],
+        ] {
+            for dry_run in [false, true] {
+                let mut argv = vec!["sessions", "compress-archived"];
+                if dry_run {
+                    argv.push("--dry-run");
+                }
+                let harness = Harness {
+                    sessions: sessions.clone(),
+                    ..Default::default()
+                };
+                let expected = source.request(&json!({"id": 1, "args": argv, "sessions": sessions}));
+                assert_eq!(expected["ok"], true, "{expected}");
+                let actual = handle_sessions_command(&args(&argv), &harness).await.unwrap();
+                assert_eq!(
+                    json!({
+                        "handled": actual.handled, "exitCode": actual.exit_code,
+                        "stdout": lines(&harness.stdout), "stderr": lines(&harness.stderr),
+                    }),
+                    expected["output"],
+                    "dry_run={dry_run}, sessions={sessions:?}"
+                );
+                if dry_run {
+                    assert!(harness.compressed.lock().unwrap().is_empty());
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn default_archive_compresses_the_file_and_relocates_metadata() {
+    use pi_coding_agent::core::session_control_db::{
+        WritableSessionMetadata, read_session_metadata, write_session_metadata,
+    };
+    use pi_coding_agent::core::session_transcript::read_session_transcript_bytes;
+    struct Defaults;
+    impl SessionsCommandDependencies for Defaults {}
+    let directory = tempfile::tempdir().unwrap();
+    let source = directory.path().join("old.jsonl");
+    let db: JsString = directory.path().join("control.sqlite").to_str().unwrap().into();
+    let bytes = b"{\"type\":\"session\",\"version\":3,\"id\":\"old\"}\n";
+    std::fs::write(&source, bytes).unwrap();
+    let metadata: WritableSessionMetadata = serde_json::from_value(json!({
+        "sessionPath": source, "id": "old", "cwd": "/work",
+        "createdAt": "2020-01-01T00:00:00.000Z", "modifiedAt": "2020-01-01T00:00:00.000Z",
+        "messageCount": 0, "firstMessage": "",
+    }))
+    .unwrap();
+    write_session_metadata(&db, &metadata).unwrap();
+    let archived = Defaults.archive_older_than(&db, "2026-01-01T00:00:00.000Z").unwrap();
+    let expected: JsString = format!("{}.zst", source.display()).into();
+    assert_eq!(archived, [expected.clone()]);
+    assert!(!source.exists());
+    assert_eq!(read_session_transcript_bytes(&expected).unwrap(), bytes);
+    assert!(read_session_metadata(&db, metadata.session_path).unwrap().is_none());
+    assert!(
+        read_session_metadata(&db, expected)
+            .unwrap()
+            .unwrap()
+            .archived_at
+            .is_some()
+    );
 }
 
 #[test]

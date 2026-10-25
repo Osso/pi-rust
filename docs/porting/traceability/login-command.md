@@ -1,39 +1,19 @@
-# Coding-agent login command traceability
+# Login command
 
-Pinned source: `packages/coding-agent/src/cli/login-command.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen `packages/coding-agent/src/cli/login-command.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`; all217 lines audited. Native `src/cli/login_command.rs`.
 
-Rust: `crates/pi-coding-agent/src/cli/login_command.rs`.
+| Frozen exports / branches | Proof |
+| --- | --- |
+| `handleLoginCommand`: other/missing/empty provider, help anywhere, unknown flags, browser flag, exit codes | Actual-source callback/flag/file-byte differential; RED `/tmp/settings-models-login-red.log` proves empty provider incorrectly printed unknown-provider instead of usage |
+| `runLoginCommand`: unknown provider/list, logging intro, success/failure, prompt lifecycle | Exact stdout/stderr and complete provider id/name order compared with frozen, plus existing native success/failure/native-error fixtures |
+| `runLoginWithPrompt`: auth/instructions, device code/expiry, prompt placeholder/manual input, progress, select default/index/id/none/empty options | Actual frozen provider callbacks vs native public AuthStorage login; exact prompts, answers, auth.json bytes and unrelated credential preservation |
+| `collectInputLines`, createPromptReader non-TTY: UTF-8 boundary, CRLF splitting, EOF/default answer | Real piped native StdioLoginIo differential; RED `/tmp/settings-models-login-stdio-red.log` shows final bare CR removed from persisted access token. Native now replaces only CRLF pairs, preserving final lone CR |
+| `selectOption`: trim/default, parseInt prefix, exact id and unmatched/empty lists | Concrete2suffix/second/blank/bogus/empty-option inputs in the actual-source matrix |
+| Browser CLI optional success/failure, Promise.all before saved line, default process argv/exit wrapping | Injected deterministic browser scenarios plus a real private browser-cli executable returning7; URL argv/log, full output and successful saved credentials compared with frozen; no browser launched |
+| Default Chalk colors use stdout capability even when writing errors | Real stderr pty/stdout-file differential; RED `/tmp/settings-models-login-color-red.log` proves incorrect native red escapes with redirected stdout |
 
-Q18 native errors: LoginIo stdout/stderr take &JsString; read_line errors, BrowserCliOpener failures and handle_login_command errors are JsString. OAuth runtime errors propagate message data to captured stderr; StdioLoginIo alone encodes at write_all. Added `raw_oauth_error_reaches_captured_stderr_without_display_projection`; execution blocked by concurrent coding-library dependencies, so not new-pin runtime proof.
+Gap: Node readline cursor editing/history and independent input/query scheduling are native terminal/runtime oddities (parent approval2026-10-25); prompts, answers, output and persistence remain exact. No live OAuth provider, HTTP request or installed browser is used in these proofs. OS/runtime fault shapes and pathological input types retain the repository parity exclusion.
 
-Interactive process module. Behavioral proof with a scripted `LoginIo` and a registered test OAuth provider: `tests/login_command.rs` (7 tests, ports of `test/login-command.test.ts`).
+The oracle imports the actual frozen command, auth storage and OAuth registry. Native process fixtures inject only synthetic provider interactions/HTTP-free browser behavior; protocol fields, output, errors, provider list and complete file strings are not stripped or recursively normalized. The sole pty transform is standard ONLCR applied to expected newline bytes, not ANSI stripping. Source/native focused GREEN and clippy follow the implementation commit in the lane proof ledger.
 
-| TypeScript source | Observable behavior | Rust proof |
-|---|---|---|
-| `login-command.ts:41-56` | Provider list formats `  <id padEnd 20> <name>` for OAuth providers only | `returns_nonzero_and_prints_provider_list_for_unknown_providers`, usage test |
-| `login-command.ts:57-61` | Usage text to stderr, exit 0 for `--help`, 1 otherwise | `prints_usage_for_help_and_unknown_flags` |
-| `login-command.ts:63-100` | Non-TTY prompt reader consumes buffered lines; TTY reads one line per prompt after writing it | `LoginIo` + `StdioLoginIo`; scripted-line test |
-| `login-command.ts:101-118` | Select prompt prints the message and numbered options, trims the answer, defaults to the first option, accepts an index or exact id | Scripted lines `"2"` → `second` |
-| `login-command.ts:119-136` | Prompt formatting (`message (placeholder): `) and select delegation | Scripted prompt assertions |
-| `login-command.ts:137-160` | Info links, auth URL/device-code instructions, progress messages, browser-cli queueing | `runs_oauth_login_interactions...`, `reports_login_failures...` |
-| `login-command.ts:162-177` | Login runs with browser tasks awaited after the flow | Browser tests |
-| `login-command.ts:179-216` | Unknown provider, success, and failure lines with chalk colors and exit codes | Unknown-provider, failure, success tests |
-| `login-command.ts:218-249` | Argument parsing: provider, help flag, `--browser-cli`, unknown flags | Usage test |
-
-## Semantics
-
-- `run_login_command` returns the exit code; `handle_login_command` returns `LoginCommandOutcome { handled, exit_code }` instead of mutating `process.exitCode`.
-- `AuthPromptKind::Select` carries typed options; other kinds format `message (placeholder): `.
-- `StdioLoginIo` buffers piped stdin on the first prompt (matching the source's `collectInputLines`) and reads one line at a time on a TTY via `spawn_blocking`.
-- Browser opening defaults to `browser-cli open <url>` through `utils::child_process`, with the source's exit-code message.
-
-## Gaps
-
-- TTY readline editing/history is not reproduced; prompts read raw lines. Node's readline `question` behavior for terminal echo is outside the ported surface.
-- `openUrlWithBrowserCli` is exercised through injection; the real `browser-cli` process is not spawned in tests.
-
-## Discrepancies
-
-None found.
-
-Q18 native CLI auth prompt/credential text stays `JsString` through IO callbacks; browser URL encodes at spawn, not presentation. Behavioral proof status: [lossless auth](lossless-auth.md); coding-agent tests unexecuted until library compiles.
+Current closure proof: a8c36bbd2:9 active tests GREEN (18 actual-source cases + separate real-pty color test), `/tmp/settings-models-login-green.log`; warning-mode root clippy PASS, `/tmp/settings-models-login-clippy.log`, unchanged lints only at118/198. Native public callbacks, exact provider list and auth.json bytes are included; no whole-workspace rerun beyond the explicitly requested5f55fa7f0 gate.

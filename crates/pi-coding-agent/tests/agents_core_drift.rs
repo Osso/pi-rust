@@ -29,21 +29,6 @@ fn frozen_error(kind: &str) -> serde_json::Value {
     response
 }
 
-fn persisted_journal(
-    manager: pi_coding_agent::core::session_manager::SharedSessionManager,
-    runtime: pi_coding_agent::core::extensions::ExtensionRuntime,
-) -> pi_coding_agent::bundled_extensions::agents_core::parent_agent_journal::JournalWriter {
-    use pi_coding_agent::bundled_extensions::agents_core::parent_agent_journal::JournalWriter;
-    use pi_coding_agent::core::extensions::HandlerError;
-    JournalWriter::from_handler(Arc::new(move |kind, data| {
-        runtime.assert_active().map_err(HandlerError::new)?;
-        lock_session_manager(&manager)
-            .append_custom_entry(&kind, data)
-            .map(|_| ())
-            .map_err(|error| HandlerError::new(error.message().clone()))
-    }))
-}
-
 #[tokio::test]
 async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child_creation() {
     let expected = frozen_error("profile");
@@ -78,7 +63,6 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
         .clone();
     let settings = SettingsManager::in_memory(configured, SettingsManagerCreateOptions::default());
     let runtime = support::runtime();
-    let journal = persisted_journal(manager.clone(), runtime.clone());
     let mut runner = ExtensionRunner::new(
         Vec::new(),
         runtime,
@@ -98,7 +82,7 @@ async fn public_spawn_propagates_the_accessed_malformed_model_error_before_child
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let error = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
@@ -151,7 +135,6 @@ async fn public_spawn_preserves_profile_context_when_unrelated_tools_are_malform
         .clone();
     let settings = SettingsManager::in_memory(configured, SettingsManagerCreateOptions::default());
     let runtime = support::runtime();
-    let journal = persisted_journal(manager.clone(), runtime.clone());
     let mut runner = ExtensionRunner::new(
         Vec::new(),
         runtime,
@@ -171,7 +154,7 @@ async fn public_spawn_preserves_profile_context_when_unrelated_tools_are_malform
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let result = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"agentType":"bad","prompt":"inspect fixture"}}),
@@ -226,7 +209,7 @@ async fn public_registration_propagates_late_tool_failure_instead_of_returning_s
 struct NoDispatchSession;
 
 impl ChildAgentSession for NoDispatchSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
@@ -267,7 +250,6 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
     store.set_persistence_session_manager(Some(&*lock_session_manager(&manager)));
     let persistence = store.get_persistence_target().unwrap();
     let runtime = support::runtime();
-    let journal = persisted_journal(manager.clone(), runtime.clone());
     let mut runner = ExtensionRunner::new(
         Vec::new(),
         runtime,
@@ -287,7 +269,7 @@ async fn public_spawn_does_not_commit_an_agent_after_the_session_getter_fails() 
         })),
         ..Default::default()
     };
-    let handler = create_multi_agent_pi_request_handler(&options, Some(journal));
+    let handler = create_multi_agent_pi_request_handler(&options);
     let result = handler
         .handle(
             &pi_js_compat::js_json!({"method":"agents.spawn","params":{"prompt":"inspect fixture"}}),
@@ -370,7 +352,7 @@ struct ControlledCompletionSession {
 }
 
 impl ChildAgentSession for ControlledCompletionSession {
-    fn messages(&self) -> Vec<pi_agent_core::AgentMessage> {
+    fn messages(&self) -> Vec<Arc<pi_agent_core::AgentMessage>> {
         Vec::new()
     }
     fn transcript(&self) -> Option<AgentTranscriptMetadata> {

@@ -377,7 +377,6 @@ fn assistant_message(content: Vec<TextContent>, timestamp: f64, provider: &str) 
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp,
     }))
 }

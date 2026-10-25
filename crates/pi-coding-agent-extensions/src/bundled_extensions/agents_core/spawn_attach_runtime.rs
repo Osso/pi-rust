@@ -13,25 +13,21 @@ use serde::Deserialize;
 
 use crate::core::desktop_notification::DesktopNotifier;
 use crate::core::extensions::types::{ExtensionContext, HandlerError};
-use crate::core::lifecycle_coordinator::{
-    FinalizeChildCommandInput, LifecycleCommandResult, OwnedLifecycleCommandInput, PrepareChildCommandInput,
-};
+use crate::core::lifecycle_coordinator::{OwnedLifecycleCommandInput, PrepareChildCommandInput};
 use crate::core::model_resolver::find_exact_model_reference_match;
 use crate::core::multi_agent_store::{
     AgentError, AgentLifecycle, AgentModel, AgentPermission, AgentSnapshot, MultiAgentStore, SpawnAgent,
 };
 use crate::core::runtime_process::is_process_identity_alive;
 use crate::core::session_control_db::{CreateMultiAgentAttachmentResult, read_multi_agent_runtime_ownership};
-use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_manager::{SessionInfo, SessionManager};
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::{
     ActiveAgentDispatches, BackgroundSessionHandles, StartToolDispatchInput, WaitingDesktopNotificationHandles,
-    append_parent_agent_record_for, dispatch_attached_session_agent, release_ownership_after_dispatch,
-    run_agent_session, start_tool_dispatch,
+    dispatch_attached_session_agent, release_ownership_after_dispatch, run_agent_session, start_tool_dispatch,
 };
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot, runtime_process_identity};
-use super::parent_agent_journal::{JournalWriter, read_active_parent_agent_ids as read_journal_ids};
 use super::session_factories::{
     is_production_child_session_factory, spawn_prompt_validation_message, validate_goal_objective,
 };
@@ -41,7 +37,6 @@ use super::shared::{
 };
 use super::tool_results::tool_result;
 
-const AGENT_START_CUSTOM_TYPE: &str = "agent_start";
 const CRASH_RECOVERY_PROMPT: &str = "Continue the conversation from where it left off without asking the user any further questions. Resume directly from the saved session context.";
 
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -110,7 +105,6 @@ pub struct SpawnAgentRuntimeInput<'a> {
     pub handles: Option<BackgroundSessionHandles>,
     pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     pub params: Value,
-    pub pi: Option<JournalWriter>,
     pub store: Arc<MultiAgentStore>,
     pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
     pub _marker: std::marker::PhantomData<&'a ()>,
@@ -125,7 +119,6 @@ struct ValidSpawnInput {
     handles: Option<BackgroundSessionHandles>,
     ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
     params: SpawnAgentParams,
-    pi: JournalWriter,
     store: Arc<MultiAgentStore>,
     waiting_desktop_notifications: WaitingDesktopNotificationHandles,
 }
@@ -169,16 +162,13 @@ pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolR
         Err(result) => return Ok(*result),
     };
     let session_manager = valid.ctx.session_manager()?;
-    let owner_session_id = lock_session_manager(&session_manager).get_session_id().to_owned();
-    let committed = match commit_running_child(&valid, constructed, &owner_session_id) {
-        Ok(committed) => committed,
-        Err(result) => return Ok(*result),
+    let owner_session_id = session_manager.get_session_id().to_owned();
+    let committed = match commit_running_child(&valid, constructed, &owner_session_id).await? {
+        SpawnCommit::Running(committed) => *committed,
+        SpawnCommit::Rejected(result) => return Ok(*result),
     };
-    let journaled = match commit_parent_journal(&valid, committed) {
-        Ok(journaled) => journaled,
-        Err(result) => return Ok(*result),
-    };
-    dispatch_spawned_agent(&valid, journaled)
+    record_runtime_ownership(&valid, &committed);
+    dispatch_spawned_agent(&valid, committed)
 }
 
 enum SpawnValidation {
@@ -191,13 +181,9 @@ fn validate_spawn_input(input: SpawnAgentRuntimeInput<'_>) -> Result<SpawnValida
     if let Some(unavailable) = validate_spawn_availability(&input, &params) {
         return Ok(SpawnValidation::Error(Box::new(unavailable)));
     }
-    let (Some(create_child_session), Some(pi)) = (input.create_child_session.clone(), input.pi.clone()) else {
+    let Some(create_child_session) = input.create_child_session.clone() else {
         return Ok(SpawnValidation::Error(Box::new(spawn_error(
-            if input.create_child_session.is_none() {
-                "spawn_agent is unavailable: no child session runtime is configured."
-            } else {
-                "spawn_agent is unavailable: parent session journaling is not configured."
-            },
+            "spawn_agent is unavailable: no child session runtime is configured.",
             &params.prompt,
         ))));
     };
@@ -210,7 +196,6 @@ fn validate_spawn_input(input: SpawnAgentRuntimeInput<'_>) -> Result<SpawnValida
         handles: input.handles,
         ownerships: input.ownerships,
         params,
-        pi,
         store: input.store,
         waiting_desktop_notifications: input.waiting_desktop_notifications,
     })))
@@ -257,12 +242,6 @@ fn validate_spawn_availability(
     if input.create_child_session.is_none() {
         return Some(spawn_error(
             "spawn_agent is unavailable: no child session runtime is configured.",
-            &params.prompt,
-        ));
-    }
-    if input.pi.is_none() {
-        return Some(spawn_error(
-            "spawn_agent is unavailable: parent session journaling is not configured.",
             &params.prompt,
         ));
     }
@@ -393,11 +372,16 @@ async fn construct_child_session(
     }
 }
 
-fn commit_running_child(
+enum SpawnCommit {
+    Running(Box<CommittedSpawn>),
+    Rejected(Box<AgentToolResult>),
+}
+
+async fn commit_running_child(
     input: &ValidSpawnInput,
     spawn: ConstructedSpawn,
     owner_session_id: &JsString,
-) -> Result<CommittedSpawn, Box<AgentToolResult>> {
+) -> Result<SpawnCommit, HandlerError> {
     let created = spawn
         .prepared
         .coordinator
@@ -407,42 +391,23 @@ fn commit_running_child(
             runtime_process_identity(),
             None,
         )
-        .map_err(|error| HandlerError::new(error.message()));
+        .map_err(|error| HandlerError::new(error.message()))?;
     let (agent, ownership) = match created {
-        Ok(crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Ok {
-            agent,
-            ownership,
-        }) => (*agent, *ownership),
-        Ok(crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error }) => {
-            spawn.child_session.dispose();
-            return Err(Box::new(tool_result(
-                format!("spawn_agent failed: {}", error.as_str()),
-                json!({
-                    "agent": spawn.prepared.prepared,
-                    "dispatched": false,
-                    "prompt": input.params.prompt,
-                }),
-            )));
+        crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Ok { agent, ownership } => {
+            (*agent, *ownership)
         }
-        Err(error) => {
-            spawn.child_session.dispose();
-            return Err(Box::new(tool_result(
-                JsString::from("spawn_agent failed: ") + &error.message,
-                json!({
-                    "agent": spawn.prepared.prepared,
-                    "dispatched": false,
-                    "prompt": input.params.prompt,
-                }),
-            )));
+        crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error } => {
+            spawn.child_session.dispose().await.map_err(HandlerError::new)?;
+            return Ok(SpawnCommit::Rejected(Box::new(tool_result(
+                format!("spawn_agent failed: {}", error.as_str()),
+                json!({"agent":spawn.prepared.prepared,"dispatched":false,"prompt":input.params.prompt}),
+            ))));
         }
     };
-    if let Err(error) = input.store.publish_lifecycle_coordinator_snapshot(&agent) {
-        spawn.child_session.dispose();
-        return Err(Box::new(tool_result(
-            JsString::from("spawn_agent failed: ") + &error.message,
-            json!({"agent":spawn.prepared.prepared,"dispatched":false,"prompt":input.params.prompt}),
-        )));
-    }
+    input
+        .store
+        .publish_lifecycle_coordinator_snapshot(&agent)
+        .map_err(|error| HandlerError::new(error.message))?;
     let runtime = Arc::new(OwnedAgentRuntime {
         abort_controller: spawn.prepared.abort_controller.clone(),
         coordinator: Arc::clone(&spawn.prepared.coordinator),
@@ -451,60 +416,19 @@ fn commit_running_child(
             ownership,
         },
     });
-    Ok(CommittedSpawn {
+    Ok(SpawnCommit::Running(Box::new(CommittedSpawn {
         spawn,
         runtime,
         running_agent: agent,
-    })
+    })))
 }
 
-fn commit_parent_journal(
-    input: &ValidSpawnInput,
-    committed: CommittedSpawn,
-) -> Result<CommittedSpawn, Box<AgentToolResult>> {
-    match append_parent_agent_record_for(&input.pi, AGENT_START_CUSTOM_TYPE, &committed.running_agent) {
-        Ok(()) => {
-            input
-                .ownerships
-                .lock()
-                .expect("ownerships")
-                .insert(committed.running_agent.id.clone(), Arc::clone(&committed.runtime));
-            Ok(committed)
-        }
-        Err(error) => {
-            let result = fail_parent_journal(input, &committed, &error.message);
-            Err(Box::new(result))
-        }
-    }
-}
-
-fn fail_parent_journal(input: &ValidSpawnInput, spawn: &CommittedSpawn, message: &JsString) -> AgentToolResult {
-    spawn.spawn.child_session.dispose();
-    let failed = spawn
-        .spawn
-        .prepared
-        .coordinator
-        .finalize_child(&FinalizeChildCommandInput {
-            agent: spawn.running_agent.clone(),
-            error: Some(AgentError {
-                code: Some("parent_journal_failed".to_owned()),
-                message: message.to_owned(),
-            }),
-            ownership: spawn.runtime.lifecycle.ownership.clone(),
-            result: None,
-            terminal_lifecycle: "failed".to_owned(),
-        });
-    let agent = match failed {
-        Ok(LifecycleCommandResult::Ok { agent }) => {
-            let _ = publish_coordinator_snapshot(&input.store, &agent);
-            *agent
-        }
-        _ => spawn.running_agent.clone(),
-    };
-    tool_result(
-        JsString::from("spawn_agent failed to persist parent journal: ") + message,
-        json!({"agent": agent, "dispatched": false, "prompt": input.params.prompt}),
-    )
+fn record_runtime_ownership(input: &ValidSpawnInput, committed: &CommittedSpawn) {
+    input
+        .ownerships
+        .lock()
+        .expect("ownerships")
+        .insert(committed.running_agent.id.clone(), Arc::clone(&committed.runtime));
 }
 
 fn dispatch_spawned_agent(input: &ValidSpawnInput, spawn: CommittedSpawn) -> Result<AgentToolResult, HandlerError> {
@@ -794,7 +718,7 @@ fn load_attach_session_target(
         ));
     }
     let session_manager = ctx.session_manager()?;
-    let session_dir = lock_session_manager(&session_manager).get_session_dir().to_owned();
+    let session_dir = session_manager.get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
         let session = SessionManager::open(&path, Some(&session_dir), None)
             .map_err(|error| HandlerError::new(error.message().clone()))?;
@@ -902,25 +826,11 @@ pub struct RecoverAgentsInput {
 }
 
 pub fn recover_agents(input: &RecoverAgentsInput) -> Result<(), HandlerError> {
-    let active_parent_agent_ids = Some(read_journal_ids(&input.ctx)?);
     let active_agents = query_recovery_targets(input)?;
     for agent in order_recovery_agents(active_agents) {
-        let admitted = active_parent_agent_ids.as_ref().is_none_or(|ids| {
-            agent.transcript.as_ref().and_then(|t| t.path.as_ref()).is_none() || ids.contains(&agent.id)
-        });
-        if admitted {
-            recover_agent(input, &agent)?;
-        } else {
-            recover_and_publish_dead_agent(input, &agent)?;
-        }
+        recover_agent(input, &agent)?;
     }
     Ok(())
-}
-
-pub fn read_active_parent_agent_ids(
-    ctx: &ExtensionContext,
-) -> Result<std::collections::HashSet<JsString>, HandlerError> {
-    read_journal_ids(ctx)
 }
 
 fn query_recovery_targets(input: &RecoverAgentsInput) -> Result<Vec<AgentSnapshot>, HandlerError> {
@@ -1005,9 +915,7 @@ fn recover_and_publish_dead_agent(input: &RecoverAgentsInput, agent: &AgentSnaps
     let Some(dead_ownership) = dead_ownership else {
         return Ok(());
     };
-    let owner_session_id = lock_session_manager(&input.ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let owner_session_id = input.ctx.session_manager()?.get_session_id().to_owned();
     let recovered = coordinator
         .recover_dead_child(&crate::core::lifecycle_coordinator::RecoverDeadChildCommandInput {
             agent: agent.clone(),

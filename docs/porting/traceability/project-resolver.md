@@ -1,6 +1,8 @@
 # coding-agent supervisor project-resolver traceability
 
-Pinned source: `packages/coding-agent/src/supervisor/project-resolver.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Pinned source: `packages/coding-agent/src/supervisor/project-resolver.ts` at `4f9e6f8a4`.
+
+Baseline repair (2026-10-25): config differential serialization uses the lossless serializer for `JsString` object keys, then parses its JSON bytes for comparison. Direct serde_json serialization rejects the native key carrier before any observable comparison. The fixture still compares all config fields, resolution results and URL identities exactly.
 
 Differential proof: request `27011` reads three real config files (populated, `{}`, missing) through both implementations, resolves ten cwd/remote combinations, and extracts identities from nine URLs. Focused tests: `crates/pi-coding-agent/tests/project_resolver.rs`, including real `git remote -v` fixtures.
 

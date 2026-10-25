@@ -63,6 +63,7 @@ fn runner_for(dir: &str) -> PyrunRunnerClient {
         ),
         inherit_env: Some(true),
         detached: Some(false),
+        inherited_process_group_id: None,
     })
 }
 
@@ -487,6 +488,7 @@ fn context_actions() -> ExtensionContextActions {
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: None,
         get_multi_agent_requires_agent_id: None,
         get_multi_agent_store: None,
@@ -782,7 +784,7 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
             })
         })
     });
-    let tool = create_pyrun_tool_definition(evaluate);
+    let tool = create_pyrun_tool_definition(evaluate, Default::default());
     let prepared = futures_lite_block_on((tool.prepare_execution.as_ref().unwrap())(
         "call".into(),
         None,
@@ -857,7 +859,15 @@ async fn custom_pi_request_handlers_treat_null_as_handled() {
     let dispatcher = create_pyrun_pi_dispatcher(
         &harness.api,
         &PyrunExtensionOptions {
-            pi_request_handlers: vec![first, second],
+            pi_request_handlers: vec![first, second]
+                .into_iter()
+                .map(
+                    |dispatch| pi_coding_agent::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                        dispatch,
+                        dispose: None,
+                    },
+                )
+                .collect(),
             ..Default::default()
         },
     );

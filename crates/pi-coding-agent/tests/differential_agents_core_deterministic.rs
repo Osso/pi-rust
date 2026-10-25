@@ -110,8 +110,8 @@ fn execute_case(case: &Value) -> Result<Value, JsString> {
             let params = AgentViewerParams {
                 agent_id: case["agentId"].as_string().ok_or("agentId")?.to_owned(),
                 session_id: case["sessionId"].as_string().cloned(),
-                store_session_id: None,
-                trace: None,
+                store_session_id: case["storeSessionId"].as_string().cloned(),
+                trace: case["trace"].as_bool(),
             };
             agent_viewer(&store, &params, None)
                 .map(|result| normalize_result(&result))
@@ -181,6 +181,10 @@ fn cases() -> Vec<Value> {
         json!({"name": "list-descendants", "op": "listAgents", "agents": agents, "parentId": "a"}),
         json!({"name": "view-running", "op": "agentViewer", "agents": [transcript_agent.clone()], "agentId": "a", "sessionId": "session-a"}),
         json!({"name": "view-missing", "op": "agentViewer", "agents": agents.clone(), "agentId": "nope"}),
+        json!({"name":"view-empty-transcript-selector","op":"agentViewer","agents":[transcript_agent.clone()],"agentId":"a","sessionId":""}),
+        json!({"name":"view-empty-store-selector","op":"agentViewer","agents":[transcript_agent.clone()],"agentId":"a","storeSessionId":""}),
+        json!({"name":"view-trace-requires-store","op":"agentViewer","agents":[],"agentId":"a","trace":true}),
+        json!({"name":"view-persisted-missing-db","op":"agentViewer","agents":[],"agentId":"a","storeSessionId":"stored"}),
         json!({"name": "view-mismatch", "op": "agentViewer", "agents": [transcript_agent.clone()], "agentId": "a", "sessionId": "other"}),
         json!({"name": "view-terminal-error", "op": "agentViewer", "agents": [failed_agent], "agentId": "d"}),
         json!({"name": "view-terminal-summary", "op": "agentViewer", "agents": [completed_agent], "agentId": "c"}),

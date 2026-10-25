@@ -12,7 +12,6 @@ use pi_js_compat::{
 };
 
 use crate::core::extensions::types::{BoxFuture, ExtensionContext, HandlerError};
-use crate::core::session_manager::lock_session_manager;
 
 use super::runner::{
     CanonicalPyrunConsoleEntry, CanonicalPyrunEvalParams, CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate,
@@ -305,7 +304,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
 pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerError> {
     let session = ctx.session_manager()?;
     let (cwd, session_name) = {
-        let manager = lock_session_manager(&session);
+        let manager = session;
         (
             manager.get_cwd().to_owned(),
             manager.get_session_name().map(JsString::from),

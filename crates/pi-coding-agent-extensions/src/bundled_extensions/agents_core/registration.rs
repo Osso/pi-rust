@@ -12,18 +12,17 @@ use serde_json::Value;
 
 use crate::core::desktop_notification::DesktopNotifier;
 use crate::core::extensions::types::{
-    ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, SessionShutdownEvent, ToolDefinition,
+    ExtensionApi, ExtensionCommandContext, HandlerError, SessionShutdownEvent, ToolDefinition,
 };
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore};
 
 use super::control_runtime::{CancelAgentParams, SteerAgentParams, cancel_agent, steer_agent};
 use super::dispatch_runtime::{
-    AGENT_COMPLETE_CUSTOM_TYPE, ActiveAgentDispatches, BackgroundSessionHandles, WaitingDesktopNotificationHandles,
-    append_parent_agent_record_for, close_waiting_desktop_notification, is_terminal_agent_lifecycle,
+    ActiveAgentDispatches, BackgroundSessionHandles, WaitingDesktopNotificationHandles,
+    close_waiting_desktop_notification,
 };
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
 use super::mailbox_runtime::RuntimeLifecycleMirror;
-use super::parent_agent_journal::{JournalWriter, read_active_parent_agent_ids};
 use super::runtime::{
     MultiAgentExtensionOptions, MultiAgentRuntimeHandles, NoopDesktopNotifier, assert_no_wait_agents_params,
     create_multi_agent_runtime_handles, format_agent_status, jobs_command, resolve_multi_agent_store, wait_agents,
@@ -42,7 +41,6 @@ use super::spawn_attach_runtime::{
     attach_session_agent, attach_session_agent_schema, recover_agents, spawn_agent, spawn_agent_schema,
 };
 use super::viewer::{ListAgentsParams, list_agents};
-use crate::core::session_manager::lock_session_manager;
 
 #[derive(Clone)]
 pub struct BackgroundDispatchContext {
@@ -62,7 +60,6 @@ pub struct AgentsCoreRegistrationContext {
     pub desktop_notifier: Arc<dyn DesktopNotifier>,
     pub ownerships: Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
     pub runtime_handles: MultiAgentRuntimeHandles,
-    pub journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
     pub runtime_lifecycle_mirror: RuntimeLifecycleMirror,
     pub store: Arc<MultiAgentStore>,
     pub waiting_desktop_notifications: WaitingDesktopNotificationHandles,
@@ -94,47 +91,11 @@ fn create_registration_context(options: &MultiAgentExtensionOptions) -> AgentsCo
             .clone()
             .unwrap_or_else(|| Arc::new(NoopDesktopNotifier)),
         ownerships,
-        journal_binding: Arc::new(Mutex::new(None)),
         runtime_lifecycle_mirror: RuntimeLifecycleMirror::new(Arc::clone(&store)),
         runtime_handles,
         store,
         waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
     }
-}
-
-fn should_append_terminal_agent_record(
-    previous: &AgentSnapshot,
-    current: &AgentSnapshot,
-    ctx: &ExtensionContext,
-) -> bool {
-    let became_terminal =
-        !is_terminal_agent_lifecycle(previous.lifecycle) && is_terminal_agent_lifecycle(current.lifecycle);
-    let belongs_to_active_parent = read_active_parent_agent_ids(ctx)
-        .map(|ids| ids.contains(&current.id))
-        .unwrap_or(false);
-    became_terminal && belongs_to_active_parent
-}
-
-fn initialize_supervisor_session(
-    journal: &JournalWriter,
-    registration: &HookRegistration,
-    ctx: &ExtensionContext,
-) -> Result<(), HandlerError> {
-    if is_child_agent_runtime(ctx)? {
-        return Ok(());
-    }
-    let journal = journal.clone();
-    let listener_ctx = ctx.clone();
-    let subscription = registration
-        .store
-        .subscribe_agent_transitions(move |previous, current| {
-            if should_append_terminal_agent_record(previous, current, &listener_ctx) {
-                let _ = append_parent_agent_record_for(&journal, AGENT_COMPLETE_CUSTOM_TYPE, current);
-            }
-            Ok(())
-        });
-    *registration.journal_binding.lock().expect("journal binding") = Some(subscription);
-    registration.runtime_lifecycle_mirror.bind(ctx)
 }
 
 fn register_session_start_hook(
@@ -143,19 +104,17 @@ fn register_session_start_hook(
 ) -> Result<(), HandlerError> {
     let model_request_started = registration.runtime_handles.latest_model_request_started_at.clone();
     let registration = registration.clone_for_hooks();
-    let journal = JournalWriter::from_api(pi);
     pi.on_session_start(move |_event, ctx| {
         let registration = registration.clone();
-        let journal = journal.clone();
         let model_request_started = model_request_started.clone();
         let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
             Box::pin(async move {
                 if !is_child_agent_runtime(&ctx)? {
                     *model_request_started.lock().expect("model request start") = None;
                 }
-                registration.runtime_lifecycle_mirror.dispose();
-                *registration.journal_binding.lock().expect("journal binding") = None;
-                initialize_supervisor_session(&journal, &registration, &ctx)?;
+                if !is_child_agent_runtime(&ctx)? {
+                    registration.runtime_lifecycle_mirror.bind(&ctx)?;
+                }
                 recover_agents(&RecoverAgentsInput {
                     create_attached_session: registration.create_attached_session.clone(),
                     ctx: ctx.clone(),
@@ -179,13 +138,14 @@ fn register_session_shutdown_hook(
     registration: &AgentsCoreRegistrationContext,
 ) -> Result<(), HandlerError> {
     let registration = registration.clone_for_hooks();
-    pi.on_session_shutdown(move |event: SessionShutdownEvent, _ctx| {
+    pi.on_session_shutdown(move |event: SessionShutdownEvent, ctx| {
         let registration = registration.clone();
         let future: crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> =
             Box::pin(async move {
                 registration.runtime_lifecycle_mirror.dispose();
-                *registration.journal_binding.lock().expect("journal binding") = None;
-                if event.reason == crate::core::extensions::types::SessionShutdownReason::Reload {
+                if event.reason == crate::core::extensions::types::SessionShutdownReason::Reload
+                    || is_child_agent_runtime(&ctx)?
+                {
                     return Ok(None);
                 }
                 registration.store.invalidate_in_flight_dispatches();
@@ -237,7 +197,6 @@ impl AgentsCoreRegistrationContext {
             create_attached_session: self.create_attached_session.clone(),
             desktop_notifier: Arc::clone(&self.desktop_notifier),
             ownerships: Arc::clone(&self.ownerships),
-            journal_binding: Arc::clone(&self.journal_binding),
             runtime_lifecycle_mirror: self.runtime_lifecycle_mirror.clone(),
             store: Arc::clone(&self.store),
             waiting_desktop_notifications: Arc::clone(&self.waiting_desktop_notifications),
@@ -251,7 +210,6 @@ struct HookRegistration {
     create_attached_session: Option<AttachedSessionFactory>,
     desktop_notifier: Arc<dyn DesktopNotifier>,
     ownerships: Arc<Mutex<HashMap<JsString, Arc<super::control_runtime::OwnedAgentRuntime>>>>,
-    journal_binding: Arc<Mutex<Option<crate::core::multi_agent_store::AgentSubscription>>>,
     runtime_lifecycle_mirror: RuntimeLifecycleMirror,
     store: Arc<MultiAgentStore>,
     waiting_desktop_notifications: WaitingDesktopNotificationHandles,
@@ -316,7 +274,6 @@ pub(super) fn tool_definition(
         approval_required: Some(false),
         approval_kind: None,
         parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -339,7 +296,6 @@ fn register_spawn_agent_tool(
     let waiting = Arc::clone(&registration.waiting_desktop_notifications);
     let handles = Arc::clone(&registration.background_sessions);
     let mirror = registration.runtime_lifecycle_mirror.clone();
-    let journal = JournalWriter::from_api(pi);
     pi.register_tool(tool_definition(
         "spawn_agent",
         "Spawn Agent",
@@ -359,7 +315,6 @@ fn register_spawn_agent_tool(
             let waiting = Arc::clone(&waiting);
             let handles = Some(Arc::clone(&handles));
             let mirror = mirror.clone();
-            let journal = journal.clone();
             Box::pin(async move {
             let ctx = crate::core::extensions::types::require_extension_context(ctx)?;
                 mirror.bind(&ctx)?;
@@ -372,7 +327,6 @@ fn register_spawn_agent_tool(
                     handles,
                     ownerships,
                     params,
-                    pi: Some(journal),
                     store,
                     waiting_desktop_notifications: waiting,
                     _marker: std::marker::PhantomData,
@@ -613,9 +567,7 @@ async fn background_command(
     let Some(prepared_runtime) = prepare_background_runtime(background, &coordinator, &prompt, ctx).await? else {
         return Ok(());
     };
-    let session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let session_id = ctx.session_manager()?.get_session_id().to_owned();
     let created = coordinator
         .commit_running_child(
             &prepared_runtime.prepared,
@@ -629,7 +581,11 @@ async fn background_command(
             (*agent, *ownership)
         }
         crate::core::session_control_db::CreateMultiAgentChildWithRuntimeOwnershipResult::Err { error } => {
-            prepared_runtime.child_session.dispose();
+            prepared_runtime
+                .child_session
+                .dispose()
+                .await
+                .map_err(HandlerError::new)?;
             notify(
                 ctx,
                 &format!("Could not create background job: {}", error.as_str()),

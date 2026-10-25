@@ -9,8 +9,8 @@ use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
 
-use pi_ai::auth::types::{ApiKeyCredential, Credential, CredentialStore};
-use pi_coding_agent::core::auth_storage::AuthStorage;
+use pi_coding_agent::core::auth_storage::{AuthStorage, AuthStorageBackend, FileAuthStorageBackend};
+use pi_js_compat::js_json::{self, JsValue};
 use serde_json::{Value, json};
 
 #[path = "support/oracle.rs"]
@@ -35,11 +35,8 @@ fn runtime() -> tokio::runtime::Runtime {
         .unwrap()
 }
 
-fn api_key(key: &str) -> Credential {
-    Credential::ApiKey(ApiKeyCredential {
-        key: Some(key.to_owned().into()),
-        env: None,
-    })
+fn api_key(key: &str) -> JsValue {
+    pi_js_compat::js_json!({"type":"api_key", "key":key})
 }
 
 fn source_root() -> PathBuf {
@@ -102,18 +99,14 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
     let ts_credential = response["output"]["credential"].clone();
 
     let storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let read = runtime().block_on(storage.read("anthropic")).unwrap();
+    let read = storage.get("anthropic");
     assert_eq!(read, Some(api_key("sk-ts")));
 
     // Rust writes the same logical change into a fresh file; bytes must match exactly.
     fs::write(&auth_path, "{}").unwrap();
     let rust_storage = AuthStorage::create(Some(&JsString::from(&auth_path.display().to_string()))).unwrap();
-    let modified = runtime()
-        .block_on(rust_storage.modify(
-            "anthropic",
-            Arc::new(|_current| Box::pin(async { Ok(Some(api_key("sk-ts"))) })),
-        ))
-        .unwrap();
+    rust_storage.set("anthropic", api_key("sk-ts")).unwrap();
+    let modified = rust_storage.get("anthropic");
     assert_eq!(json!(modified), ts_credential);
     let rust_file = fs::read_to_string(&auth_path).unwrap();
     assert_eq!(rust_file, ts_file, "auth.json bytes must match");
@@ -142,7 +135,7 @@ fn auth_json_bytes_match_and_both_runtimes_read_each_other() {
     let two_providers = response["output"]["file"].as_str().unwrap().to_owned();
     fs::write(&auth_path, &two_providers).unwrap();
 
-    runtime().block_on(rust_storage.delete("anthropic")).unwrap();
+    rust_storage.remove("anthropic").unwrap();
     let rust_file = fs::read_to_string(&auth_path).unwrap();
 
     fs::write(&auth_path, &two_providers).unwrap();
@@ -214,10 +207,20 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
         Some(native_release.to_str().unwrap()),
     );
     assert_eq!(read_line(&mut holder), "LOCKED");
-    let storage = AuthStorage::create(Some(&JsString::from(auth_path.to_str().unwrap()))).unwrap();
+    let backend = FileAuthStorageBackend::new(&JsString::from(auth_path.to_str().unwrap())).unwrap();
+    let observed = Arc::new(std::sync::Mutex::new(None));
+    let captured = Arc::clone(&observed);
     let started = Instant::now();
-    let read = runtime().block_on(async {
-        let operation = storage.modify("anthropic", Arc::new(|_| Box::pin(async { Ok(None) })));
+    runtime().block_on(async {
+        let operation = backend.with_lock_async(Box::new(move |current| {
+            Box::pin(async move {
+                *captured.lock().unwrap() = js_json::parse_lossless(current.as_deref().unwrap())
+                    .unwrap()
+                    .get("anthropic")
+                    .cloned();
+                Ok(None)
+            })
+        }));
         tokio::pin!(operation);
         assert!(
             tokio::time::timeout(Duration::from_millis(300), &mut operation)
@@ -228,6 +231,7 @@ fn rust_waits_for_a_typescript_holder_and_typescript_reports_rust_holders() {
         fs::write(&native_release, b"").unwrap();
         operation.await.unwrap()
     });
+    let read = observed.lock().unwrap().clone();
     let waited = started.elapsed();
     assert_eq!(read, Some(api_key("held")));
     assert_eq!(serde_json::to_value(read).unwrap(), expected["output"]["credential"]);
@@ -279,13 +283,14 @@ fn held_lock_sync_reads_match_frozen_best_effort_snapshots() {
         "frozen sync retry budget must expire while lock remains held"
     );
     let storage = AuthStorage::create(Some(&JsString::from(auth_path.to_str().unwrap()))).unwrap();
-    let actual = runtime().block_on(storage.read("anthropic")).unwrap();
+    let actual = storage.get("anthropic");
     assert_eq!(serde_json::to_value(actual).unwrap(), expected["output"]["credential"]);
     fs::write(&release, b"").unwrap();
     assert_eq!(read_line(&mut holder), "RELEASED");
     assert!(holder.wait().unwrap().success());
     let expected: Value = source.request(&request);
-    let actual = runtime().block_on(storage.read("anthropic")).unwrap();
+    storage.reload();
+    let actual = storage.get("anthropic");
     assert_eq!(actual, Some(api_key("held")));
     assert_eq!(serde_json::to_value(actual).unwrap(), expected["output"]["credential"]);
 }

@@ -48,8 +48,6 @@ fn agent_message_round_trips_assistant_and_tool_result() {
         tool_name: "echo".to_owned(),
         content: vec![TextOrImageContent::Text(pi_ai::types::TextContent::new("ok"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 3000.0,
     });

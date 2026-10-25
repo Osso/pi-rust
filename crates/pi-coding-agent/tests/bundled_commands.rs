@@ -12,8 +12,8 @@ use bundled::{Harness, HarnessOptions, test_model};
 use pi_agent_core::harness::ThinkingLevel;
 use pi_ai::types::TextOrImageContent;
 use pi_coding_agent::core::extensions::types::{
-    ExtensionEvent, NotifyType, SessionShutdownEvent, SessionStartEvent, SessionStartReason, ThinkingLevelSelectEvent,
-    UserMessageContent, UserMessageDelivery,
+    CustomMessageContent, ExtensionEvent, MessageDelivery, NotifyType, SessionShutdownEvent, SessionStartEvent,
+    SessionStartReason, ThinkingLevelSelectEvent,
 };
 use pi_coding_agent::core::extensions::{Extension, ExtensionRuntime, create_extension_runtime};
 use pi_coding_agent::core::system_prompt::BuildSystemPromptOptions;
@@ -144,25 +144,31 @@ async fn loop_command_injects_prompt_at_interval() {
         Some((JsString::from("Loop started every 10s"), Some(NotifyType::Info)))
     );
     assert_eq!(harness.ui.editor_texts.lock().unwrap().as_slice(), [""]);
-    assert!(harness.actions.user_messages.lock().unwrap().is_empty());
+    assert!(harness.actions.messages.lock().unwrap().is_empty());
     tokio::task::yield_now().await;
 
     tokio::time::advance(std::time::Duration::from_millis(9_999)).await;
     tokio::task::yield_now().await;
-    assert!(harness.actions.user_messages.lock().unwrap().is_empty());
+    assert!(harness.actions.messages.lock().unwrap().is_empty());
 
     tokio::time::advance(std::time::Duration::from_millis(1)).await;
     tokio::task::yield_now().await;
-    let messages = harness.actions.user_messages.lock().unwrap();
+    let messages = harness.actions.messages.lock().unwrap();
     assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0].content, CustomMessageContent::Text("check progress".into()));
+    assert_eq!(messages[0].custom_type, "loop");
+    assert!(messages[0].display);
+    let session_id = harness.context().session_manager().unwrap().get_session_id().to_owned();
     assert_eq!(
-        messages[0].0,
-        UserMessageContent::Text("check progress".to_owned().into())
+        messages[0].details,
+        Some(json!({"generation": 1, "sessionId": session_id}))
     );
+    let options = harness.actions.message_options.lock().unwrap();
     assert_eq!(
-        messages[0].1.as_ref().and_then(|options| options.deliver_as),
-        Some(UserMessageDelivery::FollowUp)
+        options[0].as_ref().and_then(|options| options.deliver_as),
+        Some(MessageDelivery::FollowUp)
     );
+    assert_eq!(options[0].as_ref().and_then(|options| options.trigger_turn), Some(true));
 }
 
 #[tokio::test(start_paused = true)]
@@ -187,7 +193,7 @@ async fn loop_command_stops_active_loop() {
     tokio::time::advance(std::time::Duration::from_millis(5_000)).await;
     tokio::task::yield_now().await;
 
-    assert!(harness.actions.user_messages.lock().unwrap().is_empty());
+    assert!(harness.actions.messages.lock().unwrap().is_empty());
     assert_eq!(
         harness.ui.last_notification(),
         Some((JsString::from("Loop stopped"), Some(NotifyType::Info)))
@@ -220,7 +226,7 @@ async fn loop_tool_starts_and_stops_loop() {
     tokio::task::yield_now().await;
     tokio::time::advance(std::time::Duration::from_millis(3_000)).await;
     tokio::task::yield_now().await;
-    assert_eq!(harness.actions.user_messages.lock().unwrap().len(), 1);
+    assert_eq!(harness.actions.messages.lock().unwrap().len(), 1);
 
     let stop = (loop_tool.execute)("loop-call".to_owned(), json!({"action": "stop"}), None, None, Some(ctx))
         .await
@@ -228,7 +234,7 @@ async fn loop_tool_starts_and_stops_loop() {
     assert_eq!(stop.details, Some(json!({"action": "stop", "active": false})));
     tokio::time::advance(std::time::Duration::from_millis(3_000)).await;
     tokio::task::yield_now().await;
-    assert_eq!(harness.actions.user_messages.lock().unwrap().len(), 1);
+    assert_eq!(harness.actions.messages.lock().unwrap().len(), 1);
 }
 
 #[tokio::test(start_paused = true)]
@@ -255,7 +261,7 @@ async fn loop_shutdown_clears_timer() {
     tokio::time::advance(std::time::Duration::from_millis(2_000)).await;
     tokio::task::yield_now().await;
 
-    assert!(harness.actions.user_messages.lock().unwrap().is_empty());
+    assert!(harness.actions.messages.lock().unwrap().is_empty());
 }
 
 #[tokio::test(start_paused = true)]
@@ -710,7 +716,7 @@ async fn effort_reports_missing_model() {
 }
 
 #[tokio::test(start_paused = true)]
-async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
+async fn effort_injects_proactive_policy_and_restores_disabled_mode() {
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, "/repo").await;
     let mut options = HarnessOptions::new("/repo");
@@ -741,12 +747,12 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
     assert_eq!(
         harness.actions.entries.lock().unwrap().last().cloned(),
-        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"}))))
+        Some((JsString::from("multi-agent-mode"), Some(json!({"mode": "disabled"}))))
     );
 
     let result = harness
@@ -760,8 +766,7 @@ async fn effort_injects_proactive_policy_and_restores_explicit_mode() {
         .await
         .expect("before_agent_start result");
     let prompt = result.system_prompt.expect("system prompt");
-    assert!(prompt.contains("Do not spawn sub-agents unless"));
-    assert!(!prompt.contains("Proactive multi-agent delegation is active."));
+    assert_eq!(prompt, "base");
 }
 
 #[tokio::test(start_paused = true)]
@@ -771,7 +776,7 @@ async fn effort_restores_mode_from_branch() {
         pi_coding_agent::core::session_manager::SessionManager::in_memory(Some(&JsString::from(cwd)), None)
             .expect("session");
     session
-        .append_custom_entry(&JsString::from("multi-agent-mode"), Some(json!({"mode": "explicit"})))
+        .append_custom_entry(&JsString::from("multi-agent-mode"), Some(json!({"mode": "disabled"})))
         .expect("entry");
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, cwd).await;
@@ -796,12 +801,7 @@ async fn effort_restores_mode_from_branch() {
         )
         .await
         .expect("before_agent_start result");
-    assert!(
-        result
-            .system_prompt
-            .expect("system prompt")
-            .contains("Do not spawn sub-agents unless")
-    );
+    assert_eq!(result.system_prompt.expect("system prompt"), "base");
 }
 
 #[tokio::test(start_paused = true)]
@@ -831,15 +831,12 @@ async fn effort_ultra_activates_proactive_and_maps_thinking() {
     );
     assert_eq!(
         harness.ui.last_notification(),
-        Some((
-            JsString::from("Effort: ultra (max + proactive)"),
-            Some(NotifyType::Info)
-        ))
+        Some((JsString::from("Effort: ultra (max + active)"), Some(NotifyType::Info)))
     );
 }
 
 #[tokio::test(start_paused = true)]
-async fn effort_explicit_from_ultra_keeps_max_reasoning() {
+async fn effort_disabled_from_ultra_keeps_max_reasoning() {
     let runtime = create_extension_runtime();
     let extension = load_effort(&runtime, "/repo").await;
     let mut options = HarnessOptions::new("/repo");
@@ -854,9 +851,9 @@ async fn effort_explicit_from_ultra_keeps_max_reasoning() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
 
     assert_eq!(*harness.thinking.lock().unwrap(), ThinkingLevel::Max);
 }
@@ -875,9 +872,9 @@ async fn effort_thinking_level_ultra_reactivates_proactive() {
         .expect("multi-agent command")
         .handler
         .clone();
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
     harness.actions.entries.lock().unwrap().clear();
 
     let mut event = ExtensionEvent::ThinkingLevelSelect(ThinkingLevelSelectEvent {
@@ -908,9 +905,9 @@ async fn effort_child_runtime_cannot_change_mode_or_receive_policy() {
         .handler
         .clone();
 
-    multi_agent("explicit".to_owned().into(), harness.command_context())
+    multi_agent("disabled".to_owned().into(), harness.command_context())
         .await
-        .expect("explicit");
+        .expect("disabled");
 
     assert!(harness.actions.entries.lock().unwrap().is_empty());
     assert_eq!(
@@ -958,7 +955,7 @@ async fn effort_status_dims_only_the_prefix() {
                     pi_coding_agent::modes::interactive::theme::ThemeColor::Dim,
                     "multi-agent: "
                 ),
-                JsString::from("proactive")
+                JsString::from("active")
             ],
             ""
         ))

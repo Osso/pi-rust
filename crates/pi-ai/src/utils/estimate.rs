@@ -166,7 +166,9 @@ fn estimate_tools_tokens(tools: Option<&[Tool]>) -> f64 {
 }
 
 fn safe_json_stringify(value: &(impl Serialize + ?Sized)) -> String {
-    serde_json::to_string(value).unwrap_or_else(|_| "[unserializable]".to_owned())
+    pi_js_compat::js_json::to_value(value)
+        .map(|value| pi_js_compat::js_json::stringify_lossless(&value))
+        .unwrap_or_else(|_| "[unserializable]".to_owned())
 }
 
 /// JavaScript `String.length`: UTF-16 code units, not Unicode scalar values.

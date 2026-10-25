@@ -145,12 +145,9 @@ impl ProviderStreams for GoogleVertexApi {
 
 /// `googleVertexApi()` from `google-vertex.lazy.ts`.
 pub fn google_vertex_api() -> LazyApi {
-    lazy_api(
-        std::sync::Arc::new(|| {
-            Box::pin(async { Ok(std::sync::Arc::new(GoogleVertexApi) as std::sync::Arc<dyn ProviderStreams>) })
-        }),
-        Default::default(),
-    )
+    lazy_api(std::sync::Arc::new(|| {
+        Box::pin(async { Ok(std::sync::Arc::new(GoogleVertexApi) as std::sync::Arc<dyn ProviderStreams>) })
+    }))
 }
 
 fn run_stream(model: Model, context: Context, options: GoogleVertexOptions) -> AssistantMessageEventStream {
@@ -249,7 +246,7 @@ async fn prepare_params(
     };
     on_payload(params.clone(), model.clone())
         .await
-        .map_err(|error| error.message)
+        .map_err(|error| super::openai_sdk::format_callback_error(&error, None))
         .map(|replacement| replacement.unwrap_or(params))
 }
 

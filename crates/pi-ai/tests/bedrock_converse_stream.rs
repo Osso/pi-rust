@@ -86,7 +86,7 @@ async fn streams_text_usage_and_stop_reason() {
         vec![AssistantContent::Text(pi_ai::types::TextContent::new("Hello world"))]
     );
     assert_eq!(message.stop_reason, StopReason::Stop);
-    assert!(message.raw_stop_reason.is_none());
+    assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
     assert_eq!(message.usage.input, 10.0);
     assert_eq!(message.usage.output, 2.0);
     assert_eq!(message.usage.cache_read, 3.0);
@@ -538,7 +538,7 @@ async fn surfaces_gateway_bodies_and_stop_reason_errors() {
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
     let (_, message) = drain(stream(model(), context(), options(fetch, env()))).await;
     assert_eq!(message.stop_reason, StopReason::Error);
-    assert!(message.raw_stop_reason.is_none());
+    assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
     assert_eq!(
         message.error_message.as_ref(),
         Some(&pi_js_compat::js_json::JsString::from("An unknown error occurred"))
@@ -583,7 +583,6 @@ async fn converts_replayed_messages_and_documents() {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
-            raw_stop_reason: None,
             timestamp: 0.0,
         })),
         pi_ai::types::Message::ToolResult(pi_ai::types::ToolResultMessage {
@@ -595,8 +594,6 @@ async fn converts_replayed_messages_and_documents() {
                 pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new("")),
             ],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 0.0,
         }),

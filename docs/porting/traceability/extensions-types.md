@@ -8,6 +8,10 @@ Rust: `crates/pi-coding-agent-tools/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Command wait stale guard (2026-10-25)
+
+Frozen runner.ts:999–1002 asserts active synchronously before calling waitForIdle. Native `ExtensionCommandContext::wait_for_idle` now returns `Result<BoxFuture<()>, HandlerError>` instead of turning a stale-guard error into an empty successful future. No native consumer called this method; there is no cross-lane propagation. New targeted test covers active completion and exact stale error; RED is the missing fallible contract (`/tmp/ext-api-wait-red.log`), GREEN pending at commit.
+
 ## Rejection-preserving handler carrier (2026-10-23)
 
 HandlerError retains one boxed source variant (native error or CallbackError). From<CallbackError> keeps the full rejection; From<AgentSessionError> routes through the canonical CallbackError conversion rather than reading a native/message projection. The now-unused private AgentSessionError::native_error accessor was deleted; no AgentSession lifecycle behavior changes in this carrier slice. Existing serialized message/stack fields are unchanged; no stringification or fallback carrier was added.
@@ -52,11 +56,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 - `UserBashEventResult.operations` carries a typed
   `Arc<dyn BashOperations>` instead of serialized JSON, so `user_bash`
   extensions can replace execution like the source.
-- `ctx.sessionManager` is the owning `AgentSession`'s live
-  `Arc<Mutex<SessionManager>>` (`SharedSessionManager`), not a snapshot: reads
-  observe session-side mutations and goal writes persist through the same
-  manager. Tests: `context_session_manager_is_the_live_shared_handle`,
-  `session_replacement_rebinds_the_shared_extension_handle`.
+- `ctx.sessionManager` is the existing `ReadonlySessionManager` façade over the owning `AgentSession`'s live manager. Object reads are owned isolated snapshots; only the frozen `setSessionGoalJson`/`clearSessionGoalJson` mutators remain public. Tests: `context_session_manager_is_a_live_readonly_view`, `readonly_context_snapshot_is_isolated_and_retained_view_tracks_live_writes`, `session_replacement_rebinds_the_shared_extension_handle`. Core retains its own mutable handle for setup/actions.
 - `CustomMessage` (`core/messages.ts`, owned by the session slice) is
   represented by `CustomMessagePayload` (`customType`/`content`/`display`/
   `details`), the exact `Pick<>` shape used by the API.
@@ -66,7 +66,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 - `CompactionPreparation`, `CompactionResult`, and `CompactionSourceInfo` are
   temporary definitions here; ca-compaction-export owns their final home and
   will replace these without changing runner dispatch.
-- `AbortSignal` maps to `tokio_util::sync::CancellationToken`.
+- `AbortSignal` uses the shared reason-bearing native signal carrier; supplied reasons are preserved.
 - `Theme` is the concrete `modes::interactive::theme::Theme`; `ExtensionUIContext::theme()`
   returns the process theme (`Arc<Theme>`), matching the source `readonly theme: Theme`.
 
@@ -95,7 +95,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `InputEvent`, `InputEventResult`, `InputSource` | same names; `InputImages` carries array identity | differential `input`, `input_images` |
 | `ToolCallEvent`, `ToolResultEvent`, unions, guards | single structs + `ToolName` + guards | differential `dispatch`, `errors`; `gates_and_reviewers_patch_tool_input` |
 | Result records (`ToolCallEventResult` … `SessionBeforeTreeResult`) | same names; `ToolCallEventResult.input` is the Rust patch channel | differential |
-| Renderers (`MessageRenderer`, `EntryRenderer`, `MarkdownTransformer`) | same aliases returning `ComponentRef` | `collects_renderers_and_transformers_in_load_order` |
+| Renderers (`MessageRenderer`, `EntryRenderer`) | same aliases returning `ComponentRef` | `collects_renderers_in_load_order` |
 | `RegisteredCommand`, `ResolvedCommand` | same names (flat `ResolvedCommand`) | differential `commands` |
 | `ExtensionAPI` | `ExtensionApi` struct, one `on_*` method per event | differential, runner tests |
 | `ExtensionContext.setThinkingLevel` | `ExtensionContext::set_thinking_level` bound from `ExtensionContextActions::set_thinking_level` | `extensions.rs::context_set_thinking_level_invokes_the_session_setter`; effort/codex-fast differential |
@@ -104,6 +104,16 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `ExtensionHandlers` | typed handler vectors (one per event) | differential |
 | `LoadExtensionsResult`, `ExtensionError` | same names | differential `errors`, discovery tests |
 | `ProviderConfig`, `ProviderModelConfig`, `InlineExtension`, `ExtensionFactory` | aliases in `types`/`loader` | differential `providers` |
+
+## Fallible UI theme getter (2026-10-25)
+
+ExtensionUiContext.theme returns Result<Arc<Theme>,CallbackError>. Frozen's shared theme proxy throws when no theme has been initialized; native previously used an infallible getter that reached the shared uncaught panic instead of letting the sandbox setter reject. Default/interactive getters now use try_current_theme; example callers propagate the existing error, ready fixture getters return Ok, and the infallible border-editor render boundary uses the existing uncaught authority only at a proven process-uncaught source boundary. RED `/tmp/ext-api2-sandbox-theme-red.log` is an isolated subprocess failure against an actual frozen rejection, including the already-applied settings mutation. Nine boundary parents GREEN `/tmp/ext-api2-theme-green.log`. Cross-lane files are signature propagation/fixtures only.
+
+Border boundary probe: `frozen_border_editor_render_theme_failure_is_process_uncaught` imports the unmodified real border-status-editor example and TUI, initializes the real dark theme, mounts the actual custom editor, then makes the UI theme getter throw during a scheduled render. Frozen reaches process uncaughtException (not the setup catch), records phase render-theme-getter, Error/border-render-theme-failed, and exits17. GREEN `/tmp/ext-api2-border-render-uncaught.log`. This proves routing of a render callback failure; it does not claim an initialized global theme spontaneously disappears.
+
+## Old-only markdown API removal (2026-10-25)
+
+Frozen packages contain no MarkdownTransformContext/MarkdownTransformer, registration, state or runner getter. Removed these old-only public types/API and their exclusive fixture assertions, with parent approval. No production getter consumer existed; real message/entry renderer and runtime-registration assertions remain. No frozen callback or output assertion was weakened.
 
 ## Gaps
 
@@ -126,8 +136,7 @@ None.
 
 - TypeScript returns getters that call `runner.assertActive()` and read current
   runner fields. Rust exposes the same members as methods on `ExtensionContext`
-  backed by `ExtensionContextState`; each method performs the stale check and
-  reads live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
+  backed by `ExtensionContextState`; each method performs the stale check. The model getter captures the current callback at context creation, exactly like frozen runner.ts:822; the callback's returned value remains live. Other members read live state. `toolExecutionStartedAt`/`toolExecutionAgentId` remain
   per-invocation fields.
 
 ## Provider response header order

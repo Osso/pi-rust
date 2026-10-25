@@ -50,20 +50,29 @@ async fn restoring_execution_scans_only_after_marker_without_mutating_stored_tod
   {"type":"custom","customType":"plan-mode","data":{"enabled":false,"executing":true,"todos":[{"step":1,"text":"Read files","completed":false},{"step":2,"text":"Verify results","completed":false}]}},
   {"type":"message","message":assistant("[DONE:1]")}
  ],"steps":[{"op":"event","event":{"type":"session_start","reason":"startup"}},{"op":"command","name":"todos"},{"op":"before"}]})).await;
-    assert_eq!(result["entries"][2]["data"]["todos"][0]["completed"], false);
+    assert_eq!(
+        result["entries"][2]["data"]["todos"][0]["completed"].as_bool(),
+        Some(false)
+    );
 }
 
 #[tokio::test]
-async fn truncated_astral_todo_projects_surrogate_at_native_append_boundary() {
+async fn truncated_astral_todo_retains_surrogate_in_ui_and_persistence() {
     let dir = tempfile::tempdir().unwrap();
     let text = format!("Plan:\n1. {}🚀 trailing", "a".repeat(46));
-    let result=support::compare("plan-mode",register,json!({"fixed":true,"projectSurrogates":true,"sessionDir":dir.path(),"flags":{"plan":true},"entries":[{"type":"message","message":assistant("initial")}],"steps":[
+    let result=support::compare("plan-mode",register,json!({"fixed":true,"checkRawPersistence":true,"sessionDir":dir.path(),"flags":{"plan":true},"entries":[{"type":"message","message":assistant("initial")}],"steps":[
  {"op":"event","event":{"type":"session_start","reason":"startup"}},
- {"op":"event","event":{"type":"agent_end","messages":[assistant(&text)]}},
- {"op":"command","name":"todos"}
+ {"op":"event","event":{"type":"agent_end","messages":[assistant(&text)]},"selected":"Execute the plan (track progress)"},
+ {"op":"command","name":"todos"},
+ {"op":"event","event":{"type":"session_start","reason":"resume"}},
+ {"op":"before"},
+ {"op":"event","event":{"type":"turn_end","turnIndex":0,"message":assistant("[DONE:1]"),"toolResults":[]}},
+ {"op":"event","event":{"type":"agent_end","messages":[]}}
  ]})).await;
     assert_eq!(
-        result["entries"][1]["data"]["todos"][0]["text"],
-        format!("A{}�...", "a".repeat(45))
+        result["entries"][1]["data"]["todos"][0]["text"].as_string().unwrap(),
+        &(pi_js_compat::js_json::JsString::from(format!("A{}", "a".repeat(45)))
+            + pi_js_compat::js_json::JsString::from_utf16(vec![0xd83d])
+            + "...")
     );
 }

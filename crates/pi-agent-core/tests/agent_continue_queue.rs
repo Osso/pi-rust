@@ -49,8 +49,6 @@ async fn processes_agent_end_follow_up_before_continuing_terminal_tool_result_ta
             tool_name: "end_turn".to_owned(),
             content: vec![TextOrImageContent::Text(TextContent::new("Turn ended: Finished work"))],
             details: Some(JsValue::from(json!({"reason": "Finished work"}))),
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 1000.0,
         }),

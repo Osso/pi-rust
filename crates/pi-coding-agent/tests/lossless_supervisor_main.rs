@@ -25,7 +25,13 @@ fn console_queue_and_snapshot_keep_raw_identifiers_and_text() {
     assert_eq!(prompt.text, text);
     assert_eq!(prompt.id, id);
     let cwd = JsString::from("/cwd-") + &raw;
-    let snapshot = create_supervisor_console_snapshot(&cwd, 1, Some(&id), Vec::new());
+    let snapshot = create_supervisor_console_snapshot(
+        &cwd,
+        1,
+        pi_coding_agent::core::resident_console_transport::ResidentConsoleManagedBy::External,
+        Some(&id),
+        Vec::new(),
+    );
     assert_eq!(snapshot.session_id, id);
     assert_eq!(snapshot.cwd, cwd);
 }

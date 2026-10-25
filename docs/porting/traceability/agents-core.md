@@ -1,5 +1,21 @@
 # agents-core traceability
 
+## Runtime re-pin lane — 2026-10-25
+
+Successor factory slice: child and attached factories now forward the parent's model registry, install browser-only restricted read definitions (including the configurable root), augment profile tools with ask_questions and browser read, and exclude change_working_directory. Attached sessions restore archived files through the control DB and leave settings creation to SDK instead of overriding policy. Actual frozen factory-option differential RED: `/tmp/agents-core-2-factory-red.log`; archive/policy behavioral RED: `/tmp/agents-core-2-attached-red.log`. Factory differential, archive and no-policy-override cases pass at `4fc421ff5` (`/tmp/agents-core-2-factory-green2.log`); one legacy tool-order assertion still needed the frozen ask_questions insertion order and is corrected in the next slice. Mechanical API fallout: main.rs and native factory fixtures initialize browser_agent_config_root. No storage internals changed.
+
+| Frozen runtime branch | Native/proof |
+| --- | --- |
+| Spawn without parent journal dependency or transcript requirement (`runtime.ts:1080–1198`) | Removed old-only journal admission/start/terminal writes and the native-only request-handler journal argument. Actual frozen spawn with no transcript returns dispatched=true/completed and zero custom entries; native RED returned journaling-unconfigured; GREEN checks dispatch, completion, SQLite state and no parent custom entry. `/tmp/agents-core-journal-{red,green2}.log`; all 25 runtime tests pass |
+| Current child assistant result/errors | [Whole child-response map](child-response.md), real dispatch RED/GREEN and nine frozen vectors |
+| Descendant settlement and direct detached terminal cleanup | [Settlement](descendant-settlement.md), [cancellation](detached-runtime-cancellation.md); real spawn/SQLite/mailbox boundary |
+| Child session shutdown scope (`runtime.ts:3181–3187`) | Actual frozen/native hook differential proves child quit and main reload do not invalidate shared dispatches, while main quit does. Native RED incorrectly invalidated shared store on child shutdown; GREEN `/tmp/agents-core-shutdown-scope-green.log` |
+| Remaining runtime audit | Recovery still has an old-only parent-journal admission filter; factory browser/read/tool/profile/archive/registry fields, artifact-root override, configurable cancellation timeout and remaining runtime branch proofs remain open. Child-session shutdown/finally is now closed in its own map. These are not completion evidence |
+
+Mechanical fallout: `pi-coding-agent/src/main.rs` drops the retired request-handler argument; native fixtures use the updated signature. No source delta or storage algorithm change.
+
+Successor cancellation/recovery/artifact slice: removed journal admission from recovery; cancellation now honors cancellationSettlementTimeoutMs and rejects failed dispatch settlement. Factories register agentDir per store with weak ownership; terminal publication and wait reconciliation use that root. Behavioral REDs: `/tmp/agents-core-2-{timeout-red2,recovery-red2,artifact-red4}.log` (17ms requested versus old 5s; absent journal blocked resume; separate artifact root was not cleaned). GREEN pending after commit. Artifact test uses a separate root, not the session directory, so the session-root path cannot mask this bug.
+
 ## Module HOME snapshot (2026-10-23)
 
 Frozen `runtime.ts:198` evaluates `join(homedir(), "AgentConfig")` during static imports (`cli.ts:11` → `main.ts:14` → agents-core runtime), before dispatch or the main action catch. Native `runtime::DEFAULT_BROWSER_AGENT_CONFIG_ROOT` stores that one-time native result; the pi executable initializes it before cli_entry and routes failure through shared `throw_native_uncaught`. The accessor returns the stored root, not a fresh HOME probe. `differential_cli_import_home` compares real frozen/native --version failures under forced NSS EIO (exit 1, exact SystemError prefix, no version output), and a child proves later HOME changes do not alter the snapshot. RED: `pi-cli-nss-frozen-red.log`; GREEN: `pi-cli-nss-green.log`.

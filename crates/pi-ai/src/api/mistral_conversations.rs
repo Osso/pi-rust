@@ -16,11 +16,11 @@ use pi_js_compat::abort::{AbortReason, AbortSignal};
 use serde_json::{Map, Value, json};
 use url::Url;
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
-use crate::request::{HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
+use crate::request::{CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, StreamOptions, now_millis};
 use crate::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, CacheRetention, Context, DoneReason, ErrorReason,
     ImageContent, Message, Modality, Model, ModelThinkingLevel, StopReason, TextContent, ThinkingContent, Tool,
@@ -125,7 +125,7 @@ impl ProviderStreams for MistralConversationsApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 
@@ -189,7 +189,7 @@ async fn produce_stream(
     if let Some(on_payload) = &options.stream.request.on_payload
         && let Some(next_payload) = on_payload(payload.clone(), model.clone())
             .await
-            .map_err(|error| MistralError::message(error.message))?
+            .map_err(MistralError::Callback)?
     {
         payload = next_payload;
     }
@@ -245,10 +245,17 @@ fn done_reason(reason: StopReason) -> Option<DoneReason> {
 }
 
 /// Maps provider-agnostic `SimpleStreamOptions` to Mistral options.
-pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOptions) -> AssistantMessageEventStream {
+pub fn stream_simple(
+    model: Model,
+    context: Context,
+    options: SimpleStreamOptions,
+) -> Result<AssistantMessageEventStream, CallbackError> {
     let api_key = options.stream.request.api_key.clone().filter(|key| !key.is_empty());
     let Some(api_key) = api_key else {
-        return crate::request::error_stream(&model, format!("No API key for provider: {}", model.provider));
+        return Err(CallbackError::new(format!(
+            "No API key for provider: {}",
+            model.provider
+        )));
     };
 
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
@@ -258,7 +265,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
     });
     let should_use_reasoning = model.reasoning && reasoning.is_some();
 
-    stream(
+    Ok(stream(
         model.clone(),
         context,
         MistralOptions {
@@ -269,7 +276,7 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
             reasoning_effort: (should_use_reasoning && uses_reasoning_effort(&model))
                 .then(|| map_reasoning_effort(&model, reasoning.unwrap_or(ModelThinkingLevel::High))),
         },
-    )
+    ))
 }
 
 fn uses_reasoning_effort(model: &Model) -> bool {
@@ -340,6 +347,7 @@ fn derive_mistral_tool_call_id(id: &str, attempt: u32) -> String {
 #[derive(Debug, Clone)]
 enum MistralError {
     Message(JsString),
+    Callback(CallbackError),
     Http {
         status: u16,
         content_type: String,
@@ -374,7 +382,26 @@ fn format_mistral_error(error: &MistralError) -> JsString {
             )
         }
         MistralError::Message(message) => message.clone(),
+        MistralError::Callback(error) => format_mistral_callback_error(error),
     }
+}
+
+fn format_mistral_callback_error(error: &CallbackError) -> JsString {
+    let reason = error.thrown_value();
+    let native = match reason {
+        AbortReason::Error(error) | AbortReason::DomException(error) => error,
+        AbortReason::Value(_) => return error.error_or_json_message(),
+    };
+    let fields = native.value();
+    let Some(status) = fields.get("statusCode").and_then(JsValue::as_f64) else {
+        return native.message;
+    };
+    let body = fields.get("body").and_then(JsValue::as_string).map(JsString::trim);
+    let message = match body.filter(|body| !body.is_empty()) {
+        Some(body) => truncate_error_text(&body, MAX_MISTRAL_ERROR_BODY_CHARS),
+        None => native.message,
+    };
+    pi_js_compat::js_format!("Mistral API error ({}): {}", js_number_to_string(status), message)
 }
 
 fn truncate_error_text(text: &JsString, max_chars: usize) -> JsString {
@@ -1710,8 +1737,7 @@ impl RequestSignal {
 /// `mistralConversationsApi()`: the lazy module wrapper from
 /// `mistral-conversations.lazy.ts`.
 pub fn mistral_conversations_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| Box::pin(async { Ok(Arc::new(MistralConversationsApi) as Arc<dyn ProviderStreams>) })),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(MistralConversationsApi) as Arc<dyn ProviderStreams>) })
+    }))
 }

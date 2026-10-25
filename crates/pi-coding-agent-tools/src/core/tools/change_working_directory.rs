@@ -20,8 +20,7 @@ use super::resume_session::{find_session_file_by_id, resolve_session_path};
 use crate::core::extensions::types::{
     ExtensionContext, HandlerError, ToolDefinition, ToolRenderContext, ToolRenderResultOptions,
 };
-use crate::core::session_manager::lock_session_manager;
-use crate::core::session_manager::{SessionManager, read_session_header};
+use crate::core::session_manager::read_session_header;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, resolve_path};
 
@@ -181,7 +180,7 @@ fn assert_existing_directory(cwd: &JsString) -> Result<(), ToolError> {
 fn load_target_cwd(
     target: &ChangeWorkingDirectoryTarget,
     cwd: &JsString,
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<ResolvedTarget, ToolError> {
     match target {
@@ -198,7 +197,7 @@ fn load_target_cwd(
         ChangeWorkingDirectoryTarget::Id(id) => {
             let session_path = find_session_file_by_id(id, session, control_db_path)?;
             if let Some(current_session_file) = session.get_session_file()
-                && resolve_session_path(current_session_file)? == resolve_session_path(&session_path)?
+                && resolve_session_path(&current_session_file)? == resolve_session_path(&session_path)?
             {
                 return Err(ToolError::new(
                     "current session id cannot be used as a working directory target",
@@ -277,7 +276,7 @@ impl ContextTool<Option<ExtensionContext>> for ChangeWorkingDirectoryTool {
                 .control_db_path()
                 .map_err(|error| ToolError::new(error.message))?;
             let previous_cwd = cwd.clone();
-            let resolved = load_target_cwd(&target, &cwd, &lock_session_manager(&session), control_db_path.as_ref())?;
+            let resolved = load_target_cwd(&target, &cwd, &session, control_db_path.as_ref())?;
             context
                 .relocate_after_tool_result(&tool_call_id, &resolved.cwd)
                 .map_err(|error| ToolError::new(error.message))?;

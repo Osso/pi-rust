@@ -204,7 +204,10 @@ async fn run_json_in_sandbox(
         return Err(if trimmed.is_empty() {
             js_format!(
                 "sandbox operation failed with exit code {}",
-                status.code().unwrap_or(-1)
+                status
+                    .code()
+                    .map(|code| code.to_string())
+                    .unwrap_or_else(|| "null".to_owned())
             )
         } else {
             trimmed.to_owned()
@@ -447,7 +450,10 @@ impl FindOperations for SandboxFindOperations {
 
 fn build_grep_notices(details: &Map, truncation: &crate::core::tools::truncate::TruncationResult) -> Vec<JsString> {
     let mut notices = Vec::new();
-    if let Some(limit) = details.get("matchLimitReached") {
+    if let Some(limit) = details
+        .get("matchLimitReached")
+        .filter(|value| value.as_f64().is_some_and(|limit| limit != 0.0))
+    {
         notices.push(js_format!(
             "{} matches limit reached",
             js_json::stringify_lossless(limit)
@@ -751,7 +757,24 @@ fn register_sandboxed_bash_tool(
                         ..Default::default()
                     },
                 ),
-                None => create_bash_tool_definition(&cwd, Default::default()),
+                None => {
+                    let background_jobs = if ctx.multi_agent_store()?.is_some() {
+                        Some(Arc::new(crate::core::tools::bash::BashBackgroundJobs {
+                            get_lifecycle: None,
+                            lifecycle: ctx.detached_job_lifecycle()?,
+                        }))
+                    } else {
+                        None
+                    };
+                    create_bash_tool_definition(
+                        &cwd,
+                        crate::core::tools::bash::BashToolOptions {
+                            background_jobs,
+                            detach_registry: ctx.tool_detach_registry()?,
+                            ..Default::default()
+                        },
+                    )
+                }
             };
             (tool.execute)(id, params, signal, on_update, Some(ctx)).await
         })
@@ -837,9 +860,15 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
             let bwrap_command = bwrap_command.clone();
             Box::pin(async move {
                 let profile = read_sandbox_profile(&ctx);
-                let mode = match profile {
-                    Some(profile) => js_format!("sandboxed ({})", profile.as_str()),
-                    None => JsString::from("unsandboxed/full-access"),
+                let (mode, notify_type) = match profile {
+                    Some(profile) => match run_bwrap_availability_check(&bwrap_command) {
+                        Ok(()) => (js_format!("sandboxed ({})", profile.as_str()), NotifyType::Info),
+                        Err(reason) => (
+                            js_format!("{}: {}; tools blocked", profile.as_str(), reason),
+                            NotifyType::Error,
+                        ),
+                    },
+                    None => (JsString::from("unsandboxed/full-access"), NotifyType::Info),
                 };
                 if let Ok(ui) = ctx.ui() {
                     let cwd = ctx.cwd()?;
@@ -852,7 +881,7 @@ fn register_bwrap_status_command(pi: &ExtensionApi, runtime: &BwrapRuntime) -> R
                             ],
                             "\n",
                         ),
-                        Some(NotifyType::Info),
+                        Some(notify_type),
                     )?;
                 }
                 Ok(())

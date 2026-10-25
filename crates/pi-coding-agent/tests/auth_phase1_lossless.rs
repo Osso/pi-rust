@@ -78,17 +78,24 @@ async fn touched_refresh_and_public_roundtrip_match_ts_without_surrogate_replace
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("auth.json");
     std::fs::write(&path, RAW).unwrap();
+    let source_path = directory.path().join("source-auth.json");
+    std::fs::write(&source_path, RAW).unwrap();
+    let mut source = oracle::TsOracle::spawn(
+        "auth-storage-oracle.ts",
+        "packages/coding-agent/src/core/auth-storage.ts",
+    );
+    let frozen_rotation = source.request(&json!({"id":0,"op":"rotate-in-place","authPath":source_path}));
+    assert_eq!(frozen_rotation["ok"], true, "{frozen_rotation}");
     let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
     register_oauth_provider(Arc::new(LosslessProvider));
     let key = storage.get_api_key("fake", GetApiKeyOptions::default()).await.unwrap();
     assert_eq!(key, Some(JsString::from("new")));
     let value = storage.get("fake").unwrap();
-    let expected =
-        r#"{"type":"oauth","refresh":"B\udfff","access":"new","expires":4000000000000,"\ud800":{"nested":"\udfff"}}"#;
+    let expected = frozen_rotation["output"]["credential"].as_str().unwrap();
     assert_eq!(js_json::stringify_lossless(&value), expected);
-    let mut source = oracle::TsOracle::spawn(
-        "auth-storage-oracle.ts",
-        "packages/coding-agent/src/core/auth-storage.ts",
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        frozen_rotation["output"]["file"]
     );
     let snapshot = source.request(&json!({"id":1,"op":"lossless","authPath":path,"provider":"fake"}));
     assert_eq!(snapshot["ok"], true, "{snapshot}");
@@ -204,19 +211,13 @@ async fn overlapping_expired_in_memory_refreshes_both_read_a_like_frozen() {
 }
 
 #[test]
-fn one_off_stored_read_never_creates_missing_auth_files() {
+fn public_missing_get_does_not_add_credentials_to_the_created_auth_file() {
     let directory = tempfile::tempdir().unwrap();
     let path = directory.path().join("not-created/auth.json");
-    assert_eq!(
-        pi_coding_agent::core::auth_storage::read_stored_credential(
-            "fake",
-            Some(&JsString::from(path.to_str().unwrap()))
-        )
-        .unwrap(),
-        None
-    );
-    assert!(
-        !path.parent().unwrap().exists(),
-        "one-off read must not create auth state"
-    );
+    let storage = AuthStorage::create(Some(&JsString::from(path.to_str().unwrap()))).unwrap();
+    let before = std::fs::read(&path).unwrap();
+    assert_eq!(storage.get("fake"), None);
+    assert!(storage.list_providers().is_empty());
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert_eq!(before, b"{}");
 }

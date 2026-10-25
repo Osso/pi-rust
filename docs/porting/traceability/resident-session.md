@@ -52,3 +52,7 @@ Eight original runtime mutants were killed against previously GREEN selectors/er
 Local POSIX lexical join/resolve preserve relative `..`; no shared path refactor. Source-proven NUL validation uses a minimal shared `pi-js-compat` TypeError helper, with UTF-16 quotes/control/multiline/truncation and no IO fields. An owned-file VT EEXIST regression exposed the shared `\\v` versus Node `\\x0B` inspector root; one authorized shared escape fix, no context callback. NUL 11-case and filesystem 7-case proofs reran GREEN in the ordinary resident target. Shared NodeFs 6-test proof remains valid on unchanged implementation; no redundant rerun.
 
 Approved 2026-10-21: Unix-only preparation API/helpers (`cfg(unix)`); existing public predicate stays cross-platform. Windows preparation is a gap; Linux proof is not macOS execution. No clippy/check, broad suite, final acceptance, delegation, push, merge, deployment or live services in this continuation.
+
+## Runtime-services revalidation (2026-10-25)
+
+Whole module re-read against common pin and retained approved private-regex delta. `cargo test -j3 -p pi-coding-agent --test suite_session_1 repin_resident_session`: 20 pass, zero ignored at 567abb2c7; `/tmp/runtime-services-green-resident.log`. Includes frozen exact discrepancy matrices, approved delta reciprocal matrices and actual filesystem/listener boundaries. No product code changed in this revalidation.

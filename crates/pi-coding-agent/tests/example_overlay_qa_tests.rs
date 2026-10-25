@@ -85,6 +85,7 @@ impl ExtensionUiOverlayHandle for MainHandle {
 }
 struct Terminal;
 impl ExtensionUiTuiBackend for Terminal {
+    fn request_component_render(&self, _identity: usize) {}
     fn create_fixed_cell(&self) -> Rc<dyn pi_tui::components::editor::EditorFixedCell> {
         panic!("no editors")
     }
@@ -219,9 +220,16 @@ fn options(o: ExtensionUiOverlayOptions) -> Value {
     }
     value
 }
-fn frames(component: &dyn ExtensionUiComponent, width: usize) -> Value {
+fn frames(component: &dyn ExtensionUiComponent, width: usize, raw_units: bool) -> Value {
+    let encode = |lines: Vec<JsString>| {
+        if raw_units {
+            json!(lines.iter().map(JsString::units).collect::<Vec<_>>())
+        } else {
+            json!(lines)
+        }
+    };
     let panels = PANELS.with(|ps| ps.borrow().clone());
-    json!(["frames",component.render(width),panels.iter().map(|p|json!({"options":options(p.options.clone()),"hidden":p.hidden.get(),"lines":p.component.render(match p.options.width {Some(pi_tui::tui::SizeValue::Absolute(w))=>w as usize,_=>34})})).collect::<Vec<_>>()])
+    json!(["frames",encode(component.render(width)),panels.iter().map(|p|json!({"options":options(p.options.clone()),"hidden":p.hidden.get(),"lines":encode(p.component.render(match p.options.width {Some(pi_tui::tui::SizeValue::Absolute(w))=>w as usize,_=>34}))})).collect::<Vec<_>>()])
 }
 struct Ui {
     scripts: Mutex<VecDeque<Value>>,
@@ -340,7 +348,10 @@ impl ExtensionUiContext for Ui {
                     .unwrap()
                     .push(json!(["options", options(opts.overlay_options.unwrap()())]));
                 let width = script["width"].as_u64().unwrap_or(60) as usize;
-                calls.lock().unwrap().push(frames(component.as_ref(), width));
+                calls
+                    .lock()
+                    .unwrap()
+                    .push(frames(component.as_ref(), width, script["rawUnitArrays"] == true));
                 tokio::task::yield_now().await;
                 for step in script["steps"].as_array().into_iter().flatten() {
                     if step["ready"] == true {
@@ -393,21 +404,24 @@ impl ExtensionUiContext for Ui {
                             tokio::task::yield_now().await;
                         }
                     }
-                    let projected = step["units"].as_array().map(|units| {
-                        String::from_utf16_lossy(&units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>())
+                    let input = step["key"].as_str().map(JsString::from).or_else(|| {
+                        step["units"].as_array().map(|units| {
+                            JsString::from_utf16(units.iter().map(|u| u.as_u64().unwrap() as u16).collect::<Vec<_>>())
+                        })
                     });
-                    if let Some(key) = step["key"].as_str().or(projected.as_deref()) {
+                    if let Some(key) = input {
                         if let Some(index) = step["panel"].as_u64() {
                             let p = PANELS.with(|ps| ps.borrow()[index as usize].clone());
-                            p.component.handle_input(&JsString::from(key));
+                            p.component.handle_input(&key);
                         } else {
-                            component.handle_input(&JsString::from(key));
+                            component.handle_input(&key);
                         }
                     }
                     tokio::task::yield_now().await;
                     calls.lock().unwrap().push(frames(
                         component.as_ref(),
                         step["width"].as_u64().unwrap_or(width as u64) as usize,
+                        script["rawUnitArrays"] == true,
                     ));
                 }
                 component.invalidate();
@@ -536,7 +550,7 @@ async fn thirteen_commands_match_pinned_runtime_options_keys_and_ansi_frames() {
         json!({"command":"overlay-overflow","scripts":[{"steps":[{"ready":true},{"proc":{"stdout":"one\n"},"waitFor":"Streaming Output (1 lines)"},{"dispose":true,"reap":true},{"proc":{"stdout":"late-after-dispose\n"}},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-toggle","scripts":[{"clone":true,"steps":[{"key":"t"},{"ms":1000},{"key":"\x1b"}]}]}),
         json!({"command":"overlay-animation","scripts":[{"steps":[{"ms":1100},{"width":1},{"width":7},{"key":"\x03"},{"ms":100}]}]}),
-        json!({"command":"overlay-passive","scripts":[{"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
+        json!({"command":"overlay-passive","scripts":[{"rawUnitArrays":true,"steps":[{"ms":61000},{"units":[55296]},{"key":"\x7f"},{"key":"\x03"},{"ms":1000}]}]}),
         json!({"command":"overlay-streaming","scripts":[{"steps":[{"ms":5000},{"key":"\t"},{"panel":0,"key":"A"},{"panel":0,"key":"é"},{"panel":0,"key":"🚀"},{"panel":0,"key":"\x7f"},{"panel":0,"key":"\x03"},{"ms":500}]}]}),
         json!({"command":"overlay-focus","scripts":[{"width":12,"steps":[{"panel":0,"key":"é🚀中"},{"panel":0,"key":"\x7f"},{"panel":0,"key":"\x1b[C"},{"panel":0,"key":"\x1b[A"},{"panel":0,"key":"\x1b[B"},{"panel":0,"key":"\x1b[Z"},{"panel":2,"key":"\x03"}]}]}),
         json!({"command":"overlay-stack","scripts":[{"delay":1100,"steps":[{"key":"\r"}]},{"delay":600,"steps":[{"key":"\r"}]},{"delay":100,"steps":[{"key":"\r"}]}]}),

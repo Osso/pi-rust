@@ -186,11 +186,13 @@ pub struct AttachedSessionDispatchInput {
 
 pub trait ChildAgentSession: Send + Sync {
     fn abort(&self) {}
-    fn dispose(&self) {}
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        Box::pin(async { Ok(()) })
+    }
     fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         None
     }
-    fn messages(&self) -> Vec<AgentMessage>;
+    fn messages(&self) -> Vec<Arc<AgentMessage>>;
     fn prompt(
         &self,
         text: pi_js_compat::js_json::JsString,

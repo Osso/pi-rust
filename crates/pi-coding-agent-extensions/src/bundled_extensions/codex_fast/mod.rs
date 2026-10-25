@@ -9,7 +9,7 @@ use crate::core::extensions::types::{
     BeforeProviderRequestEvent, BoxFuture, ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError,
     ModelSelectEvent, NotifyType,
 };
-use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
+use crate::core::session_manager::KnownSessionEntry;
 
 const FAST_MODE_ENTRY: &str = "codex-fast-mode";
 const FAST_STATUS_KEY: &str = "codex-fast";
@@ -156,7 +156,7 @@ fn parse_persisted_service_tier(data: &JsValue) -> Option<PersistedServiceTier> 
 
 pub fn read_persisted_fast_mode(ctx: &ExtensionContext) -> Result<Option<PersistedServiceTier>, HandlerError> {
     let session_manager = ctx.session_manager()?;
-    let branch = lock_session_manager(&session_manager).get_branch(None);
+    let branch = session_manager.get_branch(None);
     for entry in branch.iter().rev() {
         let known = entry.known();
         let Some(KnownSessionEntry::Custom(custom)) = known.as_deref() else {

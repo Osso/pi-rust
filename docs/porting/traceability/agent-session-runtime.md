@@ -2,6 +2,16 @@
 
 Rust: `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`.
 
+## Missing-import error identity (2026-10-25)
+
+Actual frozen `importFromJsonl` returns `SessionImportFileNotFoundError` with `name`, `message` and `filePath`; native previously projected only its message into a generic Error. `missing_import_preserves_the_frozen_error_name_and_file_path` reproduces the complete visible error-value mismatch. The existing `SessionImportFileNotFoundError` now projects its fields into `NativeNodeError`/`CallbackError` and retains itself as the original Rust source; no new error carrier or constructor class is added.
+
+The interactive catch now checks that retained source instead of `File not found:` text. `import_error_class_controls_recovery_and_exit_like_frozen` uses real native/frozen runtime/mode processes, a persisted private session and an actual imported JSONL file. A genuine missing import remains recoverable with the exact full error frame and process exit0. A later factory Error with the same prefix must produce the same full frame and actual exit1; native previously exited0. The frozen confirmation dialog is driven by real terminal Enter input, never replaced with a canned result. Both process scenarios pass after the fix. RED/GREEN artifacts: `/tmp/repin-interactive-2-proof/import-error-red.log`, `import-ui-persisted-red.log`, `import-{agent_session_runtime,lib}-green.log`. Separate whole import-command parsing/confirmation/recovery branches remain interactive work, not accepted by this bounded error proof.
+
+## In-memory import discrepancy (2026-10-25)
+
+DISCREPANCY, preserved literally: frozen :637–640 recursively creates the current manager's session directory before before-switch callbacks. An in-memory manager supplies `""`, and Node throws ENOENT. Rust `create_dir_all("")` instead succeeds as a no-op. Native now performs the actual empty-path mkdir syscall for that input and preserves the resulting fields through the existing Node filesystem error carrier. Nonempty paths still use recursive creation. The actual frozen/native UI process comparison proves the exact visible failure and exit1; no new recovery, fallback, carrier or SessionManager algorithm is introduced. [Command proof](interactive-mode.md#path-arguments-and-import-command-2026-10-25).
+
 ## Common-pin re-port in progress (2026-10-23)
 
 [Contract](../../specs/agent-session-runtime.md). Historical inventory below is
@@ -75,9 +85,15 @@ Requested workspace JSON check exits0 with0 errors/0 warnings (`4d-final-workspa
 
 Remaining4d work is **not** an approved gap: fallible beforeProcessRestart/setup/withSession callback carriers and extension_actions adapter ordering; interactive RuntimeSwitchSession must preserve withSession options. Main granted semantic ownership for those follow-ups. Broader self-restart dependency/error-carrier audit remains explicit in [self-restart](self-restart.md). No whole-runtime acceptance; rank5/6 remain queued. Later edits for this checkpoint are docs only and do not invalidate these behavior/check proofs.
 
+## Setup shared-manager correction (2026-10-25)
+
+Frozen new-session :517–521 passes the live manager and awaits setup before rebuilding messages. Both native setup aliases now take the existing `SharedSessionManager`; extension_actions forwards that same handle. The manager clone/publish path is deleted. Callbacks take short locks only while reading/writing, never across await. Main approved this callback parameter correction; mechanical fallout is limited to the extension alias/adapter and callback test consumers in this checkout.
+
+Actual pinned/runtime extension-action RED `setup-async-red.log` proves the old snapshot publication erased a synchronous live-manager entry: source retains two concrete entries and syncs two messages; native retained only the later entry/message. `setup_writes_across_await_keep_live_state_and_sync_only_on_success_like_frozen` compares success and rejection after a real yield against frozen await behavior: ordered payloads remain live in both cases, success syncs two agent messages then rebind/withSession, rejection keeps zero agent messages and skips those steps. The existing four synchronous setup/replacement error cases still assert exact native/raw rejection identity. No new carrier, recovery path or dependency is added.
+
 ## 4d fallible callbacks checkpoint
 
-Frozen beforeProcessRestart/setup/withSession awaits can reject; native now carries Result<_,CallbackError> through all three optional callback types. The non-interactive CallbackErrors recovery box is deleted: adapters convert the original error at the actual await, so failure stops the runtime before subsequent stages. Interactive new-session adapters reuse the same direct conversions instead of discarding future Results. Setup's synchronous manager writes are published before awaiting its future; rejection retains those entries without syncing agent messages, rebinding or calling withSession. No manager mutex is held across the await.
+Frozen beforeProcessRestart/setup/withSession awaits can reject; native now carries Result<_,CallbackError> through all three optional callback types. The non-interactive CallbackErrors recovery box is deleted: adapters convert the original error at the actual await, so failure stops the runtime before subsequent stages. Interactive new-session adapters reuse the same direct conversions instead of discarding future Results. Setup writes affect the live manager before and after awaiting its future (see the shared-manager correction above); rejection retains those entries without syncing agent messages, rebinding or calling withSession. No manager mutex is held across the await.
 
 Genuine real-source/runtime/extension-action RED `runtime-callback-setup-red.log`: source calls teardown/create/setup, retains the new entry and leaves agent messages empty; native additionally synced messages and ran rebind/withSession. New matrix asserts exact native RangeError branding/properties and raw rejection objects with lone high/low UTF-16 units. A source/native before-restart rejection test checks detach→hook, live outgoing context, and no teardown/restarter. GREEN at410ebd3d (`runtime-callback-carriers-green.log`): setup/withSession native+raw and beforeRestart native+raw cases. UI lost options are separately reproduced below, not inferred from carrier proof.
 
@@ -166,9 +182,7 @@ CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
 
 ## Gaps
 
-- Project-trust context factories and `assertMainSessionRuntimeAvailable` refresh
-  bookkeeping are not part of the factory options.
-- `teardownCurrent` does not flush pending session entries beyond `abort()`.
+The historical project-trust/availability and pre-abort notes are superseded by the 4d and teardown proofs above. Whole-runtime acceptance remains open. Pathological input, OS-fault, numeric-extreme and runtime scheduling cases follow the project user-observable parity exclusions; existing lossless carriers remain intact.
 
 ## v15 import/fork names (approved 2026-10-20)
 

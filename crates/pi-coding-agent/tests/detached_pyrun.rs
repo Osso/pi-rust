@@ -70,6 +70,7 @@ fn manifest(dir: &str) -> DetachedPyrunLaunchManifestData {
             detached: Some(false),
             env: Some([("PATH".into(), "/bin".into())].into()),
             inherit_env: Some(false),
+            inherited_process_group_id: None,
         },
         runner_process_identity: ProcessIdentity {
             pid: 43,

@@ -141,6 +141,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "claude-bash-hook",
     "claude-memory-enrich",
     "claude-memory-session-end",
+    "codex-daybreak",
     "codex-fast",
     "codex-image-generation",
     "codex-usage",
@@ -150,6 +151,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "agents-core",
     "agent-viewer",
     "agents-mailbox",
+    "agents-status",
     "default-footer",
     "effort",
     "goal",
@@ -213,6 +215,7 @@ pub fn create_first_party_extension_factories(
         });
         let child_agent_session_factory =
             create_production_child_agent_session_factory(ProductionChildAgentSessionFactoryOptions {
+                browser_agent_config_root: None,
                 agent_dir: Some(agent_dir.clone()),
                 create_session: Arc::clone(&create_session),
                 create_session_manager,
@@ -224,6 +227,7 @@ pub fn create_first_party_extension_factories(
             });
         let attached_session_factory =
             create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                browser_agent_config_root: None,
                 agent_dir: Some(agent_dir),
                 create_session,
                 extension_factories: Some(ChildExtensionFactories::Dynamic(runtime_extension_factories)),
@@ -325,10 +329,7 @@ fn pyrun_extension_factory(
             ..Default::default()
         };
         let handler = Arc::new(
-            crate::bundled_extensions::agents_core::runtime::create_multi_agent_pi_request_handler(
-                &agent_options,
-                Some(crate::bundled_extensions::agents_core::parent_agent_journal::JournalWriter::from_api(pi)),
-            ),
+            crate::bundled_extensions::agents_core::runtime::create_multi_agent_pi_request_handler(&agent_options),
         );
         let dispatcher: crate::bundled_extensions::pyrun::eval_tool::PyrunPiRequestDispatcher =
             Arc::new(move |request, context, signal, active_tool_call_id| {
@@ -347,7 +348,12 @@ fn pyrun_extension_factory(
                         .map(Some)
                 })
             });
-        options.pi_request_handlers.push(dispatcher);
+        options
+            .pi_request_handlers
+            .push(crate::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                dispatch: dispatcher,
+                dispose: None,
+            });
         let result = crate::bundled_extensions::pyrun::install_pyrun_extension(pi, options);
         Box::pin(async move { result })
     })
@@ -1791,6 +1797,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         crate::core::host_relay_resident::run_relay_connect().await?;
         return Ok(None);
     }
+    if crate::cli::args::is_terminal_export_invocation(args) {
+        return crate::cli::export_terminal::export_terminal_history(parse_args(args)).map(Some);
+    }
     if reject_invalid_standalone_worker_startup(args) {
         return Ok(Some(1));
     }
@@ -2157,7 +2166,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     if parsed.no_supervisor != Some(true) {
         reconcile_session_runtime_bindings(&control_db_path, &SessionDirectoryOptions::default())
             .map_err(CallbackError::from)?;
-        LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string())
+        LifecycleCoordinator::reconcile_dead_detached_runtimes(&control_db_path, &now_iso_string(), Some(&agent_dir))
             .map_err(CallbackError::from)?;
     }
     time(&"createAgentSessionRuntime".into(), TimingLabel::Main);

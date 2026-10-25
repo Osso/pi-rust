@@ -13,3 +13,5 @@ Status: **partial**. [Q3 proof and native approvals](../orchestrator-proof.md).
 - Direct native embedding-process SIGINT/SIGTERM and Radius-enabled full serve startup/shutdown matrices remain unproven.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
+
+Current re-pin RED `/tmp/runtime-services-red-serve-mkdir.log`: a regular file at the configured directory leaked Rust OS text instead of frozen EEXIST mkdir text. The startup directory operation now uses the shared Node filesystem authority. Actual-source exported serve failure is compared with native CLI embedding stderr/message and exit1; the embedding flushes its asynchronous writers before process::exit. GREEN at bb6b06de0 (`/tmp/runtime-services-green-cli-serve.log`). Normal native/frozen CLI SIGINT/SIGTERM startup, live list IPC and socket cleanup proof passed at 85a190062 (`/tmp/runtime-services-cli-serve-process.log`).

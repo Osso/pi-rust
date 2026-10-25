@@ -350,7 +350,7 @@ fn register_session_start(pi: &ExtensionApi, local: String, state: RemoteState) 
             ui.set_status(
                 &JsString::from("ssh"),
                 Some(ExtensionStatus::Text(
-                    ui.theme().fg(ThemeColor::Accent, &js_format!("SSH: {}", label)),
+                    ui.theme()?.fg(ThemeColor::Accent, &js_format!("SSH: {}", label)),
                 )),
             )?;
             ui.notify(&js_format!("SSH mode: {}", label), Some(NotifyType::Info))?;

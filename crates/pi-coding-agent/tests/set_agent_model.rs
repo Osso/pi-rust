@@ -405,7 +405,7 @@ async fn live_request_keeps_old_model_next_request_uses_effective_model_and_effo
 
 struct BoundaryChild(Option<Arc<dyn pi_coding_agent::core::extensions::types::ViewedSessionMutationTarget>>);
 impl pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSession for BoundaryChild {
-    fn messages(&self) -> Vec<pi_agent_core::agent::types::AgentMessage> {
+    fn messages(&self) -> Vec<std::sync::Arc<pi_agent_core::agent::types::AgentMessage>> {
         Vec::new()
     }
     fn prompt(&self, _text: JsString) -> pi_ai::request::BoxFuture<'static, Result<(), JsString>> {
@@ -721,7 +721,6 @@ async fn schema_argument_admission_matches_source_validation() {
         label: None,
         execution_mode: None,
         typebox_kind: true,
-        constrained_sampling: None,
     };
     let actual: Vec<_> = cases
         .iter()

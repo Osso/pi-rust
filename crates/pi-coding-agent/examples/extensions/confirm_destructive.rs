@@ -50,7 +50,7 @@ async fn confirm_switch(
             "Clear cancelled",
         )
     } else {
-        let has_user = ctx.session_manager()?.lock().unwrap().get_entries().iter().any(|entry| matches!(entry, SessionEntry::Known(KnownSessionEntry::Message(message)) if message.message.role() == "user"));
+        let has_user = ctx.session_manager()?.get_entries().iter().any(|entry| matches!(entry, SessionEntry::Known(KnownSessionEntry::Message(message)) if message.message.role() == "user"));
         if !has_user {
             return Ok(None);
         }

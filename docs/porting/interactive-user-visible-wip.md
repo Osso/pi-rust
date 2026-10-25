@@ -43,6 +43,39 @@ Current Rust proof scope: `da4b17ada`; artifacts remain under `/tmp/repin-intera
 
 Readability: source scope printing and cycle-hint formatting are separate short steps; callback subscription and UI-owner delivery use existing carriers; fixtures use private state/processes and actual resource discovery. No new dependency, public carrier, unapproved semantic gap or cross-lane algorithm change.
 
+## Keybindings checkpoint
+
+`8523469b9` (integrated by parent `f78e73229`) closes the 444-line coding-agent keybindings module: full exported catalog/default/description comparison, five migrations, four file loads and eight repeated reload/conflict/match snapshots; read-only file bytes and native UTF-16 are retained. Parent approved removal of the old-only copy action and macOS ordering; the clipboard description now matches exactly. Focused gates: `keybindings-suite_core_{2,3,4}.log` = 1/1 differential + 3/3 units + 1/1 raw file proof; `keybindings-check.log` = zero warnings/errors; `keybindings-clippy.{jsonl,stderr}` = 104 existing diagnostics, zero changed lines; strict TS/Biome pass. Source inventory at that checkpoint: 686 / 186679, 468 done / 19 gap / 48 partial / 151 todo. Parent later fast-forwarded this worktree to `1425a937c`; the newer global inventory below supersedes these historical status counts.
+
+## Typed missing-import checkpoint
+
+`6cbc0bafa` preserves the existing missing-import error's name/message/filePath and original type through existing carriers. Full runtime source/native RED reproduces generic Error + lost property; actual persisted-mode process RED reproduces a factory Error incorrectly treated as recoverable merely because its text starts `File not found:`. Missing import exits0 and factory failure exits1, with full exact real-mode error frames, after the fix. No new error class/carrier/dependency is added. Other import-command confirmation, parsing and missing-cwd branches are not accepted by this bounded proof.
+
+| Command / scope at `6cbc0bafa` | Result | Artifact |
+|---|---|---|
+| `cargo test -j4 -p pi-coding-agent --test agent_session_runtime -- --nocapture` | 45 passed; one explicitly parent-invoked isolated cwd helper, no omitted scenario | `import-runtime-integration.log` |
+| Interactive lib, import process + actual startup filters | 2/2; two import process cases + seven startup scenarios | `import-ui-integration.log` |
+| `cargo check -j4 -p pi-coding-agent-interactive --lib` | PASS, zero warnings/errors | `import-check.log` |
+| Scoped storage/core/interactive lib+tests clippy, no-deps JSON | PASS; 307 existing diagnostics, zero changed-line primary spans | `import-clippy.{jsonl,stderr}` |
+| Strict two-oracle frozen TS/ES2024 + Biome | PASS | `import-typecheck.log` |
+| Format + locked inventory | PASS; 686 / 186679; 484 done / 21 gap / 52 partial / 129 todo | Inventory before checkpoint; runtime honestly partial |
+
+Diagnostic incident: an early oracle waited at the real confirmation dialog because the fixture had not driven terminal input. Both owned process groups were killed, and all six recorded PIDs were verified exited. The final fixture drives Enter through the actual terminal callback; no dialog stub, production timeout or assertion weakening was used. An initial in-memory import probe hit the source's `mkdir('')` boundary before the factory, so the like-boundary comparison now uses persisted sessions on both sides.
+
+## Interactive import checkpoint
+
+`14bc35da4` + `3e36e1421` port literal UTF-16 path parsing and the full realistic import dialog/retry workflow. Source/native proof covers 26 parser vectors and 13 import process outcomes, including exact copied JSONL bytes/restored messages, cwd retries, cancellation, missing/factory error classification and raw fatal values. The source's in-memory empty-directory mkdir failure is preserved explicitly. Shared export argument parsing is covered; whole export handling is not accepted here.
+
+Final proof at `3e36e1421`: `import-command-final-ui.log` has eleven passing focused UI tests, including all import and startup scenarios; its header test exposed a process-global keybinding fixture collision (native hints reverted to ctrl+c/ctrl+o instead of the configured ctrl+x/ctrl+y). `336ef21d8` moves that unchanged 48-frame differential into an explicitly invoked child process, without serializing tests or changing production behavior. `import-header-isolated-green.log` proves header + concurrent switch/fork 2/2. No assertion is weakened and no scenario is omitted.
+
+`import-command-final-runtime.log`: 45/45, plus the existing explicitly invoked isolated cwd helper. `import-command-check.log`: PASS without warnings. Scoped core/interactive clippy (`import-command-clippy.jsonl`): 232 existing diagnostics, no changed-line primary span; after the test-only isolation change, interactive clippy (`import-header-clippy.jsonl`): 204 existing diagnostics, no changed-line primary span. Strict frozen two-oracle TS/ES2024 and Biome pass (`import-command-typecheck.log`). Format/inventory pass: 686 / 186679; 485 done / 21 gap / 52 partial / 128 todo. Artifacts remain under `/tmp/repin-interactive-2-proof/`. Runtime and interactive mode remain partial.
+
+## Setup and transfer checkpoints
+
+`cd317f852` completes the approved live SharedSessionManager setup correction. Callback differential3/3; requested workspace all-targets0 errors/0 warnings; strict TS/Biome/format/inventory pass; scoped tools/core clippy259 existing diagnostics, zero changed-line primary spans. No code changed after that workspace proof until the independent transfer slice.
+
+Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](traceability/interactive-mode.md#transfer-commands-2026-10-25). Eleven actual process cases cover export/copy/share, including Japanese/lone-unit JSONL bytes, copied clipboard bytes, the real Esc RefCell crash correction and graceful SIGTERM. Shared-loader component differentials also pass. Whole interactive mode remains partial. The resource block owned by276 is untouched.
+
 ## Next work
 
-Audit the whole 444-line coding-agent keybindings module against the new pin (the existing differential still reports old catalog entries), then continue realistic interactive command/event slices and remaining runtime/restart coverage. Existing header/reload/session-option oracles remain available. No whole-mode/runtime/restart/keybindings acceptance is claimed.
+Continue realistic interactive command/event slices and finish the runtime whole-module audit. The whole self-restart audit is closed with [existing unchanged proof](traceability/self-restart.md#whole-module-audit-closure-2026-10-25); do not rerun numeric/OS-fault matrices. Setup is no longer open. The apparent absent-model issue is resolved by frozen Agent's `initialState?.model ?? DEFAULT_MODEL` sentinel; no API change is required. No whole-mode/runtime acceptance is claimed.

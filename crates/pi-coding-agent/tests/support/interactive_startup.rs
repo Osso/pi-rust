@@ -27,6 +27,9 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
             "---\nname: post-start\ndescription: A startup-discovered skill\n---\nSkill body\n",
         )
         .unwrap();
+        // Frozen startup loads these prompts but does not list them as context files.
+        std::fs::write(cwd.join("SYSTEM.md"), "Global system instructions").unwrap();
+        std::fs::write(cwd.join("APPEND_SYSTEM.md"), "Global appended instructions").unwrap();
         let watch_changes = !quiet && !verbose && !scoped && !restored;
         if watch_changes {
             let status = std::process::Command::new("git")
@@ -86,10 +89,202 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
     }
 }
 
+#[test]
+fn import_error_class_controls_recovery_and_exit_like_frozen() {
+    assert_import_cases_match_frozen(&["missing", "factory"]);
+}
+
+#[test]
+fn import_command_dialogs_state_and_retry_match_frozen() {
+    assert_import_cases_match_frozen(&[
+        "cancel",
+        "hook-cancel",
+        "cwd-cancel",
+        "cwd-retry-error",
+        "success",
+        "cwd-success",
+        "cwd-retry-cancel",
+        "usage",
+    ]);
+}
+
+#[test]
+fn in_memory_import_preserves_the_frozen_empty_directory_discrepancy() {
+    assert_import_cases_match_frozen(&["memory"]);
+}
+
+#[test]
+fn fatal_runtime_errors_keep_frozen_unknown_value_display() {
+    assert_import_cases_match_frozen(&["factory-string", "factory-object"]);
+}
+
+fn assert_import_cases_match_frozen(cases: &[&str]) {
+    mod oracle {
+        include!(concat!(
+            concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+            "/tests/support/oracle.rs"
+        ));
+    }
+    for failure in cases.iter().copied() {
+        let root = tempfile::tempdir().unwrap();
+        let cwd = root.path().join("project");
+        std::fs::create_dir_all(&cwd).unwrap();
+        let skill = root.path().join("SKILL.md");
+        std::fs::write(
+            &skill,
+            "---\nname: import-probe\ndescription: Import fixture\n---\nbody\n",
+        )
+        .unwrap();
+        let path = root.path().join("imported session.jsonl");
+        if failure != "missing" {
+            let stored_cwd = if failure.starts_with("cwd-") {
+                cwd.join("deleted-project")
+            } else {
+                cwd.clone()
+            };
+            let header = serde_json::json!({"type":"session","version":3,"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"1970-01-01T00:00:00.000Z","cwd":stored_cwd});
+            let message = serde_json::json!({"type":"message","id":"abc12345","parentId":null,"timestamp":"1970-01-01T00:00:00.000Z","message":{"role":"user","content":"Imported content","timestamp":0}});
+            std::fs::write(&path, format!("{header}\n{message}\n")).unwrap();
+        }
+        let original = std::fs::read(&path).ok();
+        let request = serde_json::json!({"cwd":cwd,"agentDir":cwd,"skillPath":skill,"quiet":true,"verbose":false,"scoped":false,"restored":false,"watchChanges":false,"importFailure":failure,"importPath":path});
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::startup_capture_child",
+                "--nocapture",
+            ])
+            .env("PI_INTERACTIVE_STARTUP_CASE", request.to_string())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let request = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("IMPORT_REQUEST "))
+            .unwrap_or_else(|| panic!("no request: {stdout}\n{}", String::from_utf8(output.stderr).unwrap()));
+        let request: serde_json::Value = serde_json::from_str(request).unwrap();
+        let result = stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("IMPORT_RESULT "))
+            .unwrap_or_else(|| panic!("no snapshot: {stdout}"));
+        let mut actual: serde_json::Value = serde_json::from_str(result).unwrap();
+        actual["exitCode"] = serde_json::json!(output.status.code().expect("normal process exit"));
+        let mut source = oracle::TsOracle::spawn("interactive-startup-oracle.mts", "packages/coding-agent/src");
+        let expected = source.request(&request);
+        assert_eq!(expected["ok"], true, "{expected}");
+        assert_eq!(
+            std::fs::read(&path).ok(),
+            original,
+            "import must not change the input file"
+        );
+        assert_eq!(
+            JsValue::from(actual),
+            JsValue::from(&expected["output"]),
+            "failure={failure}"
+        );
+    }
+}
+
+async fn drive_fixture_import(
+    mode: &Rc<InteractiveMode>,
+    terminal: &Rc<RefCell<CaptureTerminal>>,
+    request: &serde_json::Value,
+    factory_failure: &Arc<Mutex<Option<CallbackError>>>,
+) {
+    println!("IMPORT_REQUEST {request}");
+    let case = request["importFailure"].as_str().unwrap().to_owned();
+    let dialogs = Rc::new(RefCell::new(Vec::<Vec<Vec<u16>>>::new()));
+    let rejected = Rc::new(RefCell::new(None::<JsValue>));
+    let capture_dialogs = dialogs.clone();
+    let capture_rejection = rejected.clone();
+    let observer = Rc::downgrade(mode);
+    let success = case == "success" || case == "cwd-success";
+    terminal.borrow_mut().lifecycle_observer = Some(Rc::new(move |event| {
+        if event == "stop" {
+            let mode = observer.upgrade().unwrap();
+            let render = |view: &mut dyn Component| {
+                view.render(120)
+                    .into_iter()
+                    .map(|line| line.units().to_vec())
+                    .collect::<Vec<_>>()
+            };
+            let mut output = serde_json::json!({"chat":render(&mut *mode.chat_container.borrow_mut()),"status":render(&mut *mode.status_container.borrow_mut()),"dialogs":*capture_dialogs.borrow(),"rejected":*capture_rejection.borrow()});
+            if success {
+                output["messages"] = serde_json::to_value(mode.session().messages()).unwrap();
+                output["copiedFile"] = serde_json::json!(
+                    std::fs::read_to_string(encode_node_utf8(&mode.session().session_file().unwrap())).unwrap()
+                );
+            }
+            println!("IMPORT_RESULT {output}");
+        }
+        Ok(())
+    }));
+    mode.status_container
+        .borrow_mut()
+        .add_child(component(Text::new("pre-import status", 0, 0)));
+    if case == "factory" {
+        let loader = mode.create_working_loader(pi_tui::LoaderIndicatorOptions {
+            frames: Some(Vec::new()),
+            ..Default::default()
+        });
+        *mode.loading_animation.borrow_mut() = Some(loader.clone());
+        mode.status_container.borrow_mut().add_child(loader);
+    }
+    if case == "factory" || case == "cwd-retry-error" {
+        *factory_failure.lock().unwrap() = Some(CallbackError::new("File not found: imported dependency"));
+    }
+    if case == "factory-string" || case == "factory-object" {
+        let value = if case == "factory-string" {
+            JsValue::String(JsString::from("import failure ") + JsString::from_utf16(vec![0xd800]))
+        } else {
+            pi_js_compat::js_json!({"reason":"bad import"})
+        };
+        *factory_failure.lock().unwrap() = Some(CallbackError::from_rejection(
+            pi_js_compat::abort::AbortReason::Value(value),
+        ));
+    }
+    let command = if case == "usage" {
+        JsString::from("/import \"\"")
+    } else {
+        js_format!("/import '{}' ignored", request["importPath"].as_str().unwrap())
+    };
+    let actor = mode.clone();
+    let operation = tokio::task::spawn_local(async move { actor.handle_import_command(command).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut last_dialog = Vec::<JsString>::new();
+        while !operation.is_finished() {
+            mode.handle_ui_requests().await;
+            let lines = mode.editor_container.borrow_mut().render(120);
+            let frame = JsString::join(&lines, "\n");
+            let is_dialog = frame.contains("Import session") || frame.contains("Session cwd not found");
+            if is_dialog && lines != last_dialog {
+                last_dialog = lines.clone();
+                dialogs
+                    .borrow_mut()
+                    .push(lines.into_iter().map(|line| line.units().to_vec()).collect());
+                let cancel = case == "cancel" || (case == "cwd-cancel" && dialogs.borrow().len() == 2);
+                terminal.borrow_mut().send_input(if cancel { "\u{1b}" } else { "\r" });
+                mode.ui.process_events();
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("import UI operation settles");
+    if let Err(error) = operation.await.unwrap() {
+        *rejected.borrow_mut() = Some(error.thrown_value().as_error().unwrap().value());
+    }
+    mode.stop().unwrap();
+}
+
 #[tokio::test(flavor = "current_thread")]
-#[ignore = "invoked by startup_resources_provider_count_scope_and_restored_frames_match_frozen"]
+#[ignore = "invoked by startup/import process-boundary parents"]
 async fn startup_capture_child() {
-    use crate::core::extensions::types::{HandlerHandle, ResourcesDiscoverEvent, ResourcesDiscoverResult};
+    use crate::core::extensions::types::{
+        HandlerHandle, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionBeforeSwitchEvent,
+        SessionBeforeSwitchResult,
+    };
     use crate::core::resource_loader::{
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
     };
@@ -97,6 +292,8 @@ async fn startup_capture_child() {
         let mut request: serde_json::Value = serde_json::from_str(&std::env::var("PI_INTERACTIVE_STARTUP_CASE").unwrap()).unwrap();
         let cwd = request["cwd"].as_str().unwrap();
         let path = JsString::from(request["skillPath"].as_str().unwrap());
+        let cancel_switch = request["importFailure"].as_str() == Some("hook-cancel");
+        let cancel_retry = request["importFailure"].as_str() == Some("cwd-retry-cancel");
         let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
             let path = path.clone();
             let handler: HandlerHandle<ResourcesDiscoverEvent, ResourcesDiscoverResult> = Arc::new(move |_, _| -> BoxFuture<'static, Result<Option<ResourcesDiscoverResult>, HandlerError>> {
@@ -104,6 +301,14 @@ async fn startup_capture_child() {
                 Box::pin(async move { Ok(Some(ResourcesDiscoverResult { skill_paths: Some(vec![path]), prompt_paths: None, theme_paths: None })) })
             });
             api.on_resources_discover(handler).unwrap();
+            if cancel_switch || cancel_retry {
+                let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+                let handler: HandlerHandle<SessionBeforeSwitchEvent, SessionBeforeSwitchResult> = Arc::new(move |_, _| -> BoxFuture<'static, Result<Option<SessionBeforeSwitchResult>, HandlerError>> {
+                    let attempt = attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    Box::pin(async move { Ok((cancel_switch || attempt == 1).then_some(SessionBeforeSwitchResult { cancel: Some(true) })) })
+                });
+                api.on_session_before_switch(handler).unwrap();
+            }
             Box::pin(async { Ok(()) })
         });
         let settings = SettingsManager::in_memory(pi_js_compat::js_json!({"quietStartup":request["quiet"].as_bool().unwrap()}).as_object().unwrap().clone(), SettingsManagerCreateOptions::default());
@@ -114,7 +319,8 @@ async fn startup_capture_child() {
             ..Default::default()
         }).unwrap());
         loader.reload().await.unwrap();
-        let (initial, terminal, _faux, _temp) = build_mode_with_extra_providers(loader.clone(), None, settings, Vec::new(), serde_json::Map::new(), false, TestModeSetup { cwd: Some(cwd.into()), ..Default::default() }).await;
+        let factory_failure = Arc::new(Mutex::new(None));
+        let (initial, terminal, _faux, _temp) = build_mode_with_extra_providers(loader.clone(), None, settings, Vec::new(), serde_json::Map::new(), request["importFailure"].is_string() && request["importFailure"].as_str() != Some("memory"), TestModeSetup { cwd: Some(cwd.into()), runtime_factory_failure: Some(factory_failure.clone()), ..Default::default() }).await;
         let models: Vec<_> = initial.session().model_registry().get_all().into_iter().filter(|model| model.provider == "faux").collect();
         request["models"] = serde_json::to_value(&models).unwrap();
         request["colors"] = serde_json::json!(crate::modes::interactive::theme::REQUIRED_COLORS);
@@ -133,6 +339,10 @@ async fn startup_capture_child() {
         println!("\nSTARTUP_BEGIN");
         mode.init().await.unwrap();
         println!("STARTUP_END");
+        if request["importFailure"].is_string() {
+            drive_fixture_import(&mode, &terminal, &request, &factory_failure).await;
+            return;
+        }
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();
         let mut output = serde_json::json!({
             "header":render(&mut *mode.header_container.borrow_mut()),"resources":render(&mut *mode.loaded_resources_container.borrow_mut()),"chat":render(&mut *mode.chat_container.borrow_mut()),

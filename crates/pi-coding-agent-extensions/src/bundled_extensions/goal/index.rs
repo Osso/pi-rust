@@ -14,7 +14,7 @@ use crate::core::extensions::types::{
     ExtensionCommandContext, ExtensionContext, HandlerError, InputEvent, NotifyType, SessionStartEvent,
     SessionStartReason, ToolResultEvent, UserMessageContent,
 };
-use crate::core::session_manager::{lock_session_manager, read_session_header};
+use crate::core::session_manager::read_session_header;
 
 use super::completion_scheduling::{
     CompletionSchedulingOptions, CompletionWaitScheduler, create_completion_wait_scheduler,
@@ -39,8 +39,8 @@ use super::goal_types::{
     ReviewedGoalResponse,
 };
 use super::rendering::{
-    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller, render_supervisor_message,
-    render_supervisor_status_entry, send_supervisor_instructions,
+    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller,
+    create_supervisor_status_entry_renderer, render_supervisor_message, send_supervisor_instructions,
 };
 use super::supervisor_review::{review_goal_with_resident_supervisor, with_supervisor_review_status};
 use super::wait_countdown::create_wait_countdown_refresher;
@@ -66,7 +66,7 @@ fn empty_details() -> Value {
 fn update_goal_footer_status(ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+    let goal = load_or_migrate_active_goal(&cwd, &session)?;
     let ui = ctx.ui()?;
     ui.set_status(
         &"goal".into(),
@@ -114,14 +114,14 @@ fn inherit_previous_session_goal(event: &SessionStartEvent, ctx: &ExtensionConte
         return Ok(());
     };
     let session = ctx.session_manager()?;
-    if lock_session_manager(&session).is_subagent_session() {
+    if session.is_subagent_session() {
         return Ok(());
     }
     let cwd = ctx.cwd()?;
-    if load_or_migrate_goal(&cwd, &mut lock_session_manager(&session))?.is_some() {
+    if load_or_migrate_goal(&cwd, &session)?.is_some() {
         return Ok(());
     }
-    let previous_goal_json = lock_session_manager(&session)
+    let previous_goal_json = session
         .get_session_goal_json_for_session(previous_session_file)
         .map_err(|error| HandlerError::new(error.message().clone()))?
         .filter(|json| !json.is_empty());
@@ -132,7 +132,7 @@ fn inherit_previous_session_goal(event: &SessionStartEvent, ctx: &ExtensionConte
     if let Some(previous_goal) = previous_goal
         && previous_goal.completed_at.is_none()
     {
-        save_goal(&mut lock_session_manager(&session), &previous_goal)?;
+        save_goal(&session, &previous_goal)?;
     }
     Ok(())
 }
@@ -210,7 +210,7 @@ fn set_goal(params: SetGoalParams<'_>) -> Result<SetGoalResult, HandlerError> {
         crate::utils::iso_time::now_iso_string().into(),
     );
     let session = params.ctx.session_manager()?;
-    save_goal(&mut lock_session_manager(&session), &goal)?;
+    save_goal(&session, &goal)?;
     update_goal_footer_status(params.ctx)?;
     if params.ctx.is_idle()? {
         params
@@ -244,7 +244,7 @@ async fn review_goal_set_objective(
 ) -> Result<Result<JsString, AgentToolResult>, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let active_goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+    let active_goal = load_or_migrate_active_goal(&cwd, &session)?;
     let mut payload = Map::new();
     if let Some(active_goal) = &active_goal {
         payload.insert("currentObjective".into(), Value::String(active_goal.objective.clone()));
@@ -256,7 +256,7 @@ async fn review_goal_set_objective(
         ctx: ctx.clone(),
     })
     .await?;
-    let current_goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+    let current_goal = load_or_migrate_active_goal(&cwd, &session)?;
     let review_still_applies = match &active_goal {
         Some(active_goal) => goal_matches_review(current_goal.as_ref(), active_goal),
         None => current_goal.is_none(),
@@ -274,11 +274,6 @@ async fn review_goal_set_objective(
         })),
         decision => {
             let reason = decision_reason(&decision);
-            let ui = ctx.ui()?;
-            ui.notify(
-                &(JsString::from("Supervisor goal set review failed: ") + &reason),
-                Some(NotifyType::Error),
-            )?;
             Ok(Err(text_result(
                 JsString::from("Goal not set: ") + &reason,
                 empty_details(),
@@ -289,15 +284,12 @@ async fn review_goal_set_objective(
 
 fn decision_reason(decision: &GoalSupervisorResponse) -> JsString {
     match decision {
-        GoalSupervisorResponse::Approve { reason }
-        | GoalSupervisorResponse::Reject { reason }
-        | GoalSupervisorResponse::Complete { reason }
-        | GoalSupervisorResponse::Pause { reason }
-        | GoalSupervisorResponse::Wait { reason }
+        GoalSupervisorResponse::Complete { reason, .. }
+        | GoalSupervisorResponse::Pause { reason, .. }
+        | GoalSupervisorResponse::Wait { reason, .. }
         | GoalSupervisorResponse::Set { reason, .. }
-        | GoalSupervisorResponse::Error { reason } => reason.clone().into(),
-        GoalSupervisorResponse::Continue { reason, .. } => reason.clone().into(),
-        GoalSupervisorResponse::Advisory { answer } => answer.clone().into(),
+        | GoalSupervisorResponse::Error { reason, .. }
+        | GoalSupervisorResponse::Continue { reason, .. } => reason.clone(),
     }
 }
 
@@ -341,8 +333,6 @@ async fn run_set_goal_action(options: SetGoalActionOptions<'_>) -> Result<AgentT
         pi: options.pi,
         before_save: options.before_goal_save,
     })?;
-    let ui = options.ctx.ui()?;
-    ui.notify(&result.message, Some(result.severity))?;
     let details = match &result.goal {
         Some(goal) => {
             let mut details = Map::new();
@@ -366,27 +356,21 @@ fn run_pause_goal_action(
 ) -> Result<AgentToolResult, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    if load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?.is_none() {
+    if load_or_migrate_active_goal(&cwd, &session)?.is_none() {
         update_goal_footer_status(ctx)?;
-        let ui = ctx.ui()?;
-        ui.notify(&"No active goal to pause".into(), Some(NotifyType::Info))?;
         return Ok(text_result("No active goal to pause.", empty_details()));
     }
     let reason = reason_input.map(JsString::trim).unwrap_or_default();
     if reason.is_empty() {
-        let ui = ctx.ui()?;
-        ui.notify(&"Reason is required to pause a goal".into(), Some(NotifyType::Error))?;
         return Ok(text_result("Reason is required to pause a goal.", empty_details()));
     }
-    let Some(goal) = pause_goal(&cwd, &mut lock_session_manager(&session), &reason)? else {
+    let Some(goal) = pause_goal(&cwd, &session, &reason)? else {
         return Ok(text_result("No active goal to pause.", empty_details()));
     };
     update_goal_footer_status(ctx)?;
     if let Some(after_goal_change) = after_goal_change {
         after_goal_change()?;
     }
-    let ui = ctx.ui()?;
-    ui.notify(&(JsString::from("Goal paused: ") + &reason), Some(NotifyType::Info))?;
     let mut details = Map::new();
     details.insert("objective".into(), Value::String(goal.objective));
     details.insert("reason".into(), Value::String(reason.to_owned()));
@@ -403,21 +387,14 @@ fn run_resume_goal_action(
 ) -> Result<AgentToolResult, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let goal = resume_goal(&cwd, &mut lock_session_manager(&session))?;
+    let goal = resume_goal(&cwd, &session)?;
     update_goal_footer_status(ctx)?;
     let Some(goal) = goal else {
-        let ui = ctx.ui()?;
-        ui.notify(&"No paused goal to resume".into(), Some(NotifyType::Info))?;
         return Ok(text_result("No paused goal to resume.", empty_details()));
     };
     if let Some(after_goal_change) = after_goal_change {
         after_goal_change()?;
     }
-    let ui = ctx.ui()?;
-    ui.notify(
-        &(JsString::from("Goal resumed: ") + &goal.objective),
-        Some(NotifyType::Info),
-    )?;
     if ctx.is_idle()? {
         pi.send_user_message(
             UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
@@ -434,7 +411,9 @@ fn run_resume_goal_action(
 }
 
 type OnCompletionWait = Arc<
-    dyn Fn(Goal, ExtensionContext, JsString, JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync,
+    dyn Fn(Goal, ExtensionContext, JsString, JsString, Option<JsString>) -> BoxFuture<'static, Result<(), HandlerError>>
+        + Send
+        + Sync,
 >;
 
 async fn apply_completion_decision(
@@ -449,29 +428,26 @@ async fn apply_completion_decision(
     if matches!(decision, GoalSupervisorResponse::Complete { .. }) {
         let cwd = ctx.cwd()?;
         let session = ctx.session_manager()?;
-        let Some(goal) = mark_goal_complete(&cwd, &mut lock_session_manager(&session), completion_report)? else {
+        let Some(_) = mark_goal_complete(&cwd, &session, completion_report)? else {
             return Ok(text_result("No active goal to complete.", empty_details()));
         };
         update_goal_footer_status(ctx)?;
-        let ui = ctx.ui()?;
-        ui.notify(
-            &(JsString::from("Goal complete: ") + &goal.objective),
-            Some(NotifyType::Info),
-        )?;
         return Ok(text_result(
             JsString::from("Goal marked complete: ") + completion_report,
             empty_details(),
         ));
     }
     let reason = decision_reason(&decision);
-    let _ = append_status(
-        ctx.clone(),
-        &(JsString::from("Completion report rejected: ") + &reason + "\n\nSubmitted report:\n" + completion_report),
-        None,
-    );
+    let rejection =
+        JsString::from("Completion report rejected: ") + &reason + "\n\nSubmitted report:\n" + completion_report;
+    let status_message = match &decision {
+        GoalSupervisorResponse::Continue { instructions, .. } => rejection + "\n\n" + instructions,
+        _ => rejection,
+    };
+    append_status(ctx.clone(), &status_message, None, decision.display_id())?;
     if matches!(decision, GoalSupervisorResponse::Continue { .. }) {
         let instructions = decision_instructions(&decision);
-        send_supervisor_instructions(pi, &instructions)?;
+        send_supervisor_instructions(pi, &instructions, decision.display_id())?;
         let mut details = Map::new();
         details.insert("instructions".into(), Value::String(instructions.clone()));
         return Ok(text_result(
@@ -486,17 +462,19 @@ async fn apply_completion_decision(
         ));
     }
     if matches!(decision, GoalSupervisorResponse::Wait { .. }) {
-        on_wait(active_goal, ctx.clone(), completion_report.to_owned(), reason.clone()).await?;
+        on_wait(
+            active_goal,
+            ctx.clone(),
+            completion_report.to_owned(),
+            reason.clone(),
+            decision.display_id().cloned(),
+        )
+        .await?;
         return Ok(text_result(
             JsString::from("Goal remains active: ") + &reason,
             empty_details(),
         ));
     }
-    let ui = ctx.ui()?;
-    ui.notify(
-        &(JsString::from("Supervisor goal review failed: ") + &reason),
-        Some(NotifyType::Error),
-    )?;
     Ok(text_result(
         JsString::from("Goal review failed: ") + &reason,
         empty_details(),
@@ -510,14 +488,14 @@ struct CompleteGoalActionOptions<'a> {
     pi: &'a ExtensionApi,
     on_wait: &'a OnCompletionWait,
     append_status: &'a AppendSupervisorStatus,
-    is_review_current: &'a (dyn Fn() -> bool + Send + Sync),
+    is_review_current: &'a (dyn Fn() -> Result<bool, HandlerError> + Send + Sync),
     consume_review_evidence: &'a (dyn Fn(&ExtensionContext, &Goal, usize) -> Result<(), HandlerError> + Send + Sync),
 }
 
 async fn run_complete_goal_action(options: CompleteGoalActionOptions<'_>) -> Result<AgentToolResult, HandlerError> {
     let cwd = options.ctx.cwd()?;
     let session = options.ctx.session_manager()?;
-    let Some(active_goal) = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))? else {
+    let Some(active_goal) = load_or_migrate_active_goal(&cwd, &session)? else {
         return Ok(text_result("No active goal to complete.", empty_details()));
     };
     let completion_report = options
@@ -537,11 +515,8 @@ async fn run_complete_goal_action(options: CompleteGoalActionOptions<'_>) -> Res
         ctx: options.ctx.clone(),
     })
     .await?;
-    let review_still_applies = (options.is_review_current)()
-        && goal_matches_review(
-            load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?.as_ref(),
-            &active_goal,
-        );
+    let review_still_applies = (options.is_review_current)()?
+        && goal_matches_review(load_or_migrate_active_goal(&cwd, &session)?.as_ref(), &active_goal);
     if !review_still_applies {
         return Ok(text_result(
             "Goal changed or review was canceled; stale decision ignored.",
@@ -571,27 +546,23 @@ fn run_clear_goal_action(
 ) -> Result<AgentToolResult, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let cleared = clear_goal(&cwd, &mut lock_session_manager(&session))?;
+    let cleared = clear_goal(&cwd, &session)?;
     update_goal_footer_status(ctx)?;
     if cleared && let Some(after_goal_change) = after_goal_change {
         after_goal_change()?;
     }
     let message = if cleared { "Goal cleared" } else { "No active goal" };
-    let ui = ctx.ui()?;
-    ui.notify(&message.into(), Some(NotifyType::Info))?;
     Ok(text_result(message, empty_details()))
 }
 
 fn run_goal_status_action(ctx: &ExtensionContext) -> Result<AgentToolResult, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+    let goal = load_or_migrate_active_goal(&cwd, &session)?;
     let message = match &goal {
         Some(goal) => goal_view_message(goal),
         None => "No active goal — use /goal set <objective>".into(),
     };
-    let ui = ctx.ui()?;
-    ui.notify(&JsString::from(&message), Some(NotifyType::Info))?;
     let details = match &goal {
         Some(goal) => {
             let mut details = Map::new();
@@ -615,7 +586,7 @@ struct ManageGoalContext {
     consume_review_evidence: ConsumeReviewEvidence,
     on_completion_wait: OnCompletionWait,
     append_status: AppendSupervisorStatus,
-    is_completion_review_current: Arc<dyn Fn() -> bool + Send + Sync>,
+    is_completion_review_current: Arc<dyn Fn() -> Result<bool, HandlerError> + Send + Sync>,
     before_goal_save: Option<Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>>,
 }
 
@@ -665,7 +636,7 @@ fn complete_goal_from_idle_decision(
 ) -> Result<(), HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    mark_goal_complete(&cwd, &mut lock_session_manager(&session), reason)?;
+    mark_goal_complete(&cwd, &session, reason)?;
     update_goal_footer_status(ctx)?;
     let ui = ctx.ui()?;
     ui.notify(
@@ -680,17 +651,18 @@ fn continue_goal_from_idle_decision(
     instructions: &JsString,
     ctx: &ExtensionContext,
     pi: &ExtensionApi,
+    display_id: Option<&JsString>,
 ) -> Result<(), HandlerError> {
     let session = ctx.session_manager()?;
     let continuation_turns = goal.continuation_turns.unwrap_or(0.0);
     save_goal(
-        &mut lock_session_manager(&session),
+        &session,
         &Goal {
             continuation_turns: Some(continuation_turns + 1.0),
             ..goal.clone()
         },
     )?;
-    send_supervisor_instructions(pi, instructions)
+    send_supervisor_instructions(pi, instructions, display_id)
 }
 
 async fn apply_goal_idle_decision(
@@ -702,27 +674,29 @@ async fn apply_goal_idle_decision(
     append_status: &AppendSupervisorStatus,
 ) -> Result<(), HandlerError> {
     match decision {
-        GoalSupervisorResponse::Complete { reason } => {
+        GoalSupervisorResponse::Complete { reason, .. } => {
             complete_goal_from_idle_decision(&goal, &JsString::from(&reason), ctx)
         }
-        GoalSupervisorResponse::Pause { reason } => {
-            let _ = append_status(ctx.clone(), &(JsString::from("Goal waiting: ") + &reason), None);
+        GoalSupervisorResponse::Pause { reason, .. } => {
+            append_status(ctx.clone(), &(JsString::from("Goal waiting: ") + &reason), None, None)?;
             Ok(())
         }
-        GoalSupervisorResponse::Wait { reason } => on_wait(JsString::from("Waiting: ") + &reason).await,
-        GoalSupervisorResponse::Error { reason } => on_wait(JsString::from("Goal review failed: ") + &reason).await,
-        GoalSupervisorResponse::Continue { instructions, .. } => {
-            continue_goal_from_idle_decision(&goal, &JsString::from(&instructions), ctx, pi)
-        }
+        GoalSupervisorResponse::Wait { reason, .. } => on_wait(JsString::from("Waiting: ") + &reason).await,
+        GoalSupervisorResponse::Error { reason, .. } => on_wait(JsString::from("Goal review failed: ") + &reason).await,
+        GoalSupervisorResponse::Continue {
+            instructions,
+            display_id,
+            ..
+        } => continue_goal_from_idle_decision(&goal, &instructions, ctx, pi, display_id.as_ref()),
         GoalSupervisorResponse::Set { reason, .. } => {
-            let _ = append_status(
+            append_status(
                 ctx.clone(),
                 &(JsString::from("Goal review failed: unexpected set decision: ") + &reason),
                 None,
-            );
+                None,
+            )?;
             Ok(())
         }
-        _ => Ok(()),
     }
 }
 
@@ -740,7 +714,7 @@ struct GoalExtensionRuntime {
 fn same_running_goal(ctx: &ExtensionContext, goal: &Goal) -> Result<bool, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let active_goal = load_or_migrate_running_goal(&cwd, &mut lock_session_manager(&session))?;
+    let active_goal = load_or_migrate_running_goal(&cwd, &session)?;
     Ok(active_goal.is_some_and(|active| active.created_at == goal.created_at && active.objective == goal.objective))
 }
 
@@ -750,7 +724,7 @@ fn inject_goal_context(
 ) -> Result<Option<BeforeAgentStartEventResult>, HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let Some(goal) = load_or_migrate_running_goal(&cwd, &mut lock_session_manager(&session))? else {
+    let Some(goal) = load_or_migrate_running_goal(&cwd, &session)? else {
         return Ok(None);
     };
     Ok(Some(BeforeAgentStartEventResult {
@@ -759,82 +733,47 @@ fn inject_goal_context(
     }))
 }
 
+fn report_goal_scheduling_error(append: &AppendSupervisorStatus, error: HandlerError, ctx: ExtensionContext) {
+    append_goal_scheduling_error(append, &error.message, ctx)
+        .unwrap_or_else(|error| crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message));
+}
+
 fn create_completion_scheduler(
     pi: &ExtensionApi,
     review_goal: &GoalEvidenceReview,
     evidence: &GoalReviewEvidenceController,
-    append_status: &AppendSupervisorStatus,
+    status: &Arc<SupervisorStatusController>,
 ) -> CompletionWaitScheduler {
-    let review_goal = Arc::clone(review_goal);
-    let consume = {
-        let evidence = evidence.clone();
-        Arc::new(move |ctx: ExtensionContext, goal: Goal, count: usize| evidence.consume(&ctx, &goal, count))
-            as Arc<dyn Fn(ExtensionContext, Goal, usize) -> Result<(), HandlerError> + Send + Sync>
-    };
-    let on_complete = Arc::new(
-        |waiting: super::completion_scheduling::CompletionWait, ctx: ExtensionContext| {
-            let _ = (|| -> Result<(), HandlerError> {
-                let cwd = ctx.cwd()?;
-                let session = ctx.session_manager()?;
-                let goal = mark_goal_complete(&cwd, &mut lock_session_manager(&session), &waiting.completion_report)?;
-                update_goal_footer_status(&ctx)?;
-                if let Some(goal) = goal {
-                    let ui = ctx.ui()?;
-                    ui.notify(
-                        &(JsString::from("Goal complete: ") + &goal.objective),
-                        Some(NotifyType::Info),
-                    )?;
-                }
-                Ok(())
-            })();
-        },
-    );
+    let evidence = evidence.clone();
     let pi_for_continue = pi.clone();
-    let on_continue = Arc::new(move |instructions: &JsString| {
-        let _ = send_supervisor_instructions(&pi_for_continue, instructions);
-    });
-    let on_status = {
-        let append_status = Arc::clone(append_status);
-        Arc::new(
-            move |ctx: ExtensionContext, message: &JsString, review_at: Option<&str>| {
-                append_status(ctx, message, review_at)
-            },
-        )
-    };
-    let on_error = {
-        let append_status = Arc::clone(append_status);
-        Arc::new(move |error: HandlerError, ctx: ExtensionContext| {
-            append_goal_scheduling_error(&append_status, &error.message, ctx);
-        })
-    };
-    let is_same_goal = {
-        Arc::new(
-            |ctx: ExtensionContext, waiting: super::completion_scheduling::CompletionWait| {
-                let cwd = ctx.cwd()?;
-                let session = ctx.session_manager()?;
-                let active_goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
-                Ok(active_goal.is_some_and(|active| {
-                    active.created_at == waiting.goal.created_at
-                        && active.objective == waiting.goal.objective
-                        && active.paused_at == waiting.goal.paused_at
-                }))
-            },
-        )
-            as Arc<
-                dyn Fn(ExtensionContext, super::completion_scheduling::CompletionWait) -> Result<bool, HandlerError>
-                    + Send
-                    + Sync,
-            >
-    };
+    let clear_status = status.clone();
+    let append_status = status.append_callback();
+    let errors = append_status.clone();
     create_completion_wait_scheduler(CompletionSchedulingOptions {
         pi: pi.clone(),
-        review_goal,
-        consume_review_evidence: consume,
-        is_same_goal,
-        on_complete,
-        on_continue,
-        on_status,
-        on_error,
+        review_goal: review_goal.clone(),
+        consume_review_evidence: Arc::new(move |ctx, goal, count| evidence.consume(&ctx, &goal, count)),
+        is_same_goal: Arc::new(|ctx, waiting| {
+            let active = load_or_migrate_active_goal(&ctx.cwd()?, &ctx.session_manager()?)?;
+            Ok(active.is_some_and(|active| goal_matches_review(Some(&active), &waiting.goal)))
+        }),
+        on_complete: Arc::new(|waiting, ctx| {
+            let goal = mark_goal_complete(&ctx.cwd()?, &ctx.session_manager()?, &waiting.completion_report)?;
+            update_goal_footer_status(&ctx)?;
+            if let Some(goal) = goal {
+                ctx.ui()?.notify(
+                    &(JsString::from("Goal complete: ") + &goal.objective),
+                    Some(NotifyType::Info),
+                )?;
+            }
+            Ok(())
+        }),
+        on_continue: Arc::new(move |instructions, display_id| {
+            send_supervisor_instructions(&pi_for_continue, instructions, display_id)
+        }),
+        on_status: append_status,
+        on_clear_status: Arc::new(move |session_id| clear_status.clear_session(session_id)),
+        on_error: Arc::new(move |error, ctx| report_goal_scheduling_error(&errors, error, ctx)),
     })
 }
 
@@ -842,84 +781,88 @@ fn create_idle_goal_scheduler(
     pi: &ExtensionApi,
     review_goal: &GoalEvidenceReview,
     evidence: &GoalReviewEvidenceController,
-    append_status: &AppendSupervisorStatus,
+    status: &Arc<SupervisorStatusController>,
     clear_schedules: Arc<dyn Fn(&JsString) + Send + Sync>,
 ) -> (GoalScheduler<Goal, ReviewedGoalResponse>, ApplyIdleDecision) {
-    let scheduler_slot: Arc<OnceLock<GoalScheduler<Goal, ReviewedGoalResponse>>> = Arc::new(OnceLock::new());
-    let apply_slot = Arc::clone(&scheduler_slot);
+    let scheduler_slot = Arc::new(OnceLock::<GoalScheduler<Goal, ReviewedGoalResponse>>::new());
+    let apply_slot = scheduler_slot.clone();
     let apply_evidence = evidence.clone();
-    let apply_status = Arc::clone(append_status);
+    let apply_status = status.clone();
     let pi_for_apply = pi.clone();
     let apply_decision: ApplyIdleDecision = Arc::new(move |reviewed, goal, ctx, terminal_turn| {
-        let apply_slot = Arc::clone(&apply_slot);
-        let apply_evidence = apply_evidence.clone();
-        let apply_status = Arc::clone(&apply_status);
+        let slot = apply_slot.clone();
+        let evidence = apply_evidence.clone();
+        let status = apply_status.clone();
         let pi = pi_for_apply.clone();
-        let clear_schedules = Arc::clone(&clear_schedules);
+        let clear = clear_schedules.clone();
         Box::pin(async move {
-            if let Ok(session) = ctx.session_manager() {
-                clear_schedules(lock_session_manager(&session).get_session_id());
-            }
-            let scheduler = apply_slot.get().expect("idle scheduler initialized").clone();
-            let append_status_for_wait = Arc::clone(&apply_status);
+            clear(&ctx.session_manager()?.get_session_id());
+            let scheduler = slot
+                .get()
+                .ok_or_else(|| HandlerError::new("Idle scheduler is not initialized"))?
+                .clone();
+            let display_id = reviewed.decision.display_id().cloned();
+            let append = status.append_callback();
+            let grouped: AppendSupervisorStatus =
+                Arc::new(move |ctx, message, review_at, _| append(ctx, message, review_at, display_id.as_ref()));
             let on_wait = {
-                let scheduler = scheduler.clone();
-                let ctx_for_wait = ctx.clone();
-                let goal_for_wait = goal.clone();
-                let terminal_turn_for_wait = terminal_turn.clone();
+                let grouped = grouped.clone();
+                let ctx = ctx.clone();
+                let goal = goal.clone();
                 move |message: JsString| {
                     let scheduler = scheduler.clone();
-                    let ctx = ctx_for_wait.clone();
-                    let goal = goal_for_wait.clone();
-                    let terminal_turn = terminal_turn_for_wait.clone();
-                    let callbacks =
-                        create_wait_status_callbacks(Arc::clone(&append_status_for_wait), ctx.clone(), message);
+                    let ctx = ctx.clone();
+                    let goal = goal.clone();
+                    let turn = terminal_turn.clone();
+                    let wake_ctx = ctx.clone();
+                    let status = status.clone();
+                    let callbacks = create_wait_status_callbacks(
+                        grouped.clone(),
+                        ctx.clone(),
+                        message,
+                        Arc::new(move || {
+                            status.clear_session(&wake_ctx.session_manager()?.get_session_id());
+                            Ok(())
+                        }),
+                    );
                     Box::pin(async move {
                         scheduler
-                            .wait_for_agents_or_schedule_review(ctx, goal, terminal_turn, callbacks)
-                            .await;
-                        Ok(())
+                            .wait_for_agents_or_schedule_review(ctx, goal, turn, callbacks)
+                            .await
                     }) as BoxFuture<'static, Result<(), HandlerError>>
                 }
             };
             let is_error = matches!(reviewed.decision, GoalSupervisorResponse::Error { .. });
-            apply_goal_idle_decision(reviewed.decision, goal.clone(), &ctx, &pi, &on_wait, &apply_status).await?;
+            apply_goal_idle_decision(reviewed.decision, goal.clone(), &ctx, &pi, &on_wait, &grouped).await?;
             if !is_error {
-                apply_evidence.consume(&ctx, &goal, reviewed.evidence_count)?;
+                evidence.consume(&ctx, &goal, reviewed.evidence_count)?;
             }
             Ok(())
-        }) as BoxFuture<'static, Result<(), HandlerError>>
+        })
     });
-    let review_options = Arc::clone(review_goal);
+    let review = review_goal.clone();
+    let append = status.append_callback();
     let scheduler = create_goal_scheduler(GoalSchedulingOptions {
         pi: pi.clone(),
-        review_goal: Arc::new(move |ctx, goal: Goal, _terminal_turn, wake_evidence| {
-            let review_options = Arc::clone(&review_options);
+        review_goal: Arc::new(move |ctx, goal: Goal, _turn, wake_evidence| {
+            let review = review.clone();
             Box::pin(async move {
                 let mut payload = Map::new();
-                payload.insert("objective".into(), Value::String(goal.objective.clone()));
-                if let Some(wake_evidence) = wake_evidence {
-                    payload.insert("wakeEvidence".into(), wake_evidence);
+                payload.insert("objective".into(), Value::String(goal.objective));
+                if let Some(evidence) = wake_evidence {
+                    payload.insert("wakeEvidence".into(), evidence);
                 }
-                (review_options)(GoalReviewInput {
+                review(GoalReviewInput {
                     kind: GoalReviewKind::GoalIdleReview,
                     payload,
                     ctx,
                 })
                 .await
-            }) as BoxFuture<'static, Result<ReviewedGoalResponse, HandlerError>>
-        }),
-        apply_decision: {
-            let apply_decision = Arc::clone(&apply_decision);
-            Arc::new(move |reviewed, goal, ctx, terminal_turn| apply_decision(reviewed, goal, ctx, terminal_turn))
-        },
-        is_same_running_goal: Arc::new(|ctx, goal| same_running_goal(&ctx, &goal)),
-        report_error: {
-            let append_status = Arc::clone(append_status);
-            Arc::new(move |error, ctx| {
-                append_goal_scheduling_error(&append_status, &error.message, ctx);
             })
-        },
+        }),
+        apply_decision: apply_decision.clone(),
+        is_same_running_goal: Arc::new(|ctx, goal| same_running_goal(&ctx, &goal)),
+        report_error: Arc::new(move |error, ctx| report_goal_scheduling_error(&append, error, ctx)),
     });
     let _ = scheduler_slot.set(scheduler.clone());
     (scheduler, apply_decision)
@@ -941,7 +884,7 @@ fn create_goal_extension_runtime(
         create_error_status_scheduler(super::error_status_scheduling::ErrorStatusSchedulingOptions {
             on_status: {
                 let append_status = Arc::clone(&append_status);
-                Arc::new(move |ctx, message| append_status(ctx, &JsString::from(message), None))
+                Arc::new(move |ctx, message| append_status(ctx, &JsString::from(message), None, None))
             },
         });
     let clear_slot: Arc<std::sync::Mutex<Option<ClearSessionSchedules>>> = Arc::new(std::sync::Mutex::new(None));
@@ -950,7 +893,7 @@ fn create_goal_extension_runtime(
         pi,
         review_goal,
         evidence,
-        &append_status,
+        &status,
         Arc::new(move |session_id| {
             let callback = clear_slot_for_idle
                 .lock()
@@ -961,7 +904,7 @@ fn create_goal_extension_runtime(
             }
         }),
     );
-    let completion_scheduler = create_completion_scheduler(pi, review_goal, evidence, &append_status);
+    let completion_scheduler = create_completion_scheduler(pi, review_goal, evidence, &status);
     let empty_for_clear = empty_response_scheduler.clone();
     let error_for_clear = error_status_scheduler.clone();
     let scheduler_for_clear = scheduler.clone();
@@ -1019,26 +962,24 @@ fn register_manage_goal(
             let review_goal = Arc::clone(&review_goal);
             let evidence = evidence.clone();
             let pi = pi_for_tool.clone();
-            let is_completion_review_current = {
-                let guard = runtime_scheduler.create_review_guard(&ctx);
-                Arc::from(guard)
-            };
+            let is_completion_review_current = { runtime_scheduler.create_review_guard(&ctx) };
             let on_completion_wait: OnCompletionWait = {
                 let scheduler = runtime_scheduler.clone();
-                Arc::new(move |goal, wait_ctx, completion_report, status_reason| {
+                Arc::new(move |goal, wait_ctx, completion_report, status_reason, display_id| {
                     let scheduler = scheduler.clone();
-                    Box::pin(async move { scheduler.wait(goal, wait_ctx, &completion_report, &status_reason).await })
+                    Box::pin(async move {
+                        scheduler
+                            .wait(goal, wait_ctx, &completion_report, &status_reason, display_id.as_ref())
+                            .await
+                    })
                 })
             };
             let append_status = runtime_status.append_callback();
             let before_goal_save: Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync> = {
                 let clear = Arc::clone(&runtime_clear);
-                let session_id = ctx
-                    .session_manager()
-                    .map(|session| lock_session_manager(&session).get_session_id().to_owned())
-                    .unwrap_or_default();
+                let ctx = ctx.clone();
                 Arc::new(move || {
-                    clear(&session_id);
+                    clear(&ctx.session_manager()?.get_session_id());
                     Ok(())
                 })
             };
@@ -1048,6 +989,7 @@ fn register_manage_goal(
                     as Arc<dyn Fn(&ExtensionContext, &Goal, usize) -> Result<(), HandlerError> + Send + Sync>
             };
             Box::pin(async move {
+                let is_completion_review_current = Arc::from(is_completion_review_current?);
                 manage_goal(ManageGoalContext {
                     ctx,
                     params,
@@ -1079,7 +1021,7 @@ fn register_session_goal_handlers(
             inherit_previous_session_goal(&event, &ctx)?;
             let cwd = ctx.cwd()?;
             let session = ctx.session_manager()?;
-            let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+            let goal = load_or_migrate_active_goal(&cwd, &session)?;
             update_goal_footer_status(&ctx)?;
             status.restore(ctx.clone())?;
             if let Some(goal) = &goal
@@ -1109,7 +1051,7 @@ fn register_session_goal_handlers(
         let clear = Arc::clone(&clear_for_input);
         Box::pin(async move {
             if let Ok(session) = ctx.session_manager() {
-                clear(lock_session_manager(&session).get_session_id());
+                clear(&session.get_session_id());
             }
             evidence.append_input(&event, &ctx)?;
             Ok(None)
@@ -1137,7 +1079,7 @@ fn register_agent_goal_handlers(
         let error_scheduler = error_scheduler.clone();
         Box::pin(async move {
             if let Ok(session) = ctx.session_manager() {
-                error_scheduler.clear_session(lock_session_manager(&session).get_session_id());
+                error_scheduler.clear_session(&session.get_session_id());
             }
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
@@ -1178,17 +1120,17 @@ fn register_agent_goal_handlers(
                         select_goal: || {
                             let cwd = ctx.cwd()?;
                             let session = ctx.session_manager()?;
-                            load_or_migrate_running_goal(&cwd, &mut lock_session_manager(&session))
+                            load_or_migrate_running_goal(&cwd, &session)
                         },
                         clear_retry: || {
                             if let Ok(session) = ctx.session_manager() {
-                                empty_for_retry.clear_session(lock_session_manager(&session).get_session_id());
+                                empty_for_retry.clear_session(&session.get_session_id());
                             }
                         },
                         schedule_retry: |goal| empty_for_retry.schedule(ctx.clone(), goal),
                         schedule_error_status: |message: &str| error_for_status.schedule(ctx.clone(), &message.into()),
                         report_skipped: |message: &str| {
-                            let _ = status_for_report.append(ctx_for_report.clone(), message, None);
+                            let _ = status_for_report.append(ctx_for_report.clone(), message, None, None);
                         },
                     })
                 }
@@ -1214,7 +1156,7 @@ fn register_agent_goal_handlers(
         let clear = Arc::clone(&clear_for_before);
         Box::pin(async move {
             if let Ok(session) = ctx.session_manager() {
-                clear(lock_session_manager(&session).get_session_id());
+                clear(&session.get_session_id());
             }
             inject_goal_context(&event, &ctx)
         }) as BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>>
@@ -1233,8 +1175,7 @@ fn register_goal_command(pi: &ExtensionApi, runtime: &GoalExtensionRuntime) -> R
             let pi = pi_for_command.clone();
             let clear = Arc::clone(&clear);
             Box::pin(async move {
-                handle_goal_command(&args, &ctx, &pi, clear.as_ref());
-                Ok(())
+                handle_goal_command(&args, &ctx, &pi, clear.as_ref())
             }) as BoxFuture<'static, Result<(), HandlerError>>
         }),
     )
@@ -1245,121 +1186,108 @@ fn handle_goal_command(
     ctx: &ExtensionCommandContext,
     pi: &ExtensionApi,
     clear_retry: &(dyn Fn(&JsString) + Send + Sync),
-) {
-    let parsed_args = parse_goal_args(args);
-    let action = match parsed_args {
+) -> Result<(), HandlerError> {
+    match parse_goal_args(args) {
         ParseGoalArgsResult::Error(error) => {
-            let _ = ctx.ui().map(|ui| ui.notify(&error.into(), Some(NotifyType::Error)));
-            return;
+            ctx.ui()?.notify(&error.into(), Some(NotifyType::Error))?;
+            Ok(())
         }
-        ParseGoalArgsResult::Parsed(action) => action,
-    };
-    match action {
-        ParsedGoalArgs::View => {
-            let _ = show_goal(ctx);
-        }
-        ParsedGoalArgs::Pause => {
-            let goal = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .and_then(|(cwd, session)| {
-                    pause_goal(&cwd, &mut lock_session_manager(&session), USER_PAUSE_REASON).ok()
-                })
-                .flatten();
-            if goal.is_some()
-                && let Ok(session) = ctx.session_manager()
-            {
-                clear_retry(lock_session_manager(&session).get_session_id());
-            }
-            let message = if goal.is_some() {
-                format!("Goal paused: {USER_PAUSE_REASON}")
-            } else {
-                "No active goal to pause".to_owned()
-            };
-            let _ = ctx
-                .ui()
-                .map(|ui| ui.notify(&JsString::from(&message), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-        }
-        ParsedGoalArgs::Resume => {
-            let goal = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .and_then(|(cwd, session)| resume_goal(&cwd, &mut lock_session_manager(&session)).ok())
-                .flatten();
-            if goal.is_some()
-                && let Ok(session) = ctx.session_manager()
-            {
-                clear_retry(lock_session_manager(&session).get_session_id());
-            }
-            let message = match &goal {
-                Some(goal) => JsString::from("Goal resumed: ") + &goal.objective,
-                None => "No paused goal to resume".into(),
-            };
-            let _ = ctx
-                .ui()
-                .map(|ui| ui.notify(&JsString::from(&message), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-            if goal.is_some() && ctx.is_idle().unwrap_or(false) {
-                let _ = pi.send_user_message(
-                    UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
-                    None,
-                );
-            }
-        }
-        ParsedGoalArgs::Clear => {
-            let cleared = ctx
-                .cwd()
-                .ok()
-                .zip(ctx.session_manager().ok())
-                .map(|(cwd, session)| clear_goal(&cwd, &mut lock_session_manager(&session)).unwrap_or(false))
-                .unwrap_or(false);
-            if cleared && let Ok(session) = ctx.session_manager() {
-                clear_retry(lock_session_manager(&session).get_session_id());
-            }
-            let message = if cleared { "Goal cleared" } else { "No active goal" };
-            let _ = ctx.ui().map(|ui| ui.notify(&message.into(), Some(NotifyType::Info)));
-            let _ = update_goal_footer_status(ctx);
-        }
-        ParsedGoalArgs::Set { objective } => {
-            let session_id = ctx
-                .session_manager()
-                .ok()
-                .map(|session| lock_session_manager(&session).get_session_id().to_owned());
-            let before_save = |clear_retry: &(dyn Fn(&JsString) + Send + Sync)| {
-                if let Some(session_id) = &session_id {
-                    clear_retry(session_id);
-                }
-                Ok(())
-            };
-            let result = set_goal(SetGoalParams {
-                objective,
-                ctx,
-                pi,
-                before_save: Some(&|| before_save(clear_retry)),
-            });
-            if let Ok(result) = result {
-                if result.ok && !ctx.is_idle().unwrap_or(true) {
-                    let _ = pi.send_user_message(
-                        UserMessageContent::Text("Continue working toward the active goal.".to_owned().into()),
-                        Some(crate::core::extensions::types::SendUserMessageOptions {
-                            deliver_as: Some(crate::core::extensions::types::UserMessageDelivery::FollowUp),
-                            expand_prompt_templates: None,
-                        }),
-                    );
-                }
-                let _ = ctx.ui().map(|ui| ui.notify(&result.message, Some(result.severity)));
-            }
-        }
+        ParseGoalArgsResult::Parsed(action) => match action {
+            ParsedGoalArgs::View => show_goal(ctx),
+            ParsedGoalArgs::Pause => pause_goal_from_command(ctx, clear_retry),
+            ParsedGoalArgs::Resume => resume_goal_from_command(ctx, pi, clear_retry),
+            ParsedGoalArgs::Clear => clear_goal_from_command(ctx, clear_retry),
+            ParsedGoalArgs::Set { objective } => set_goal_from_command(objective, ctx, pi, clear_retry),
+        },
     }
+}
+
+fn pause_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let goal = pause_goal(&ctx.cwd()?, &ctx.session_manager()?, USER_PAUSE_REASON)?;
+    if goal.is_some() {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = if goal.is_some() {
+        format!("Goal paused: {USER_PAUSE_REASON}")
+    } else {
+        "No active goal to pause".to_owned()
+    };
+    ctx.ui()?.notify(&message.into(), Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)
+}
+
+fn resume_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let goal = resume_goal(&ctx.cwd()?, &ctx.session_manager()?)?;
+    if goal.is_some() {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = match &goal {
+        Some(goal) => JsString::from("Goal resumed: ") + &goal.objective,
+        None => "No paused goal to resume".into(),
+    };
+    ctx.ui()?.notify(&message, Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)?;
+    if goal.is_some() && ctx.is_idle()? {
+        pi.send_user_message(
+            UserMessageContent::Text("Continue working toward the active goal.".into()),
+            None,
+        )?;
+    }
+    Ok(())
+}
+
+fn clear_goal_from_command(
+    ctx: &ExtensionCommandContext,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let cleared = clear_goal(&ctx.cwd()?, &ctx.session_manager()?)?;
+    if cleared {
+        clear_retry(&ctx.session_manager()?.get_session_id());
+    }
+    let message = if cleared { "Goal cleared" } else { "No active goal" };
+    ctx.ui()?.notify(&message.into(), Some(NotifyType::Info))?;
+    update_goal_footer_status(ctx)
+}
+
+fn set_goal_from_command(
+    objective: JsString,
+    ctx: &ExtensionCommandContext,
+    pi: &ExtensionApi,
+    clear_retry: &(dyn Fn(&JsString) + Send + Sync),
+) -> Result<(), HandlerError> {
+    let result = set_goal(SetGoalParams {
+        objective,
+        ctx,
+        pi,
+        before_save: Some(&|| {
+            clear_retry(&ctx.session_manager()?.get_session_id());
+            Ok(())
+        }),
+    })?;
+    if result.ok && !ctx.is_idle()? {
+        pi.send_user_message(
+            UserMessageContent::Text("Continue working toward the active goal.".into()),
+            Some(crate::core::extensions::types::SendUserMessageOptions {
+                deliver_as: Some(crate::core::extensions::types::UserMessageDelivery::FollowUp),
+                expand_prompt_templates: None,
+            }),
+        )?;
+    }
+    ctx.ui()?.notify(&result.message, Some(result.severity))?;
+    Ok(())
 }
 
 fn show_goal(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
     let cwd = ctx.cwd()?;
     let session = ctx.session_manager()?;
-    let goal = load_or_migrate_active_goal(&cwd, &mut lock_session_manager(&session))?;
+    let goal = load_or_migrate_active_goal(&cwd, &session)?;
     let message = match &goal {
         Some(goal) => goal_view_message(goal),
         None => "No active goal — use /goal set <objective>".into(),
@@ -1371,7 +1299,8 @@ fn show_goal(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
 
 /// `goalExtension`.
 pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) -> Result<(), HandlerError> {
-    let status = create_supervisor_status_controller(pi, create_wait_countdown_refresher());
+    let refresher = create_wait_countdown_refresher();
+    let status = create_supervisor_status_controller(pi, refresher.clone());
     let review_goal = options
         .review_goal
         .unwrap_or_else(|| Arc::new(|input| review_goal_with_resident_supervisor(input)));
@@ -1379,7 +1308,7 @@ pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) 
     let evidence = create_goal_review_evidence_controller(supervisor_review);
     pi.register_entry_renderer(
         super::rendering::SUPERVISOR_STATUS_TYPE,
-        Arc::new(render_supervisor_status_entry),
+        create_supervisor_status_entry_renderer(refresher),
     )
     .map_err(HandlerError::new)?;
     pi.register_message_renderer("supervisor", Arc::new(render_supervisor_message))

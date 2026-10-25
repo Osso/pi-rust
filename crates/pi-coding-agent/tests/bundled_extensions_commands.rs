@@ -363,6 +363,7 @@ async fn registers_all_small_extensions_under_source_ids() {
             "<first-party:claude-bash-hook>",
             "<first-party:claude-memory-enrich>",
             "<first-party:claude-memory-session-end>",
+            "<first-party:codex-daybreak>",
             "<first-party:codex-fast>",
             "<first-party:codex-image-generation>",
             "<first-party:codex-usage>",
@@ -391,22 +392,27 @@ async fn registers_all_small_extensions_under_source_ids() {
         )
         .await;
     assert!(errors.is_empty(), "{errors:?}");
-    assert_eq!(extensions.len(), 23);
+    assert_eq!(extensions.len(), 24);
     let tool_names: Vec<String> = extensions
         .iter()
         .flat_map(|extension| extension.read().tools.keys().cloned().collect::<Vec<_>>())
         .collect();
-    assert_eq!(
-        tool_names,
-        vec![
-            "ask_secret",
-            "browser-cli",
-            "image_gen",
-            "web_search",
-            "loop",
-            "restart_self",
-        ]
-    );
+    let browser_available =
+        pi_coding_agent::utils::executable::is_executable_available(&"browser-cli".into(), &Default::default())
+            .expect("executable lookup");
+    let expected_tools: Vec<&str> = [
+        "ask_secret",
+        "browser-cli",
+        "image_gen",
+        "web_search",
+        "loop",
+        "set_session_name",
+        "restart_self",
+    ]
+    .into_iter()
+    .filter(|name| *name != "browser-cli" || browser_available)
+    .collect();
+    assert_eq!(tool_names, expected_tools);
     let command_names: Vec<JsString> = extensions
         .iter()
         .flat_map(|extension| extension.read().commands.keys().cloned().collect::<Vec<_>>())
@@ -416,6 +422,7 @@ async fn registers_all_small_extensions_under_source_ids() {
         vec![
             "approvals",
             "sandbox",
+            "daybreak",
             "fast",
             "usage",
             "debug",

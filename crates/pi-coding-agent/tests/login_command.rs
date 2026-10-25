@@ -1,4 +1,28 @@
 //! Terminal login through the frozen OAuth registry and AuthStorage boundaries.
+#[path = "support/login_command_oracle.rs"]
+mod login_command_oracle;
+
+#[test]
+fn login_command_matches_actual_frozen_callbacks_flags_persistence_and_stdio() {
+    login_command_oracle::compare(false);
+}
+
+#[test]
+fn login_buffered_stdio_matches_frozen_crlf_and_final_bare_carriage_return() {
+    login_command_oracle::compare(true);
+}
+
+#[test]
+fn login_errors_use_stdout_color_authority_when_stdout_is_redirected() {
+    login_command_oracle::compare_color_authority();
+}
+
+#[tokio::test]
+#[ignore = "child process probe"]
+async fn login_command_oracle_child() {
+    login_command_oracle::child().await;
+}
+
 use pi_ai::auth::AuthError;
 use pi_ai::oauth::{
     OAuthAuthInfo, OAuthCredentials, OAuthDeviceCodeInfo, OAuthLoginCallbacks, OAuthPrompt, OAuthProviderInterface,
@@ -83,12 +107,7 @@ fn storage() -> AuthStorage {
     AuthStorage::in_memory([] as [(&str, serde_json::Value); 0])
 }
 fn credential(access: JsString) -> OAuthCredentials {
-    OAuthCredentials {
-        refresh: "refresh-token".into(),
-        access,
-        expires: 9999999999999.0,
-        extra: Default::default(),
-    }
+    OAuthCredentials::new("refresh-token", access, 9999999999999.0)
 }
 fn options(id: &str, storage: AuthStorage, io: Arc<TestIo>) -> RunLoginCommandOptions {
     RunLoginCommandOptions {

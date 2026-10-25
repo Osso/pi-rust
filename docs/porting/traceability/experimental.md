@@ -1,19 +1,18 @@
 # coding-agent experimental traceability
 
-Pinned source: `packages/coding-agent/src/core/experimental.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen source: `packages/coding-agent/src/core/experimental.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (whole module: three lines).
 
-Proof: focused child-process env probes in `crates/pi-coding-agent/tests/experimental.rs` (edition 2024 forbids `set_var`, so each case runs the test binary with a controlled environment). Differential testing is not applicable: the source reads `process.env` at call time, which the TS oracle process cannot vary per case without mutating its own environment.
+| Export / branch | Rust mapping and proof |
+| --- | --- |
+| `areExperimentalFeaturesEnabled`: exact `process.env.PI_EXPERIMENTAL === "1"`, read on every invocation | `are_experimental_features_enabled`; standalone `tests/experimental.rs::experimental_gate_and_tool_sampling_match_frozen_source` runs private child processes for unset, empty, `0`, `true`, `1`, ` 1`, `01` |
+| No sampling helpers or sampling changes in frozen module | Removed old-only Rust sampling helpers and bash/edit/write `AgentTool` overrides; same test compares all three native tools against actual frozen tool definitions, with each environment value |
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| `PREFER_STRICT_TOOL_SAMPLING` | `{type:"json_schema",strict:"prefer"}` | `ConstrainedSamplingConfig::JsonSchema { strict: Prefer }` (reuses `pi-ai` wire types) |
-| `areExperimentalFeaturesEnabled` | True only when `PI_EXPERIMENTAL === "1"` | `are_experimental_features_enabled`; probes for unset, empty, `1`, `0`, `true` |
-| `getExperimentalToolSampling` | Strict sampling config when enabled, otherwise `undefined` | `get_experimental_tool_sampling() -> Option<ConstrainedSamplingConfig>`; probe asserts `null` versus `{"type":"json_schema","strict":"prefer"}` |
+Parent approved the cross-lane removal on 2026-10-25. `pi-ai` types are unchanged; their separate removal belongs to the AI lane.
 
-## Exclusions
+RED: `/tmp/settings-models-experimental-red-final.log` fails for `PI_EXPERIMENTAL=1`: all three native tools returned json_schema/prefer instead of frozen null. The public wrapped factories already returned null, so the regression exercises the concrete native tools, not only wrappers. GREEN and targeted clippy are recorded in the lane proof ledger after the commit.
 
-- The return type is `Option<ConstrainedSamplingConfig>` instead of the source's untyped object literal; the serialized value is identical.
+No semantic deviations. Pathological environment/runtime faults remain outside the user-observable parity bar.
 
-## Discrepancies
+GREEN: `/tmp/settings-models-experimental-green.log` at 556c3d54a. Targeted warning-mode clippy passes at 02e7c6033 with no warnings on changed lines; strict dependency warnings are deferred by parent to the final gate. Manual changed-code readability audit found no violations.
 
-None.
+2026-10-25: process-isolated env-gate test now imports actual frozen core/experimental.ts and compares its boolean directly. Removed calls/assertions for source-absent constrained-sampling tool metadata; the seven env values and native child-process lifetime remain tested.

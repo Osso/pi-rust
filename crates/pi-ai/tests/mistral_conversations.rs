@@ -390,8 +390,6 @@ async fn serializes_assistant_thinking_tool_calls_and_tool_results_for_replay() 
             TextOrImageContent::Image(pi_ai::types::ImageContent::new("aGVsbG8=", "image/png")),
         ],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 2.0,
     };
@@ -488,7 +486,7 @@ async fn parses_native_thinking_text_tool_calls_and_cached_token_usage() {
     .await;
 
     assert_eq!(message.stop_reason, StopReason::ToolUse);
-    assert!(message.raw_stop_reason.is_none());
+    assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
     assert_eq!(message.response_id.as_deref(), Some("response-1"));
     assert_eq!(
         message.content,
@@ -661,7 +659,7 @@ async fn maps_frozen_finish_reasons_without_raw_metadata() {
         .await;
 
         assert_eq!(message.stop_reason, expected_stop, "{finish_reason}");
-        assert!(message.raw_stop_reason.is_none());
+        assert!(serde_json::to_value(&message).unwrap().get("rawStopReason").is_none());
         assert_eq!(
             message.error_message.as_ref(),
             expected_error.map(pi_js_compat::js_json::JsString::from).as_ref()
@@ -701,8 +699,6 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new("done"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 2.0,
     };
@@ -733,39 +729,6 @@ async fn normalizes_invalid_tool_call_ids_for_replay() {
     assert_eq!(wire["messages"][1]["tool_call_id"], json!(normalized));
 }
 
-#[tokio::test]
-async fn ignores_old_strict_tool_metadata_and_keeps_plain_parameters() {
-    let (fetch, requests) = fetch_with(sse(&[terminal_event("stop")]));
-    let mut context = context();
-    let mut tool = Tool::new(
-        "inspect_schema",
-        "Inspect the schema",
-        json!({
-            "type": "object",
-            "properties": {"nested": {"type": "object", "properties": {"value": {"type": "string"}}}},
-            "required": ["nested"],
-        }),
-    );
-    tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
-        pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-            strict: pi_ai::types::JsonSchemaStrictness::Require,
-        },
-    ));
-    context.tools = Some(vec![tool]);
-
-    collect(stream(
-        model("devstral-medium-latest", false),
-        context,
-        options(fetch, "fake-key"),
-    ))
-    .await;
-
-    let request = requests.lock().unwrap().first().cloned().expect("request");
-    let wire: Value = serde_json::from_slice(&request.body.expect("body")).expect("wire JSON");
-    assert_eq!(wire["tools"][0]["function"]["strict"], json!(false));
-    assert!(wire["tools"][0]["function"]["parameters"]["properties"]["nested"].is_object());
-}
-
 async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::types::ThinkingLevel>) -> Value {
     let (fetch, _) = fetch_with(ScriptedResponse {
         status: 500,
@@ -790,7 +753,7 @@ async fn capture_reasoning_payload(model_id: &str, reasoning: Option<pi_ai::type
     ));
     stream_options.reasoning = reasoning;
 
-    let event_stream = stream_simple(model(model_id, true), context(), stream_options);
+    let event_stream = stream_simple(model(model_id, true), context(), stream_options).expect("simple acquisition");
     let (_, message) = collect(event_stream).await;
     assert_eq!(message.stop_reason, StopReason::Error);
     json!(captured.lock().unwrap().clone().expect("payload captured"))

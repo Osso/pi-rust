@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
 use pi_ai::request::BoxFuture;
-use pi_ai::types::AssistantContent;
 
 use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotifier, PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -19,7 +18,6 @@ use crate::core::multi_agent_store::{
     AgentError, AgentLifecycle, AgentMailboxMessage, AgentResult, AgentSnapshot, MailboxMessageKindValue,
     MailboxMessageStatusValue, MultiAgentStore, is_active_lifecycle,
 };
-use crate::core::session_manager::lock_session_manager;
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
@@ -176,9 +174,7 @@ fn reserve_attached_runtime(
     let Some(coordinator) = create_lifecycle_coordinator(&input.store) else {
         return Ok(None);
     };
-    let owner_session_id = lock_session_manager(&input.ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let owner_session_id = input.ctx.session_manager()?.get_session_id().to_owned();
     let acquired = coordinator
         .acquire_attached_runtime(&input.target, &owner_session_id)
         .map_err(|error| HandlerError::new(error.message()))?;
@@ -349,7 +345,7 @@ async fn dispatch_reserved_agent_session(
     };
     if input.store.get_restore_generation() != restore_generation {
         child_session.abort();
-        child_session.dispose();
+        child_session.dispose().await?;
         return Ok(input
             .store
             .get_agent(&input.reserved_runtime.lifecycle.agent.id)
@@ -370,7 +366,7 @@ async fn dispatch_reserved_agent_session(
         }
         LifecycleCommandResult::Err { .. } => {
             child_session.abort();
-            child_session.dispose();
+            child_session.dispose().await?;
             return Ok(running_agent);
         }
     };
@@ -455,7 +451,7 @@ pub fn run_agent_session(
             .unwrap_or_else(|| input.store.get_restore_generation());
         let active_session = match create_active_child_session(&input).await {
             Ok(session) => session,
-            Err(error) => return Ok(fail_child_session(&input, &error, restore_generation).await),
+            Err(error) => return fail_child_session(&input, &error, restore_generation).await,
         };
         let lease_loss_abort = register_lease_loss_abort(&input, Arc::clone(&active_session));
         lease_loss_abort.abort_if_lease_already_lost();
@@ -464,13 +460,18 @@ pub fn run_agent_session(
                 .store
                 .get_agent(&input.running_agent.id)
                 .unwrap_or_else(|| input.running_agent.clone());
+            drop(lease_loss_abort);
+            active_session.dispose().await?;
             return Ok(agent);
         }
         let abort_registration = register_store_abort_handler(&input);
         publish_active_session_identity(&input, &active_session);
+        let previous_messages = active_session.messages();
         let outcome = prompt_child_and_wait_for_descendants(&input, &active_session).await;
         let agent = match outcome {
-            Ok(()) => complete_prompted_child_session(&input, &active_session, restore_generation).await,
+            Ok(()) => {
+                complete_prompted_child_session(&input, &active_session, &previous_messages, restore_generation).await
+            }
             Err(error) => fail_child_session(&input, &error, restore_generation).await,
         };
         drop(abort_registration);
@@ -478,8 +479,8 @@ pub fn run_agent_session(
         if let Some(handles) = input.handles.as_ref() {
             handles.lock().expect("handles").remove(&input.running_agent.id);
         }
-        active_session.dispose();
-        Ok(agent)
+        active_session.dispose().await?;
+        agent
     })
 }
 
@@ -591,32 +592,39 @@ async fn prompt_child_and_wait_for_descendants(
     active_session: &Arc<dyn ChildAgentSession>,
 ) -> Result<(), pi_js_compat::js_json::JsString> {
     active_session.prompt(input.prompt.clone()).await?;
-    wait_for_active_descendants(
+    settle_descendants_before_terminalization(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime.abort_controller.signal()),
     )
-    .await;
+    .await?;
     Ok(())
 }
 
 async fn complete_prompted_child_session(
     input: &RunAgentSessionInput,
     active_session: &Arc<dyn ChildAgentSession>,
+    previous_messages: &[Arc<pi_agent_core::AgentMessage>],
     restore_generation: u64,
-) -> AgentSnapshot {
+) -> Result<AgentSnapshot, JsString> {
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
     ) {
-        return cancelled;
+        return Ok(cancelled);
     }
     loop {
-        let summary = last_assistant_text(&active_session.messages());
+        let summary = match super::child_response::read_current_child_assistant_text(
+            &active_session.messages(),
+            previous_messages,
+        ) {
+            Ok(summary) => summary,
+            Err(error) => return fail_child_session(input, &error, restore_generation).await,
+        };
         let completion_result = summary.map(|summary| AgentResult {
-            summary: Some(summary.into()),
+            summary: Some(summary),
             file_refs: None,
             duration_ms: None,
             tool_call_id: None,
@@ -635,7 +643,7 @@ async fn complete_prompted_child_session(
             terminal_lifecycle: "completed",
         });
         if completed.lifecycle != AgentLifecycle::SteeringPending {
-            return completed;
+            return Ok(completed);
         }
         if let Err(error) = drain_pending_steering(input, active_session).await {
             return fail_child_session(input, &error, restore_generation).await;
@@ -669,21 +677,21 @@ async fn fail_child_session(
     input: &RunAgentSessionInput,
     error: &pi_js_compat::js_json::JsString,
     restore_generation: u64,
-) -> AgentSnapshot {
-    wait_for_active_descendants(&input.store, &input.running_agent.id, None).await;
+) -> Result<AgentSnapshot, JsString> {
+    settle_descendants_before_terminalization(&input.store, &input.running_agent.id, None).await?;
     if let Some(cancelled) = acknowledge_cancelled_runtime(
         &input.store,
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
     ) {
-        return cancelled;
+        return Ok(cancelled);
     }
     let current = input
         .store
         .get_agent(&input.running_agent.id)
         .unwrap_or_else(|| input.running_agent.clone());
-    finalize_reserved_runtime(FinalizeReservedRuntimeInput {
+    Ok(finalize_reserved_runtime(FinalizeReservedRuntimeInput {
         agent: current,
         expected_restore_generation: Some(restore_generation),
         error: Some(AgentError {
@@ -694,50 +702,23 @@ async fn fail_child_session(
         reserved_runtime: Arc::clone(&input.reserved_runtime),
         store: Arc::clone(&input.store),
         terminal_lifecycle: "failed",
-    })
+    }))
 }
 
-async fn wait_for_active_descendants(
-    store: &MultiAgentStore,
+pub use super::descendant_settlement::wait_for_active_descendants;
+
+async fn settle_descendants_before_terminalization(
+    store: &Arc<MultiAgentStore>,
     agent_id: &JsString,
     signal: Option<&pi_js_compat::abort::AbortSignal>,
-) {
-    let has_active_descendants = || {
-        store
-            .list_descendants(agent_id)
-            .iter()
-            .any(|agent| is_active_lifecycle(agent.lifecycle))
-    };
-    if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
-        return;
-    }
-    let notify = Arc::new(tokio::sync::Notify::new());
-    let listener = Arc::clone(&notify);
-    let subscription = store.subscribe_agent_updates(move |_previous, _current| {
-        listener.notify_waiters();
-        Ok(())
-    });
-    loop {
-        if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {
-            break;
-        }
-        let notified = notify.notified();
-        tokio::pin!(notified);
-        let cancelled = async {
-            match signal {
-                Some(signal) => {
-                    signal.wait().await;
-                }
-                None => std::future::pending().await,
-            }
-        };
-        tokio::pin!(cancelled);
-        tokio::select! {
-            _ = &mut cancelled => break,
-            () = &mut notified => {}
-        }
-    }
-    drop(subscription);
+) -> Result<(), JsString> {
+    super::control_runtime::request_direct_detached_runtime_cancellations(
+        store,
+        agent_id,
+        &JsString::from("Owning subagent reached a terminal path"),
+    )
+    .map_err(|error| error.message)?;
+    wait_for_active_descendants(store, agent_id, signal).await
 }
 
 fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapshot {
@@ -917,27 +898,4 @@ fn is_waiting_for_input_notification(message: &AgentMailboxMessage) -> bool {
             .thread_id
             .as_ref()
             .is_some_and(|thread_id| thread_id.starts_with("agent-waiting-for-input:"))
-}
-
-fn last_assistant_text(messages: &[pi_agent_core::AgentMessage]) -> Option<pi_js_compat::js_json::JsString> {
-    for message in messages.iter().rev() {
-        let Some(assistant) = message.as_assistant() else {
-            continue;
-        };
-        let text = pi_js_compat::js_json::JsString::join(
-            assistant
-                .content
-                .iter()
-                .filter_map(|part| match part {
-                    AssistantContent::Text(text) => Some(text.text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>(),
-            "\n",
-        );
-        if !text.is_empty() {
-            return Some(text);
-        }
-    }
-    None
 }
