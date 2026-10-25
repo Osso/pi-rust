@@ -11,14 +11,9 @@ pub mod extension_oauth_types;
 
 use std::sync::{Arc, LazyLock, Mutex, MutexGuard, OnceLock};
 
-use crate::models::{CreateModelsOptions, Models as ModelsTrait, ModelsCollection, Provider};
+use crate::models::Models as ModelsTrait;
 use crate::providers::all::{builtin_models, get_builtin_model, get_builtin_models, get_builtin_providers};
-use crate::providers::faux::{
-    FauxCore, FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions, create_faux_core,
-};
-use crate::request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions};
-use crate::types::{AssistantMessage, Context, Model};
-use crate::utils::event_stream::AssistantMessageEventStream;
+pub use crate::*;
 
 pub use crate::api::anthropic_messages_lazy::anthropic_messages_api;
 pub use crate::api::azure_openai_responses::azure_open_ai_responses_api;
@@ -35,6 +30,7 @@ pub use crate::images::*;
 pub use crate::images_api_registry::*;
 pub use crate::legacy_api_aliases::*;
 pub use crate::providers::all::BuiltinProvider;
+pub use crate::providers::images::register_builtins::*;
 pub use crate::utils::retry::*;
 
 /// Deprecated static catalog read (`getModel`).
@@ -328,8 +324,6 @@ fn random_base36(length: usize) -> String {
 
 static COMPAT_MODELS: LazyLock<ModelsCollection> = LazyLock::new(|| builtin_models(CreateModelsOptions::default()));
 
-const AMBIENT_AUTH_MARKER: &str = "<authenticated>";
-
 fn has_explicit_api_key(options: &StreamOptions) -> bool {
     options
         .request
@@ -345,9 +339,8 @@ fn with_env_api_key(
     if has_explicit_api_key(&options) {
         return Ok(options);
     }
-    match get_env_api_key(&model.provider, options.request.env.as_ref())? {
-        Some(api_key) if api_key != AMBIENT_AUTH_MARKER => options.request.api_key = Some(api_key),
-        _ => {}
+    if let Some(api_key) = get_env_api_key(&model.provider, options.request.env.as_ref())? {
+        options.request.api_key = Some(api_key);
     }
     Ok(options)
 }
@@ -359,9 +352,8 @@ fn with_env_api_key_simple(
     if has_explicit_api_key(&options.stream) {
         return Ok(options);
     }
-    match get_env_api_key(&model.provider, options.stream.request.env.as_ref())? {
-        Some(api_key) if api_key != AMBIENT_AUTH_MARKER => options.stream.request.api_key = Some(api_key),
-        _ => {}
+    if let Some(api_key) = get_env_api_key(&model.provider, options.stream.request.env.as_ref())? {
+        options.stream.request.api_key = Some(api_key);
     }
     Ok(options)
 }

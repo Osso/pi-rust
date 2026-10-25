@@ -660,18 +660,17 @@ async fn resumes_a_live_runner_and_reports_its_terminal_result() {
     let artifact = write_artifact(&fixture, "pyrun_1", Some("live-call"), "original code", "");
     let mut runner = spawn_live_runner(
         &artifact,
-        "import json, time\ntime.sleep(0.2)\nwith open(r'''OUTPUT_PATH''', 'a') as handle:\n    handle.write(json.dumps({'kind': 'result', 'result': {'executed': 'original code', 'type': 'completed', 'value': 7}}) + '\\n')\n",
+        "import json, time, pathlib\nwhile not pathlib.Path(r'''OUTPUT_PATH''').with_name('continue').exists():\n    time.sleep(0.01)\nwith open(r'''OUTPUT_PATH''', 'a') as handle:\n    handle.write(json.dumps({'kind': 'result', 'result': {'executed': 'original code', 'type': 'completed', 'value': 7}}) + '\\n')\n",
     );
     set_runner_process_identity(&artifact, read_process_identity(runner.id()).expect("runner identity"));
 
-    let result = run_durable_detachable_pyrun_evaluation(evaluation_input(
-        &fixture,
-        "pyrun_1",
-        "original code",
-        Some("live-call"),
-    ))
-    .await
-    .expect("resumed result");
+    let registry = Arc::new(ToolDetachRegistry::new());
+    let mut input = evaluation_input(&fixture, "pyrun_1", "original code", Some("live-call"));
+    input.detach_registry = registry.clone();
+    let evaluation = tokio::spawn(run_durable_detachable_pyrun_evaluation(input));
+    wait_for(|| registry.has_running(), "foreground observer registration").await;
+    std::fs::write(artifact.directory.join("continue"), "ready").unwrap();
+    let result = evaluation.await.expect("join observer").expect("resumed result");
     runner.wait().expect("reap runner");
 
     assert_eq!(result.details.as_ref().expect("details")["value"], json!(7));

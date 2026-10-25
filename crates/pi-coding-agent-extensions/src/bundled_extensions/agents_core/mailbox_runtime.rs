@@ -19,8 +19,8 @@ use crate::core::multi_agent_store::{
     MailboxMessageStatusValue, MultiAgentStore, RecordOutboundSessionMessageInput, SendMailboxMessageInput,
 };
 use crate::core::session_control_db::{
-    EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessage, RuntimeMailboxMessageKind,
-    RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message, list_runtime_mailbox_messages, read_session_metadata,
+    EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind, RuntimeMailboxStoreRef,
+    enqueue_runtime_mailbox_message,
 };
 use pi_js_compat::abort::AbortSignal;
 
@@ -162,6 +162,12 @@ pub fn send_agent_message(
     on_session_message_sent: Option<&OnSessionMessageSent>,
 ) -> Result<AgentToolResult, HandlerError> {
     use super::session_message_route::{is_remote_session_message, session_message_route_error};
+    // Frozen routing uses truthiness at every toSessionId branch.
+    let params = SendAgentMessageParams {
+        to_session_id: params.to_session_id.clone().filter(|id| !id.is_empty()),
+        ..params.clone()
+    };
+    let params = &params;
     let sender = current_message_sender_id(ctx)?;
     let db = ctx.map(ExtensionContext::control_db_path).transpose()?.flatten();
     if sender.is_some()
@@ -169,14 +175,7 @@ pub fn send_agent_message(
     {
         let mut result = tool_result(
             JsString::from("Could not send agent message to ")
-                + format_sent_message_target(
-                    &empty_direct_message(
-                        &sender.clone().unwrap_or_else(|| "unknown_subagent".into()),
-                        &params.to_agent_id,
-                        &params.message,
-                    ),
-                    params.to_session_id.as_ref(),
-                )
+                + format_sent_message_target(&params.to_agent_id, params.to_session_id.as_ref())
                 + ": "
                 + reason,
             json!({"agent":current_message_sender_agent(store, ctx)?,"message":empty_direct_message(&sender.clone().unwrap_or_else(|| "unknown_subagent".into()),&params.to_agent_id,&params.message)}),
@@ -203,7 +202,9 @@ fn send_agent_message_from_current_sender(
 ) -> Result<AgentToolResult, HandlerError> {
     let Some(sender_id) = current_message_sender_id(ctx)? else {
         return Ok(tool_result(
-            "Could not send agent message: subagent runtime identity is unavailable.",
+            JsString::from("Could not send agent message to ")
+                + format_sent_message_target(&params.to_agent_id, params.to_session_id.as_ref())
+                + ": subagent runtime identity is unavailable.",
             json!({
                 "agent": empty_agent("unknown_subagent"),
                 "message": empty_direct_message(&"unknown_subagent".into(), &params.to_agent_id, &params.message),
@@ -233,7 +234,12 @@ fn send_agent_message_from_current_sender(
             let error = mailbox_error_name(&other);
             let current = mailbox_error_current(&other).unwrap_or_else(|| empty_agent(&sender_id));
             Ok(tool_result(
-                js_format!("Could not send agent message from {}: {}", sender_id, error),
+                js_format!(
+                    "Could not send agent message from {} to {}: {}",
+                    sender_id,
+                    format_sent_message_target(&params.to_agent_id, params.to_session_id.as_ref()),
+                    error
+                ),
                 json!({
                     "agent": current,
                     "message": empty_direct_message(&sender_id, &params.to_agent_id, &params.message),
@@ -321,18 +327,23 @@ fn deliver_sent_agent_message(
     };
     if !delivered {
         let failed_message = mark_failed_mailbox_transport_message(store, message)?;
-        let error = if params.to_session_id.is_some() {
-            "Could not send runtime session message: runtime mailbox transport is unavailable."
+        let prefix = if params.to_session_id.is_some() {
+            "Could not send runtime session message to "
         } else {
-            "Could not send agent message: runtime mailbox transport is unavailable."
+            "Could not send agent message to "
         };
+        let error = JsString::from(prefix)
+            + format_sent_message_target(&message.to_agent_id, params.to_session_id.as_ref())
+            + ": runtime mailbox transport is unavailable.";
         return Ok(tool_result(error, json!({"agent": agent, "message": failed_message})));
     }
     if let (Some(to_session_id), Some(callback)) = (params.to_session_id.as_ref(), on_session_message_sent) {
         callback(message, to_session_id)?;
     }
     Ok(tool_result(
-        JsString::from("Sent message to ") + format_sent_message_target(message, params.to_session_id.as_ref()) + ".",
+        JsString::from("Sent message to ")
+            + format_sent_message_target(&message.to_agent_id, params.to_session_id.as_ref())
+            + ".",
         json!({"agent": agent, "message": message}),
     ))
 }
@@ -347,7 +358,9 @@ fn send_main_runtime_session_message(
     let sender_id = current_message_sender_id(ctx)?;
     let Some(to_session_id) = params.to_session_id.clone() else {
         return Ok(tool_result(
-            "Could not send runtime session message: target session unavailable.",
+            JsString::from("Could not send runtime session message to ")
+                + format_sent_message_target(&params.to_agent_id, params.to_session_id.as_ref())
+                + ": target session unavailable.",
             json!({
                 "agent": sender,
                 "message": empty_direct_message(
@@ -360,7 +373,9 @@ fn send_main_runtime_session_message(
     };
     let Some(sender_id) = sender_id else {
         return Ok(tool_result(
-            "Could not send runtime session message: subagent runtime identity is unavailable.",
+            JsString::from("Could not send runtime session message to ")
+                + format_sent_message_target(&params.to_agent_id, params.to_session_id.as_ref())
+                + ": subagent runtime identity is unavailable.",
             json!({
                 "agent": sender,
                 "message": empty_direct_message(&"unknown_subagent".into(), &params.to_agent_id, &params.message),
@@ -387,7 +402,9 @@ fn send_main_runtime_session_message(
     )? {
         let failed_message = mark_failed_mailbox_transport_message(store, &message)?;
         return Ok(tool_result(
-            "Could not send runtime session message: runtime mailbox transport is unavailable.",
+            JsString::from("Could not send runtime session message to ")
+                + format_sent_message_target(&message.to_agent_id, params.to_session_id.as_ref())
+                + ": runtime mailbox transport is unavailable.",
             json!({"agent": sender, "message": failed_message}),
         ));
     }
@@ -684,17 +701,15 @@ fn enqueue_lifecycle_runtime_mailbox_message(
         return Ok(());
     };
     let agent = store.get_agent(&notification.from_agent_id);
-    let already_enqueued = match agent.as_ref() {
-        Some(agent) => list_runtime_mailbox_messages(&control_db_path)
-            .map_err(|error| HandlerError::new(error.message()))?
-            .iter()
-            .any(|message| {
-                message.store_ref.session_path == store_ref.session_path
-                    && is_detached_terminal_transport(message, agent)
-            }),
-        None => false,
-    };
-    if already_enqueued {
+    let detached_terminal = agent.as_ref().is_some_and(|agent| {
+        agent.detached == Some(true)
+            && agent.extra.get("suppressTerminalNotification").and_then(Value::as_bool) != Some(true)
+            && matches!(
+                agent.lifecycle,
+                AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
+            )
+    });
+    if detached_terminal {
         return Ok(());
     }
     let Some(recipient) = resolve_runtime_recipient(store, notification, ctx)? else {
@@ -721,25 +736,6 @@ fn enqueue_lifecycle_runtime_mailbox_message(
     )
     .map_err(|error| HandlerError::new(error.message()))?;
     Ok(())
-}
-
-fn is_detached_terminal_transport(message: &RuntimeMailboxMessage, agent: &AgentSnapshot) -> bool {
-    if !message.sender.agent_id.as_ref().is_some_and(|id| id == &agent.id)
-        || message.kind != RuntimeMailboxMessageKind::System
-    {
-        return false;
-    }
-    let Ok(body) = js_json::parse_lossless(&message.body) else {
-        return false;
-    };
-    body.get("type")
-        .and_then(Value::as_string)
-        .is_some_and(|kind| kind == "multi_agent_terminal")
-        && body
-            .get("agentId")
-            .and_then(Value::as_string)
-            .is_some_and(|id| id == &agent.id)
-        && body.get("terminalRevision").and_then(Value::as_f64) == Some(agent.revision as f64)
 }
 
 fn is_runtime_mirrored_lifecycle(lifecycle: AgentLifecycle) -> bool {
@@ -813,37 +809,11 @@ fn resolve_runtime_recipient(
         }));
     }
     let current_session_id = ctx.session_manager()?.get_session_id().clone();
-    let session_id = read_parent_runtime_session_id(ctx)?.unwrap_or(current_session_id);
+    let session_id = ctx.multi_agent_parent_session_id()?.unwrap_or(current_session_id);
     Ok(Some(RuntimeMailboxAddress {
         agent_id: None,
         session_id,
     }))
-}
-
-fn read_parent_runtime_session_id(ctx: &ExtensionContext) -> Result<Option<JsString>, HandlerError> {
-    if let Some(parent_session_id) = ctx.multi_agent_parent_session_id()? {
-        return Ok(Some(parent_session_id));
-    }
-    let parent_session = {
-        let session_manager = ctx.session_manager()?;
-        let manager = session_manager;
-        if !manager.is_subagent_session() {
-            return Ok(None);
-        }
-        let Some(parent_session) = manager.get_header().and_then(|header| header.parent_session().cloned()) else {
-            return Ok(None);
-        };
-        parent_session
-    };
-    let Some(control_db_path) = ctx.control_db_path()? else {
-        return Ok(Some(parent_session));
-    };
-    Ok(Some(
-        read_session_metadata(&control_db_path, &parent_session)
-            .map_err(|error| HandlerError::new(error.message()))?
-            .map(|metadata| metadata.id)
-            .unwrap_or(parent_session),
-    ))
 }
 
 pub fn current_message_sender_id(ctx: Option<&ExtensionContext>) -> Result<Option<JsString>, HandlerError> {
@@ -880,10 +850,10 @@ fn is_main_runtime_target(to_agent_id: &JsString) -> bool {
     to_agent_id == MAIN_THREAD_AGENT_ID || to_agent_id == "supervisor"
 }
 
-fn format_sent_message_target(message: &AgentMailboxMessage, to_session_id: Option<&JsString>) -> JsString {
-    match to_session_id {
-        Some(to_session_id) => message.to_agent_id.clone() + " in session " + to_session_id,
-        None => message.to_agent_id.clone(),
+fn format_sent_message_target(to_agent_id: &JsString, to_session_id: Option<&JsString>) -> JsString {
+    match to_session_id.filter(|id| !id.is_empty()) {
+        Some(to_session_id) => to_agent_id.clone() + " in session " + to_session_id,
+        None => to_agent_id.clone(),
     }
 }
 

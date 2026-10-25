@@ -11,6 +11,7 @@ Branch `repin/core-tools`; baseline2683e5cbc, parent77c92996b merged by instruct
 | session-archive-storage + idle-session-archive | Whole99/240-line audits; archive original read/codec/DB errors, reciprocal bytes/modes/rollback/plain precedence and short circuits. New archive4 + reciprocal2 pass. Idle unchanged mapped full-pass/publication/startup proof remains applicable. [Archive](traceability/session-archive-storage.md), [idle](traceability/idle-session-archive.md) |
 | terminal-outbox-delivery | Whole84-line audit;6 reciprocal lifecycle publication/ack directions,8 retry/poison/mismatch/peer-claim cases, actual artifact cleanup and2 later-clock/finally cases;5 grouped tests with existing numeric/clock matrix pass. No production correction needed. [Trace](traceability/terminal-outbox-delivery.md) |
 | runtime-mailbox-acceptance + delivery + extensions/multi-agent barrel | Whole82/55/21-line audits; reciprocal marker/user/toolResult6 cases, valid/absent descriptors5 cases, role/empty guards, release, actual runtime intercept ordering and exact unhandled prompt. Acceptance3 and runtime11 pass. Native barrel maps all9 values/8 types without adding an API. [Acceptance](traceability/runtime-mailbox-acceptance.md), [delivery](traceability/runtime-mailbox-delivery.md), [barrel](traceability/extensions-multi-agent.md) |
+| multi-agent-store | Whole1467-line audit; original callback/clock/abort and live listener behavior, locale slots, exact public/canonical mailbox bytes,33 snapshot copy/path/JSON scenarios, empty-parent rejection, restore/reset/counters/expiry and reciprocal persisted state. Current28 store tests, operation script and bounded error/wire matrices pass. [Map](traceability/multi-agent-store.md) |
 
 ## Corrections and gates
 
@@ -22,6 +23,6 @@ Exact revision/command ledger: `/tmp/storage3-proof-ledger.md`; full outputs `/t
 
 ## Remaining assigned scope
 
-`session-control-db.ts`7547 lines, `session-manager.ts`2430 lines and `multi-agent-store.ts`1467 lines still need whole-module export/branch and cross-state acceptance. Their current bounded reciprocal/migration/lossless/runtime proofs are not promoted by these nine smaller-module audits. Final broad acceptance, independent verification and existing lint debt belong to parent integration.
+`session-control-db.ts`7547 lines remains with this lane: all127 exported functions have native correspondence; current60 control/reciprocal/schema/concurrent tests and original callback/rollback eight-case proof pass, but the whole private-branch audit is ongoing. Main transferred `session-manager.ts` to agent_293 (`repin/session-manager`). The ten closed module rows do not establish whole control-DB acceptance. Final broad acceptance, independent verification and existing lint debt belong to parent integration.
 
 Gap: adversarial/wrong-typed shapes, exceptional OS/fsync faults, numeric extremes and runtime races follow the current parity exclusions; no new fault-hunting or scheduling/carrier work was introduced. This is not injected crash-recovery acceptance.

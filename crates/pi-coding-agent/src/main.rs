@@ -460,26 +460,6 @@ fn trust_decision_is_trusted(store: &ProjectTrustStore, cwd: &JsString) -> Resul
         .map_err(|error| error.message().clone())
 }
 
-/// Runtime reason strings mapped to `session_start` metadata.
-fn session_start_event(
-    reason: &str,
-    previous_session_file: Option<JsString>,
-) -> crate::core::extensions::types::SessionStartEvent {
-    use crate::core::extensions::types::{SessionStartEvent, SessionStartReason};
-    let reason = match reason {
-        "reload" => SessionStartReason::Reload,
-        "new" => SessionStartReason::New,
-        "resume" => SessionStartReason::Resume,
-        "fork" => SessionStartReason::Fork,
-        "restart" => SessionStartReason::Restart,
-        _ => SessionStartReason::Startup,
-    };
-    SessionStartEvent {
-        reason,
-        previous_session_file,
-    }
-}
-
 fn project_trust_context(
     cwd: &JsString,
     mode: AppMode,
@@ -515,7 +495,10 @@ async fn create_runtime(
             .map_err(CallbackError::from)?;
     }
 
-    let is_initial_runtime = request.session_start_reason == "startup";
+    let is_initial_runtime = request
+        .session_start_event
+        .as_ref()
+        .is_none_or(|event| event.reason == crate::core::extensions::types::SessionStartReason::Startup);
     let project_trust_diagnostics = Arc::new(Mutex::new(Vec::new()));
     let cwd = request.cwd.clone();
     let cached_project_trust = options
@@ -739,10 +722,7 @@ async fn create_runtime(
                 crate::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(&handles, &prompt);
             }) as Arc<dyn Fn(JsString) + Send + Sync>
         }),
-        session_start_event: Some(session_start_event(
-            &request.session_start_reason,
-            request.previous_session_file.clone(),
-        )),
+        session_start_event: request.session_start_event,
     })
     .await?;
 
@@ -2160,6 +2140,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         &agent_dir,
         session_manager,
         parsed.no_supervisor,
+        None,
     )
     .await?;
     let runtime = runtime;

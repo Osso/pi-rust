@@ -45,7 +45,7 @@ struct Fixture {
 fn faux_model() -> FauxModelDefinition {
     FauxModelDefinition {
         id: "faux-1".to_owned(),
-        name: Some("Faux Model".to_owned()),
+        name: Some("Faux Model".into()),
         reasoning: Some(true),
         input: None,
         cost: None,

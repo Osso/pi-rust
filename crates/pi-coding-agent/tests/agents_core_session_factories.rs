@@ -36,7 +36,7 @@ fn faux() -> FauxProviderHandle {
         provider: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
-            name: Some("Faux Model".to_owned()),
+            name: Some("Faux Model".into()),
             reasoning: Some(true),
             input: None,
             cost: None,
@@ -459,6 +459,88 @@ async fn bound_child_dispose_emits_shutdown_before_releasing_the_session() {
 }
 
 #[tokio::test]
+async fn public_spawn_profile_validation_and_initial_model_match_frozen() {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::{
+        MultiAgentExtensionOptions, create_multi_agent_pi_request_handler,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSessionFactory;
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let cases = [
+        (true, None, json!({})),
+        (
+            true,
+            None,
+            json!({"agents":{"default":{"model":"faux/faux-1","thinkingLevel":"xhigh","context":"fresh"}}}),
+        ),
+        (
+            true,
+            Some("configured"),
+            json!({"agents":{"configured":{"thinkingLevel":"high"}}}),
+        ),
+        (false, Some("missing"), json!({})),
+        (true, Some("missing"), json!({"agents":{"z-last":{},"a-first":{}}})),
+    ];
+    let mut mismatches = Vec::new();
+    for (persisted, agent_type, settings) in cases {
+        let env = test_env_with_settings(Some(settings.clone())).await;
+        env.session
+            .set_thinking_level(pi_agent_core::harness::ThinkingLevel::High)
+            .unwrap();
+        let store = Arc::new(MultiAgentStore::new(Default::default()));
+        if persisted {
+            lock_session_manager(&env.session_manager)
+                .persist_for_recovery()
+                .unwrap();
+            store.set_persistence_session_manager(Some(&*lock_session_manager(&env.session_manager)));
+        }
+        let source = ts.request(&json!({
+            "id":43,"op":"spawnProfile","persisted":persisted,"agentType":agent_type,
+            "settings":settings,"model":env.session.model(),"cwd":env.cwd,
+            "sessionDir":env._dir.path().join("source-sessions").to_str().unwrap(),
+            "db":env._dir.path().join("source-control.db").to_str().unwrap(),
+        }));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let captured = Arc::new(Mutex::new(Value::Null));
+        let observed = Arc::clone(&captured);
+        let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+            store: Some(store),
+            create_child_session: Some(ChildAgentSessionFactory::new(move |input| {
+                *observed.lock().unwrap() = json!({"model":input.agent.model,"context":match input.context {SpawnContext::Fresh=>"fresh",SpawnContext::Inherit=>"inherit"}});
+                Box::pin(async { Err("stop after profile capture".into()) })
+            })),
+            ..Default::default()
+        });
+        let mut params = json!({"prompt":"task"});
+        if let Some(agent_type) = agent_type {
+            params["agentType"] = json!(agent_type);
+        }
+        let error = handler
+            .handle(
+                &json!({"method":"agents.spawn","params":params}),
+                &env.session.extension_runner().create_context(),
+                None,
+                None,
+            )
+            .await
+            .err()
+            .map(|error| error.message);
+        let actual = json!({"captured":captured.lock().unwrap().clone(),"error":error});
+        if actual != source["output"] {
+            mismatches
+                .push(json!({"settings":settings,"agentType":agent_type,"actual":actual,"expected":source["output"]}));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        pi_js_compat::js_json::stringify_lossless(&json!(mismatches))
+    );
+}
+
+#[tokio::test]
 async fn factory_options_match_frozen_parent_registry_tools_and_settings() {
     let mut ts = oracle::TsOracle::spawn(
         "agents-core-repin-oracle.ts",
@@ -522,6 +604,92 @@ async fn factory_options_match_frozen_parent_registry_tools_and_settings() {
                 "settingsOverride": options.settings_manager.is_some(),
             });
             assert_eq!(native, source["output"], "attached={attached}, type={agent_type}");
+        }
+    }
+}
+
+#[tokio::test]
+async fn browser_factory_reads_only_the_configured_root_like_frozen() {
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for attached in [false, true] {
+        let env = test_env().await;
+        append_user(&env.session_manager, "parent");
+        lock_session_manager(&env.session_manager)
+            .persist_for_recovery()
+            .unwrap();
+        let session_path = lock_session_manager(&env.session_manager)
+            .get_session_file()
+            .cloned()
+            .unwrap();
+        let root = env._dir.path().join("restricted-config");
+        std::fs::create_dir(&root).unwrap();
+        let inside = root.join("allowed.md");
+        let outside = env._dir.path().join("outside.md");
+        std::fs::write(&inside, "restricted marker").unwrap();
+        std::fs::write(&outside, "must not be readable").unwrap();
+        for path in [&inside, &outside] {
+            let source = ts.request(&json!({"id":44,"op":"factoryOptions","attached":attached,
+                "agentType":"browser","cwd":env.cwd,"agentDir":env.agent_dir,"controlDbPath":env.control_db,
+                "sessionPath":session_path,"browserRoot":root.to_str().unwrap(),"readPath":path.to_str().unwrap(),
+            }));
+            assert_eq!(source["ok"], json!(true), "{source:?}");
+            let captured = Arc::new(Captured::default());
+            let mut agent = child_agent(&env, "browser", "reader");
+            agent.agent_type = "browser".into();
+            if attached {
+                create_production_attached_session_factory(ProductionAttachedSessionFactoryOptions {
+                    agent_dir: Some(env.agent_dir.clone().into()),
+                    browser_agent_config_root: Some(root.to_str().unwrap().into()),
+                    create_session: create_child_session(Arc::clone(&captured), "done"),
+                    extension_factories: None,
+                    multi_agent_store: None,
+                    session_dir: None,
+                })
+                .call(AttachedSessionDispatchInput {
+                    active_tool_call_id: None,
+                    agent,
+                    ctx: env.session.extension_runner().create_context(),
+                    prompt: "task".into(),
+                    signal: None,
+                    session_path: session_path.clone(),
+                })
+                .await
+                .unwrap();
+            } else {
+                let mut options = child_options(&env, Arc::clone(&captured), None, None);
+                options.browser_agent_config_root = Some(root.to_str().unwrap().into());
+                create_production_child_agent_session_factory(options)
+                    .call(child_input(&env, agent, SpawnContext::Fresh, "task"))
+                    .await
+                    .unwrap();
+            }
+            let options = captured.options.lock().unwrap().take().unwrap();
+            let result = (options.custom_tool_definitions[0].execute)(
+                "read".into(),
+                json!({"path":path.to_str().unwrap()}),
+                None,
+                None,
+                None,
+            )
+            .await;
+            let native = match result {
+                Ok(result) => json!({"value":pi_js_compat::js_json::to_value(&result).unwrap()}),
+                Err(error) => json!({"error":error.message}),
+            };
+            assert_eq!(native, source["output"]["readResult"]);
+            if path == &inside {
+                assert!(
+                    native["value"]["content"][0]["text"]
+                        .as_string()
+                        .unwrap()
+                        .contains("restricted marker")
+                );
+            } else {
+                assert!(native.get("error").is_some());
+            }
         }
     }
 }
@@ -809,21 +977,20 @@ async fn invalid_prompts_fail_before_session_creation() {
 
 #[tokio::test]
 async fn active_tool_call_identity_must_be_non_empty() {
-    let env = test_env().await;
-    let captured = Arc::new(Captured::default());
-    let factory = create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
-    let mut input = child_input(
-        &env,
-        child_agent(&env, "agent_child", "Explorer"),
-        SpawnContext::Inherit,
-        "Continue",
-    );
-    input.active_tool_call_id = Some("  ".to_owned());
-    let error = factory.call(input).await.err().expect("blank tool call id");
-    assert_eq!(
-        error,
-        "Cannot inherit context: active tool call identity must be non-empty"
-    );
+    for context in [SpawnContext::Inherit, SpawnContext::Fresh] {
+        let env = test_env().await;
+        append_user(&env.session_manager, "parent");
+        let captured = Arc::new(Captured::default());
+        let factory =
+            create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+        let mut input = child_input(&env, child_agent(&env, "agent_child", "Explorer"), context, "Continue");
+        input.active_tool_call_id = Some("  ".to_owned());
+        let error = factory.call(input).await.err().expect("blank tool call id");
+        assert_eq!(
+            error,
+            "Cannot inherit context: active tool call identity must be non-empty"
+        );
+    }
 }
 
 #[tokio::test]
@@ -1111,6 +1278,57 @@ async fn attached_factory_restores_archived_transcript_before_opening() {
         session_texts(&captured_session_manager(&captured)),
         vec![JsString::from("archived conversation")]
     );
+}
+
+#[tokio::test]
+async fn attach_path_uses_control_metadata_restores_archive_and_keeps_on_request_policy() {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::{
+        MultiAgentExtensionOptions, create_multi_agent_pi_request_handler,
+    };
+    use pi_coding_agent::core::session_archive_storage::archive_persisted_session;
+    for archived in [false, true] {
+        let env = test_env_with_settings(Some(json!({"approvalPolicy":"never"}))).await;
+        let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+        lock_session_manager(&env.session_manager)
+            .persist_for_recovery()
+            .unwrap();
+        store.set_persistence_session_manager(Some(&*lock_session_manager(&env.session_manager)));
+        let mut target = SessionManager::create(&env.cwd.clone().into(), None, None).unwrap();
+        target
+            .set_metadata_control_db_path(Some(&env.control_db.clone().into()), Default::default())
+            .unwrap();
+        target.persist_for_recovery().unwrap();
+        target.set_session_name(Some(&"Metadata 🦀".into())).unwrap();
+        let path = target.get_session_file().cloned().unwrap();
+        assert_eq!(
+            pi_coding_agent::core::session_control_db::read_session_metadata(&env.control_db, &path)
+                .unwrap()
+                .unwrap()
+                .name,
+            Some("Metadata 🦀".into())
+        );
+        let input = if archived {
+            archive_persisted_session(&env.control_db.clone().into(), &path).unwrap()
+        } else {
+            path.clone()
+        };
+        let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+            store: Some(store),
+            ..Default::default()
+        });
+        let details = handler
+            .handle(
+                &json!({"method":"agents.attachSession","params":{"path":input}}),
+                &env.session.extension_runner().create_context(),
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        assert_eq!(details["agent"]["displayName"], json!("Metadata 🦀"));
+        assert_eq!(details["agent"]["permission"]["policy"], json!("on-request"));
+        assert_eq!(details["agent"]["transcript"]["path"], json!(path));
+    }
 }
 
 /// A real `AgentSession` wrapped by the adapter behaves like a child session.

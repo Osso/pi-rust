@@ -15,7 +15,7 @@ Frozen `packages/ai/src/providers/faux.ts`, `4f9e6f8a4` (whole module, lines 1â€
 
 Frozen whole-tree search for `DeferredHandle`, `fetchDeferred`, `cancelDeferred`, `FauxDeferred` returned no matches. Removed Faux deferred options/state/submit/poll/cancel machinery and its tests; no renamed frozen equivalent exists. RED capability regression now proves absence. Removed old-only Pending test (typed source excludes it). Initial partial preserves message stop reason, matching shallow spread at frozen line 310, rather than forcing Pending. Preserved timestamp 0 (frozen nullish coalescing), repaired empty model/default-id branches, and chunked JSON argument strings by exact UTF-16 units.
 
-## Current proof and blocker
+## Historical repair proof
 
 Revision `8fe7b79d` + Faux slice. `/tmp/pi-rust-repin-delta-ai/ledger.md`; `faux-repin-red.log`: 3 RED; `faux-utf16-red.log`: new actual-import full-event RED. Current focused target 18 GREEN / 2 RED before last stale initial-reason assertion correction; final count recorded after commit.
 
@@ -25,4 +25,8 @@ Whole-Tool JSON also now retains AgentTool label/executionMode. The exact frozen
 
 **Approved async-factory interleaving deviation2026-10-23**, [AGENTS.md](../../../AGENTS.md):39: native does not reproduce JS microtask ordering between a user-supplied async factory's abort continuation and the agent abort. Usage totals match; input/cacheRead split may differ. Only `thinking_timeout_recovery_matches_frozen_rpc` applies that scoped usage comparison; all output/cacheWrite/cost/totalTokens fields and other RPC values/types/presence remain exact. It also reuses `oracle/assistant-snapshots.ts` at push under the existing immutable-partial approval (AGENTS.md:19). q15-thinking-timeout-rpc-approved-deviation-green-4.log GREEN. No continuation driver or async-factory fallback was added.
 
-Additional unproven boundaries: random chunk distribution/IDs, scalar `FauxContent::Text` convenience input, fractional/nonfinite token-size runtime values. These are not silently approved exclusions.
+## Whole-module closure (2026-10-25)
+
+Audited every export and frozen branch, including model defaults, state/queue ordering, callback-before-step, empty queue, clone/usage/cache construction, each streaming block/abort boundary and provider auth wrapper. Current22focused tests GREEN (`/tmp/ai3-faux-green.log`). Two direct-source fractional-size runs (1.25 and1.3) compare complete immutable push snapshots, UTF-16 chunks, usage and result with empty system prompt/session ID. RED exposed early usize narrowing and incorrect empty-string truthiness. Native JsString convenience content and model display-name construction were compile-RED, then repaired with the existing carriers. Raw string factory rejection is actual-source REDâ†’GREEN with exact unmatched-surrogate error text and zero usage. Callback formatting now uses the existing Error.message/String authority at all three catch sites; exotic toString failure routes to the shared uncaught authority, not a widened API.
+
+GAP: native randomness/ID values, cold/dropped-future scheduling, nonfinite/numeric-extreme options and JS microtask/timer interleaving follow the approved runtime gaps; chunk-size arithmetic, UTF-16 slice positions and usage are not waived. Immutable snapshots and owned values retain existing approvals. Mechanical cross-lane fallout: two FauxModelDefinition display-name literals in interactive_mode.rs tests now construct JsString. No feature remains open.

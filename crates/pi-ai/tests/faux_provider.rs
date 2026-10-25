@@ -75,6 +75,108 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
     assert_eq!(actual, expected);
 }
 
+#[tokio::test]
+async fn faux_fractional_chunks_and_empty_cache_keys_match_frozen() {
+    use pi_ai::request::ProviderStreams;
+    use pi_js_compat::js_json::{JsValue, to_value};
+    let mut oracle = oracle::TsOracle::spawn("faux-module-oracle.ts", "packages/ai/src/providers/faux.ts");
+    for token_size in [1.25, 1.3] {
+        let mut context = context();
+        context.system_prompt = Some("".into());
+        let content = vec![faux_text("abcdefghij😀klmnopqrstuv")];
+        let mut request = to_value(&json!({
+            "context": context,
+            "tokenSize": {"min":token_size,"max":token_size},
+            "options":{"sessionId":""}
+        }))
+        .unwrap()
+        .as_object()
+        .unwrap()
+        .clone();
+        request.insert("content".into(), to_value(&content).unwrap());
+        let expected: JsValue = oracle.request(&JsValue::Object(request));
+        let core = create_faux_core(RegisterFauxProviderOptions {
+            api: Some("test-api".into()),
+            provider: Some("test-provider".into()),
+            token_size: Some(FauxTokenSize {
+                min: Some(token_size),
+                max: Some(token_size),
+            }),
+            ..Default::default()
+        });
+        core.set_responses(vec![
+            faux_assistant_message(
+                content,
+                FauxAssistantMessageOptions {
+                    timestamp: Some(0.0),
+                    ..Default::default()
+                },
+            )
+            .into(),
+        ]);
+        let mut options = simple_options();
+        options.stream.session_id = Some("".into());
+        let mut stream = core
+            .stream_simple(core.get_model(None).unwrap(), context, options)
+            .unwrap();
+        let events = collect(&mut stream).await;
+        let result = stream.result().await.unwrap();
+        let actual = pi_js_compat::js_json!({"events":events,"result":result});
+        assert_eq!(actual, expected, "token size {token_size}");
+    }
+}
+
+#[test]
+fn faux_convenience_content_and_model_name_keep_native_utf16() {
+    use pi_js_compat::js_json::JsString;
+    let text = JsString::from_utf16(vec![0xd800, 0x61]);
+    let message = faux_assistant_message(text.clone(), Default::default());
+    assert_eq!(message.content, vec![faux_text(text.clone())]);
+    let core = create_faux_core(RegisterFauxProviderOptions {
+        models: Some(vec![FauxModelDefinition {
+            id: "raw".into(),
+            name: Some(text.clone()),
+            ..Default::default()
+        }]),
+        ..Default::default()
+    });
+    assert_eq!(core.get_model(None).unwrap().name, text);
+}
+
+#[tokio::test]
+async fn faux_raw_factory_rejection_keeps_frozen_error_text() {
+    use pi_ai::request::ProviderStreams;
+    use pi_js_compat::js_json::{JsValue, to_value};
+    let rejection = pi_js_compat::js_json::JsString::from_utf16(vec![0x66, 0xd800]);
+    let mut oracle = oracle::TsOracle::spawn("faux-module-oracle.ts", "packages/ai/src/providers/faux.ts");
+    let expected: JsValue = oracle.request(&pi_js_compat::js_json!({"context":context(),"reject":rejection}));
+    let core = create_faux_core(RegisterFauxProviderOptions {
+        api: Some("test-api".into()),
+        provider: Some("test-provider".into()),
+        ..Default::default()
+    });
+    let failure = rejection.clone();
+    let factory: FauxResponseFactory = Arc::new(move |_, _, _, _| {
+        let failure = failure.clone();
+        Box::pin(async move {
+            Err(CallbackError::from_rejection(pi_js_compat::abort::AbortReason::Value(
+                JsValue::String(failure),
+            )))
+        })
+    });
+    core.set_responses(vec![factory.into()]);
+    let stream = core
+        .stream(core.get_model(None).unwrap(), context(), Default::default())
+        .unwrap();
+    let result = stream.result().await.unwrap();
+    assert_eq!(
+        to_value(&result.error_message).unwrap(),
+        expected["result"]["errorMessage"]
+    );
+    assert_eq!(to_value(&result.stop_reason).unwrap(), expected["result"]["stopReason"]);
+    assert_eq!(to_value(&result.usage).unwrap(), expected["result"]["usage"]);
+}
+
 fn context() -> Context {
     Context {
         system_prompt: None,
@@ -200,13 +302,13 @@ async fn faux_provider_supports_multiple_models_and_model_aware_factories() {
         models: Some(vec![
             FauxModelDefinition {
                 id: "faux-fast".to_owned(),
-                name: Some("Faux Fast".to_owned()),
+                name: Some("Faux Fast".into()),
                 reasoning: Some(false),
                 ..Default::default()
             },
             FauxModelDefinition {
                 id: "faux-thinker".to_owned(),
-                name: Some("Faux Thinker".to_owned()),
+                name: Some("Faux Thinker".into()),
                 reasoning: Some(true),
                 ..Default::default()
             },

@@ -300,7 +300,7 @@ pub fn block_supervisor_file_access(
     if !SUPERVISOR_TOOL_NAMES.contains(&tool_name) {
         return None;
     }
-    let Some(path) = read_tool_path(input) else {
+    let Some(path) = read_tool_path(input).filter(|path| !path.is_empty()) else {
         return Some(supervisor_file_access_block());
     };
     let resolved = if tool_name == "read" {
@@ -348,8 +348,8 @@ mod lossless_path_tests {
         std::fs::create_dir(&disk).unwrap();
         let suffix = JsString::from("/missing-") + JsString::from_utf16(vec![0xdfff]);
         let actual = resolve_existing_path(&(root.clone() + &suffix)).unwrap();
-        let canonical = std::fs::canonicalize(disk).unwrap().to_string_lossy().into_owned();
-        assert_eq!(actual, JsString::from(canonical) + &suffix);
+        let canonical = std::fs::canonicalize(disk).unwrap();
+        assert_eq!(actual, JsString::from(canonical.to_str().unwrap()) + &suffix);
         assert!(is_path_within_root(&actual, &resolve_existing_path(&root).unwrap()));
         assert!(!is_path_within_root(
             &(JsString::from("/outside-") + JsString::from_utf16(vec![0xdfff])),
@@ -371,7 +371,7 @@ fn resolve_existing_path(path: &JsString) -> Option<JsString> {
         existing = parent;
     }
     let canonical = std::fs::canonicalize(encode_node_utf8(&existing)).ok()?;
-    let mut result = JsString::from(canonical.to_string_lossy().into_owned());
+    let mut result = pi_js_compat::node_fs::decode_node_path(canonical.as_os_str());
     for component in suffix.into_iter().rev() {
         result = node_join(result, component);
     }
@@ -897,16 +897,10 @@ pub async fn create_supervisor_resource_loader(
     let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
         cwd: kb_dir.to_owned(),
         agent_dir: agent_dir.to_owned(),
-        extension_factories: vec![
-            InlineExtension::Factory {
-                extension_path: None,
-                factory: gate,
-            },
-            InlineExtension::Factory {
-                extension_path: None,
-                factory: crate::bundled_extensions::openai_remote_compact::openai_remote_compact_extension_factory(),
-            },
-        ],
+        extension_factories: vec![InlineExtension::Factory {
+            extension_path: None,
+            factory: gate,
+        }],
         no_context_files: true,
         no_extensions: true,
         no_prompt_templates: true,

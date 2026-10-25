@@ -146,6 +146,7 @@ pub struct ResolvedAgentProfile {
     pub context: Option<SpawnContext>,
     pub model: Option<pi_ai::types::Model>,
     pub model_metadata: Option<AgentModel>,
+    pub thinking_level: Option<pi_ai::types::ModelThinkingLevel>,
 }
 
 pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolResult, HandlerError> {
@@ -157,9 +158,9 @@ pub async fn spawn_agent(input: SpawnAgentRuntimeInput<'_>) -> Result<AgentToolR
         PrepareResult::Prepared(prepared) => prepared,
         PrepareResult::Error(result) => return Ok(*result),
     };
-    let constructed = match construct_child_session(&valid, *prepared).await {
-        Ok(constructed) => constructed,
-        Err(result) => return Ok(*result),
+    let constructed = match construct_child_session(&valid, *prepared).await? {
+        SpawnConstruction::Created(constructed) => *constructed,
+        SpawnConstruction::Failed(result) => return Ok(*result),
     };
     let session_manager = valid.ctx.session_manager()?;
     let owner_session_id = session_manager.get_session_id().to_owned();
@@ -254,12 +255,6 @@ enum PrepareResult {
 }
 
 fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError> {
-    let Some(coordinator) = create_lifecycle_coordinator(&input.store) else {
-        return Ok(PrepareResult::Error(Box::new(spawn_error(
-            "spawn_agent requires a persisted supervisor session.",
-            &input.params.prompt,
-        ))));
-    };
     let agent_type = input
         .params
         .agent_type
@@ -267,7 +262,12 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
         .map(JsString::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or_else(|| "default".into());
-    let profile = resolve_configured_agent_profile(&agent_type, &input.ctx)?;
+    let requested = input
+        .params
+        .agent_type
+        .as_ref()
+        .is_some_and(|name| !name.trim().is_empty());
+    let profile = require_configured_agent_profile(&agent_type, requested, &input.ctx)?.unwrap_or_default();
     let display_name = input
         .params
         .display_name
@@ -283,6 +283,13 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
                 .filter(|value| !value.is_empty())
         })
         .unwrap_or_else(|| "Agent".into());
+    let Some(coordinator) = create_lifecycle_coordinator(&input.store) else {
+        return Ok(PrepareResult::Error(Box::new(spawn_error(
+            "spawn_agent requires a persisted supervisor session.",
+            &input.params.prompt,
+        ))));
+    };
+    let model = spawn_model_metadata(&profile, &input.ctx)?;
     let prepared = coordinator
         .prepare_child(&PrepareChildCommandInput {
             spawn: SpawnAgent {
@@ -297,7 +304,7 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
                     narrowed: true,
                 },
                 worktree: None,
-                model: profile.model_metadata,
+                model,
                 account: None,
                 slot: None,
                 transcript: None,
@@ -322,10 +329,15 @@ fn prepare_spawn(input: &ValidSpawnInput) -> Result<PrepareResult, HandlerError>
     })))
 }
 
+enum SpawnConstruction {
+    Created(Box<ConstructedSpawn>),
+    Failed(Box<AgentToolResult>),
+}
+
 async fn construct_child_session(
     input: &ValidSpawnInput,
     spawn: PreparedSpawn,
-) -> Result<ConstructedSpawn, Box<AgentToolResult>> {
+) -> Result<SpawnConstruction, HandlerError> {
     match input
         .create_child_session
         .call(ChildAgentDispatchInput {
@@ -343,10 +355,10 @@ async fn construct_child_session(
             if let Some(transcript) = child_session.transcript() {
                 prepared.transcript = Some(transcript);
             }
-            Ok(ConstructedSpawn {
+            Ok(SpawnConstruction::Created(Box::new(ConstructedSpawn {
                 prepared: PreparedSpawn { prepared, ..spawn },
                 child_session,
-            })
+            })))
         }
         Err(error) => {
             let runtime_error = AgentError {
@@ -356,18 +368,20 @@ async fn construct_child_session(
             let failed = spawn
                 .coordinator
                 .commit_failed_child(&spawn.prepared, runtime_error)
-                .map_err(|error| HandlerError::new(error.message()));
+                .map_err(|error| HandlerError::new(error.message()))?;
             let agent = match failed {
-                Ok(crate::core::session_control_db::CreateFailedMultiAgentChildResult::Ok { agent }) => {
-                    let _ = publish_coordinator_snapshot(&input.store, &agent);
+                crate::core::session_control_db::CreateFailedMultiAgentChildResult::Ok { agent } => {
+                    publish_coordinator_snapshot(&input.store, &agent).map_err(HandlerError::from)?;
                     *agent
                 }
-                _ => spawn.prepared.clone(),
+                crate::core::session_control_db::CreateFailedMultiAgentChildResult::Err { .. } => {
+                    spawn.prepared.clone()
+                }
             };
-            Err(Box::new(tool_result(
+            Ok(SpawnConstruction::Failed(Box::new(tool_result(
                 JsString::from("spawn_agent failed to construct child session: ") + &error,
                 json!({"agent": agent, "dispatched": false, "prompt": input.params.prompt}),
-            )))
+            ))))
         }
     }
 }
@@ -623,7 +637,7 @@ fn create_attached_agent(
         .or_else(|| target.name.clone())
         .unwrap_or_else(|| JsString::from("Session ") + &target.session_id);
     let model = resolve_configured_agent_profile(&agent_type, ctx)?
-        .model_metadata
+        .and_then(|profile| profile.model_metadata)
         .or_else(|| parent.as_ref().and_then(|parent| parent.model.clone()));
     let attached = coordinator
         .create_attachment(&SpawnAgent {
@@ -637,7 +651,7 @@ fn create_attached_agent(
             display_name,
             model,
             parent_id: params.parent_id.clone(),
-            permission: build_attached_session_permission(store, params.parent_id.as_ref(), ctx)?,
+            permission: build_attached_session_permission(store, params.parent_id.as_ref()),
             transcript: Some(crate::core::multi_agent_store::AgentTranscriptMetadata {
                 session_id: target.session_id.clone(),
                 path: Some(target.path.clone()),
@@ -660,31 +674,23 @@ fn create_attached_agent(
     }
 }
 
-fn build_attached_session_permission(
-    store: &MultiAgentStore,
-    parent_id: Option<&JsString>,
-    ctx: &ExtensionContext,
-) -> Result<AgentPermission, HandlerError> {
+fn build_attached_session_permission(store: &MultiAgentStore, parent_id: Option<&JsString>) -> AgentPermission {
     let Some(parent_id) = parent_id else {
-        let policy: JsString = match ctx.settings_manager()? {
-            Some(settings) => settings.lock().expect("settings").get_approval_policy().as_str().into(),
-            None => "on-request".into(),
-        };
-        return Ok(AgentPermission {
-            policy,
+        return AgentPermission {
+            policy: "on-request".into(),
             inherited_from: None,
             narrowed: true,
-        });
+        };
     };
     let parent = store.get_agent(parent_id);
-    Ok(AgentPermission {
+    AgentPermission {
         policy: parent
             .as_ref()
             .map(|parent| parent.permission.policy.clone())
             .unwrap_or_else(|| "on-request".into()),
         inherited_from: Some(parent_id.to_owned()),
         narrowed: true,
-    })
+    }
 }
 
 fn load_attach_session_target(
@@ -720,12 +726,27 @@ fn load_attach_session_target(
     let session_manager = ctx.session_manager()?;
     let session_dir = session_manager.get_session_dir().to_owned();
     if let Some(path) = selectors.1 {
-        let session = SessionManager::open(&path, Some(&session_dir), None)
+        let control_db_path = ctx.control_db_path()?;
+        let restored_path = match control_db_path.as_ref() {
+            Some(db) => crate::core::session_archive_storage::restore_archived_session(db, &path)
+                .map_err(|error| HandlerError::new(error.message().clone()))?,
+            None => path,
+        };
+        let session = SessionManager::open(&restored_path, Some(&session_dir), None)
             .map_err(|error| HandlerError::new(error.message().clone()))?;
+        let path = session.get_session_file().unwrap_or(&restored_path).clone();
+        let metadata = control_db_path
+            .as_ref()
+            .map(|db| crate::core::session_control_db::read_session_metadata(db, &path))
+            .transpose()
+            .map_err(|error| HandlerError::new(error.message()))?
+            .flatten();
+        let name =
+            metadata.and_then(|metadata| metadata.name.filter(|name| !name.is_empty()).or(metadata.subagent_name));
         return Ok(Ok(AttachSessionTarget {
             cwd: session.get_cwd().to_owned(),
-            name: session.get_session_name(),
-            path: session.get_session_file().unwrap_or(&path).clone(),
+            name,
+            path,
             session_id: session.get_session_id().to_owned(),
         }));
     }
@@ -939,21 +960,32 @@ fn has_live_agent_owner(input: &RecoverAgentsInput, agent: &AgentSnapshot) -> Re
             .map_err(|error| HandlerError::new(error.message()))?;
     Ok(ownership
         .and_then(|ownership| ownership.process_identity)
-        .is_some_and(|identity| is_process_identity_alive(&identity)))
+        .is_some_and(|identity| {
+            !crate::core::runtime_process::is_superseded_runtime_identity(
+                &identity,
+                super::lifecycle_runtime::runtime_process_identity(),
+            ) && is_process_identity_alive(&identity)
+        }))
 }
 
 fn resolve_configured_agent_profile(
     agent_type: &JsString,
     ctx: &ExtensionContext,
-) -> Result<ResolvedAgentProfile, HandlerError> {
+) -> Result<Option<ResolvedAgentProfile>, HandlerError> {
     let Some(settings) = ctx.settings_manager()? else {
-        return Ok(ResolvedAgentProfile::default());
+        return Ok(None);
     };
     let profile = settings.lock().expect("settings").get_agent_profile(agent_type);
     let Some(profile) = profile.filter(pi_js_compat::js_json::is_truthy) else {
-        return Ok(ResolvedAgentProfile::default());
+        return Ok(None);
     };
     let model = read_configured_profile_model(&profile, ctx)?;
+    let thinking_level = profile
+        .get("thinkingLevel")
+        .filter(|value| !value.is_null())
+        .map(pi_js_compat::js_json::from_value)
+        .transpose()
+        .map_err(|error| HandlerError::new(error.to_string()))?;
     let model_metadata = model
         .as_ref()
         .map(|model| {
@@ -978,11 +1010,73 @@ fn resolve_configured_agent_profile(
             SpawnContext::Fresh
         }
     });
-    Ok(ResolvedAgentProfile {
+    Ok(Some(ResolvedAgentProfile {
         context,
         model,
         model_metadata,
-    })
+        thinking_level,
+    }))
+}
+
+fn require_configured_agent_profile(
+    agent_type: &JsString,
+    requested: bool,
+    ctx: &ExtensionContext,
+) -> Result<Option<ResolvedAgentProfile>, HandlerError> {
+    let profile = resolve_configured_agent_profile(agent_type, ctx)?;
+    if !requested || profile.is_some() {
+        return Ok(profile);
+    }
+    let Some(settings) = ctx.settings_manager()? else {
+        return Ok(profile);
+    };
+    let merged = settings.lock().expect("settings").get_merged_settings();
+    let mut names = merged
+        .get("agents")
+        .and_then(Value::as_object)
+        .map(|agents| agents.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+    names.sort();
+    let guidance = if names.is_empty() {
+        JsString::from("Configure the profile under settings.agents or omit agentType to inherit the parent model.")
+    } else {
+        JsString::from("Configured agent profiles: ")
+            + JsString::join(names, ", ")
+            + ". Use one of these profile keys or omit agentType to inherit the parent model."
+    };
+    Err(HandlerError::new(js_format!(
+        "Unknown agent type {}. {}",
+        pi_js_compat::js_json::stringify_lossless(&json!(agent_type)),
+        guidance
+    )))
+}
+
+fn spawn_model_metadata(
+    profile: &ResolvedAgentProfile,
+    ctx: &ExtensionContext,
+) -> Result<Option<AgentModel>, HandlerError> {
+    let model = match profile.model.as_ref() {
+        Some(model) => Some(model.clone()),
+        None => ctx.model()?,
+    };
+    let Some(model) = model else {
+        return Ok(None);
+    };
+    let level = pi_ai::models::clamp_thinking_level(
+        &model,
+        profile
+            .thinking_level
+            .unwrap_or(pi_ai::types::ModelThinkingLevel::Medium),
+    );
+    Ok(Some(AgentModel {
+        provider_id: model.provider.to_string(),
+        model_id: model.id,
+        thinking_level: Some(
+            crate::core::agent_session::thinking_level_from_model(level)
+                .as_str()
+                .to_owned(),
+        ),
+    }))
 }
 
 fn read_configured_profile_model(

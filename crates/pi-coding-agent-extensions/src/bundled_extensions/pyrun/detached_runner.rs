@@ -416,7 +416,7 @@ async fn wait_for_detached_pyrun_settlement(
             });
         }
         if let Some(identity) = identity {
-            apply_detached_pyrun_runtime_commands(manifest, &control, &pending, &abort, &identity);
+            apply_detached_pyrun_runtime_commands(manifest, &control, &pending, &abort, &identity)?;
         }
     }
 }
@@ -427,17 +427,15 @@ fn apply_detached_pyrun_runtime_commands(
     pending: &PendingRequests,
     abort: &pi_js_compat::abort::AbortController,
     identity: &DetachedJobOwnershipIdentity,
-) {
-    let Ok(commands) =
+) -> Result<(), JsString> {
+    let commands =
         claim_detached_job_runtime_commands(&manifest.data.control_db_path, &manifest.data.runner_address, identity)
-    else {
-        return;
-    };
+            .map_err(|error| error.message().clone())?;
     for command in commands {
         match command {
             DetachedJobRuntimeCommand::Response(response) => settle_bridge_response(pending, &response),
             DetachedJobRuntimeCommand::Status(status) => {
-                let _ = enqueue_detached_job_status_response(
+                enqueue_detached_job_status_response(
                     &crate::core::detached_job_control::EnqueueDetachedJobStatusResponseInput {
                         control_db_path: manifest.data.control_db_path.clone(),
                         identity: identity.clone(),
@@ -451,7 +449,8 @@ fn apply_detached_pyrun_runtime_commands(
                             "state": "running"
                         }),
                     },
-                );
+                )
+                .map_err(|error| error.message().clone())?;
             }
             DetachedJobRuntimeCommand::Cancel(cancel) => {
                 let mut control = control.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -463,6 +462,7 @@ fn apply_detached_pyrun_runtime_commands(
             }
         }
     }
+    Ok(())
 }
 
 fn settle_bridge_response(pending: &PendingRequests, response: &DetachedJobResponseCommand) {
@@ -471,10 +471,12 @@ fn settle_bridge_response(pending: &PendingRequests, response: &DetachedJobRespo
         .unwrap_or_else(std::sync::PoisonError::into_inner)
         .remove(&response.request_id);
     if let Some(request) = request {
-        let _ = request.resolve.send(match &response.error {
-            Some(error) => Err(error.clone()),
-            None => Ok(response.result.clone()),
-        });
+        let _ = request
+            .resolve
+            .send(match response.error.as_ref().filter(|error| !error.is_empty()) {
+                Some(error) => Err(error.clone()),
+                None => Ok(response.result.clone()),
+            });
     }
 }
 
@@ -637,7 +639,9 @@ async fn finalize_detached_pyrun_settlement(
     .await;
     match finalized {
         Ok(FinalizeDetachedJobResult::Ok { terminal_revision, .. }) => Ok(terminal_revision),
-        Ok(other) => Err(format!("Could not finalize detached Pyrun job: {other:?}").into()),
+        Ok(FinalizeDetachedJobResult::Err { error }) => {
+            Err(format!("Could not finalize detached Pyrun job: {}", error.as_str()).into())
+        }
         Err(error) => Err(js_format!("Could not finalize detached Pyrun job: {}", error.message())),
     }
 }

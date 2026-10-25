@@ -17,10 +17,9 @@ use pi_coding_agent::core::agent_session::{
     AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition, WorkingDirectoryRecoveryHandlers,
 };
 use pi_coding_agent::core::agent_session_runtime::{
-    AgentSessionRuntime, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, ForkPosition,
-    NewSessionOptions, create_agent_session_runtime,
+    AgentSessionRuntime, AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionRuntimeOptions,
+    CreateAgentSessionRuntimeResult, ForkPosition, NewSessionOptions, create_agent_session_runtime,
 };
-use pi_coding_agent::core::agent_session_services::{AgentSessionRuntimeDiagnostic, AgentSessionServices};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{
     ExtensionEvent, LoadExtensionsResult, SessionBeforeForkResult, SessionBeforeSwitchResult, SessionShutdownEvent,
@@ -88,6 +87,8 @@ mod hello_example;
 
 #[path = "support/runtime_callback_failures.rs"]
 mod runtime_callback_failures;
+#[path = "support/runtime_initial_event.rs"]
+mod runtime_initial_event;
 #[path = "support/runtime_restart.rs"]
 mod runtime_restart;
 
@@ -122,7 +123,7 @@ async fn build_harness_with_runtime_observer(
         api: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
-            name: Some("Faux Model".to_owned()),
+            name: Some("Faux Model".into()),
             reasoning: Some(true),
             input: None,
             cost: None,
@@ -331,7 +332,7 @@ async fn build_harness_with_runtime_observer(
                     disable_runtime_coordination_inbound: false,
                     on_shared_channel_message_delivered: None,
                     extension_runner_ref: None,
-                    session_start_event: None,
+                    session_start_event: request.session_start_event,
                 })
                 .map_err(|error| error.message().clone())?;
                 Ok(CreateAgentSessionRuntimeResult {
@@ -361,6 +362,7 @@ async fn build_harness_with_runtime_observer(
         &JsString::from(&cwd),
         &JsString::from(&cwd),
         session_manager,
+        None,
         None,
     )
     .await

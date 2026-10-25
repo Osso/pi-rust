@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::differential_supervisor_service as oracle;
 use pi_coding_agent::{
     core::{
         auth_storage::AuthStorage, model_registry::ModelRegistry, resource_loader::StaticResourceLoader,
@@ -13,6 +12,26 @@ use pi_js_compat::{
 };
 use std::sync::{Arc, Mutex};
 const MODULE: &str = "packages/coding-agent/src/supervisor/main.ts";
+
+#[test]
+fn empty_file_paths_are_blocked_like_frozen() {
+    let directory = tempfile::tempdir().unwrap();
+    let kb = JsString::from(directory.path().to_str().unwrap());
+    let mut source = oracle::TsOracle::spawn("coding-agent-supervisor-main-oracle.ts", MODULE);
+    for (tool, input) in [
+        ("read", json!({"path":""})),
+        ("edit", json!({"path":""})),
+        ("write", json!({"path":""})),
+        ("read", json!({"path":"note.md"})),
+        ("bash", json!({})),
+    ] {
+        let expected = source.request(&json!({"id":1,"operation":"fileGate","kbDir":kb,"toolName":tool,"input":input}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let actual = pi_coding_agent::supervisor::main::block_supervisor_file_access(&kb, tool, &input);
+        let actual = actual.map(|result| json!({"block":result.block,"reason":result.reason}));
+        assert_eq!(json!(actual), expected["output"]);
+    }
+}
 
 #[test]
 fn opening_supervisor_session_prepares_and_removes_stale_files_like_frozen() {
@@ -58,12 +77,14 @@ fn opening_supervisor_session_prepares_and_removes_stale_files_like_frozen() {
 
 #[tokio::test]
 async fn authenticated_supervisor_model_selection_matches_frozen_requirements() {
-    for (providers, selected) in [
-        (vec![], None),
-        (vec!["openai-codex-gc"], Some("openai-codex-gc")),
+    for (providers, selected, configure_models) in [
+        (vec!["openai-codex"], None, false),
+        (vec![], None, true),
+        (vec!["openai-codex-gc"], Some("openai-codex-gc"), true),
         (
             vec!["openai-codex-team", "openai-codex-gc", "openai-codex"],
             Some("openai-codex"),
+            true,
         ),
     ] {
         let directory = tempfile::tempdir().unwrap();
@@ -86,11 +107,13 @@ async fn authenticated_supervisor_model_selection_matches_frozen_requirements() 
                 )
             })
             .collect::<pi_js_compat::js_json::JsObject>();
-        std::fs::write(
-            directory.path().join("models.json"),
-            pi_js_compat::js_json::stringify_lossless(&JsValue::object([("providers", JsValue::Object(models))])),
-        )
-        .unwrap();
+        if configure_models {
+            std::fs::write(
+                directory.path().join("models.json"),
+                pi_js_compat::js_json::stringify_lossless(&JsValue::object([("providers", JsValue::Object(models))])),
+            )
+            .unwrap();
+        }
         let auth_path = directory.path().join("auth.json");
         std::fs::write(
             &auth_path,

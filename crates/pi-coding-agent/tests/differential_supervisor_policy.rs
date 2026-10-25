@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::differential_supervisor_service as oracle;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::{
     core::{
@@ -22,7 +21,7 @@ use pi_js_compat::{
 use std::sync::{Arc, Mutex};
 
 struct PolicySession {
-    branch: Mutex<Vec<SessionEntry>>,
+    branch: Arc<Mutex<Vec<SessionEntry>>>,
     entry: SessionEntry,
     calls: Arc<Mutex<Vec<JsValue>>>,
     feedback: Arc<Mutex<Vec<JsValue>>>,
@@ -30,6 +29,8 @@ struct PolicySession {
     database: JsString,
     request_id: i64,
     feedback_error: bool,
+    cancel_prompt: bool,
+    release_prompt: Arc<tokio::sync::Notify>,
 }
 impl SupervisorSession for PolicySession {
     fn send_custom_message(&self, message: CustomMessagePayload) -> Option<BoxFuture<'static, Result<(), JsString>>> {
@@ -48,15 +49,40 @@ impl SupervisorSession for PolicySession {
     }
     fn abort(&self) -> BoxFuture<'static, Result<(), JsString>> {
         self.calls.lock().unwrap().push(json!({"kind":"abort"}));
-        Box::pin(async { Ok(()) })
+        let release = self.release_prompt.clone();
+        let cancel = self.cancel_prompt;
+        Box::pin(async move {
+            if cancel {
+                tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+                release.notify_one();
+            }
+            Ok(())
+        })
     }
     fn prompt(&self, content: JsString) -> BoxFuture<'static, Result<(), JsString>> {
         self.calls
             .lock()
             .unwrap()
             .push(json!({"kind":"prompt","content":content}));
-        self.branch.lock().unwrap().push(self.entry.clone());
-        Box::pin(async { Ok(()) })
+        let cancel = self.cancel_prompt;
+        if cancel {
+            assert!(
+                cancel_supervisor_request(&self.database, self.request_id, &"main".into(), "fixture cancelled")
+                    .unwrap()
+            );
+        }
+        let branch = self.branch.clone();
+        let entry = self.entry.clone();
+        let calls = self.calls.clone();
+        let release = self.release_prompt.clone();
+        Box::pin(async move {
+            if cancel {
+                release.notified().await;
+                calls.lock().unwrap().push(json!({"kind":"prompt_cleanup"}));
+            }
+            branch.lock().unwrap().push(entry);
+            Ok(())
+        })
     }
     fn compact(&self, instructions: &JsString) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         self.calls
@@ -87,6 +113,7 @@ struct PolicyCase {
     feedback_error: bool,
     block_completion: bool,
     cancel_review: bool,
+    cancel_prompt: bool,
 }
 impl Default for PolicyCase {
     fn default() -> Self {
@@ -99,6 +126,7 @@ impl Default for PolicyCase {
             feedback_error: false,
             block_completion: false,
             cancel_review: false,
+            cancel_prompt: false,
         }
     }
 }
@@ -153,7 +181,7 @@ async fn compare_case(case: PolicyCase) {
         "database":directory.path().join("source.sqlite"),"kind":case.kind,"entry":message,
         "percent":case.percent,"defaultReviewer":case.decision.is_none(),"decision":decision,
         "reviewError":case.decision.as_ref().is_some_and(Result::is_err),
-        "feedbackError":case.feedback_error,"blockCompletion":case.block_completion,"cancelReview":case.cancel_review,
+        "feedbackError":case.feedback_error,"blockCompletion":case.block_completion,"cancelReview":case.cancel_review,"cancelPrompt":case.cancel_prompt,
     }));
     assert_eq!(expected["ok"], json!(true), "{expected:?}");
     let database = JsString::from(directory.path().join("native.sqlite").to_str().unwrap());
@@ -178,7 +206,7 @@ async fn compare_case(case: PolicyCase) {
         }).unwrap();
     }
     let session = Arc::new(PolicySession {
-        branch: Mutex::new(Vec::new()),
+        branch: Arc::new(Mutex::new(Vec::new())),
         entry: pi_js_compat::js_json::from_value(&message).unwrap(),
         calls: Arc::new(Mutex::new(Vec::new())),
         feedback: Arc::new(Mutex::new(Vec::new())),
@@ -186,6 +214,8 @@ async fn compare_case(case: PolicyCase) {
         database: database.clone(),
         request_id: id,
         feedback_error: case.feedback_error,
+        cancel_prompt: case.cancel_prompt,
+        release_prompt: Arc::new(tokio::sync::Notify::new()),
     });
     let reviewed = Arc::new(Mutex::new(Vec::new()));
     let reviewer = create_fixture_reviewer(&case, &database, id, reviewed.clone());
@@ -260,6 +290,15 @@ async fn completion_errors_propagate_like_frozen() {
     })
     .await;
 }
+#[tokio::test(start_paused = true)]
+async fn cancellation_during_prompt_awaits_abort_cleanup_like_frozen() {
+    compare_case(PolicyCase {
+        cancel_prompt: true,
+        ..Default::default()
+    })
+    .await;
+}
+
 #[tokio::test(start_paused = true)]
 async fn cancellation_during_instruction_review_matches_frozen() {
     compare_case(PolicyCase {

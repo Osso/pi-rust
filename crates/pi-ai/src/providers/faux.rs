@@ -38,7 +38,7 @@ fn default_usage() -> Usage {
 #[derive(Debug, Clone, Default)]
 pub struct FauxModelDefinition {
     pub id: String,
-    pub name: Option<String>,
+    pub name: Option<JsString>,
     pub reasoning: Option<bool>,
     pub input: Option<Vec<Modality>>,
     pub cost: Option<ModelCostRates>,
@@ -63,19 +63,25 @@ pub struct RegisterFauxProviderOptions {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FauxContent {
-    Text(String),
+    Text(JsString),
     Block(Box<AssistantContent>),
     Blocks(Vec<AssistantContent>),
 }
 
 impl From<&str> for FauxContent {
     fn from(text: &str) -> Self {
-        Self::Text(text.to_owned())
+        Self::Text(text.into())
     }
 }
 
 impl From<String> for FauxContent {
     fn from(text: String) -> Self {
+        Self::Text(text.into())
+    }
+}
+
+impl From<JsString> for FauxContent {
+    fn from(text: JsString) -> Self {
         Self::Text(text)
     }
 }
@@ -185,8 +191,8 @@ pub struct FauxCore {
     api: String,
     provider: String,
     models: Vec<Model>,
-    min_token_size: usize,
-    max_token_size: usize,
+    min_token_size: f64,
+    max_token_size: f64,
     tokens_per_second: Option<f64>,
     pending_responses: Arc<Mutex<Vec<FauxResponseStep>>>,
     state: Arc<Mutex<FauxProviderState>>,
@@ -207,17 +213,17 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
                 .and_then(|size| size.max)
                 .unwrap_or(DEFAULT_MAX_TOKEN_SIZE as f64),
         )
-        .max(1.0) as usize;
+        .max(1.0);
     let max_token_size = options
         .token_size
         .and_then(|size| size.max)
         .unwrap_or(DEFAULT_MAX_TOKEN_SIZE as f64)
-        .max(min_token_size as f64) as usize;
+        .max(min_token_size);
 
     let definitions = options.models.filter(|models| !models.is_empty()).unwrap_or_else(|| {
         vec![FauxModelDefinition {
             id: DEFAULT_MODEL_ID.to_owned(),
-            name: Some(DEFAULT_MODEL_NAME.to_owned()),
+            name: Some(DEFAULT_MODEL_NAME.into()),
             reasoning: Some(false),
             input: Some(vec![Modality::Text, Modality::Image]),
             cost: Some(ModelCostRates::default()),
@@ -230,7 +236,7 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
         .map(|definition| Model {
             properties: Default::default(),
             id: definition.id.clone(),
-            name: definition.name.unwrap_or_else(|| definition.id.clone()).into(),
+            name: definition.name.unwrap_or_else(|| definition.id.clone().into()),
             api: api.clone(),
             provider: provider.clone(),
             base_url: DEFAULT_BASE_URL.into(),
@@ -247,7 +253,6 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
             context_window: definition.context_window.unwrap_or(128_000.0),
             auto_compaction_threshold: None,
             max_tokens: definition.max_tokens.unwrap_or(16_384.0),
-            sampling_params: None,
             headers: None,
             compat: None,
         })
@@ -346,8 +351,12 @@ impl FauxCore {
                 )
                 .await
             {
-                let message =
-                    create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
+                let message = create_error_message(
+                    callback_error_text(error),
+                    &resolver.api,
+                    &resolver.provider,
+                    &request_model.id,
+                );
                 sender.push(AssistantMessageEvent::Error {
                     reason: ErrorReason::Error,
                     error: message.clone(),
@@ -394,8 +403,12 @@ impl FauxCore {
                     )
                     .await
                     {
-                        let message =
-                            create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
+                        let message = create_error_message(
+                            callback_error_text(error),
+                            &resolver.api,
+                            &resolver.provider,
+                            &request_model.id,
+                        );
                         sender.push(AssistantMessageEvent::Error {
                             reason: ErrorReason::Error,
                             error: message.clone(),
@@ -404,8 +417,12 @@ impl FauxCore {
                     }
                 }
                 Err(error) => {
-                    let message =
-                        create_error_message(&error.message, &resolver.api, &resolver.provider, &request_model.id);
+                    let message = create_error_message(
+                        callback_error_text(error),
+                        &resolver.api,
+                        &resolver.provider,
+                        &request_model.id,
+                    );
                     sender.push(AssistantMessageEvent::Error {
                         reason: ErrorReason::Error,
                         error: message.clone(),
@@ -561,6 +578,12 @@ fn clone_message(mut message: AssistantMessage, api: &str, provider: &str, model
     message
 }
 
+fn callback_error_text(error: CallbackError) -> JsString {
+    error
+        .error_or_string_message()
+        .unwrap_or_else(|error| pi_js_compat::callback_error::throw_callback_uncaught(error))
+}
+
 fn create_error_message(
     error: impl Into<pi_js_compat::js_json::JsString>,
     api: &str,
@@ -585,8 +608,8 @@ fn create_aborted_message(partial: &AssistantMessage) -> AssistantMessage {
 async fn stream_with_deltas(
     sender: &AssistantMessageEventSender,
     message: AssistantMessage,
-    min_token_size: usize,
-    max_token_size: usize,
+    min_token_size: f64,
+    max_token_size: f64,
     tokens_per_second: Option<f64>,
     signal: Option<&AbortSignal>,
 ) -> Result<(), CallbackError> {
@@ -770,14 +793,16 @@ async fn schedule_chunk(chunk: impl Into<JsString>, tokens_per_second: Option<f6
     }
 }
 
-fn split_text_by_token_size(text: &JsString, min_token_size: usize, max_token_size: usize) -> Vec<JsString> {
+fn split_text_by_token_size(text: &JsString, min_token_size: f64, max_token_size: f64) -> Vec<JsString> {
     let mut chunks = Vec::new();
-    let mut index = 0;
-    while index < text.len() {
-        let span = max_token_size.saturating_sub(min_token_size) + 1;
-        let token_size = min_token_size + (next_random() as usize % span);
-        let end = (index + (token_size * 4).max(1)).min(text.len());
-        chunks.push(JsString::from_utf16(text.units()[index..end].to_vec()));
+    let mut index = 0.0;
+    while index < text.len() as f64 {
+        let random = (next_random() >> 11) as f64 / (1_u64 << 53) as f64;
+        let token_size = min_token_size + (random * (max_token_size - min_token_size + 1.0)).floor();
+        let end = index + (token_size * 4.0).max(1.0);
+        let start_unit = (index as usize).min(text.len());
+        let end_unit = (end as usize).min(text.len());
+        chunks.push(JsString::from_utf16(text.units()[start_unit..end_unit].to_vec()));
         index = end;
     }
     if chunks.is_empty() {
@@ -803,7 +828,7 @@ fn with_usage_estimate(
         .and_then(|options| options.cache_retention)
         .is_none_or(|retention| retention != CacheRetention::None);
 
-    if let Some(session_id) = session_id
+    if let Some(session_id) = session_id.filter(|id| !id.is_empty())
         && caching_enabled
     {
         let previous_prompt = lock(prompt_cache).get(&session_id).cloned();
@@ -889,7 +914,7 @@ fn message_to_text(message: &Message) -> JsString {
 
 fn serialize_context(context: &Context) -> JsString {
     let mut parts = Vec::new();
-    if let Some(system_prompt) = &context.system_prompt {
+    if let Some(system_prompt) = context.system_prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
         parts.push(JsString::from("system:") + system_prompt);
     }
     for message in &context.messages {

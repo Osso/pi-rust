@@ -146,7 +146,7 @@ fn actions() -> ExtensionActions {
         send_message: Arc::new(|_, _| Ok(())),
         send_user_message: Arc::new(|_, _| Ok(())),
         append_entry: Arc::new(|_, _| Ok(())),
-        request_resume_continuation: Arc::new(|| {}),
+        request_resume_continuation: Arc::new(|| Ok(())),
         set_session_name: Arc::new(|_| Ok(())),
         get_session_name: Arc::new(|| Ok(None)),
         set_label: Arc::new(|_, _| Ok(())),
@@ -773,7 +773,7 @@ fn detached_memory_selection_and_cleanup_failures_match_frozen() {
     active["lifecycle"] = json!("running");
     active["detached"] = json!(true);
     active["worker"] = json!({"adapter":"runtime","handleId":"job"});
-    active["result"] = json!({"fileRefs":[{"path":"output","label":"Pyrun output"}]});
+    active["result"] = json!({"fileRefs":[{"path":"/tmp/output","label":"Pyrun output"}]});
     let mut terminal = active.clone();
     terminal["lifecycle"] = json!("completed");
     let mut other_parent = active.clone();
@@ -1198,7 +1198,10 @@ async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() 
         let start = tokio::time::Instant::now();
         let result = cancel_owned_agent_runtime(&store, &handles, &agent.id, None).await;
         if let Some(error) = failure {
-            assert_eq!(result.err().expect("source rejects failed dispatch").message, error);
+            let Err(actual) = result else {
+                panic!("source rejects failed dispatch");
+            };
+            assert_eq!(actual.message, error);
         } else {
             assert!(result.is_ok());
             assert_eq!(start.elapsed(), std::time::Duration::from_millis(17));
@@ -1216,19 +1219,65 @@ async fn cancellation_uses_configured_timeout_and_propagates_dispatch_failure() 
 
 #[tokio::test]
 async fn recovery_resumes_unjournaled_child_transcript() {
+    assert_recovery_dispatch(false).await;
+}
+
+#[tokio::test]
+async fn recovery_child_transcript_error_fails_before_prompting() {
+    assert_recovery_dispatch(true).await;
+}
+
+async fn assert_recovery_dispatch(invalid_transcript: bool) {
     use pi_coding_agent::bundled_extensions::agents_core::shared::AttachedSessionFactory;
     use pi_coding_agent::bundled_extensions::agents_core::spawn_attach_runtime::{RecoverAgentsInput, recover_agents};
     let test = test_dir();
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let agent = seed_child(&store, &test, "unjournaled", "saved-transcript");
+    let identity = pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity();
+    pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
+        &test.control_db_path,
+        &pi_coding_agent::core::session_control_db::RuntimeMailboxAddress {
+            session_id: ctx.session_manager().unwrap().get_session_id().clone(),
+            agent_id: None,
+        },
+        identity.pid,
+        Some(&test.session_path),
+        pi_coding_agent::core::session_control_db::RuntimeMailboxRegistrationOptions {
+            runtime_instance_id: Some(pi_coding_agent::core::session_control_db::serialize_process_identity(
+                identity,
+            )),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let db = pi_coding_agent::core::sqlite::create_sqlite_database(&test.control_db_path).unwrap();
+    db.execute(
+        "UPDATE multi_agent_runtime_owners SET process_identity = NULL WHERE agent_id = 'unjournaled'",
+        [],
+    )
+    .unwrap();
+    drop(db);
     let handles = create_multi_agent_runtime_handles();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let observed = Arc::clone(&calls);
+    let prompts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed_prompts = Arc::clone(&prompts);
     recover_agents(&RecoverAgentsInput {
         create_attached_session: Some(AttachedSessionFactory::new(move |input| {
             observed.lock().unwrap().push((input.agent.id, input.prompt));
-            Box::pin(async { Ok(Arc::new(FakeSession::new("recovered", None)) as Arc<dyn ChildAgentSession>) })
+            let mut session = FakeSession::new("recovered", None);
+            if invalid_transcript {
+                session.transcript = Some(pi_coding_agent::core::multi_agent_store::AgentTranscriptMetadata {
+                    path: Some("relative".into()),
+                    session_id: "invalid".into(),
+                });
+            }
+            let prompts = Arc::clone(&observed_prompts);
+            session.on_prompt = Some(Arc::new(move || {
+                prompts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }));
+            Box::pin(async { Ok(Arc::new(session) as Arc<dyn ChildAgentSession>) })
         })),
         ctx,
         desktop_notifier: Arc::new(RecordingNotifier::default()),
@@ -1246,7 +1295,21 @@ async fn recovery_resumes_unjournaled_child_transcript() {
         .get(&agent.id)
         .cloned()
         .expect("must dispatch without journal");
-    assert_eq!(dispatch.await.unwrap().lifecycle, AgentLifecycle::Completed);
+    let outcome = dispatch.await.unwrap();
+    if invalid_transcript {
+        let mut ts = repin_oracle::TsOracle::spawn(
+            "agents-core-repin-oracle.ts",
+            "packages/coding-agent/extensions/agents-core/src",
+        );
+        let source = ts.request(&json!({"id":40,"op":"transcriptValidation","agent":agent}));
+        assert_eq!(source["ok"], json!(false));
+        assert_eq!(outcome.lifecycle, AgentLifecycle::Failed);
+        assert_eq!(json!(outcome.error.unwrap().message), source["error"]["message"]);
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::SeqCst), 0);
+    } else {
+        assert_eq!(outcome.lifecycle, AgentLifecycle::Completed);
+        assert_eq!(prompts.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
     assert_eq!(
         *calls.lock().unwrap(),
         vec![(
@@ -1350,6 +1413,116 @@ async fn mailbox_delivers_to_child_session_and_records_outbound_message() {
 }
 
 #[tokio::test]
+async fn mailbox_error_output_matches_frozen_target_and_identity_text() {
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let mut mismatches = Vec::new();
+    for (missing_identity, params) in [
+        (true, json!({"toAgentId":"child","message":"payload"})),
+        (
+            true,
+            json!({"toAgentId":"main","toSessionId":"target","message":"payload"}),
+        ),
+        (
+            true,
+            json!({"toAgentId":"main","toHost":"elsewhere","message":"payload"}),
+        ),
+        (false, json!({"toAgentId":"child","message":"payload"})),
+        (false, json!({"toAgentId":"main","toSessionId":"","message":"payload"})),
+        (
+            false,
+            json!({"toAgentId":"main","toSessionId":"target","message":"payload"}),
+        ),
+    ] {
+        let source =
+            ts.request(&json!({"id":42,"op":"mailboxToolOutput","params":params,"missingIdentity":missing_identity}));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let test = test_dir();
+        let store = Arc::new(MultiAgentStore::new(Default::default()));
+        let (_runner, ctx) = test_context(&test, None, None, missing_identity).await;
+        // No DB is supplied at the frozen/native transport boundary in this vector.
+        let result = send_agent_message(
+            &store,
+            &pi_js_compat::js_json::from_value(&params).unwrap(),
+            if missing_identity { Some(&ctx) } else { None },
+            None,
+        )
+        .unwrap();
+        let actual = json!({"text":text(&result),"isError":result.is_error});
+        if actual != source["output"] {
+            mismatches.push((params, actual, source["output"].clone()));
+        }
+    }
+    assert!(mismatches.is_empty(), "{mismatches:?}");
+}
+
+#[tokio::test]
+async fn detached_terminal_lifecycle_mirror_does_not_create_redundant_transport() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let mut agent = seed_child(&store, &test, "detached", "detached-transcript");
+    let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+        store: Some(Arc::clone(&store)),
+        ..Default::default()
+    });
+    handler
+        .handle(&json!({"method":"agents.list"}), &ctx, None, None)
+        .await
+        .unwrap();
+    agent.detached = Some(true);
+    agent.lifecycle = AgentLifecycle::Completed;
+    agent.revision += 1;
+    store.publish_terminal_outbox_snapshot(&agent).unwrap();
+    assert!(
+        list_runtime_mailbox_messages(&test.control_db_path).unwrap().is_empty(),
+        "detached terminal delivery has its own transport authority"
+    );
+}
+
+#[tokio::test]
+async fn parent_contact_uses_runtime_parent_identity_not_legacy_header() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    let agent = seed_child(&store, &test, "child", "child-transcript");
+    let manager = SessionManager::create(
+        &test.cwd.clone().into(),
+        None,
+        Some(pi_coding_agent::core::session_manager::NewSessionOptions {
+            parent_session: Some("/tmp/legacy-parent.jsonl".into()),
+            is_subagent: true,
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    let expected = manager.get_session_id().clone();
+    let (_runner, ctx) = test_context_with(
+        &test,
+        Arc::new(Mutex::new(manager)),
+        None,
+        Some(agent.id.to_utf8().unwrap()),
+        true,
+    )
+    .await;
+    let result = contact_parent(
+        &store,
+        &ContactParentParams {
+            message: "request".into(),
+            file_refs: None,
+            thread_id: None,
+        },
+        Some(&ctx),
+    )
+    .unwrap();
+    assert!(text(&result).starts_with("Contacted parent"));
+    let rows = list_runtime_mailbox_messages(&test.control_db_path).unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].recipient.session_id, expected);
+}
+
+#[tokio::test]
 async fn contact_parent_delivers_to_parent_session() {
     let test = test_dir();
     let store = store_with_persistence(&test);
@@ -1375,6 +1548,130 @@ async fn contact_parent_delivers_to_parent_session() {
         ctx.session_manager().expect("session").get_session_id()
     );
     assert_eq!(runtime_rows[0].sender.agent_id.clone(), Some(JsString::from("child")));
+}
+
+#[tokio::test]
+async fn wait_coordination_wake_returns_the_supplied_prompt() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    seed_child(&store, &test, "active", "active-transcript");
+    let handles = create_multi_agent_runtime_handles();
+    let waiting_store = Arc::clone(&store);
+    let waiting_handles = handles.clone();
+    let waiting = tokio::spawn(async move { wait_agents(&waiting_store, &waiting_handles, None, None).await });
+    tokio::task::yield_now().await;
+    pi_coding_agent::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(
+        &handles,
+        &"Coordination marker 🦀".into(),
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(text(&result), "Coordination marker 🦀");
+    assert_eq!(result.details, Some(json!({})));
+}
+
+#[tokio::test]
+async fn wait_tool_claims_coordination_but_bridge_wait_releases_without_delivery() {
+    use pi_coding_agent::core::session_control_db::{
+        EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+        RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message,
+        read_runtime_mailbox_message, register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
+    };
+    for bridge in [false, true] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let (_runner, ctx) = test_context(&test, None, None, false).await;
+        let recipient = RuntimeMailboxAddress {
+            session_id: ctx.session_manager().unwrap().get_session_id().clone(),
+            agent_id: None,
+        };
+        register_runtime_mailbox_listener(
+            &test.control_db_path,
+            &recipient,
+            std::process::id(),
+            Some(&test.session_path),
+            Default::default(),
+        )
+        .unwrap();
+        let message = store
+            .record_outbound_session_message(
+                &pi_coding_agent::core::multi_agent_store::RecordOutboundSessionMessageInput {
+                    from_agent_id: "sender".into(),
+                    to_agent_id: "main".into(),
+                    body: "Receive this once persisted".into(),
+                    thread_id: None,
+                    file_refs: None,
+                },
+            )
+            .unwrap();
+        let id = enqueue_runtime_mailbox_message(
+            &test.control_db_path,
+            &EnqueueRuntimeMailboxMessageInput {
+                recipient_host: None,
+                recipient: recipient.clone(),
+                sender: RuntimeMailboxAddress {
+                    session_id: "sender-session".into(),
+                    agent_id: None,
+                },
+                kind: RuntimeMailboxMessageKind::Message,
+                store_ref: RuntimeMailboxStoreRef {
+                    session_path: test.session_path.clone(),
+                    message_id: message.id.clone(),
+                },
+            },
+        )
+        .unwrap();
+        let handles = create_multi_agent_runtime_handles();
+        if bridge {
+            let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+                store: Some(Arc::clone(&store)),
+                runtime_handles: Some(handles),
+                ..Default::default()
+            });
+            assert_eq!(
+                handler
+                    .handle(&json!({"method":"agents.wait"}), &ctx, None, None)
+                    .await
+                    .unwrap(),
+                Value::Null
+            );
+            assert_eq!(
+                read_runtime_mailbox_message(&test.control_db_path, id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                RuntimeMailboxMessageStatus::Pending
+            );
+        } else {
+            let result = wait_agents(&store, &handles, None, Some(&ctx)).await.unwrap();
+            assert!(text(&result).contains("Receive this once persisted"));
+            assert_eq!(
+                result.details.unwrap()["runtimeMailboxDelivery"],
+                json!({"controlDbPath":test.control_db_path,"messages":[{"id":id,"storeRef":{"sessionPath":test.session_path,"messageId":message.id}}]})
+            );
+            assert_eq!(
+                read_runtime_mailbox_message(&test.control_db_path, id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                RuntimeMailboxMessageStatus::Claimed
+            );
+            release_runtime_mailbox_message_claim(&test.control_db_path, id).unwrap();
+        }
+        assert_eq!(
+            store
+                .list_mailbox_messages()
+                .unwrap()
+                .into_iter()
+                .find(|row| row.id == message.id)
+                .unwrap()
+                .status,
+            pi_coding_agent::core::multi_agent_store::MailboxMessageStatus::Pending
+        );
+    }
 }
 
 #[tokio::test]
@@ -1431,6 +1728,64 @@ async fn request_handler_validates_wait_params_and_selects_main_thread() {
         .expect_err("select");
     assert_eq!(unknown.message, "Agent not found: missing");
     handler.dispose();
+}
+
+#[tokio::test]
+async fn request_handler_send_does_not_invoke_tool_only_session_callback() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
+        &test.control_db_path,
+        &pi_coding_agent::core::session_control_db::RuntimeMailboxAddress {
+            session_id: "target".into(),
+            agent_id: None,
+        },
+        std::process::id(),
+        Some(&test.session_path),
+        Default::default(),
+    )
+    .unwrap();
+    let (_runner, ctx) = test_context(&test, None, None, false).await;
+    let message = store
+        .record_outbound_session_message(
+            &pi_coding_agent::core::multi_agent_store::RecordOutboundSessionMessageInput {
+                from_agent_id: "main".into(),
+                to_agent_id: "main".into(),
+                body: "payload".into(),
+                thread_id: None,
+                file_refs: None,
+            },
+        )
+        .unwrap();
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let source = ts.request(&json!({"id":41,"op":"handlerSendCallback","db":test.control_db_path,"sessionPath":test.session_path,"message":message}));
+    assert_eq!(source["ok"], json!(true), "{source:?}");
+    let calls = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let observed = Arc::clone(&calls);
+    let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+        store: Some(store),
+        on_session_message_sent: Some(Arc::new(move |_, _| {
+            observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        })),
+        ..Default::default()
+    });
+    handler
+        .handle(
+            &json!({"method":"messages.send","params":{"toAgentId":"main","toSessionId":"target","message":"payload"}}),
+            &ctx,
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        json!({"calls":calls.load(std::sync::atomic::Ordering::SeqCst)}),
+        source["output"]
+    );
 }
 
 #[tokio::test]
@@ -1646,6 +2001,64 @@ async fn background_command_reports_unavailable_and_validation_errors() {
             Some(NotifyType::Error)
         )
     );
+}
+
+#[tokio::test]
+async fn background_construction_failure_preserves_frozen_utf16_notification() {
+    let test = test_dir();
+    let error = JsString::from("failure ") + JsString::from_utf16(vec![0xd800]);
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let source = ts.request(&json!({"id":45,"op":"backgroundFailure","cwd":test.cwd,
+        "sessionDir":test._dir.path().join("source-sessions").to_str().unwrap(),
+        "db":test._dir.path().join("source-control.db").to_str().unwrap(),"error":error,
+    }));
+    assert_eq!(source["ok"], json!(true), "{source:?}");
+    let store = store_with_persistence(&test);
+    let ui = Arc::new(RecordingUi::default());
+    let options = MultiAgentExtensionOptions {
+        store: Some(store),
+        create_child_session: Some(ChildAgentSessionFactory::new(move |_| {
+            let error = error.clone();
+            Box::pin(async { Err(error) })
+        })),
+        ..Default::default()
+    };
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = multi_agent_extension(pi, &options);
+            Box::pin(async { result })
+        }),
+        &test.cwd.clone().into(),
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        create_extension_runtime(),
+        &"<first-party:agents-core>".into(),
+    )
+    .await
+    .unwrap();
+    let manager = Arc::new(Mutex::new(
+        SessionManager::in_memory(Some(&test.cwd.clone().into()), None).unwrap(),
+    ));
+    let (runner, _) =
+        test_context_with_extensions(&test, manager, Some(ui.clone()), None, false, vec![extension]).await;
+    let command = runner.get_command("bg").unwrap().handler;
+    command("task".into(), runner.create_command_context()).await.unwrap();
+    let notifications = ui.notifications.lock().unwrap().clone();
+    let actual = notifications
+        .into_iter()
+        .map(|(text, level)| {
+            json!([
+                text,
+                match level {
+                    Some(NotifyType::Error) => "error",
+                    _ => "unexpected",
+                }
+            ])
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(json!(actual), source["output"]);
 }
 
 #[tokio::test]

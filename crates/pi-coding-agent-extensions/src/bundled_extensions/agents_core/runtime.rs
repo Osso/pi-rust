@@ -399,7 +399,22 @@ impl MultiAgentPiRequestHandler {
             }
             Ok("agents.wait") => {
                 assert_no_wait_agents_params(&params, "pi.agents.wait")?;
-                wait_agents(&self.runtime.store, &self.runtime.runtime_handles, signal, Some(ctx)).await?;
+                let waited = wait_agents(&self.runtime.store, &self.runtime.runtime_handles, signal, Some(ctx)).await?;
+                if let Some(delivery) = waited
+                    .details
+                    .as_ref()
+                    .and_then(|details| details.get("runtimeMailboxDelivery"))
+                {
+                    let delivery: crate::core::runtime_mailbox_acceptance::RuntimeMailboxToolDelivery =
+                        js_json::from_value(delivery).map_err(|error| HandlerError::new(error.to_string()))?;
+                    for message in delivery.messages {
+                        crate::core::session_control_db::release_runtime_mailbox_message_claim(
+                            &delivery.control_db_path,
+                            message.id,
+                        )
+                        .map_err(|error| HandlerError::new(error.message()))?;
+                    }
+                }
                 Ok(Value::Null)
             }
             Ok("agents.attachSession") => {
@@ -447,12 +462,7 @@ impl MultiAgentPiRequestHandler {
             Ok("messages.send") => {
                 let params: super::mailbox_runtime::SendAgentMessageParams =
                     js_json::from_value(&params).map_err(|error| HandlerError::new(error.to_string()))?;
-                let result = super::mailbox_runtime::send_agent_message(
-                    &self.runtime.store,
-                    &params,
-                    Some(ctx),
-                    self.runtime.options.on_session_message_sent.as_ref(),
-                )?;
+                let result = super::mailbox_runtime::send_agent_message(&self.runtime.store, &params, Some(ctx), None)?;
                 Ok(result.details.unwrap_or(Value::Null))
             }
             _ => Ok(Value::Null),
