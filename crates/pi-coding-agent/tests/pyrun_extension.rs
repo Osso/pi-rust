@@ -414,9 +414,12 @@ fn event_bus() -> Arc<dyn EventBus> {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 fn actions() -> ExtensionActions {
@@ -584,7 +587,7 @@ async fn harness() -> Harness {
         restarted_for_context.store(true, Ordering::SeqCst);
         Box::pin(async { Ok(()) })
     });
-    runner.bind_core(actions, context_actions, None);
+    runner.bind_core(actions, context_actions, None).unwrap();
     Harness {
         runner,
         api: captured_api.lock().unwrap().take().expect("api captured"),

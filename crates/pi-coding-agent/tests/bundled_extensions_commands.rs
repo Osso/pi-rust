@@ -104,14 +104,16 @@ async fn spec_validation_matches_typescript() {
     .await;
     let mut runner = harness.runner.clone();
     let idle_actions = support::context_actions(&harness.calls, None);
-    runner.bind_core(
-        support::actions(&harness.calls),
-        pi_coding_agent::core::extensions::types::ExtensionContextActions {
-            is_idle: Arc::new(|| false),
-            ..idle_actions
-        },
-        None,
-    );
+    runner
+        .bind_core(
+            support::actions(&harness.calls),
+            pi_coding_agent::core::extensions::types::ExtensionContextActions {
+                is_idle: Arc::new(|| false),
+                ..idle_actions
+            },
+            None,
+        )
+        .unwrap();
     let handler = harness.command("spec-validation").handler;
     let error = handler("".to_owned().into(), runner.create_command_context())
         .await
@@ -593,14 +595,16 @@ async fn session_archive_command_branches_match_frozen() {
         )
         .await;
         let mut runner = harness.runner.clone();
-        runner.bind_core(
-            support::actions(&harness.calls),
-            pi_coding_agent::core::extensions::types::ExtensionContextActions {
-                get_multi_agent_store: Some(Arc::new(move || Some(Arc::clone(&store)))),
-                ..support::context_actions(&harness.calls, Some(db.clone()))
-            },
-            None,
-        );
+        runner
+            .bind_core(
+                support::actions(&harness.calls),
+                pi_coding_agent::core::extensions::types::ExtensionContextActions {
+                    get_multi_agent_store: Some(Arc::new(move || Some(Arc::clone(&store)))),
+                    ..support::context_actions(&harness.calls, Some(db.clone()))
+                },
+                None,
+            )
+            .unwrap();
         let response = oracle.request(&json!({"id":3,"extension":"session-archive","steps":[{"op":"command","name":"delete","controlDbPath":db,"sessionFile":path,"activeAgents":agents,"confirmed":true}]}));
         (harness.command("delete").handler)("".to_owned().into(), runner.create_command_context())
             .await

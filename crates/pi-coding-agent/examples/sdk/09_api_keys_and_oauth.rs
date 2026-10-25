@@ -31,7 +31,10 @@ pub async fn run(
         .set_runtime_api_key("anthropic", &"sk-my-temp-key".into());
     bind_registry_auth(&mut overridden, registry.clone());
     let third = print_session(overridden, "Session with runtime API key override", &mut output).await?;
-    bind_registry_auth(&mut built_in, ModelRegistry::in_memory(registry.auth_storage().clone()));
+    bind_registry_auth(
+        &mut built_in,
+        ModelRegistry::in_memory(registry.auth_storage().clone())?,
+    );
     let fourth = print_session(built_in, "Session with only built-in models", &mut output).await?;
     Ok([first, second, third, fourth])
 }

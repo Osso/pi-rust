@@ -250,7 +250,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     let manager = Arc::new(Mutex::new(
         SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
     ));
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let observed: Trace = Arc::default();
     let mut extensions = vec![extension.clone()];
     if request["observeBus"] == true {
@@ -371,7 +371,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
         log.lock().unwrap().push(json!(["sendUserMessage", content, options]));
         Ok(())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let log = trace.clone();
     runner.bind_command_context(Some(ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),

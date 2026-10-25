@@ -216,7 +216,7 @@ async fn env() -> Env {
     });
     let mut credentials = pi_js_compat::js_json::JsObject::new();
     credentials.insert(JsString::from("faux"), json!({"type": "api_key", "key": "faux-key"}));
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
 

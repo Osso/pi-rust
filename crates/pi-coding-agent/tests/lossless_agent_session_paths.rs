@@ -31,7 +31,7 @@ async fn ts_created_raw_session_path_survives_agent_session_persistence_identity
     let path = source["output"]["path"].as_string().unwrap().clone();
     assert!(path.units().contains(&0xd800));
     let manager = SessionManager::open(&path, Some(&directory), None).unwrap();
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new())).unwrap();
     let model = runtime.get_all().into_iter().next().unwrap();
     assert_eq!(runtime.find(&model.provider, &model.id), Some(model.clone()));
     let invalid_provider = JsString::from(&model.provider) + JsString::from_utf16(vec![0xd800]);
@@ -270,7 +270,7 @@ async fn invalid_skill_frontmatter_emits_native_path_error_and_keeps_original_co
         },
         ..Default::default()
     };
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new())).unwrap();
     let created =
         pi_coding_agent::core::sdk::create_agent_session(pi_coding_agent::core::sdk::CreateAgentSessionOptions {
             cwd: Some(cwd.clone()),

@@ -216,7 +216,7 @@ impl GitlabOAuth {
         })
     }
 }
-pub fn gitlab_duo_extension(api: &ExtensionApi) -> Result<(), JsString> {
+pub fn gitlab_duo_extension(api: &ExtensionApi) -> Result<(), CallbackError> {
     gitlab_duo_extension_with_backends(
         api,
         OAuthRuntime::system(),
@@ -230,7 +230,7 @@ pub fn gitlab_duo_extension_with_backends(
     api: &ExtensionApi,
     runtime: OAuthRuntime,
     backends: Backends,
-) -> Result<(), JsString> {
+) -> Result<(), CallbackError> {
     let state = Arc::new(State {
         runtime,
         cache: Mutex::new(None),

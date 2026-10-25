@@ -158,20 +158,22 @@ fn apply_extension_flag_values(
 fn register_pending_providers(
     model_registry: &ModelRegistry,
     resource_loader: &Arc<dyn ResourceLoader>,
-) -> Vec<AgentSessionRuntimeDiagnostic> {
+) -> Result<Vec<AgentSessionRuntimeDiagnostic>, CallbackError> {
     let mut diagnostics = Vec::new();
     let extensions_result = resource_loader.get_extensions();
     for registration in extensions_result.runtime.pending_provider_registrations() {
         if let Err(error) = model_registry.register_provider(&registration.name, registration.config) {
+            // Frozen agent-session-services.ts:164–169 catches Error.message or
+            // String(error); String conversion can itself reject.
+            let message = error.error_or_string_message()?;
             diagnostics.push(AgentSessionRuntimeDiagnostic {
                 diagnostic_type: "error".to_owned(),
-                message: (JsString::from("Extension \"") + &registration.extension_path + "\" error: ")
-                    + error.message(),
+                message: (JsString::from("Extension \"") + &registration.extension_path + "\" error: ") + message,
             });
         }
     }
     extensions_result.runtime.clear_pending_provider_registrations();
-    diagnostics
+    Ok(diagnostics)
 }
 
 /// Creates cwd-bound runtime services.
@@ -224,7 +226,7 @@ pub async fn create_agent_session_services(
         .await
         .map_err(JsString::from)?;
 
-    let mut diagnostics = register_pending_providers(&model_registry, &resource_loader);
+    let mut diagnostics = register_pending_providers(&model_registry, &resource_loader)?;
     diagnostics.extend(apply_extension_flag_values(
         &resource_loader,
         extension_flag_values.as_ref(),

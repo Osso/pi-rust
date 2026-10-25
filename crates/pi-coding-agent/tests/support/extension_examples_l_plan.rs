@@ -160,9 +160,9 @@ pub async fn compare(
         let registration = extension.read();
         json!({"commands":registration.commands.values().map(|c|json!([c.name,c.description,c.get_argument_completions.is_some()])).collect::<Vec<_>>(),"flags":registration.flags.values().map(|f|json!([f.name,f.description,f.flag_type,f.default])).collect::<Vec<_>>(),"shortcuts":registration.shortcuts.values().map(|s|json!([s.shortcut,s.description])).collect::<Vec<_>>()})
     };
-    let registry = Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new()),
-    ));
+    let registry = Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(Map::new())).unwrap(),
+    );
     if let Some(models) = request["models"].as_array() {
         registry
             .register_provider(
@@ -276,7 +276,7 @@ pub async fn compare(
         log.lock().unwrap().push(json!(["user", message, options]));
         Ok(())
     });
-    runner.bind_core(actions, context, None);
+    runner.bind_core(actions, context, None).unwrap();
     let log = trace.clone();
     let _errors = runner.on_error(Arc::new(move |error| {
         log.lock()

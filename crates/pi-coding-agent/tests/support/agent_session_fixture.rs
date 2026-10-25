@@ -39,7 +39,7 @@ pub async fn fixture(cwd: &std::path::Path, thinking_level: ThinkingLevel) -> Se
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
     );
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data)).unwrap();
     let faux = faux_provider(RegisterFauxProviderOptions {
         provider: Some("faux".to_owned()),
         models: Some(vec![faux_model()]),

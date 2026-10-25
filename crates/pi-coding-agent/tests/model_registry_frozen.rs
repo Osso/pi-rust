@@ -23,7 +23,7 @@ async fn registry_observes_live_storage_without_a_refresh() {
     let expected = oracle.request(&json!({"id": 1, "auth": {}}));
     assert_eq!(expected["ok"], true, "{expected}");
     let storage = AuthStorage::in_memory(Vec::<(String, Value)>::new());
-    let registry = ModelRegistry::in_memory(storage.clone());
+    let registry = ModelRegistry::in_memory(storage.clone()).unwrap();
     let before = snapshot(&registry);
     storage
         .set("anthropic", json!({"type": "api_key", "key": "q15-key"}))

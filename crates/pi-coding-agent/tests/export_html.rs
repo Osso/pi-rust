@@ -243,7 +243,7 @@ async fn export_agent_session_probe() {
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
     );
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let model = faux.get_model(None).expect("faux model");
     let agent = Agent::new(AgentOptions {

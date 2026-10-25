@@ -1,4 +1,6 @@
 // Frozen registry; no runtime/composer modules or live provider requests.
+
+import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
 import {
@@ -80,10 +82,122 @@ async function main(): Promise<void> {
 			}
 			return { key, auth };
 		}
+		if (request.operation === "constructor_lifetime") {
+			if (typeof request.home !== "string")
+				throw new TypeError("Fixture home must be a string");
+			process.env.HOME = request.home;
+			if (typeof request.agentDir === "string")
+				process.env.PI_CODING_AGENT_DIR = request.agentDir;
+			else delete process.env.PI_CODING_AGENT_DIR;
+			try {
+				const registry = ModelRegistry.create(
+					AuthStorage.inMemory({}),
+					request.path,
+				);
+				const snapshot = () => {
+					const models = registry
+						.getAll()
+						.filter(
+							(model: { provider: string }) =>
+								model.provider === "constructor-fixture",
+						);
+					return {
+						error: registry.getError() ?? null,
+						models,
+						serializedModels: JSON.stringify(models),
+					};
+				};
+				const before = snapshot();
+				if (typeof request.nextHome === "string")
+					process.env.HOME = request.nextHome;
+				registry.refresh();
+				return { created: true, before, after: snapshot() };
+			} catch (error) {
+				if (!(error instanceof Error)) throw error;
+				return {
+					created: false,
+					error: {
+						name: error.name,
+						message: error.message,
+						...Object.fromEntries(
+							Object.entries(error).filter(([key]) => key !== "stack"),
+						),
+					},
+				};
+			}
+		}
 		const storage = AuthStorage.inMemory(request.auth ?? {});
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "modifier_throw") {
+			const provider = "registry-modifier-throw";
+			const credential = {
+				type: "oauth",
+				access: "access",
+				refresh: "refresh",
+				expires: 9999999999999,
+			};
+			const thrown =
+				request.throwKind === "error"
+					? Object.assign(new TypeError(request.value as string), {
+							code: "E_MODIFIER",
+							detail: { stage: request.stage },
+						})
+					: request.value;
+			if (request.stage === "register") storage.set(provider, credential);
+			let rejection: unknown = null;
+			try {
+				registry.registerProvider(provider, {
+					...(request.config as Record<string, unknown>),
+					name: "Registered Modifier",
+					oauth: {
+						name: "Modifier Fixture",
+						login: async () => {
+							throw new Error("unused login");
+						},
+						refreshToken: async (value: unknown) => value,
+						getApiKey: (value: { access: string }) => value.access,
+						modifyModels: () => {
+							throw thrown;
+						},
+					},
+				});
+				if (request.stage !== "register") {
+					storage.set(provider, credential);
+					if (request.stage === "unregister") {
+						registry.registerProvider("modifier-side", { name: "Side" });
+						registry.unregisterProvider("modifier-side");
+					} else if (request.stage === "refresh") registry.refresh();
+					else if (request.stage === "create")
+						ModelRegistry.create(storage, "");
+					else ModelRegistry.inMemory(storage);
+				}
+			} catch (error) {
+				rejection =
+					error instanceof Error
+						? {
+								kind: "error",
+								value: {
+									name: error.name,
+									message: error.message,
+									...Object.fromEntries(
+										Object.entries(error).filter(([key]) => key !== "stack"),
+									),
+								},
+							}
+						: { kind: "value", value: error };
+			}
+			return {
+				rejection,
+				ids: registry
+					.getAll()
+					.filter((model: { provider: string }) => model.provider === provider)
+					.map((model: { id: string }) => model.id),
+				display: registry.getProviderDisplayName(provider),
+				sideDisplay: registry.getProviderDisplayName("modifier-side"),
+			};
+		}
 		if (request.operation === "registration_reentry") {
 			const provider = "registry-reentrant";
 			const nested = "registry-reentrant-nested";
@@ -121,6 +235,97 @@ async function main(): Promise<void> {
 			const afterUnregister = snapshot();
 			registry.unregisterProvider(nested);
 			return { observations, afterRefresh, afterUnregister };
+		}
+		if (request.operation === "auth_reentry") {
+			const provider = "registry-auth-reentrant";
+			let count = 0;
+			const definition = (
+				request.config as { models: Record<string, unknown>[] }
+			).models[0];
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				headers: { "X-Provider": "provider-0\uDC00", "X-Same": "provider-0" },
+				models: [
+					{
+						...definition,
+						headers: { "X-Model": "model-0\uD800", "X-Same": "model-0" },
+					},
+				],
+				oauth: {
+					name: "OAuth Header Fixture",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (credential: unknown) => credential,
+					getApiKey: (credential: { access: string }) => {
+						count++;
+						registry.registerProvider(provider, {
+							...(request.config as Record<string, unknown>),
+							apiKey: "updated-provider-key",
+							authHeader: true,
+							headers: {
+								"X-Provider": `provider-${count}\uDC00`,
+								"X-Same": `provider-${count}`,
+							},
+							models: [
+								{
+									...definition,
+									headers: {
+										"X-Model": `model-${count}\uD800`,
+										"X-Same": `model-${count}`,
+									},
+								},
+							],
+						});
+						return credential.access;
+					},
+				},
+			});
+			const model = registry.find(provider, "one");
+			model.headers = {
+				"X-Static": "static",
+				"X-Same": "static",
+				Authorization: "static-auth",
+			};
+			const first = await registry.getApiKeyAndHeaders(model);
+			const second = await registry.getApiKeyAndHeaders(model);
+			registry.unregisterProvider(provider);
+			return { first, second, count };
+		}
+		if (request.operation === "provider_auth_snapshot") {
+			const provider = "registry-provider-auth";
+			delete process.env.PI_REGISTRY_PROVIDER_KEY;
+			delete process.env.PI_REGISTRY_PROVIDER_ABSENT;
+			if (typeof request.envValue === "string")
+				process.env.PI_REGISTRY_PROVIDER_KEY = request.envValue;
+			if (request.config) registry.registerProvider(provider, request.config);
+			if (typeof request.runtimeKey === "string")
+				storage.setRuntimeApiKey(provider, request.runtimeKey);
+			const model = {
+				...registry.find("anthropic", "claude-opus-4-8"),
+				provider,
+			};
+			const witness =
+				typeof request.witness === "string" ? request.witness : undefined;
+			const readCommandCount = () =>
+				witness && existsSync(witness)
+					? readFileSync(witness, "utf8").length
+					: 0;
+			const before = {
+				configured: registry.hasConfiguredAuth(model),
+				status: registry.getProviderAuthStatus(provider),
+				display: registry.getProviderDisplayName(provider),
+				oauth: registry.isUsingOAuth(model),
+				commandCount: readCommandCount(),
+			};
+			const key = await registry.getApiKeyForProvider(provider);
+			const auth = await registry.getApiKeyAndHeaders(model);
+			return {
+				before,
+				key: key ?? null,
+				auth,
+				commandCount: readCommandCount(),
+			};
 		}
 		if (request.operation === "config_request") {
 			const response = request.response;

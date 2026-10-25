@@ -19,7 +19,7 @@ async fn custom_provider_key_propagates_only_after_frozen_registration_validatio
     for has_base_url in [false, true] {
         let expected = source.request(&json!({"operation":"register_custom_auth","baseUrl":has_base_url}));
         assert_eq!(expected["ok"], json!(true), "{expected:?}");
-        let registry = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new()));
+        let registry = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
         let mut model = builtin_model("anthropic", "claude-opus-4-8").unwrap();
         model.provider = "ordered-custom".into();
         let error = registry
@@ -34,7 +34,7 @@ async fn custom_provider_key_propagates_only_after_frozen_registration_validatio
                 },
             )
             .err()
-            .map(|error| error.message().to_utf8().unwrap());
+            .map(|error| error.error_or_string_message().unwrap().to_utf8().unwrap());
         let actual = match registry.get_api_key_and_headers(&model).await.unwrap() {
             ResolvedRequestAuth::Ok { api_key, headers, env } => {
                 assert!(headers.is_none());

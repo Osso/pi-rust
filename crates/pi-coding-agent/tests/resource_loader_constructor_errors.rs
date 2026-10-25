@@ -99,7 +99,7 @@ async fn resource_loader_constructor_nss_child() {
     let agent_dir = JsString::from(std::env::var("PI_RESOURCE_LOADER_AGENT").unwrap());
     let settings = SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default());
     let auth = AuthStorage::in_memory([] as [(&str, Value); 0]);
-    let registry = ModelRegistry::in_memory(auth.clone());
+    let registry = ModelRegistry::in_memory(auth.clone()).unwrap();
     let session = SessionManager::in_memory(Some(&cwd), None).unwrap();
     std::fs::write(std::env::var_os("PI_TEST_NSS_FAILURE_FILE").unwrap(), "").unwrap();
     let output = match operation.as_str() {

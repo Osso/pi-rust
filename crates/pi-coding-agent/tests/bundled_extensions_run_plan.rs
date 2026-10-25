@@ -123,14 +123,16 @@ async fn run_plan_matches_typescript() {
     );
 
     let mut idle_runner = harness.runner.clone();
-    idle_runner.bind_core(
-        support::actions(&harness.calls),
-        ExtensionContextActions {
-            is_idle: Arc::new(|| false),
-            ..support::context_actions(&harness.calls, None)
-        },
-        None,
-    );
+    idle_runner
+        .bind_core(
+            support::actions(&harness.calls),
+            ExtensionContextActions {
+                is_idle: Arc::new(|| false),
+                ..support::context_actions(&harness.calls, None)
+            },
+            None,
+        )
+        .unwrap();
     let handler = harness.command("run-plan").handler;
     let error = handler("".to_owned().into(), idle_runner.create_command_context())
         .await

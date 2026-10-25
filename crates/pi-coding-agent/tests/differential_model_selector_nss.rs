@@ -1,3 +1,5 @@
+#[path = "support/model_selector_modifier_rejection.rs"]
+mod modifier_rejection;
 #[path = "support/oracle.rs"]
 mod oracle;
 
@@ -76,7 +78,7 @@ async fn model_selector_nss_child() {
             set_theme_instance(Arc::new(
                 Theme::new(&colors, &[], ColorMode::Color256, None, None).unwrap(),
             ));
-            let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, Value); 0]));
+            let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, Value); 0])).unwrap();
             let ui = Rc::new(Ui(Cell::new(0)));
             let selector = ModelSelectorComponent::new(
                 ui.clone(),

@@ -133,7 +133,7 @@ async fn build_harness_with_runtime_observer(
     }));
     let mut credentials = serde_json::Map::new();
     credentials.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
 
     let extension_runtime = create_extension_runtime();

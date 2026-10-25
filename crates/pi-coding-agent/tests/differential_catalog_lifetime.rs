@@ -158,7 +158,7 @@ async fn catalog_registry_lifetime_probe() {
     let refresh = pi_js_compat::js_json!({"code":0,"stdout":js_format!("{}\n",format_model_catalog_refresh_summary(&result)),"stderr":""});
     let memo_after = snapshots(&get_openrouter_catalog_models(), &ids);
     let stale = registry_snapshot(&registry, &ids);
-    registry.refresh();
+    registry.refresh().unwrap();
     let after_refresh = registry_snapshot(&registry, &ids);
     pi_js_compat::process_env::set(
         "XDG_CACHE_HOME",
@@ -172,7 +172,7 @@ async fn catalog_registry_lifetime_probe() {
     );
     let root_result = load_openrouter_catalog_at_startup().await.unwrap();
     let stale_after_root = registry_snapshot(&registry, &ids);
-    registry.refresh();
+    registry.refresh().unwrap();
     let after_root = registry_snapshot(&registry, &ids);
     let output = pi_js_compat::js_json!({"before":before,"refresh":refresh,"memoAfterRefresh":memo_after,"stale":stale,"afterRefresh":after_refresh,"rootResult":js_json::to_value(&root_result).unwrap(),"staleAfterRoot":stale_after_root,"afterRoot":after_root});
     println!("\nCATALOG_RESULT:{}", js_json::stringify_lossless(&output));

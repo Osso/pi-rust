@@ -24,7 +24,8 @@ async fn faux_runtime() -> ModelRegistry {
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
         "faux".to_owned(),
         serde_json::json!({"type": "api_key", "key": "faux-key"}),
-    )])));
+    )])))
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, handle.provider.clone());
     runtime
 }

@@ -197,17 +197,19 @@ impl TestContextBuilder {
             registry,
             None,
         );
-        runner.bind_core(
-            actions(),
-            context_actions(
-                self.control_db_path,
-                self.agent_id,
-                self.requires_agent_id,
-                self.no_supervisor,
-                self.model,
-            ),
-            self.provider_actions,
-        );
+        runner
+            .bind_core(
+                actions(),
+                context_actions(
+                    self.control_db_path,
+                    self.agent_id,
+                    self.requires_agent_id,
+                    self.no_supervisor,
+                    self.model,
+                ),
+                self.provider_actions,
+            )
+            .unwrap();
         runner.set_ui_context(self.ui, self.mode);
         runner.bind_command_context(None);
         let context = runner.create_context();
@@ -216,9 +218,12 @@ impl TestContextBuilder {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 fn actions() -> ExtensionActions {

@@ -99,7 +99,8 @@ async fn model_registry() -> (ModelRegistry, pi_ai::types::Model) {
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
         "faux".to_owned(),
         serde_json::json!({"type":"api_key","key":"faux-key"}),
-    )])));
+    )])))
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, handle.provider.clone());
     let model = handle.get_model(None).expect("faux model");
     (runtime, model)

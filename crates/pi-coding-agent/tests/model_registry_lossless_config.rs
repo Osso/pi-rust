@@ -66,7 +66,7 @@ async fn models_json_retains_raw_url_headers_keys_and_bearer_request() {
 
 #[test]
 fn opaque_model_input_rejects_unpaired_identifiers_without_replacement() {
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, JsValue); 0]));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, JsValue); 0])).unwrap();
     let model = registry.find("anthropic", "claude-opus-4-8").unwrap();
     for (field, prefix, unit) in [("provider", "anthropic", 0xd800), ("id", "claude-opus-4-8", 0xdc00)] {
         let raw = JsString::from(prefix) + JsString::from_utf16(vec![unit]);
@@ -86,7 +86,7 @@ fn opaque_model_input_rejects_unpaired_identifiers_without_replacement() {
 
 #[tokio::test]
 async fn unregister_removes_registered_models_and_auth_without_touching_builtins() {
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, JsValue); 0]));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory([] as [(&str, JsValue); 0])).unwrap();
     let builtin = registry.find("anthropic", "claude-opus-4-8").unwrap();
     let mut custom = builtin.clone();
     custom.id = "q15-registered".into();
@@ -112,7 +112,7 @@ async fn unregister_removes_registered_models_and_auth_without_touching_builtins
         registry.get_api_key_for_provider("q15-registration").await.unwrap(),
         Some("registered-key".into())
     );
-    registry.unregister_provider("q15-registration");
+    registry.unregister_provider("q15-registration").unwrap();
     assert!(registry.find("q15-registration", "q15-registered").is_none());
     assert!(!registry.has_configured_auth(&custom).unwrap());
     assert_eq!(

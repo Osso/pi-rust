@@ -13,9 +13,11 @@ Current auth continuation and remaining boundaries: [auth integration status](au
 | refreshOAuthToken | lookup, unknown-provider failure, direct provider result | registry test |
 | getOAuthApiKey | lookup first; missing credentials returns None; refresh only expired; wrap refresh errors; derive key then return credentials | registry fake-provider tests plus coding-agent public rotation/delta/lossless proofs; see [auth trace](auth-storage.md) |
 | provider getApiKey | access string | external synthetic builtin mapping probe; no live provider/refresh proof |
-| Copilot modifyModels | preserve other providers, filter account model IDs when present, derive URL from token/domain | external synthetic 20-combination builtin probe; not login/refresh protocol proof |
+| Copilot modifyModels | preserve other providers, filter account model IDs when present, derive URL from token/domain; native result is now Result<Vec<Model>, CallbackError>, with success-only builtin output wrapped in Ok | external synthetic 20-combination builtin probe; not login/refresh protocol proof |
 | built-in login/refresh flows | existing native OAuthAuth flow bridge | NOT revalidated at common pin; upstream provider-module slices own protocol/callback deltas |
 | direct provider helper exports (loginAnthropic etc.) | existing old modules, not frozen public exports | pending provider-module port; not claimed complete |
+
+Parent-approved2026-10-24: model modifiers use the existing lossless CallbackError authority instead of an infallible return. Default and builtin transforms return Ok; registry/custom modifiers propagate rejection unchanged. [Registry entrypoint and consumer proof](model-registry.md#modifier-failure-consumer-boundaries-approved-migration-in-progress) tracks the active migration; no new source deviation or alternate API.
 
 The external probe covers five builtin IDs/names/callback flags × four synthetic credential fixtures (20 mapping combinations), not registry mutation/error coverage or provider protocols. `modify_models` is an identity default on every Rust provider, whereas frozen TS exposes optional `modifyModels` only on Copilot; valid mapped outputs do not establish optional-method shape parity.
 

@@ -40,7 +40,7 @@ pub type ExtensionOAuthRefreshFn = Arc<
         + Send
         + Sync,
 >;
-pub type ModifyModelsFn = Arc<dyn Fn(Vec<Model>, &OAuthCredentials) -> Vec<Model> + Send + Sync>;
+pub type ModifyModelsFn = Arc<dyn Fn(Vec<Model>, &OAuthCredentials) -> Result<Vec<Model>, CallbackError> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct ExtensionOAuthConfig {
@@ -138,20 +138,6 @@ impl ResolvedRequestAuth {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ModelRegistryError(JsString);
-impl ModelRegistryError {
-    pub fn message(&self) -> &JsString {
-        &self.0
-    }
-}
-impl std::fmt::Display for ModelRegistryError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&js_json::encode_node_utf8(&self.0))
-    }
-}
-impl std::error::Error for ModelRegistryError {}
-
 #[derive(Clone, Default)]
 struct ProviderRequestConfig {
     api_key: Option<JsString>,
@@ -178,32 +164,34 @@ fn lock<T>(value: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl ModelRegistry {
-    pub fn create(
-        auth_storage: AuthStorage,
-        models_path: Option<JsString>,
-    ) -> Result<Self, crate::config::ConfigError> {
+    pub fn create(auth_storage: AuthStorage, models_path: Option<JsString>) -> Result<Self, CallbackError> {
         let path = match models_path {
             Some(path) => path,
             None => crate::utils::paths::node_join(crate::config::get_agent_dir()?, "models.json"),
         };
-        Ok(Self::with_path(auth_storage, Some(path)))
+        let path = if path.is_empty() {
+            None
+        } else {
+            Some(crate::utils::paths::normalize_path(path, &Default::default())?)
+        };
+        Self::with_path(auth_storage, path)
     }
-    pub fn in_memory(auth_storage: AuthStorage) -> Self {
+    pub fn in_memory(auth_storage: AuthStorage) -> Result<Self, CallbackError> {
         Self::with_path(auth_storage, None)
     }
-    fn with_path(auth_storage: AuthStorage, models_path: Option<JsString>) -> Self {
+    fn with_path(auth_storage: AuthStorage, models_path: Option<JsString>) -> Result<Self, CallbackError> {
         let registry = Self {
             auth_storage,
             models_path,
             state: Arc::new(Mutex::new(RegistryState::default())),
         };
-        registry.load_models();
-        registry
+        registry.load_models()?;
+        Ok(registry)
     }
     pub fn auth_storage(&self) -> &AuthStorage {
         &self.auth_storage
     }
-    pub fn refresh(&self) {
+    pub fn refresh(&self) -> Result<(), CallbackError> {
         self.auth_storage.reload();
         {
             let mut state = lock(&self.state);
@@ -213,11 +201,12 @@ impl ModelRegistry {
         }
         compat::reset_api_providers();
         pi_ai::oauth::reset_oauth_providers();
-        self.load_models();
+        self.load_models()?;
         let registered = lock(&self.state).registered.clone();
         for (provider, config) in registered {
-            self.apply_provider_config(&provider, &config);
+            self.apply_provider_config(&provider, &config)?;
         }
+        Ok(())
     }
     pub fn get_error(&self) -> Option<JsString> {
         lock(&self.state).error.clone()
@@ -332,10 +321,11 @@ impl ModelRegistry {
             .provider_requests
             .get(provider)
             .and_then(|config| config.api_key.clone());
+        let Some(key) = key.filter(|key| !key.is_empty()) else {
+            return Ok(None);
+        };
         let env = self.provider_env(provider)?;
-        Ok(key
-            .as_ref()
-            .and_then(|key| resolve_config_value_uncached(key, env.as_ref())))
+        Ok(resolve_config_value_uncached(&key, env.as_ref()))
     }
     fn provider_env(&self, provider: &str) -> Result<Option<HashMap<String, JsString>>, StorageError> {
         self.auth_storage
@@ -352,20 +342,11 @@ impl ModelRegistry {
         }
     }
     async fn resolve_request_auth(&self, model: &Model) -> Result<ResolvedRequestAuth, CallbackError> {
-        let (config, model_headers) = {
-            let state = lock(&self.state);
-            (
-                state
-                    .provider_requests
-                    .get(&model.provider)
-                    .cloned()
-                    .unwrap_or_default(),
-                state
-                    .model_headers
-                    .get(&format!("{}:{}", model.provider, model.id))
-                    .cloned(),
-            )
-        };
+        let config = lock(&self.state)
+            .provider_requests
+            .get(&model.provider)
+            .cloned()
+            .unwrap_or_default();
         let env = self
             .provider_env(&model.provider)
             .map_err(StorageError::into_callback)?;
@@ -397,6 +378,12 @@ impl ModelRegistry {
                 .transpose()
                 .map_err(|error| CallbackError::new(error.message().clone()))?,
         };
+        // Frozen712 awaits the key before732 reads model headers. A key
+        // callback can replace the model headers without replacing this config.
+        let model_headers = lock(&self.state)
+            .model_headers
+            .get(&format!("{}:{}", model.provider, model.id))
+            .cloned();
         let mut headers: ProviderHeaders = model
             .headers
             .clone()
@@ -437,7 +424,7 @@ impl ModelRegistry {
             env: env.filter(|env| !env.is_empty()).map(|env| env.into_iter().collect()),
         })
     }
-    fn load_models(&self) {
+    fn load_models(&self) -> Result<(), CallbackError> {
         let config = self.load_custom_config();
         let mut state = lock(&self.state);
         let providers = match config {
@@ -552,23 +539,22 @@ impl ModelRegistry {
         drop(state);
         for oauth in self.auth_storage.get_oauth_providers() {
             if let Some(credential) = oauth_credential(&self.auth_storage, oauth.id()) {
-                models = oauth.modify_models(models, &credential);
+                models = oauth.modify_models(models, &credential)?;
             }
         }
         lock(&self.state).models = models;
+        Ok(())
     }
     fn load_custom_config(&self) -> Result<JsObject, JsString> {
-        let Some(path) = self.models_path.as_ref().filter(|path| !path.is_empty()) else {
+        let Some(path) = self.models_path.as_ref() else {
             return Ok(JsObject::new());
         };
-        let path = crate::utils::paths::normalize_path(path, &Default::default())
-            .map_err(|error| self.load_error(error.message().clone()))?;
-        let os_path = js_json::encode_node_utf8(&path);
+        let os_path = js_json::encode_node_utf8(path);
         if !std::path::Path::new(&os_path).exists() {
             return Ok(JsObject::new());
         }
         let bytes = std::fs::read(os_path)
-            .map_err(|error| self.load_error(pi_js_compat::node_fs::node_read_error(&error, &path)))?;
+            .map_err(|error| self.load_error(pi_js_compat::node_fs::node_read_error(&error, path)))?;
         // Node's UTF-8 file ingress repairs malformed bytes before JSON.parse.
         let content = String::from_utf8_lossy(&bytes);
         let value = js_json::parse_lossless(&crate::utils::json::strip_json_comments(&content))
@@ -596,9 +582,9 @@ impl ModelRegistry {
             self.models_path.as_ref().expect("custom models have a path")
         )
     }
-    pub fn register_provider(&self, provider: &str, config: ProviderConfigInput) -> Result<(), ModelRegistryError> {
+    pub fn register_provider(&self, provider: &str, config: ProviderConfigInput) -> Result<(), CallbackError> {
         validate_provider_config(provider, &config)?;
-        self.apply_provider_config(provider, &config);
+        self.apply_provider_config(provider, &config)?;
         let mut state = lock(&self.state);
         if let Some(existing) = state.registered.get_mut(provider) {
             upsert_provider_config(existing, config);
@@ -607,12 +593,13 @@ impl ModelRegistry {
         }
         Ok(())
     }
-    pub fn unregister_provider(&self, provider: &str) {
+    pub fn unregister_provider(&self, provider: &str) -> Result<(), CallbackError> {
         if lock(&self.state).registered.shift_remove(provider).is_some() {
-            self.refresh();
+            self.refresh()?;
         }
+        Ok(())
     }
-    fn apply_provider_config(&self, provider: &str, config: &ProviderConfigInput) {
+    fn apply_provider_config(&self, provider: &str, config: &ProviderConfigInput) -> Result<(), CallbackError> {
         if let Some(oauth) = &config.oauth {
             pi_ai::oauth::register_oauth_provider(Arc::new(RegisteredOAuth {
                 id: provider.into(),
@@ -667,16 +654,16 @@ impl ModelRegistry {
                 state.models.push(create_registered_model(provider, model, config));
             }
             let Some(modify) = config.oauth.as_ref().and_then(|oauth| oauth.modify_models.as_ref()) else {
-                return;
+                return Ok(());
             };
             let Some(credential) = oauth_credential(&self.auth_storage, provider) else {
-                return;
+                return Ok(());
             };
             // Frozen957 keeps the newly installed models visible during reentry.
             // Owned callback arguments follow the approved value-copy boundary.
             let models = state.models.clone();
             drop(state);
-            let models = modify(models, &credential);
+            let models = modify(models, &credential)?;
             lock(&self.state).models = models;
         } else if config.base_url.as_ref().is_some_and(|url| !url.is_empty()) || config.headers.is_some() {
             // Frozen960 gates on truthiness; an empty URL only applies when
@@ -689,6 +676,7 @@ impl ModelRegistry {
                 }
             }
         }
+        Ok(())
     }
 }
 
@@ -987,9 +975,9 @@ fn validate_config(providers: &JsObject) -> Result<(), JsString> {
     }
     Ok(())
 }
-fn validate_provider_config(provider: &str, config: &ProviderConfigInput) -> Result<(), ModelRegistryError> {
+fn validate_provider_config(provider: &str, config: &ProviderConfigInput) -> Result<(), CallbackError> {
     if config.stream_simple.is_some() && config.api.as_ref().is_none_or(|api| api.is_empty()) {
-        return Err(ModelRegistryError(js_format!(
+        return Err(CallbackError::new(js_format!(
             "Provider {}: \"api\" is required when registering streamSimple.",
             provider
         )));
@@ -998,27 +986,27 @@ fn validate_provider_config(provider: &str, config: &ProviderConfigInput) -> Res
         return Ok(());
     };
     if config.base_url.as_ref().is_none_or(JsString::is_empty) {
-        return Err(ModelRegistryError(js_format!(
+        return Err(CallbackError::new(js_format!(
             "Provider {}: \"baseUrl\" is required when defining models.",
             provider
         )));
     }
     if config.api_key.as_ref().is_none_or(JsString::is_empty) && config.oauth.is_none() {
-        return Err(ModelRegistryError(js_format!(
+        return Err(CallbackError::new(js_format!(
             "Provider {}: \"apiKey\" or \"oauth\" is required when defining models.",
             provider
         )));
     }
     for model in models {
         if model.api.as_ref().is_none_or(|api| api.is_empty()) && config.api.as_ref().is_none_or(|api| api.is_empty()) {
-            return Err(ModelRegistryError(js_format!(
+            return Err(CallbackError::new(js_format!(
                 "Provider {}, model {}: no \"api\" specified.",
                 provider,
                 model.id
             )));
         }
         if model.compat.as_ref().is_some_and(|value| !value.is_object()) {
-            return Err(ModelRegistryError(js_format!(
+            return Err(CallbackError::new(js_format!(
                 "Provider {}, model {}: compat must be an object.",
                 provider,
                 model.id
@@ -1070,10 +1058,10 @@ impl OAuthProviderInterface for RegisteredOAuth {
     fn get_api_key(&self, credentials: &OAuthCredentials) -> Result<JsString, CallbackError> {
         (self.config.get_api_key)(credentials)
     }
-    fn modify_models(&self, models: Vec<Model>, credentials: &OAuthCredentials) -> Vec<Model> {
-        self.config
-            .modify_models
-            .as_ref()
-            .map_or_else(|| models.clone(), |modify| modify(models.clone(), credentials))
+    fn modify_models(&self, models: Vec<Model>, credentials: &OAuthCredentials) -> Result<Vec<Model>, CallbackError> {
+        match &self.config.modify_models {
+            Some(modify) => modify(models, credentials),
+            None => Ok(models),
+        }
     }
 }

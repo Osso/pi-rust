@@ -27,7 +27,7 @@ use serde_json::json;
 async fn faux_runtime(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }
@@ -100,7 +100,7 @@ async fn create_agent_session_uses_explicit_model_and_persists_prompt() {
 #[tokio::test]
 async fn create_agent_session_keeps_running_without_models() {
     let temp = tempfile::tempdir().expect("temp dir");
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
     let session_dir = temp.path().join("sessions").display().to_string();
     let mut session_manager = SessionManager::create(
         &JsString::from(&temp.path().display().to_string()),

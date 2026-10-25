@@ -100,7 +100,7 @@ fn logout_unknown_persisted_types_fail_explicitly_under_approved_gap() {
         }
         assert_eq!(expected["output"]["logout"], serde_json::json!([option]));
         let storage = crate::core::auth_storage::AuthStorage::in_memory([(id, record)]);
-        let registry = ModelRegistry::in_memory(storage);
+        let registry = ModelRegistry::in_memory(storage).unwrap();
         assert_eq!(
             get_logout_provider_options(&registry).unwrap_err(),
             "Invalid credential type for provider q15-unsupported"

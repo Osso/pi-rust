@@ -183,9 +183,9 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["noAuth"] != true {
         credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
     }
-    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     if request["noAuth"] != true {
-        models.refresh();
+        models.refresh().unwrap();
     }
     let faux = pi_ai::compat::register_faux_provider(RegisterFauxProviderOptions {
         api: Some(
@@ -208,7 +208,6 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
         }]),
         ..Default::default()
     });
-
     let calls: Trace = Arc::default();
     let log = calls.clone();
     let generation_started = Arc::new(tokio::sync::Notify::new());
@@ -274,7 +273,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["noModel"] != true {
         context.get_model = Arc::new(move || model.clone());
     }
-    runner.bind_core(support::actions(), context, None);
+    runner.bind_core(support::actions(), context, None).unwrap();
     let errors: Trace = Arc::default();
     let log = errors.clone();
     runner.on_error(Arc::new(move |e| log.lock().unwrap().push(json!([e.event, e.error]))));
