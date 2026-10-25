@@ -9,7 +9,12 @@ async function main(): Promise<void> {
 			if (request.operation === "unbound") {
 				const runtime = loader.createExtensionRuntime();
 				const errors: Array<string | null> = [];
-				for (const action of ["requestResumeContinuation", "callTool", "callCommand", "setModel"]) {
+				for (const action of [
+					"requestResumeContinuation",
+					"callTool",
+					"callCommand",
+					"setModel",
+				]) {
 					try {
 						await runtime[action]();
 						errors.push(null);
@@ -21,11 +26,19 @@ async function main(): Promise<void> {
 				continue;
 			}
 			const result = request.discover
-				? await loader.discoverAndLoadExtensions(request.paths, request.cwd, request.agentDir)
+				? await loader.discoverAndLoadExtensions(
+						request.paths,
+						request.cwd,
+						request.agentDir,
+					)
 				: await loader.loadExtensions(request.paths, request.cwd);
-			process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, extensions: result.extensions.map((extension: { path: string; resolvedPath: string; sourceInfo: unknown }) => ({ path: extension.path, resolvedPath: extension.resolvedPath, sourceInfo: extension.sourceInfo })), errors: result.errors })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id: request.id, ok: true, extensions: result.extensions.map((extension: { path: string; resolvedPath: string; sourceInfo: unknown }) => ({ path: extension.path, resolvedPath: extension.resolvedPath, sourceInfo: extension.sourceInfo })), errors: result.errors })}\n`,
+			);
 		} catch (error) {
-			process.stdout.write(`${JSON.stringify({ id: request.id, ok: false, message: error instanceof Error ? error.message : String(error) })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id: request.id, ok: false, message: error instanceof Error ? error.message : String(error) })}\n`,
+			);
 		}
 	}
 }
