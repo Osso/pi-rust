@@ -16,7 +16,7 @@ use pi_ai::request::{
 };
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, Message, Modality, Model,
-    ModelCost, ModelCostRates, ModelCostTier, ModelThinkingLevel, StopReason, TextContent, Usage, UsageCost,
+    ModelCost, ModelCostRates, ModelThinkingLevel, StopReason, TextContent, Usage, UsageCost,
 };
 use pi_ai::utils::event_stream::{AssistantMessageEventStream, StreamFailure, create_assistant_message_event_stream};
 use pi_js_compat::abort::AbortSignal;
@@ -1159,25 +1159,12 @@ async fn applies_resolved_env_to_stream_options() {
 #[test]
 fn calculates_cost_from_base_rates_even_with_old_tier_metadata() {
     let mut model = test_model("openai", "gpt-5.6-sol");
-    model.cost = ModelCost {
-        properties: Default::default(),
-        rates: ModelCostRates {
-            input: 5.0,
-            output: 30.0,
-            cache_read: 0.5,
-            cache_write: 6.25,
-        },
-        tiers: Some(vec![ModelCostTier {
-            properties: Default::default(),
-            rates: ModelCostRates {
-                input: 10.0,
-                output: 45.0,
-                cache_read: 1.0,
-                cache_write: 12.5,
-            },
-            input_tokens_above: 272_000.0,
-        }]),
-    };
+    model.cost = serde_json::from_value(json!({
+        "input": 5.0, "output": 30.0, "cacheRead": 0.5, "cacheWrite": 6.25,
+        "tiers": [{ "input": 10.0, "output": 45.0, "cacheRead": 1.0, "cacheWrite": 12.5,
+            "inputTokensAbove": 272_000.0 }]
+    }))
+    .unwrap();
     let usage = |cache_write: f64| Usage {
         input: 200_000.0,
         output: 100_000.0,
