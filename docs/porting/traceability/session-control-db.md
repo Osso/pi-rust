@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Detached-finalization reference bytes and reciprocal replay (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-finalization-red.log` shows new output references require label/path order while normalized existing references require path/label. Native used path/label for every reference, breaking canonical bytes and cross-runtime replay comparisons. The finalizer now constructs only its new output reference in the frozen order, leaving existing-reference normalization unchanged. The source/native fixture covers completed/failed/aborted outcomes, duplicate output-ref removal, complete stored bytes and TS-finalized→native-replay plus native-finalized→TS-replay.
+
 ## Superseded runtime recovery and replay (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-recovery-red.log` exposes missing ordinary recovery branches: native rejected a live PID whose old incarnation was superseded by the registered supervisor, and rejected replay of an already recovered lost_runtime terminal row. Recovery now passes the replacement identity to the existing supersession authority and checks the frozen terminal/error/cleared-owner replay before active-runtime planning. Reconciliation supplies no replacement identity, preserving its existing behavior. Two source/native tests cover running→failed and cancelling→aborted, retained tool-call ID, unchanged replay result and exactly one terminal outbox row. Source creates both databases and primes replay through the real public API.
