@@ -84,6 +84,44 @@ async function main(): Promise<void> {
 		const registry = request.modelsPath
 			? ModelRegistry.create(storage, request.modelsPath)
 			: ModelRegistry.inMemory(storage);
+		if (request.operation === "registration_reentry") {
+			const provider = "registry-reentrant";
+			const nested = "registry-reentrant-nested";
+			const observations: unknown[] = [];
+			const snapshot = () => ({
+				ids: registry
+					.getAll()
+					.filter((model: { provider: string }) => model.provider === provider)
+					.map((model: { id: string }) => model.id),
+				display: registry.getProviderDisplayName(provider),
+				nestedDisplay: registry.getProviderDisplayName(nested),
+			});
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				name: "Registered Fixture",
+				oauth: {
+					name: "OAuth Fixture",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (credential: unknown) => credential,
+					getApiKey: (credential: { access: string }) => credential.access,
+					modifyModels: (models: unknown[], credential: { access: string }) => {
+						observations.push({ ...snapshot(), access: credential.access });
+						registry.registerProvider(nested, {
+							name: `Nested ${observations.length}`,
+						});
+						return models;
+					},
+				},
+			});
+			registry.refresh();
+			const afterRefresh = snapshot();
+			registry.unregisterProvider(provider);
+			const afterUnregister = snapshot();
+			registry.unregisterProvider(nested);
+			return { observations, afterRefresh, afterUnregister };
+		}
 		if (request.operation === "config_request") {
 			const response = request.response;
 			const modelId = request.modelId;
@@ -147,6 +185,53 @@ async function main(): Promise<void> {
 			} finally {
 				clearFetchScript();
 			}
+		}
+		if (
+			request.operation === "registration_snapshot" ||
+			request.operation === "registration_from_existing"
+		) {
+			let config = request.config;
+			if (request.operation === "registration_from_existing") {
+				const model = registry.find(
+					request.sourceProvider,
+					request.sourceModel,
+				);
+				if (!model) throw new Error("Source fixture model missing");
+				config = { ...(config as Record<string, unknown>), models: [model] };
+			}
+			const updates = request.updates;
+			if (updates !== undefined && !Array.isArray(updates))
+				throw new TypeError("Fixture updates must be an array");
+			let error = null;
+			try {
+				registry.registerProvider(request.provider, config);
+				for (const update of updates ?? [])
+					registry.registerProvider(request.provider, update);
+			} catch (failure) {
+				error = failure instanceof Error ? failure.message : String(failure);
+			}
+			const models = registry
+				.getAll()
+				.filter(
+					(model: { provider: string }) => model.provider === request.provider,
+				);
+			const snapshot = {
+				error,
+				models,
+				serializedModels: JSON.stringify(models),
+			};
+			if (request.operation === "registration_from_existing") {
+				const value = models[0]?.compat?.supportsStore;
+				return {
+					...snapshot,
+					numberState: {
+						type: typeof value,
+						finite: Number.isFinite(value),
+						positiveInfinity: value === Infinity,
+					},
+				};
+			}
+			return snapshot;
 		}
 		if (request.operation === "config_snapshot") {
 			return {

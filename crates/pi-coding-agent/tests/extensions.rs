@@ -707,7 +707,7 @@ fn provider_config() -> ProviderConfigInput {
         base_url: Some(JsString::from("https://provider.test/v1")),
         api_key: Some(JsString::from("provider-test-key")),
         api: Some("openai-completions".to_owned()),
-        models: Some(vec![model]),
+        models: Some(vec![model.into()]),
         ..Default::default()
     }
 }

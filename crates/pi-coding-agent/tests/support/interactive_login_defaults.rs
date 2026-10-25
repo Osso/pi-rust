@@ -17,7 +17,7 @@ async fn authentication_completion_ordinary_defaults_match_frozen() {
             model.id=if case>=3 {crate::core::model_resolver::default_model_for_provider(provider).unwrap().into()}else{"not-default".into()};
             let mut overrides=Vec::new();
             if case!=1 {
-                registry.register_provider(provider,ProviderConfigInput {api:Some(model.api.clone()),base_url:Some(model.base_url.clone()),api_key:Some("fixture".into()),models:Some(vec![model.clone()]),..Default::default()}).unwrap();
+                registry.register_provider(provider,ProviderConfigInput {api:Some(model.api.clone()),base_url:Some(model.base_url.clone()),api_key:Some("fixture".into()),models:Some(vec![model.clone().into()]),..Default::default()}).unwrap();
                 overrides.push(serde_json::json!({"id":provider,"config":{"api":model.api,"baseUrl":model.base_url,"apiKey":"fixture","models":[model]}}));
             }
             let mut previous=mode.session().model();previous.id="unknown".into();previous.provider="unknown".into();previous.api="unknown".into();previous.name="Unknown".into();mode.session().agent().set_model(previous.clone());

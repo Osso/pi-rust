@@ -183,7 +183,7 @@ async fn provider_display_names_resolve_registered_oauth_builtin_and_fallback() 
                 base_url: Some("https://example.test/v1".to_owned().into()),
                 api_key: Some("key".to_owned().into()),
                 api: Some("openai-completions".to_owned()),
-                models: Some(vec![test_model("model")]),
+                models: Some(vec![test_model("model").into()]),
                 ..Default::default()
             },
         )

@@ -1227,6 +1227,16 @@ impl CompatFields for ModelCompat {
 }
 
 impl ModelCompat {
+    /// Copy source properties without crossing JSON's UTF16/number output boundary.
+    pub fn to_raw_value(&self) -> JsValue {
+        match self {
+            Self::OpenAICompletions(compat) => compat.to_raw_value(),
+            Self::OpenAIResponses(compat) => compat.to_raw_value(),
+            Self::AnthropicMessages(compat) => compat.to_raw_value(),
+            Self::Other(value) => value.clone(),
+        }
+    }
+
     /// Known APIs expose raw compatibility records; custom APIs retain opaque
     /// JSON metadata instead of dropping the source's `compat` property.
     pub fn parse(api: &str, value: JsValue) -> Result<Self, serde_json::Error> {

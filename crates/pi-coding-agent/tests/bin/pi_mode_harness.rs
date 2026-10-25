@@ -251,7 +251,7 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 api: Some(model.api),
                 base_url: Some(model.base_url),
                 api_key: Some("faux-key".into()),
-                models: Some(provider.get_models().unwrap()),
+                models: Some(provider.get_models().unwrap().into_iter().map(Into::into).collect()),
                 stream_simple: Some(Arc::new(move |model, context, options| {
                     capture_context(&context);
                     if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
@@ -478,7 +478,7 @@ async fn run_main_fixture(handle: &FauxProviderHandle) -> i32 {
                     api: Some(first.api.clone()),
                     base_url: Some(first.base_url.clone()),
                     api_key: Some("fixture".into()),
-                    models: Some(models.clone()),
+                    models: Some(models.clone().into_iter().map(Into::into).collect()),
                     stream_simple: Some(Arc::new({
                         let provider = provider.clone();
                         move |model, context, options| {
