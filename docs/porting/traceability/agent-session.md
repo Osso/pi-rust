@@ -422,3 +422,7 @@ Parent confirmed that the runtime scheduling gap does not cover this prefix: fro
 ## Bash audit, 2026-10-25
 
 Frozen :5807–5950 maps to the [bash lifecycle spec](../../specs/agent-session-bash-lifecycle.md). Empty prefixes no longer insert a newline. The single controller and post-record finalizer match source, including its classified overlapping-execution clearing behavior. Three native behavioral RED/GREEN tests cover command bytes, the exact aborted signals, controller clearing, and running state inside commit callbacks. Existing stream/abort/commit and persistence-number tests remain applicable; no persistence format changed. Whole-module status remains partial.
+
+## Naming and summary-materialization finalizers, 2026-10-25
+
+Frozen :5933–5994 maps to the [management lifecycle spec](../../specs/agent-session-management-lifecycle.md). Naming and clearing reuse the existing first-poll dispatch; the old unpolled spawn deferred immediate extension effects. Materialization authentication/settings now stay inside its finalizer scope: an auth failure no longer leaves isCompacting set or rejects retry as already running. Two native behavioral REDs now pass. Existing thinking-cycle/sync/pending/real-effort source tests also pass4 in the same six-test run (`/tmp/repin-agent-session-management-green.log`), closing their earlier GREEN-pending notes. No persistence codec or public API changed.

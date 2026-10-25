@@ -6,6 +6,8 @@ mod bash_parity;
 mod effort_prefix;
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
+#[path = "agent_session_management_lifecycle.rs"]
+mod management_lifecycle;
 #[path = "agent_session_manual_tool_compaction.rs"]
 mod manual_tool_compaction;
 #[path = "agent_session_prompt_images.rs"]

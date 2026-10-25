@@ -101,3 +101,9 @@ At2f07e4896, the corrected actual-frozen tool-lifetime differential passes1 (`/t
 ## Bash lifecycle checkpoint, 2026-10-25
 
 Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command starting with a newline and signals `[true,true]` instead of `[false,true]`; `/tmp/repin-agent-session-bash-lifetime-red.log` reports commit observer `[false]` instead of `[true]`. After the source slot/finalizer/prefix fix, `agent_session / bash_parity::` passes3 in `/tmp/repin-agent-session-bash-audit-green.log`. Scope: current bash implementation and these three tests; later unrelated edits do not invalidate this proof. No new frozen differential was added under the parent lighter-proof directive.
+
+## Management and thinking lifecycle checkpoint, 2026-10-25
+
+`management_lifecycle::` RED2 in `/tmp/repin-agent-session-management-red4.log`: naming listener remains empty at return; materialization authentication leaves isCompacting=true. Earlier red/red2 are compiler setup failures; red3's materialization case used a registered scripted auth override and reached generation, so it is not auth-finalizer evidence. The corrected fixture changes the active/checkpoint provider together to an unconfigured provider and confirms the actual auth error.
+
+`/tmp/repin-agent-session-management-green.log` passes6: the two new native cases plus existing frozen missing-index, sync-prefix, pending remainder and real-effort cases. Real effort proves proactive mode, delegation tool and active status before return. A subsequently removed unused import does not change runtime scope. This closes the previous thinking GREEN-pending notes; no new frozen differential was added.
