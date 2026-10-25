@@ -373,6 +373,7 @@ fn waiting_for_input_notifications_are_recorded_once() {
         if let Some(body) = &message.body {
             captured.lock().expect("notifications").push(body.clone());
         }
+        Ok(())
     });
     let waiting = transition(&store, &spawned.id, 1, AgentLifecycle::WaitingForInput).expect("waiting");
     assert_eq!(

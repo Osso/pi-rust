@@ -278,14 +278,15 @@ fn subscribe_waiting_notifications(input: &StartToolDispatchInput) -> impl FnOnc
     let listener_store = Arc::clone(&store);
     let subscription = listener_store.subscribe_lifecycle_notifications(move |message| {
         if message.from_agent_id != agent_id {
-            return;
+            return Ok(());
         }
         let notification_handle = notify_waiting_agent(message, desktop_notifier.as_ref());
         if is_waiting_for_input_notification(message) {
             remember_waiting_desktop_notification(&store, message, notification_handle, &waiting);
-            return;
+            return Ok(());
         }
         close_waiting_desktop_notification(&message.from_agent_id, &waiting);
+        Ok(())
     });
     move || drop(subscription)
 }
@@ -857,11 +858,12 @@ fn remember_waiting_desktop_notification(
     let waiting_for_close = Arc::clone(waiting);
     let unsubscribe_transition = store.subscribe_agent_transitions(move |previous, current| {
         if agent_id != current.id || previous.lifecycle != AgentLifecycle::WaitingForInput {
-            return;
+            return Ok(());
         }
         if current.lifecycle != AgentLifecycle::WaitingForInput {
             close_waiting_desktop_notification(&current.id, &waiting_for_close);
         }
+        Ok(())
     });
     waiting.lock().expect("waiting notifications").insert(
         message.from_agent_id.clone(),
