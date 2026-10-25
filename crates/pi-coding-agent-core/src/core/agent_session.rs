@@ -4545,7 +4545,6 @@ impl AgentSession {
             ));
         }
         let result = self.prompt_turn(text, options, guard, None).await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         if result.is_ok() {
             self.drain_runtime_coordination_messages(DrainCoordinationOptions {
                 checkpoint: None,
@@ -4578,7 +4577,9 @@ impl AgentSession {
                     preflight(true);
                 }
                 drop(guard);
-                self.run_agent_prompt(messages).await
+                let result = self.run_agent_prompt(messages).await;
+                self.complete_runtime_mailbox_steering_turn(&self.messages())?;
+                result
             }
             Ok(None) => {
                 if let Some(preflight) = &preflight {

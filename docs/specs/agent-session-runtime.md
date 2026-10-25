@@ -41,3 +41,7 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 ## Out of scope
 
 JavaScript shared-reference identity follows the project approval except where frozen built-in consumers depend on mutation. Existing approved platform gaps remain unchanged.
+
+## Prompt steering completion
+
+A prompt completes tracked runtime-mailbox steering only after its actual agent run settles, including failure. A prompt that only queues input, is handled by an input extension, or fails preflight must not complete an active steered worker. The final result reflects the completed turn, not an earlier assistant reply.

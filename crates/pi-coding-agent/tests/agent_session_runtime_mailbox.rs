@@ -4,6 +4,9 @@
 #[path = "agent_session_runtime_mailbox_finalize.rs"]
 mod finalize;
 
+#[path = "agent_session_runtime_mailbox_prompt.rs"]
+mod prompt_boundary;
+
 use std::sync::Arc;
 use std::time::Duration;
 
