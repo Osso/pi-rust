@@ -232,3 +232,24 @@ frozen resolver (`pyrun_resolved_runner_options_persist_without_unset_properties
 RED/GREEN `/tmp/bundled3-pyrun-options-{red,green}.log`). Existing fully specified
 manifest fixtures are unchanged. Workspace all-target check passed on this source
 scope: `/tmp/bundled3-workspace-check2.log`.
+
+Final runner correction: the real missing-agent terminal-commit case first emitted
+Rust enum debug text. It now emits frozen `agent_not_found`; source command-claim
+and status-response errors also propagate through the runner Result rather than
+being silently discarded. Empty bridge response error text follows frozen falsiness.
+Eight real runner-process cases pass (`/tmp/bundled3-runner-final.log`).
+
+The new harness-free `pyrun_detached_lifecycle` executable closes the initial-launch
+proof gap: it dispatches the production internal runner mode itself, starts from an
+absent artifact directory, and proves both a foreground result/completion marker
+and foreground-to-detached ownership/activation/finalization. Both paths preserve
+one exact terminal result and wait for the launched process to exit. No alternate
+launch seam or live provider is used. `/tmp/bundled3-runner-final.log` is GREEN.
+
+Environment merge proof: source inherits current process.env plus explicit options.
+Native std::process inheritance omitted Pi's environment overlay. It now clears the
+spawn environment and passes the shared current environment snapshot unless
+inheritEnv is false, then applies explicit values. Both inherited and isolated
+real-child environments match frozen (`/tmp/bundled3-pyrun-env-{red,green}.log`).
+Environment enumeration order remains the approved sorted-native runtime gap.
+Workspace all-target check passed after this final production edit.

@@ -318,6 +318,11 @@ name = "detached_job_bootstrap"
 path = "tests/detached_job_bootstrap.rs"
 
 [[test]]
+name = "pyrun_detached_lifecycle"
+path = "tests/bin/pyrun_detached_lifecycle.rs"
+harness = false
+
+[[test]]
 name = "pyrun_registration"
 path = "tests/pyrun_registration.rs"
 

@@ -347,7 +347,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
             .expect("utf-8 test path"),
         &runner_command,
     );
-    let (ownership, runner) = launch_registered_runner(&fixture, &JsString::from(job_id), &mut data);
+    let (ownership, runner) = launch_registered_runner(&fixture, &job_id, &mut data);
     wait_for(
         || Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists(),
         "output",
@@ -551,10 +551,13 @@ fn detached_runner_process_entry() {
         .enable_all()
         .build()
         .expect("runtime");
-    let revision = runtime
-        .block_on(run_detached_pyrun_runner(&JsString::from(&manifest_path)))
-        .expect("runner process");
-    println!("PyrunRevision:{}", serde_json::to_string(&revision).unwrap());
+    match runtime.block_on(run_detached_pyrun_runner(&JsString::from(&manifest_path))) {
+        Ok(revision) => println!("PyrunRevision:{}", serde_json::to_string(&revision).unwrap()),
+        Err(error) => {
+            eprintln!("PyrunError:{}", encode_node_utf8(&error));
+            std::process::exit(1);
+        }
+    }
 }
 
 #[tokio::test]
@@ -695,5 +698,48 @@ async fn pi_binary_reports_a_runner_failure_to_the_runner_error_file() {
             "Invalid detached Pyrun launch manifest: {}\n",
             manifest_path.to_str().expect("utf-8 test path")
         )
+    );
+}
+
+#[tokio::test]
+async fn terminal_commit_failure_uses_the_frozen_error_tag() {
+    let fixture = fixture("2026-10-25T00:00:00.000Z");
+    let runner_command = write_runner(
+        fixture.directory.path(),
+        "import json,sys\njson.loads(sys.stdin.readline())\nprint(json.dumps({'type':'completed','value':42}),flush=True)\n",
+    );
+    let data = manifest(
+        &fixture,
+        &"missing-agent".into(),
+        fixture.directory.path().join("activation.json").to_str().unwrap(),
+        &runner_command,
+    );
+    let identity = pi_coding_agent::core::session_control_db::DetachedJobOwnershipIdentity {
+        job_id: "missing-agent".into(),
+        owner: pi_coding_agent::core::session_control_db::MultiAgentRuntimeOwnerIdentity {
+            agent_id: None,
+            session_id: "main".into(),
+        },
+        process_identity: test_process_identity("missing"),
+        output_label: "Pyrun output".into(),
+    };
+    write_detached_pyrun_activation(&data.activation_path, &identity).unwrap();
+    let path = Path::new(&encode_node_utf8(&data.artifacts.directory)).join("launch.json");
+    write_detached_pyrun_launch_manifest(&path.to_str().unwrap().into(), &data).unwrap();
+    let child = tokio::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "detached_runner_process_entry", "--nocapture"])
+        .env(TEST_RUNNER_ENV, &path)
+        .process_group(0)
+        .kill_on_drop(true)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let error = wait_runner_child(child)
+        .await
+        .expect_err("missing job must fail terminal commit");
+    assert!(
+        error.contains("Could not finalize detached Pyrun job: agent_not_found"),
+        "{error:?}"
     );
 }
