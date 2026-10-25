@@ -45,7 +45,7 @@ Registered raw/simple callbacks preserve synchronous throws according to the sha
 
 ## Known gaps (current cycle)
 
-- [ ] Complete consumer test migration, configuration/registration/request-auth differential matrices, production cache wiring, nested compat unknown fields and real RPC serialization proof.
+Implementation/consumer migration and configuration/registration/auth/cache matrices are present; the [complete symbol/branch map](../porting/traceability/model-registry.md) records exact proof levels and approved exclusions. Current parent-merge verification and independent acceptance remain open. RPC has its own serialization proof/approval boundary; this module does not add a second wire representation.
 
 ## Out of scope
 
