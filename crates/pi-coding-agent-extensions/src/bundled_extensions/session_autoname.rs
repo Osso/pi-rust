@@ -26,7 +26,6 @@ pub fn session_autoname_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
         approval_required: Some(false),
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {"name": {"type": "string", "description": "Short 2-4 word session title."}}, "required": ["name"]}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
