@@ -316,6 +316,9 @@ impl OAuthProviderInterface for Builtin {
 }
 struct Callbacks(Arc<dyn OAuthLoginCallbacks>);
 impl AuthInteraction for Callbacks {
+    fn manual_code_input(&self, _prompt: AuthPrompt) -> Option<BoxFuture<'_, Result<JsString, CallbackError>>> {
+        self.0.on_manual_code_input()
+    }
     fn signal(&self) -> AbortSignal {
         self.0.signal().unwrap_or_default()
     }

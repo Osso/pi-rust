@@ -390,6 +390,24 @@ impl CallbackServer {
     }
 }
 
+pub(crate) fn callback_listen_error(
+    error: &std::io::Error,
+    host: &pi_js_compat::js_json::JsString,
+    port: u16,
+) -> CallbackError {
+    use pi_js_compat::{js_format, js_json::JsValue, node_error::NativeNodeError, node_fs};
+    let address = js_format!("{}:{}", host, port);
+    let mut record = NativeNodeError::new("Error", node_fs::node_unix_listen_error(error, &address))
+        .with_property("code", JsValue::String(node_fs::node_error_code(error).into()))
+        .with_property("syscall", JsValue::String("listen".into()))
+        .with_property("address", JsValue::String(host.clone()))
+        .with_property("port", JsValue::Number(f64::from(port)));
+    if let Some(errno) = error.raw_os_error() {
+        record = record.with_property("errno", JsValue::Number(-f64::from(errno)));
+    }
+    record.into()
+}
+
 pub async fn start_callback_server(
     host: &pi_js_compat::js_json::JsString,
     port: u16,

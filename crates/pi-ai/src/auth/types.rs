@@ -350,6 +350,10 @@ pub trait AuthInteraction: Send + Sync {
     fn signal(&self) -> AbortSignal;
     fn prompt(&self, prompt: AuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>>;
     fn notify(&self, event: AuthEvent) -> Result<(), CallbackError>;
+    /// Legacy OAuth providers may omit manual input; native auth wrappers always prompt.
+    fn manual_code_input(&self, prompt: AuthPrompt) -> Option<BoxFuture<'_, Result<JsString, CallbackError>>> {
+        Some(self.prompt(prompt))
+    }
 }
 
 /// Failure from auth callbacks and credential stores.
