@@ -56,7 +56,58 @@ async function processRequest(api: Record<string, unknown>, request: OracleReque
     return { status: stored.status, response: stored.response ?? null, feedback, calls, reviewed, processError };
 }
 
+async function evaluateInstructions(api: Record<string, unknown>, request: OracleRequest) {
+    const compat = await import(new URL("../../../ai/src/compat.ts", pathToFileURL(process.argv[2])).href);
+    const responses = [...request.responses as Record<string, unknown>[]];
+    const calls: unknown[] = [];
+    const controller = new AbortController();
+    if (request.aborted) controller.abort();
+    const started = Date.now();
+    compat.registerApiProvider({
+        api: "supervisor-review-fixture",
+        stream: () => { throw new Error("unexpected raw stream"); },
+        streamSimple: (model: { id: string; provider: string; api: string }, context: { messages: { timestamp: number }[] }, options: Record<string, unknown>) => {
+            for (const message of context.messages) {
+                if (!Number.isInteger(message.timestamp) || message.timestamp < started || message.timestamp > Date.now()) {
+                    throw new Error("invalid review timestamp");
+                }
+                message.timestamp = 0;
+            }
+            const signal = options.signal as AbortSignal | undefined;
+            calls.push({ model: { id: model.id, provider: model.provider, api: model.api }, context, options: {
+                apiKey: options.apiKey ?? null, env: options.env ?? null, headers: options.headers ?? null,
+                maxRetries: options.maxRetries ?? null, maxRetryDelayMs: options.maxRetryDelayMs ?? null,
+                reasoning: options.reasoning ?? null, timeoutMs: options.timeoutMs ?? null,
+                websocketConnectTimeoutMs: options.websocketConnectTimeoutMs ?? null,
+                signal: { present: !!signal, aborted: signal?.aborted ?? null },
+            } });
+            const response = responses.shift();
+            if (!response) throw new Error("unexpected fixture provider call");
+            if (response.throw) throw new Error(response.throw as string);
+            if (request.abortDuringStream) controller.abort();
+            return { result: async () => ({
+                role: "assistant", api: model.api, provider: model.provider, model: model.id,
+                usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+                    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+                timestamp: 0, ...response,
+            }) };
+        },
+    }, "supervisor-review-test");
+    try {
+        const create = api.createSupervisorInstructionEvaluator as (agentDir: string) => (instructions: string, signal: AbortSignal) => Promise<unknown>;
+        try {
+            const result = await create(request.agentDir as string)(request.instructions as string, controller.signal);
+            return { result: result ?? null, error: null, calls };
+        } catch (error) {
+            return { result: null, error: (error as Error).message, calls };
+        }
+    } finally {
+        compat.unregisterApiProviders("supervisor-review-test");
+    }
+}
+
 void runOracle(async (api, request) => {
+    if (request.operation === "evaluateInstructions") return evaluateInstructions(api, request);
     if (request.operation === "processRequest") return processRequest(api, request);
     if (request.operation === "modelRequirements") {
         const create = api.createSupervisorInstructionEvaluator as (agentDir: string) => unknown;

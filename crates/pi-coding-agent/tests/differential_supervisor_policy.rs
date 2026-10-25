@@ -136,7 +136,7 @@ fn create_fixture_reviewer(
                     signal.wait().await;
                     return Err("review cancelled".into());
                 }
-                decision
+                decision.map(Some)
             })
         },
     )))

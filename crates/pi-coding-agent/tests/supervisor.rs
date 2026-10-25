@@ -1,6 +1,10 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
+// This standalone target isolates the instruction fixture's process-global API registration.
+#[path = "differential_supervisor_instruction_evaluator.rs"]
+mod differential_supervisor_instruction_evaluator;
+
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
