@@ -256,6 +256,10 @@ async function run(request) {
 			modelRegistry,
 		});
 	}
+	return runBaselineSessionScenario(session, sessionManager, dir);
+}
+
+async function runBaselineSessionScenario(session, sessionManager, dir) {
 	const events = [];
 	session.subscribe((rawEvent) => {
 		const event = structuredClone(rawEvent);
