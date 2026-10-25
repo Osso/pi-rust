@@ -546,13 +546,7 @@ impl RuntimeLifecycleMirror {
             let Some(ctx) = ctx else {
                 return Ok(());
             };
-            if let Err(error) = enqueue_lifecycle_runtime_mailbox_message(&listener_store, message, &ctx) {
-                eprintln!(
-                    "Failed to mirror lifecycle notification {}: {error}",
-                    js_json::encode_node_utf8(&message.id)
-                );
-            }
-            Ok(())
+            enqueue_lifecycle_runtime_mailbox_message(&listener_store, message, &ctx).map_err(Into::into)
         });
         state.unsubscribe = Some(subscription);
         drop(state);
