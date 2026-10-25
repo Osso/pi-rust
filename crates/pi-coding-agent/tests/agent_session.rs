@@ -1072,6 +1072,7 @@ async fn navigate_tree_current_leaf_is_noop_during_streaming_like_frozen() {
         .session
         .navigate_tree(&target, NavigateTreeOptions::default())
         .await;
+    let leaf_after_navigation = fixture.session.session_manager().get_leaf_id().cloned();
     let actual = match result {
         Ok(result) => json!({"cancelled": result.cancelled}),
         Err(error) => json!({"error": error.message()}),
@@ -1085,7 +1086,7 @@ async fn navigate_tree_current_leaf_is_noop_during_streaming_like_frozen() {
     }));
     assert_eq!(expected, json!({"ok": true, "value": {"cancelled": false}}));
     assert_eq!(actual, expected["value"]);
-    assert_eq!(fixture.session.session_manager().get_leaf_id(), Some(&target));
+    assert_eq!(leaf_after_navigation.as_ref(), Some(&target));
 }
 
 #[tokio::test]
