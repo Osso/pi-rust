@@ -8,12 +8,13 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 
 use crate::core::session_control_db::{
-    ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorResponse, complete_supervisor_request,
-    has_pending_supervisor_approval_request, requeue_supervisor_request,
+    ControlDbError, SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,
+    complete_supervisor_request, has_pending_supervisor_approval_request, read_supervisor_request,
+    requeue_supervisor_request,
 };
 use pi_js_compat::{js_format, js_json};
 
-const DEFAULT_POLL_INTERVAL_MS: u64 = 50;
+const DEFAULT_POLL_INTERVAL_MS: u64 = crate::supervisor::client::DEFAULT_SUPERVISOR_POLL_INTERVAL_MS as u64;
 
 /// Evaluates one Supervisor prompt and returns the raw model response.
 pub type SupervisorEvaluator =
@@ -279,6 +280,7 @@ fn parse_json_object(json_text: &JsString) -> Option<JsObject> {
 pub enum RunSupervisorRequestOutcome {
     Completed,
     Preempted,
+    Cancelled,
 }
 
 /// `runSupervisorRequest`.
@@ -287,25 +289,53 @@ pub async fn run_supervisor_request(
 ) -> Result<RunSupervisorRequestOutcome, ControlDbError> {
     let cancel = pi_js_compat::abort::AbortController::new();
     let evaluation = (input.evaluate)(build_supervisor_prompt(&input.request), cancel.signal());
-    let evaluation = tokio::spawn(evaluation);
+    let mut evaluation = tokio::spawn(evaluation);
     let poll_interval_ms = input.poll_interval_ms.unwrap_or(DEFAULT_POLL_INTERVAL_MS);
     let deadline_ms = pi_js_compat::date::date_parse_millis(&input.request.deadline_at);
 
-    let raw_response = match wait_for_evaluation(&input, evaluation, &cancel, poll_interval_ms, deadline_ms).await? {
+    match wait_for_evaluation(&input, &mut evaluation, &cancel, poll_interval_ms, deadline_ms).await? {
         EvaluationWait::Preempted => return Ok(RunSupervisorRequestOutcome::Preempted),
-        EvaluationWait::Expired => return Ok(RunSupervisorRequestOutcome::Completed),
-        EvaluationWait::Completed(Err(message)) => {
-            complete_supervisor_request(
-                &input.control_db_path,
-                input.request.id,
-                &required_claim_token(&input.request)?,
-                &SupervisorResponse::Error { reason: message },
-            )?;
-            return Ok(RunSupervisorRequestOutcome::Completed);
-        }
-        EvaluationWait::Completed(Ok(value)) => value,
+        EvaluationWait::Cancelled => return Ok(RunSupervisorRequestOutcome::Cancelled),
+        EvaluationWait::Expired => return complete_expired_request(&input),
+        EvaluationWait::Completed => {}
+    }
+    let Some(raw_response) = await_evaluation_unless_cancelled(&input, evaluation).await? else {
+        return Ok(RunSupervisorRequestOutcome::Cancelled);
     };
-    let response = parse_supervisor_response(input.request.kind, &raw_response).unwrap_or(SupervisorResponse::Error {
+    complete_evaluated_request(&input, &raw_response)
+}
+
+async fn await_evaluation_unless_cancelled(
+    input: &RunSupervisorRequestInput,
+    evaluation: tokio::task::JoinHandle<Result<JsValue, JsString>>,
+) -> Result<Option<JsValue>, ControlDbError> {
+    if read_request_is_cancelled(input)? {
+        return Ok(None);
+    }
+    let raw_response = evaluation
+        .await
+        .map_err(|error| ControlDbError::new(error.to_string()))?
+        .map_err(ControlDbError::new)?;
+    Ok((!read_request_is_cancelled(input)?).then_some(raw_response))
+}
+
+fn complete_expired_request(input: &RunSupervisorRequestInput) -> Result<RunSupervisorRequestOutcome, ControlDbError> {
+    complete_supervisor_request(
+        &input.control_db_path,
+        input.request.id,
+        &required_claim_token(&input.request)?,
+        &SupervisorResponse::Error {
+            reason: "Supervisor request deadline expired".into(),
+        },
+    )?;
+    Ok(RunSupervisorRequestOutcome::Completed)
+}
+
+fn complete_evaluated_request(
+    input: &RunSupervisorRequestInput,
+    raw_response: &JsValue,
+) -> Result<RunSupervisorRequestOutcome, ControlDbError> {
+    let response = parse_supervisor_response(input.request.kind, raw_response).unwrap_or(SupervisorResponse::Error {
         reason: "Supervisor returned an invalid response".into(),
     });
     complete_supervisor_request(
@@ -318,14 +348,15 @@ pub async fn run_supervisor_request(
 }
 
 enum EvaluationWait {
-    Completed(Result<JsValue, JsString>),
+    Completed,
     Expired,
     Preempted,
+    Cancelled,
 }
 
 async fn wait_for_evaluation(
     input: &RunSupervisorRequestInput,
-    mut evaluation: tokio::task::JoinHandle<Result<JsValue, JsString>>,
+    evaluation: &mut tokio::task::JoinHandle<Result<JsValue, JsString>>,
     cancel: &pi_js_compat::abort::AbortController,
     poll_interval_ms: u64,
     deadline_ms: Option<i64>,
@@ -333,43 +364,56 @@ async fn wait_for_evaluation(
     loop {
         let remaining_ms = remaining_milliseconds(deadline_ms).max(1);
         let delay = Duration::from_millis(poll_interval_ms.min(remaining_ms));
-        tokio::select! {
-            result = &mut evaluation => {
-                return Ok(EvaluationWait::Completed(
-                    result.unwrap_or_else(|error| Err(error.to_string().into())),
-                ));
-            }
-            () = tokio::time::sleep(delay) => {}
+        tokio::time::sleep(delay).await;
+        if let Some(outcome) = abort_interrupted_evaluation(input, evaluation, cancel, deadline_ms).await? {
+            return Ok(outcome);
         }
-        if now_millis() >= deadline_ms.unwrap_or(i64::MAX) {
-            cancel.abort(None);
-            evaluation.abort();
-            let _ = evaluation.await;
-            complete_supervisor_request(
-                &input.control_db_path,
-                input.request.id,
-                &required_claim_token(&input.request)?,
-                &SupervisorResponse::Error {
-                    reason: "Supervisor request deadline expired".to_owned().into(),
-                },
-            )?;
-            return Ok(EvaluationWait::Expired);
+        if evaluation.is_finished() {
+            return Ok(EvaluationWait::Completed);
         }
-        if input.request.kind == SupervisorRequestKind::ApprovalReview
-            || !has_pending_supervisor_approval_request(&input.control_db_path)?
-        {
-            continue;
-        }
-        cancel.abort(None);
-        evaluation.abort();
-        let _ = evaluation.await;
+    }
+}
+
+async fn abort_interrupted_evaluation(
+    input: &RunSupervisorRequestInput,
+    evaluation: &mut tokio::task::JoinHandle<Result<JsValue, JsString>>,
+    cancel: &pi_js_compat::abort::AbortController,
+    deadline_ms: Option<i64>,
+) -> Result<Option<EvaluationWait>, ControlDbError> {
+    if read_request_is_cancelled(input)? {
+        abort_and_await_evaluation(evaluation, cancel).await;
+        return Ok(Some(EvaluationWait::Cancelled));
+    }
+    if now_millis() >= deadline_ms.unwrap_or(i64::MAX) {
+        abort_and_await_evaluation(evaluation, cancel).await;
+        return Ok(Some(EvaluationWait::Expired));
+    }
+    let approval_preempts = input.request.kind != SupervisorRequestKind::ApprovalReview
+        && has_pending_supervisor_approval_request(&input.control_db_path)?;
+    if approval_preempts {
+        abort_and_await_evaluation(evaluation, cancel).await;
         requeue_supervisor_request(
             &input.control_db_path,
             input.request.id,
             &required_claim_token(&input.request)?,
         )?;
-        return Ok(EvaluationWait::Preempted);
+        return Ok(Some(EvaluationWait::Preempted));
     }
+    Ok(None)
+}
+
+fn read_request_is_cancelled(input: &RunSupervisorRequestInput) -> Result<bool, ControlDbError> {
+    Ok(read_supervisor_request(&input.control_db_path, input.request.id)?
+        .is_some_and(|request| request.status == SupervisorRequestStatus::Cancelled))
+}
+
+async fn abort_and_await_evaluation(
+    evaluation: &mut tokio::task::JoinHandle<Result<JsValue, JsString>>,
+    cancel: &pi_js_compat::abort::AbortController,
+) {
+    cancel.abort(None);
+    // Frozen awaits evaluation.catch(() => undefined), including evaluator cleanup.
+    let _ = evaluation.await;
 }
 
 fn remaining_milliseconds(deadline_ms: Option<i64>) -> u64 {
@@ -390,5 +434,6 @@ fn required_claim_token(request: &SupervisorRequest) -> Result<JsString, Control
     request
         .claim_token
         .clone()
+        .filter(|token| !token.is_empty())
         .ok_or_else(|| ControlDbError::new(format!("Supervisor request {} has no claim token", request.id)))
 }
