@@ -6,7 +6,7 @@
 mod restriction;
 use restriction::{CodexRestrictionContextCache, CodexRestrictionValidation};
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -675,19 +675,46 @@ pub struct ProviderStreamRetryEvent {
     pub retry: ProviderRetryEvent,
 }
 
-fn flag_values_map(
-    values: &indexmap::IndexMap<String, crate::core::extensions::types::FlagValue>,
-) -> BTreeMap<String, Value> {
-    values
-        .iter()
-        .map(|(name, value)| {
-            let value = match value {
-                crate::core::extensions::types::FlagValue::Boolean(boolean) => Value::Bool(*boolean),
-                crate::core::extensions::types::FlagValue::String(text) => Value::String(text.clone()),
-            };
-            (name.clone(), value)
-        })
-        .collect()
+fn read_headless_tool_auto_detach_after_ms() -> Result<Option<f64>, AgentSessionError> {
+    let Some(value) = pi_js_compat::process_env::get("PI_HEADLESS_TOOL_AUTO_DETACH_MS") else {
+        return Ok(None);
+    };
+    let milliseconds = pi_js_compat::number::parse_number(&value);
+    if !milliseconds.is_finite()
+        || milliseconds.fract() != 0.0
+        || milliseconds <= 0.0
+        || milliseconds > 9_007_199_254_740_991.0
+    {
+        return Err(error(format!(
+            "PI_HEADLESS_TOOL_AUTO_DETACH_MS must be a positive integer: {value}"
+        )));
+    }
+    Ok(Some(milliseconds))
+}
+
+async fn wait_for_headless_session_start_release() -> Result<(), AgentSessionError> {
+    let Some(path) = pi_js_compat::process_env::get_native("PI_HEADLESS_SESSION_START_RELEASE_PATH") else {
+        return Ok(());
+    };
+    if path.is_empty() {
+        return Err(error("PI_HEADLESS_SESSION_START_RELEASE_PATH must be non-empty"));
+    }
+    let ready_path = path.clone() + ".ready";
+    let mut file = std::fs::File::create(encode_node_utf8(&ready_path)).map_err(|cause| {
+        pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+            &cause,
+            "open",
+            &ready_path,
+        ))
+    })?;
+    std::io::Write::write_all(&mut file, b"ready").map_err(|cause| {
+        pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_file_write_error_record(&cause))
+    })?;
+    drop(file);
+    while !std::path::Path::new(&encode_node_utf8(&path)).exists() {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    Ok(())
 }
 
 /// Listener function for agent session events.
@@ -1332,7 +1359,13 @@ impl AgentSession {
             ));
             definitions
         });
-        let tool_detach_registry = (!no_supervisor).then(|| Arc::new(ToolDetachRegistry::new()));
+        let tool_detach_registry = if no_supervisor {
+            None
+        } else {
+            let registry = read_headless_tool_auto_detach_after_ms()?
+                .map_or_else(ToolDetachRegistry::new, ToolDetachRegistry::with_auto_detach_after_ms);
+            Some(Arc::new(registry))
+        };
         let agent_dir = match config.agent_dir.clone() {
             Some(directory) => directory,
             None => crate::config::get_agent_dir()?,
@@ -1710,11 +1743,16 @@ impl AgentSession {
     fn build_runtime(
         &self,
         active_tool_names: Option<Vec<String>>,
-        _flag_values: Option<BTreeMap<String, Value>>,
+        flag_values: Option<indexmap::IndexMap<String, crate::core::extensions::types::FlagValue>>,
         include_all_extension_tools: bool,
     ) -> Result<(), AgentSessionError> {
         self.rebuild_base_tool_definitions()?;
         let extensions = self.inner.resource_loader.get_extensions();
+        if let Some(values) = flag_values {
+            for (name, value) in values {
+                extensions.runtime.set_flag_value(&name, value);
+            }
+        }
         let mut runner = ExtensionRunner::new(
             extensions.extensions,
             extensions.runtime,
@@ -7801,6 +7839,7 @@ impl AgentSession {
         }
         let runner = self.runner();
         self.apply_extension_bindings(&runner);
+        wait_for_headless_session_start_release().await?;
         let mut event = ExtensionEvent::SessionStart(self.inner.session_start_event.clone());
         runner.emit(&mut event).await;
         self.extend_resources_from_extensions().await?;
@@ -7836,11 +7875,7 @@ impl AgentSession {
             .reload()
             .await
             .map_err(AgentSessionError::new)?;
-        self.build_runtime(
-            Some(self.get_active_tool_names()),
-            Some(flag_values_map(&previous_flag_values)),
-            true,
-        )?;
+        self.build_runtime(Some(self.get_active_tool_names()), Some(previous_flag_values), true)?;
 
         let has_bindings = lock(&self.inner.extension_ui_context).is_some()
             || lock(&self.inner.extension_command_context_actions).is_some()

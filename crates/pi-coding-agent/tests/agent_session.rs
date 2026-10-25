@@ -4,6 +4,8 @@
 mod bash_parity;
 #[path = "agent_session_effort_prefix.rs"]
 mod effort_prefix;
+#[path = "agent_session_headless_lifecycle.rs"]
+mod headless_lifecycle;
 #[path = "agent_session_html_renderers.rs"]
 mod html_renderers;
 #[path = "support/image_fixtures.rs"]
