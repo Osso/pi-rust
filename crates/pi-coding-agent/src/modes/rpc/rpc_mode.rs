@@ -161,8 +161,13 @@ pub async fn run_rpc_mode(runtime: AgentSessionRuntime) -> Result<(), CallbackEr
                     handle_input_line(&state, line).await;
                 });
             }
-            let state = Arc::clone(&state);
-            shutdown(&state, 0, None).await;
+            // Frozen detachInput removes onInputEnd. Detaching our reader also closes
+            // this channel; only an attached input subscription can report real EOF.
+            let input_listener_attached = lock(&state.input).is_some();
+            if input_listener_attached {
+                shutdown(&state, 0, None).await;
+            }
+            std::future::pending::<()>().await;
         })
         .await;
 

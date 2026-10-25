@@ -19,6 +19,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
     let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
+    let shutdown_flood = config.get("shutdownFlood").and_then(JsValue::as_bool) == Some(true);
     let ui_probe = config.get("uiProbe").and_then(JsValue::as_bool) == Some(true);
     let fire_probe = config.get("fireProbe").and_then(JsValue::as_bool) == Some(true);
     let shutdown_command = config.get("shutdownCommand").and_then(JsValue::as_bool) == Some(true);
@@ -33,6 +34,28 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
         });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if shutdown_flood {
+            let signal = early_signal.expect("flood fixture requires signal");
+            api.register_command(
+                "rpc-flood-signal",
+                None,
+                None,
+                Arc::new(move |_, context| {
+                    Box::pin(async move {
+                        context.ui()?.notify(&"x".repeat(512 * 1024).into(), None)?;
+                        tokio::spawn(async move {
+                            rustix::process::kill_process(
+                                rustix::process::Pid::from_raw(std::process::id() as i32).unwrap(),
+                                signal,
+                            )
+                            .unwrap();
+                        });
+                        Ok(())
+                    })
+                }),
+            )
+            .unwrap();
+        }
         if shutdown_command {
             api.register_command(
                 "rpc-shutdown-fixture",
@@ -178,7 +201,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
                     if context.mode()? != ExtensionMode::Rpc {
                         return Ok(None);
                     }
-                    if let Some(signal) = early_signal {
+                    if let Some(signal) = early_signal.filter(|_|!shutdown_flood) {
                         tokio::spawn(async move {
                             rustix::process::kill_process(rustix::process::Pid::from_raw(std::process::id() as i32).unwrap(), signal).unwrap();
                         });

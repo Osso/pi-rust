@@ -2,6 +2,12 @@
 
 Current whole-module checkpoint: [proof](../rpc-mode-proof.md). Actual frozen/native process29/29 and owned unit/surface/process-oracle9/9 GREEN; approved gaps are enumerated per field below. Earlier prerequisite/baseline notes are historical, not completion evidence.
 
+## SIGHUP detach/flush correction (2026-10-24)
+
+After parent4c28cdf4, the requested process matrix passed28/29: the fire-fixture output was unchanged, but native startup SIGHUP occasionally exited0. Root: signal shutdown detached the line reader, which dropped the channel sender; the input loop misclassified that intentional detach as stdin EOF and called shutdown0 while the129 path awaited stdout flush. Frozen :731–738 removes `onInputEnd` before flushing. The native input loop now permits an EOF shutdown only while the input subscription remains attached, and otherwise retains the frozen pending lifetime.
+
+`rpc_sighup_detach_does_not_synthesize_eof_while_stdout_flush_is_blocked` supplies a real512KiB notification and holds both private stdout pipes closed to readers. An extension command emits the notification then signals HUP after normal mode binding. Both reach disposal; frozen stays alive awaiting drain while pre-fix native exits prematurely. After release, the same test requires129 and the complete notification. The first startup-flood draft blocked frozen binding before signal registration and was rejected as an invalid fixture; the command-boundary RED is the accepted reproduction. Focused GREEN and final checkpoint gates remain pending. Logs: `/tmp/pi-rust-repin-lossless-interactive/rpc-mode-blocked-flush-*`.
+
 Q15 common-pin correction2026-10-23: session subscription serializes the complete original event, not print-mode JSON shaping. Old-only agent_settled is removed. Full actual-frozen RPC differential GREEN6/6 after literal prompt, context persistence and fork/clone error-boundary corrections; no record filtering.
 
 Common-pin source: `packages/coding-agent/src/modes/rpc/rpc-mode.ts`, [source-lock](../source-lock.json).
