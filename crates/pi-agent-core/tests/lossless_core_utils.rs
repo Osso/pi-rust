@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_agent_core::harness::utils::{
     TruncationOptions, format_size, sanitize_binary_output, truncate_head, truncate_line, truncate_tail,

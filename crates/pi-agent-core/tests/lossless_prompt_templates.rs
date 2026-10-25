@@ -1,5 +1,4 @@
-#[path = "differential_harness_core/support.rs"]
-mod support;
+use crate::shared_harness_support as support;
 
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::prompt_templates::{load_prompt_templates, parse_command_args, substitute_args};

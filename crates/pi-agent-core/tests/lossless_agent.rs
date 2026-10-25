@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};

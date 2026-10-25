@@ -1,4 +1,4 @@
-pub mod support;
+pub use crate::shared_agent_support as support;
 
 use pi_js_compat::js_json::JsString;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};

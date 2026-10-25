@@ -1,7 +1,6 @@
 #[path = "support/session_fault_fs.rs"]
 mod fault_fs;
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use fault_fs::{FaultFs, FaultRule, fault_message};
 use pi_agent_core::harness::env::{NodeExecutionEnv, NodeExecutionEnvOptions};
 use pi_agent_core::harness::session::*;

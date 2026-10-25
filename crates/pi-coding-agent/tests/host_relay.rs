@@ -31,7 +31,12 @@ fn serve_dispatches_before_provider_initialization_and_exits_on_eof() {
         .collect();
     assert_eq!(frames.len(), 1);
     assert_eq!(frames[0]["type"], "hello");
-    assert_eq!(frames[0]["host"], gethostname::gethostname().to_string_lossy().as_ref());
+    assert_eq!(
+        frames[0]["host"],
+        pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str())
+            .to_utf8()
+            .unwrap()
+    );
 }
 
 #[test]

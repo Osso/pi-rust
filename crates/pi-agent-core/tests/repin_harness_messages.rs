@@ -1,5 +1,4 @@
-#[path = "../../pi-ai/tests/support/oracle.rs"]
-mod oracle;
+use crate::shared_oracle as oracle;
 use pi_agent_core::{AgentMessage, harness::messages::*};
 use pi_js_compat::{
     js_json as json,

@@ -12,7 +12,7 @@ pub fn format_terminal_current_directory_sequence(cwd: &JsString) -> Result<JsSt
     // The URL serializer encodes the path as UTF-8 (lone surrogates as U+FFFD).
     Ok(js_format!(
         "\x1b]7;file://{}{}\x1b\\",
-        gethostname::gethostname().to_string_lossy().as_ref(),
+        pi_js_compat::node_fs::decode_node_path(gethostname::gethostname().as_os_str()),
         encode_file_url_path(&encode_node_utf8(&path))
     ))
 }
