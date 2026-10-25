@@ -1,6 +1,6 @@
 # `claude-bash-hook` extension traceability
 
-Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts`. Rust:
+Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Rust:
 `crates/pi-coding-agent-extensions/src/bundled_extensions/claude_bash_hook/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
@@ -26,10 +26,12 @@ Actual sandboxed Cargo RED at `4fe83515`: `hook_process_preserves_native_input_k
 - `ClaudeBashHookOptions::{command, timeout_ms}` are test seams. Production
   callers use `ClaudeBashHookOptions::default()`, which follows the source
   `PI_CLAUDE_BASH_HOOK`/`DEFAULT_HOOK_PATH` lookup and the 30s timeout.
-- On timeout the child is killed by `kill_on_drop` and the reviewer fails with
-  `claude-bash-hook timed out`; TypeScript rejects with the abort reason from
-  `AbortController`. No source test covers this path.
+- Adversarial values and OS/runtime faults (including early-close EPIPE) follow the approved user-observable gap policy. Runtime scheduling and inherited-descriptor edge cases are not reproduced.
 - `stderr` is captured but unused, matching the source.
+
+## Re-pin whole-module audit (2026-10-25)
+
+All exported functions and helpers in the table were compared to the frozen source. Registration now resolves and checks executable availability first; missing and non-executable commands register no reviewer. Timeout covers stdin and output, sends SIGTERM, rejects with exact Node `The operation was aborted`, and retains a child reaper until close instead of dropping it into SIGKILL. Input uses lossless JS stringify and inherited environment overrides; spawn failures use the shared Node spawn-message authority. `unavailable_hook_does_not_register_a_reviewer` and `hook_timeout_reports_node_abort_and_sends_sigterm` both failed before implementation and pass after it. The 12-case frozen process differential also passes. Logs: [lane ledger](../bundled-ext-b-proof.md).
 
 ## Known test flake
 

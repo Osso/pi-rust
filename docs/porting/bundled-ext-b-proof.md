@@ -23,3 +23,10 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN implementation commit (this change): `cargo test -j3 -p pi-coding-agent --test claude_memory_enrich_lifecycle`, 1/1, `/tmp/ext-b-enrich-lifecycle-green.log`.
 - GREEN frozen oracle: `cargo test -j3 -p pi-coding-agent --test bundled_extensions_context claude_memory_enrich_matches_typescript`, 1/1, `/tmp/ext-b-enrich-oracle-green.log`.
 - Mechanical fallout: new standalone target in `crates/pi-coding-agent/Cargo.toml`, because the integration mutates process-global env. No new dependency.
+
+## Claude bash hook
+
+- RED `suite_extensions claude_bash_hook_extension::`: missing registration gate and wrong timeout error; `/tmp/ext-b-hook-red.log`.
+- GREEN same command: 10/10; `/tmp/ext-b-hook-green.log`.
+- GREEN `cargo test -j3 -p pi-coding-agent --test suite_tools differential_claude_bash_hook::`: 1 test / 12 frozen cases; `/tmp/ext-b-hook-oracle-green.log`.
+- Proof covers the hook implementation commit (this change), invalidated only by relevant changes.
