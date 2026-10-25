@@ -5332,7 +5332,7 @@ impl AgentSession {
             if lock(&self.inner.quota_fallback_visited_providers).contains(*provider) {
                 continue;
             }
-            if let Some(fallback) = self.inner.model_registry.find(provider, &message.model)
+            if let Some(fallback) = self.inner.model_registry.find(*provider, &message.model)
                 && self.inner.model_registry.has_configured_auth(&fallback)?
             {
                 return Ok(Some(fallback));
