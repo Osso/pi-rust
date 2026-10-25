@@ -303,6 +303,11 @@ pub struct NewSessionOptions {
 /// JSON stored at an untyped persistence boundary, retaining UTF-16 strings/keys.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PersistedJsonValue(pi_js_compat::js_json::JsValue);
+impl PersistedJsonValue {
+    pub(crate) fn is_null(&self) -> bool {
+        matches!(self.0, JsValue::Null)
+    }
+}
 impl Serialize for PersistedJsonValue {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serialize_lossless(&self.0, serializer)

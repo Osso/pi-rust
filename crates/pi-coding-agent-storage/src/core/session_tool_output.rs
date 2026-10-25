@@ -5,6 +5,7 @@ use std::io::Write;
 use std::path::Path;
 
 use pi_ai::utils::random_uuid::random_uuid;
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
 use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
@@ -15,7 +16,6 @@ use pi_js_compat::node_fs::{
 use crate::core::session_manager::{
     FileEntry, SessionEntry, SessionHeader, UnknownSessionEntry, parse_session_file_entry,
 };
-use crate::utils::iso_time;
 use crate::utils::paths::node_join;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
@@ -266,7 +266,18 @@ pub fn serialize_session_entry(entry: &SessionEntry) -> Result<String, Box<Nativ
 }
 
 /// Serialize a header or entry without projecting through scalar JSON.
+fn assert_non_null_record(entry: &FileEntry) -> Result<(), Box<NativeNodeError>> {
+    if matches!(entry, FileEntry::Json(value) if value.is_null()) {
+        return Err(Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            "Cannot read properties of null (reading 'type')",
+        )));
+    }
+    Ok(())
+}
+
 pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> Result<String, Box<NativeNodeError>> {
+    assert_non_null_record(entry)?;
     match entry {
         FileEntry::Header(header) => Ok(serde_json::to_string(header).expect("header serializes losslessly")),
         FileEntry::Entry(entry) => serialize_session_entry(entry),
@@ -418,10 +429,17 @@ fn build_rewritten_session_content(
     Ok(JsString::join(rewritten_lines, "\n"))
 }
 
-fn backup_path_for(file_path: &JsString, now_ms: i64) -> JsString {
-    let timestamp = iso_time::format_iso_millis(now_ms).replace([':', '.'], "-");
+fn backup_path_for(file_path: &JsString, now_ms: f64) -> Result<JsString, CallbackError> {
+    let timestamp = pi_js_compat::date::to_iso_string_value(now_ms)
+        .map_err(|error| {
+            CallbackError::from(NativeNodeError::from_constructor(
+                NativeErrorClass::RangeError,
+                error.to_string(),
+            ))
+        })?
+        .replace([':', '.'], "-");
     let suffix: String = random_uuid().chars().take(8).collect();
-    js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix)
+    Ok(js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix))
 }
 
 /// `writeFileSync(tempPath, content, { flag: "wx", mode })`, `chmodSync`, then `renameSync`.
@@ -465,14 +483,16 @@ fn write_session_file_atomically(
     file_path: &JsString,
     content: &JsString,
     parsed: &ParsedSessionFile,
-    now_ms: i64,
-) -> Result<JsString, JsString> {
+    now_ms: f64,
+) -> Result<JsString, CallbackError> {
     let current = stat_file(file_path)?;
     if current.len() != parsed.size || metadata_mtime_ms(&current)? != parsed.mtime_ms {
-        return Err("session changed while scanning; rerun after it is idle".into());
+        return Err(CallbackError::new(
+            "session changed while scanning; rerun after it is idle",
+        ));
     }
 
-    let backup_path = backup_path_for(file_path, now_ms);
+    let backup_path = backup_path_for(file_path, now_ms)?;
     let temp_path = js_format!("{}.tool-output-temp-{}", file_path, random_uuid());
     fs::copy(encode_node_utf8(file_path), encode_node_utf8(&backup_path))
         .map_err(|error| node_fs_dest_error(&error, "copyfile", file_path, &backup_path))?;
@@ -487,8 +507,8 @@ fn rewrite_session_file(
     parsed: &ParsedSessionFile,
     entries: &[FileEntry],
     changed_indexes: &[usize],
-    now_ms: i64,
-) -> Result<JsString, JsString> {
+    now_ms: f64,
+) -> Result<JsString, CallbackError> {
     let content = build_rewritten_session_content(file_path, &parsed.lines, entries, changed_indexes)?;
     write_session_file_atomically(file_path, &content, parsed, now_ms)
 }
@@ -497,6 +517,7 @@ fn cap_session_entries(entries: &[FileEntry]) -> Result<(Vec<FileEntry>, Vec<usi
     let mut capped_entries = Vec::with_capacity(entries.len());
     let mut changed_indexes = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
+        assert_non_null_record(entry).map_err(|error| error.message)?;
         let capped = match entry {
             FileEntry::Entry(entry) => {
                 let (truncated, changed) =
@@ -513,12 +534,12 @@ fn cap_session_entries(entries: &[FileEntry]) -> Result<(Vec<FileEntry>, Vec<usi
     Ok((capped_entries, changed_indexes))
 }
 
-/// One file of `migrateToolResultSessionFiles`; `Err` is the caught error message.
+/// One file of `migrateToolResultSessionFiles`; the caller applies the frozen catch.
 fn migrate_session_file(
     file_path: &JsString,
     report: &mut ToolResultSessionMigrationReport,
-    now: &impl Fn() -> i64,
-) -> Result<(), JsString> {
+    now: &impl Fn() -> Result<f64, CallbackError>,
+) -> Result<(), CallbackError> {
     let parsed = match read_session_file_for_migration(file_path)? {
         SessionFileParseResult::Session(parsed) => parsed,
         SessionFileParseResult::Malformed => {
@@ -537,7 +558,7 @@ fn migrate_session_file(
         return Ok(());
     }
 
-    let backup_path = rewrite_session_file(file_path, &parsed, &capped_entries, &changed_indexes, now())?;
+    let backup_path = rewrite_session_file(file_path, &parsed, &capped_entries, &changed_indexes, now()?)?;
     report.changed_files += 1;
     report.truncated_messages += changed_indexes.len();
     report.backup_paths.push(backup_path);
@@ -547,15 +568,17 @@ fn migrate_session_file(
 /// Scan and atomically rewrite oversized tool-result content under an agent directory.
 pub fn migrate_tool_result_session_files(
     agent_dir: &JsString,
-    now: impl Fn() -> i64,
-) -> ToolResultSessionMigrationReport {
+    now: impl Fn() -> Result<f64, CallbackError>,
+) -> Result<ToolResultSessionMigrationReport, CallbackError> {
     let mut report = ToolResultSessionMigrationReport::default();
     for file_path in list_jsonl_files(agent_dir) {
         report.scanned_files += 1;
-        if let Err(message) = migrate_session_file(&file_path, &mut report, &now) {
+        if let Err(error) = migrate_session_file(&file_path, &mut report, &now) {
             report.skipped_error_files += 1;
-            report.errors.push(js_format!("{}: {}", file_path, message));
+            report
+                .errors
+                .push(js_format!("{}: {}", file_path, error.error_or_string_message()?));
         }
     }
-    report
+    Ok(report)
 }
