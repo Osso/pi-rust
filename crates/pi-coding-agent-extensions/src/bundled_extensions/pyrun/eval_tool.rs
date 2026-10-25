@@ -268,7 +268,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
         ctx.footer_data
             .as_ref()
             .and_then(|footer| footer.get_git_branch())
-            .map_or(Value::Null, |value| Value::String(value.into())),
+            .map_or(Value::Null, Value::String),
     );
     if let Some(context_usage) = &ctx.context_usage {
         footer.insert(
@@ -276,7 +276,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
             js_json::to_value(context_usage).unwrap_or(Value::Null),
         );
     }
-    footer.insert("cwd".into(), Value::String(ctx.cwd.clone().into()));
+    footer.insert("cwd".into(), Value::String(ctx.cwd.clone()));
     let mut extension_statuses = Map::new();
     if let Some(footer_data) = &ctx.footer_data {
         for (key, value) in footer_data.get_extension_statuses()? {
@@ -292,9 +292,7 @@ pub fn create_pi_capability_snapshot(ctx: &PyrunEvalContext) -> Result<Value, Ca
     );
     footer.insert(
         "sessionName".into(),
-        ctx.session_name
-            .clone()
-            .map_or(Value::Null, |value| Value::String(value.into())),
+        ctx.session_name.clone().map_or(Value::Null, Value::String),
     );
     let mut snapshot = Map::new();
     snapshot.insert("footer".into(), Value::Object(footer));
@@ -305,10 +303,7 @@ pub fn eval_context(ctx: &ExtensionContext) -> Result<PyrunEvalContext, HandlerE
     let session = ctx.session_manager()?;
     let (cwd, session_name) = {
         let manager = session;
-        (
-            manager.get_cwd().to_owned(),
-            manager.get_session_name().map(JsString::from),
-        )
+        (manager.get_cwd().to_owned(), manager.get_session_name())
     };
     Ok(PyrunEvalContext {
         footer_data: ctx.footer_data()?,
@@ -348,7 +343,7 @@ pub fn format_canonical_pyrun_eval_result(
     let is_error = bounded_result.error.is_some();
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(js_json::to_value(&bounded_result).unwrap_or(Value::Null).into()),
+        details: Some(js_json::to_value(&bounded_result).unwrap_or(Value::Null)),
         is_error: Some(is_error),
         terminate: None,
     }
@@ -387,7 +382,7 @@ pub fn create_pyrun_progress_reporter(
         if let Some(on_update) = &on_update {
             on_update(AgentToolResult {
                 content: vec![TextOrImageContent::Text(TextContent::new(progress_text))],
-                details: Some(bounded_update.raw.into()),
+                details: Some(bounded_update.raw),
                 is_error: None,
                 terminate: None,
             })

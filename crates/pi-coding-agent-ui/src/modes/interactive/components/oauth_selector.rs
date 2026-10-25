@@ -128,7 +128,7 @@ impl OAuthSelectorComponent {
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(TruncatedText::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold(title))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold(title))),
                 1,
                 0,
             )),

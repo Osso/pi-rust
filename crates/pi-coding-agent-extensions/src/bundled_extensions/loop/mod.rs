@@ -181,7 +181,7 @@ impl LoopController {
         let Some(active) = state.active.as_mut().filter(|active| active.generation == generation) else {
             return Ok(());
         };
-        if active.session_id != ctx.session_manager()?.get_session_id().to_owned() || active.in_flight {
+        if active.session_id != ctx.session_manager()?.get_session_id() || active.in_flight {
             return Ok(());
         }
         if !ctx.is_idle()? || ctx.has_pending_messages()? {
@@ -198,7 +198,7 @@ impl LoopController {
         let Some(active) = state.active.as_mut() else {
             return Ok(());
         };
-        if active.session_id != ctx.session_manager()?.get_session_id().to_owned() {
+        if active.session_id != ctx.session_manager()?.get_session_id() {
             return Ok(());
         }
         if event
@@ -357,7 +357,7 @@ fn text_result(text: impl Into<JsString>, details: LoopToolDetails) -> AgentTool
         content: vec![pi_ai::types::TextOrImageContent::Text(pi_ai::types::TextContent::new(
             text,
         ))],
-        details: Some(details.to_value().into()),
+        details: Some(details.to_value()),
         is_error: None,
         terminate: None,
     }
@@ -528,8 +528,7 @@ pub fn loop_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     })
     .map_err(HandlerError::new)?;
 
-    pi.register_tool(loop_tool_definition(controller.clone()))
-        .map_err(HandlerError::from)?;
+    pi.register_tool(loop_tool_definition(controller.clone()))?;
 
     pi.register_command(
         "loop",

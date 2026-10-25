@@ -43,7 +43,7 @@ impl EarendilAnnouncementComponent {
         };
         container.add_child(component(DynamicBorder::new(accent_border.clone())));
         container.add_child(component(Text::new(
-            theme.bold(&theme.fg(ThemeColor::Accent, "pi has joined Earendil")),
+            theme.bold(theme.fg(ThemeColor::Accent, "pi has joined Earendil")),
             1,
             0,
         )));

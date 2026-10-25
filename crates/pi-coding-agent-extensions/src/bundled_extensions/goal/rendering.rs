@@ -189,7 +189,7 @@ pub fn supervisor_instruction_content(instructions: impl Into<JsString>) -> JsSt
 fn supervisor_message(content: &JsString, display_id: Option<&JsString>) -> CustomMessagePayload {
     CustomMessagePayload {
         custom_type: "supervisor".into(),
-        content: CustomMessageContent::Text(supervisor_instruction_content(content).into()),
+        content: CustomMessageContent::Text(supervisor_instruction_content(content)),
         display: display_id.is_none(),
         details: display_id.map(|id| {
             let mut data = JsObject::new();
@@ -444,12 +444,10 @@ pub fn create_supervisor_status_entry_renderer(refresher: WaitCountdownRefresher
                     if displays
                         .get(&key)
                         .is_some_and(|display| Rc::ptr_eq(&display.component, &bound_component))
+                        && let Some(display) = displays.remove(&key)
+                        && let Some(cleanup) = display.cleanup_countdown
                     {
-                        if let Some(display) = displays.remove(&key) {
-                            if let Some(cleanup) = display.cleanup_countdown {
-                                cleanup();
-                            }
-                        }
+                        cleanup();
                     }
                 });
             }));

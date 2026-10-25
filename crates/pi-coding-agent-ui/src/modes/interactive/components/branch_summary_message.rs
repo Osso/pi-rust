@@ -72,7 +72,7 @@ impl BranchSummaryMessageComponent {
         } else {
             let text = with_theme(|theme| {
                 theme.fg(ThemeColor::CustomMessageText, "Branch summary (")
-                    + &theme.fg(ThemeColor::Dim, &key_text("app.tools.expand"))
+                    + &theme.fg(ThemeColor::Dim, key_text("app.tools.expand"))
                     + &theme.fg(ThemeColor::CustomMessageText, " to expand)")
             });
             self.container.add_child(component(Text::new(text, 0, 0)));

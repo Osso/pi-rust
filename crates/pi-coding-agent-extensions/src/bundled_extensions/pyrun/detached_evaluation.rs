@@ -147,7 +147,7 @@ fn write_durable_pyrun_script(path: &JsString, code: &JsString) -> Result<(), Js
         js_json::encode_node_utf8(path),
     )
     .map_err(|error| error.to_string())?;
-    for directory in [node_dirname(path), node_dirname(&node_dirname(path))] {
+    for directory in [node_dirname(path), node_dirname(node_dirname(path))] {
         let file = std::fs::File::open(js_json::encode_node_utf8(&directory)).map_err(|error| error.to_string())?;
         file.sync_all().map_err(|error| error.to_string())?;
     }
@@ -189,8 +189,8 @@ fn launch_foreground_pyrun_runner(
             foreground_completion_path: foreground_completion_path.clone(),
             params: create_canonical_pyrun_eval_params(&input.params, &eval_context, input.pi_bridge_enabled)?,
             runner_address: crate::core::session_control_db::RuntimeMailboxAddress {
-                agent_id: Some(job_id.clone().into()),
-                session_id: session.get_session_id().to_owned().into(),
+                agent_id: Some(job_id.clone()),
+                session_id: session.get_session_id().to_owned(),
             },
             runner_options: input.runner_options.clone(),
             runner_process_identity: process_identity.clone(),
@@ -338,7 +338,7 @@ fn detach_state_fn(state: &DetachState) -> Result<bool, pi_js_compat::callback_e
         detached: Some(true),
         file_refs: Some(vec![crate::core::multi_agent_store::AgentFileReference {
             label: Some("Pyrun script".into()),
-            path: state.script_path.clone().into(),
+            path: state.script_path.clone(),
         }]),
     });
     // Frozen detached-evaluation.ts:465-478 registers outside the activation catch.
@@ -467,14 +467,11 @@ fn detached_result(params: &PyrunEvalParams, job_id: &JsString, log_path: &JsStr
                     log_path
                 ),
         ))],
-        details: Some(
-            json!({
-                "backgroundJobId": job_id,
-                "executed": params.code,
-                "type": "detached"
-            })
-            .into(),
-        ),
+        details: Some(json!({
+            "backgroundJobId": job_id,
+            "executed": params.code,
+            "type": "detached"
+        })),
         is_error: None,
         terminate: None,
     }
@@ -498,12 +495,12 @@ fn format_terminal_agent_error(params: &PyrunEvalParams, agent: &AgentNode) -> A
         .as_ref()
         .map(|error| JsString::from(&error.message))
         .or_else(|| agent.result.as_ref().and_then(|result| result.summary.clone()))
-        .unwrap_or_else(|| js_format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)).into());
+        .unwrap_or_else(|| js_format!("Pyrun evaluation {}", lifecycle_name(agent.lifecycle)));
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(
             params.code.clone() + "\n\nError: " + &error,
         ))],
-        details: Some(json!({"error": error, "executed": params.code, "type": "error"}).into()),
+        details: Some(json!({"error": error, "executed": params.code, "type": "error"})),
         is_error: Some(true),
         terminate: None,
     }
@@ -543,7 +540,7 @@ fn format_lost_pyrun_runtime(params: &PyrunEvalParams, records: &[Value], output
         }
     }
     if let Some(Value::Object(details)) = &mut formatted.details {
-        details.insert("outputPath".into(), Value::String(output_path.to_owned().into()));
+        details.insert("outputPath".into(), Value::String(output_path.to_owned()));
         details.insert("type".into(), Value::String("lost_runtime".to_owned().into()));
     }
     formatted
@@ -623,7 +620,7 @@ enum RestoredRunner {
     Aborted(Box<AgentNode>),
     Terminal(Box<CanonicalPyrunEvalResult>),
     Lost(Vec<Value>, JsString),
-    Resume(LaunchedRunner),
+    Resume(Box<LaunchedRunner>),
 }
 
 async fn settle_cancelling_pyrun_job(
@@ -751,7 +748,7 @@ fn restore_pyrun_candidate(
             script_path
         )));
     }
-    Ok(RestoredRunner::Resume(LaunchedRunner {
+    Ok(RestoredRunner::Resume(Box::new(LaunchedRunner {
         manifest_path: candidate.manifest_path,
         activation_path: manifest.data.activation_path,
         artifacts: manifest.data.artifacts,
@@ -762,7 +759,7 @@ fn restore_pyrun_candidate(
         process_identity: manifest.data.runner_process_identity.clone(),
         runner_pid: manifest.data.runner_process_identity.pid,
         script_path,
-    }))
+    })))
 }
 
 async fn restore_foreground_pyrun_runner(
@@ -821,7 +818,7 @@ async fn respond_to_foreground_bridge_request(
     }
     let mut claimed = Map::new();
     claimed.insert("claimed".into(), Value::Bool(true));
-    claimed.insert("requestId".into(), Value::String(request_id.to_owned().into()));
+    claimed.insert("requestId".into(), Value::String(request_id.to_owned()));
     append_artifact_record(&runner.bridge_response_path, &Value::Object(claimed))
         .map_err(|error| HandlerError::new(error.to_string()))?;
     let method = request
@@ -846,7 +843,7 @@ async fn respond_to_foreground_bridge_request(
     )
     .await;
     let mut body = Map::new();
-    body.insert("requestId".into(), Value::String(request_id.to_owned().into()));
+    body.insert("requestId".into(), Value::String(request_id.to_owned()));
     match response {
         Ok(Some(result)) => {
             body.insert("result".into(), result);
@@ -1031,7 +1028,7 @@ pub async fn run_durable_detachable_pyrun_evaluation(
         Some(RestoredRunner::Lost(records, output_path)) => {
             return Ok(format_lost_pyrun_runtime(&input.params, &records, &output_path));
         }
-        Some(RestoredRunner::Resume(runner)) => runner,
+        Some(RestoredRunner::Resume(runner)) => *runner,
         None => {
             launch_foreground_pyrun_runner(&input, &persistence, &controller, started_at).map_err(HandlerError::from)?
         }

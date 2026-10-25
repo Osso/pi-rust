@@ -44,7 +44,7 @@ impl Component for AgentSelectionBannerComponent {
         let Some(text) = selected_agent_text(store) else {
             return Vec::new();
         };
-        let label = self.theme.fg(ThemeColor::Accent, &self.theme.bold(&text));
+        let label = self.theme.fg(ThemeColor::Accent, self.theme.bold(&text));
         vec![truncate_to_width(&label, width)]
     }
 

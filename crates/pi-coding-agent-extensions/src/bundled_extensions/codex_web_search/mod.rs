@@ -206,7 +206,7 @@ async fn run_hosted_web_search(request: WebSearchRequest) -> Result<JsString, Js
         ),
         messages: vec![pi_ai::types::Message::User(UserMessage {
             role: UserRole::Tag,
-            content: UserContent::Text(request.query.clone().into()),
+            content: UserContent::Text(request.query.clone()),
             input_source: None,
             provider_native: None,
             timestamp: pi_js_compat::date::js_now_millis(),
@@ -312,8 +312,7 @@ pub fn create_web_search_tool_definition(options: &WebSearchToolOptions) -> Tool
 
 /// Bundled `codex-web-search` extension.
 pub fn codex_web_search_extension(pi: &ExtensionApi, options: &WebSearchToolOptions) -> Result<(), HandlerError> {
-    pi.register_tool(create_web_search_tool_definition(options))
-        .map_err(HandlerError::from)?;
+    pi.register_tool(create_web_search_tool_definition(options))?;
     pi.on_before_provider_request(
         move |event: BeforeProviderRequestEvent,
               ctx: ExtensionContext|

@@ -145,7 +145,7 @@ fn persist_active_plan(pi: &ExtensionApi, plan: Option<&ActivePlan>) -> Result<(
         Some(plan) => pi_js_compat::js_json!({"file": basename(&plan.file), "path": plan.path}),
         None => Value::Null,
     };
-    pi.append_entry(&ACTIVE_PLAN_ENTRY_TYPE.into(), Some(data.into()))
+    pi.append_entry(&ACTIVE_PLAN_ENTRY_TYPE.into(), Some(data))
 }
 
 fn resolve_plan_file(cwd: &JsString, args: &JsString) -> ActivePlan {
@@ -213,7 +213,7 @@ async fn submit_next_plan_item(
         deliver_as: Some(UserMessageDelivery::FollowUp),
         expand_prompt_templates: None,
     });
-    pi.send_user_message(UserMessageContent::Text(prompt.into()), options)?;
+    pi.send_user_message(UserMessageContent::Text(prompt), options)?;
     Ok(true)
 }
 

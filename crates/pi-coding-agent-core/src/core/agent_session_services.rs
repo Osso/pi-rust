@@ -200,7 +200,7 @@ pub async fn create_agent_session_services(
         })
         .transpose()?
         .map(Ok)
-        .unwrap_or_else(|| get_agent_dir())
+        .unwrap_or_else(get_agent_dir)
         .map_err(CallbackError::from)?;
     let auth_storage = options
         .auth_storage
@@ -220,10 +220,7 @@ pub async fn create_agent_session_services(
     let extension_flag_values = options.extension_flag_values.take();
     let reload_options = options.resource_loader_reload_options.take();
     let resource_loader = build_resource_loader(options, &cwd, &agent_dir, &settings_manager)?;
-    resource_loader
-        .reload_with_options(reload_options)
-        .await
-        .map_err(JsString::from)?;
+    resource_loader.reload_with_options(reload_options).await?;
 
     let mut diagnostics = register_pending_providers(&model_registry, &resource_loader)?;
     diagnostics.extend(apply_extension_flag_values(

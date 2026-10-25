@@ -496,7 +496,7 @@ impl ResourceList {
             match entry {
                 FlatEntry::Group(group_index) => {
                     let group = &self.groups()[group_index];
-                    let group_line = with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold(&group.label)));
+                    let group_line = with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold(&group.label)));
                     lines.push(truncate_to_width_with(
                         &js_format!("  {}", group_line),
                         width,

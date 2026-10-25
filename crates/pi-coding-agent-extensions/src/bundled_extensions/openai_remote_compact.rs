@@ -136,8 +136,7 @@ pub async fn handle_compaction(
     } else {
         None
     };
-    let instructions =
-        build_openai_compact_instructions(&ctx.get_system_prompt()?.into(), event.custom_instructions.as_ref());
+    let instructions = build_openai_compact_instructions(&ctx.get_system_prompt()?, event.custom_instructions.as_ref());
     let payload = build_openai_compact_payload(
         &model,
         &messages,
@@ -178,13 +177,9 @@ pub async fn handle_compaction(
                 provider: model.provider.clone(),
                 api: model.api.clone(),
                 format: ProviderNativeFormat::OpenAIResponsesInput,
-                value: Value::Array(details.replacement_history.clone()).into(),
+                value: Value::Array(details.replacement_history.clone()),
             }),
-            details: Some(
-                js_json::to_value(&details)
-                    .map_err(|error| HandlerError::new(error.to_string()))?
-                    .into(),
-            ),
+            details: Some(js_json::to_value(&details).map_err(|error| HandlerError::new(error.to_string()))?),
         }),
     }))
 }
@@ -1091,7 +1086,7 @@ fn truncate_reducible_text(value: &Value, budget: &mut usize) -> Value {
         Value::Object(object) => {
             let mut truncated = Map::new();
             for (key, item) in js_json::object_entries_lossless(object) {
-                truncated.insert(key.clone().into(), truncate_reducible_text(item, budget));
+                truncated.insert(key.clone(), truncate_reducible_text(item, budget));
             }
             Value::Object(truncated)
         }

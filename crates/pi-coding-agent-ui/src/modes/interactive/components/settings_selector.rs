@@ -353,7 +353,7 @@ impl SelectSubmenu {
         }
         let select_list = Rc::new(RefCell::new(select_list));
         let mut children = vec![component(Text::new(
-            theme.bold(&theme.fg(ThemeColor::Accent, title)),
+            theme.bold(theme.fg(ThemeColor::Accent, title)),
             0,
             0,
         ))];
@@ -696,7 +696,7 @@ impl ThemeSubmenu {
         let theme = crate::modes::interactive::theme::current_theme();
         let mut content = Container::with_children(vec![
             component(Text::new(
-                theme.bold(&theme.fg(ThemeColor::Accent, "Automatic Theme")),
+                theme.bold(theme.fg(ThemeColor::Accent, "Automatic Theme")),
                 0,
                 0,
             )),

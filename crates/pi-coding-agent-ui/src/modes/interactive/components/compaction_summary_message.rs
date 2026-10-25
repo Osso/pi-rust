@@ -84,7 +84,7 @@ impl CompactionSummaryMessageComponent {
                 theme.fg(
                     ThemeColor::CustomMessageText,
                     &js_format!("{}{}{} (", token_summary, remote_result_suffix, duration_suffix),
-                ) + &theme.fg(ThemeColor::Dim, &key_text("app.tools.expand"))
+                ) + &theme.fg(ThemeColor::Dim, key_text("app.tools.expand"))
                     + &theme.fg(ThemeColor::CustomMessageText, " to expand)")
             });
             self.container.add_child(component(Text::new(text, 0, 0)));

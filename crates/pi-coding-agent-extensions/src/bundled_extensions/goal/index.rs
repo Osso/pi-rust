@@ -53,7 +53,7 @@ const RESERVED_GOAL_OBJECTIVES: [&str; 7] = ["set", "pause", "resume", "clear", 
 fn text_result(text: impl Into<JsString>, details: Value) -> AgentToolResult {
     AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: Some(details.into()),
+        details: Some(details),
         is_error: None,
         terminate: None,
     }
@@ -270,7 +270,7 @@ async fn review_goal_set_objective(
     match reviewed.decision {
         GoalSupervisorResponse::Set { objective, .. } => Ok(Ok(match &active_goal {
             Some(active_goal) => deduplicate_current_goal_scope(&JsString::from(&objective), &active_goal.objective),
-            None => objective.into(),
+            None => objective,
         })),
         decision => {
             let reason = decision_reason(&decision);
@@ -295,7 +295,7 @@ fn decision_reason(decision: &GoalSupervisorResponse) -> JsString {
 
 fn decision_instructions(decision: &GoalSupervisorResponse) -> JsString {
     match decision {
-        GoalSupervisorResponse::Continue { instructions, .. } => instructions.clone().into(),
+        GoalSupervisorResponse::Continue { instructions, .. } => instructions.clone(),
         _ => JsString::default(),
     }
 }

@@ -80,7 +80,7 @@ impl TrustSelectorComponent {
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Project trust"))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold("Project trust"))),
                 1,
                 0,
             )),

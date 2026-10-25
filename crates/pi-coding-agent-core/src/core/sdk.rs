@@ -296,11 +296,8 @@ async fn create_agent_session_internal(
                 }
             }
             None => {
-                model_fallback_message = Some(
-                    format_no_models_available_message()
-                        .map_err(pi_ai::request::CallbackError::from)?
-                        .into(),
-                )
+                model_fallback_message =
+                    Some(format_no_models_available_message().map_err(pi_ai::request::CallbackError::from)?)
             }
         }
     }
@@ -442,7 +439,7 @@ async fn create_agent_session_internal(
                         Box::pin(async move {
                             match runner {
                                 Some(runner) if runner.has_handlers("before_provider_request") => {
-                                    Ok(Some(runner.emit_before_provider_request(payload.into()).await))
+                                    Ok(Some(runner.emit_before_provider_request(payload).await))
                                 }
                                 _ => Ok(None),
                             }

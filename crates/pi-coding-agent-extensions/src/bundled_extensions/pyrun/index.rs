@@ -516,7 +516,7 @@ fn list_scoped_models(ctx: &ExtensionContext) -> Result<Value, HandlerError> {
             let mut model = Map::new();
             model.insert("id".into(), Value::String(scoped.model.id.clone().into()));
             if !scoped.model.name.is_empty() {
-                model.insert("name".into(), Value::String(scoped.model.name.clone().into()));
+                model.insert("name".into(), Value::String(scoped.model.name.clone()));
             }
             model.insert(
                 "provider".into(),
@@ -684,14 +684,14 @@ async fn dispatch_builtin_pyrun_request(
         Ok("tools.call") => {
             let (name, params) = normalize_tool_call_params(Some(&request.params))?;
             let result = pi
-                .call_tool(name, params.into(), signal, active_tool_call_id.map(str::to_owned))
+                .call_tool(name, params, signal, active_tool_call_id.map(str::to_owned))
                 .await?;
             Ok(Some(js_json::to_value(&result).unwrap_or(Value::Null)))
         }
         Ok("commands.list") => Ok(Some(js_json::to_value(&pi.get_commands()?).unwrap_or(Value::Null))),
         Ok("commands.run") => {
             let (name, args) = normalize_command_run_params(Some(&request.params))?;
-            Ok(Some(pi.call_command(name, Some(args)).await?.into()))
+            Ok(Some(pi.call_command(name, Some(args)).await?))
         }
         Ok("compact") => {
             ctx.compact(Some(normalize_compact_params(Some(&request.params))?))?;
@@ -700,7 +700,7 @@ async fn dispatch_builtin_pyrun_request(
         Ok("messages.enqueue") => {
             let (message, deliver_as) = normalize_message_params(Some(&request.params))?;
             pi.send_user_message(
-                UserMessageContent::Text(message.into()),
+                UserMessageContent::Text(message),
                 Some(SendUserMessageOptions {
                     deliver_as,
                     expand_prompt_templates: None,

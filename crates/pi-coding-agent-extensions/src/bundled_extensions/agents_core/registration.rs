@@ -334,7 +334,7 @@ fn register_spawn_agent_tool(
                 .await
             })
         }),
-    )).map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -357,8 +357,7 @@ fn register_list_agents_tool(
                 list_agents(&store, &params)
             })
         }),
-    ))
-    .map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -408,8 +407,7 @@ fn register_attach_session_agent_tool(
                 .await
             })
         }),
-    ))
-    .map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -437,7 +435,7 @@ fn register_wait_agents_tool(
                 wait_agents(&store, &runtime_handles, signal, Some(&ctx)).await
             })
         }),
-    )).map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -462,8 +460,7 @@ fn register_cancel_agent_tool(
                 cancel_agent(&store, &runtime_handles, &params).await
             })
         }),
-    ))
-    .map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -488,8 +485,7 @@ fn register_steer_agent_tool(
                 steer_agent(&store, &runtime_handles, &params, ctx.as_ref())
             })
         }),
-    ))
-    .map_err(HandlerError::from)?;
+    ))?;
     Ok(())
 }
 
@@ -588,7 +584,7 @@ async fn background_command(
                 .map_err(HandlerError::new)?;
             notify(
                 ctx,
-                &format!("Could not create background job: {}", error.as_str()),
+                format!("Could not create background job: {}", error.as_str()),
                 NotifyType::Error,
             )?;
             return Ok(());
@@ -655,7 +651,7 @@ fn validate_and_notify_background_command(
     if validation.ok {
         return Ok(Some(prompt));
     }
-    notify(ctx, &background_validation_message(&validation), NotifyType::Error)?;
+    notify(ctx, background_validation_message(&validation), NotifyType::Error)?;
     Ok(None)
 }
 
@@ -701,7 +697,7 @@ async fn prepare_background_runtime(
             agent: prepared.clone(),
             context: SpawnContext::Fresh,
             ctx: ctx.context.clone(),
-            prompt: prompt.to_owned().into(),
+            prompt: prompt.to_owned(),
             signal: Some(abort_controller.signal()),
         })
         .await
@@ -814,7 +810,7 @@ fn track_background_agent_dispatch(
             ctx: ctx.context.clone(),
             expected_restore_generation: None,
             handles: Some(Arc::clone(&background.handles)),
-            prompt: prompt.to_owned().into(),
+            prompt: prompt.to_owned(),
             reserved_runtime: Arc::clone(&runtime),
             running_agent: agent,
             store: Arc::clone(&background.store),

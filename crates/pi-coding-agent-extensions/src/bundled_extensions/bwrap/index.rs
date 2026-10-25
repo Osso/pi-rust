@@ -111,7 +111,7 @@ fn build_sandbox_worker_invocation(
     payload: &Map,
 ) -> Result<crate::bundled_extensions::bwrap::backend::BwrapInvocation, JsString> {
     let mut worker_payload = payload.clone();
-    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone().into()));
+    worker_payload.insert("workspace".into(), Value::String(params.cwd.clone()));
     let worker = worker_path()?;
     let command = vec![
         worker.clone(),
@@ -211,8 +211,7 @@ async fn run_json_in_sandbox(
             )
         } else {
             trimmed.to_owned()
-        }
-        .into());
+        });
     }
     js_json::parse_lossless(&stdout_text).map_err(|error| error.into_message())
 }
@@ -534,7 +533,7 @@ async fn execute_sandboxed_grep(
     };
     Ok(AgentToolResult {
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
-        details: (!details.is_empty()).then_some(Value::Object(details).into()),
+        details: (!details.is_empty()).then_some(Value::Object(details)),
         is_error: None,
         terminate: None,
     })
@@ -610,7 +609,7 @@ fn register_bwrap_tool_gate(pi: &ExtensionApi, runtime: &BwrapRuntime) -> Result
                 Err(reason) => Ok(Some(crate::core::extensions::types::ToolCallEventResult {
                     block: Some(true),
                     input: None,
-                    reason: Some(reason.into()),
+                    reason: Some(reason),
                     terminate: None,
                 })),
             }
@@ -895,9 +894,9 @@ pub fn install_bwrap_extension(pi: &ExtensionApi, options: BwrapExtensionOptions
     let runtime = create_bwrap_runtime(&options)?;
     register_bwrap_session_start(pi, &runtime).map_err(HandlerError::from)?;
     register_bwrap_tool_gate(pi, &runtime).map_err(HandlerError::from)?;
-    register_standard_sandboxed_tools(pi, &runtime).map_err(HandlerError::from)?;
-    register_sandboxed_bash_tool(pi, &runtime).map_err(HandlerError::from)?;
-    register_sandboxed_grep_tool(pi, &runtime).map_err(HandlerError::from)?;
+    register_standard_sandboxed_tools(pi, &runtime)?;
+    register_sandboxed_bash_tool(pi, &runtime)?;
+    register_sandboxed_grep_tool(pi, &runtime)?;
     register_user_bash_handler(pi, &runtime).map_err(HandlerError::from)?;
     register_before_agent_start_handler(pi).map_err(HandlerError::from)?;
     register_bwrap_status_command(pi, &runtime).map_err(HandlerError::from)

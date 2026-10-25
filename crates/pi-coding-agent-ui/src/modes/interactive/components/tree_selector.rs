@@ -256,7 +256,7 @@ fn stringify_argument(value: &JsValue) -> JsString {
 
 fn stringify_first_truthy(args: &JsValue, keys: &[&str], default: &str) -> JsString {
     keys.iter()
-        .find_map(|key| args.get(*key).filter(|value| js_json::is_truthy(value)))
+        .find_map(|key| args.get(key).filter(|value| js_json::is_truthy(value)))
         .map_or_else(|| default.into(), stringify_argument)
 }
 
@@ -983,7 +983,7 @@ impl TreeList {
         let entry = &node.entry;
         let mut parts: Vec<JsString> = Vec::new();
         if let Some(label) = &node.label {
-            parts.push(label.clone().into());
+            parts.push(label.clone());
         }
 
         match entry.known().as_deref() {
@@ -999,7 +999,7 @@ impl TreeList {
                 }
             }
             Some(KnownSessionEntry::CustomMessage(entry)) => {
-                parts.push(entry.custom_type.clone().into());
+                parts.push(entry.custom_type.clone());
                 parts.push(match &entry.content {
                     CustomMessageContent::Text(text) => text.clone(),
                     CustomMessageContent::Blocks(_) => {
@@ -1008,34 +1008,34 @@ impl TreeList {
                 });
             }
             Some(KnownSessionEntry::Compaction(entry)) => {
-                parts.push(JsString::from("compaction").into());
+                parts.push(JsString::from("compaction"));
                 parts.push(entry.summary.clone());
             }
             Some(KnownSessionEntry::BranchSummary(entry)) => {
-                parts.push(JsString::from("branch summary").into());
+                parts.push(JsString::from("branch summary"));
                 parts.push(entry.summary.clone());
             }
             Some(KnownSessionEntry::SessionInfo(entry)) => {
-                parts.push(JsString::from("title").into());
+                parts.push(JsString::from("title"));
                 if let Some(name) = &entry.name {
-                    parts.push(name.clone().into());
+                    parts.push(name.clone());
                 }
             }
             Some(KnownSessionEntry::ModelChange(entry)) => {
-                parts.push(JsString::from("model").into());
-                parts.push(entry.model_id.clone().into());
+                parts.push(JsString::from("model"));
+                parts.push(entry.model_id.clone());
             }
             Some(KnownSessionEntry::ThinkingLevelChange(entry)) => {
-                parts.push(JsString::from("thinking").into());
-                parts.push(entry.thinking_level.clone().into());
+                parts.push(JsString::from("thinking"));
+                parts.push(entry.thinking_level.clone());
             }
             Some(KnownSessionEntry::Custom(entry)) => {
-                parts.push(JsString::from("custom").into());
-                parts.push(entry.custom_type.clone().into());
+                parts.push(JsString::from("custom"));
+                parts.push(entry.custom_type.clone());
             }
             Some(KnownSessionEntry::Label(entry)) => {
-                parts.push(JsString::from("label").into());
-                parts.push(entry.label.clone().unwrap_or_default().into());
+                parts.push(JsString::from("label"));
+                parts.push(entry.label.clone().unwrap_or_default());
             }
             None => {}
         }
@@ -1113,7 +1113,7 @@ impl TreeList {
                         } else if let Some(error_message) =
                             message.error_message.as_ref().filter(|text| !text.is_empty())
                         {
-                            let error = slice_utf16(&normalize(&error_message.clone().into()), 80);
+                            let error = slice_utf16(&normalize(&error_message.clone()), 80);
                             with_theme(|theme| theme.fg(ThemeColor::Success, "assistant: "))
                                 + &with_theme(|theme| theme.fg(ThemeColor::Error, &error))
                         } else {
@@ -1132,7 +1132,7 @@ impl TreeList {
                             with_theme(|theme| {
                                 theme.fg(
                                     ThemeColor::Muted,
-                                    &format_tool_call(&tool_call.name, &tool_call.arguments),
+                                    format_tool_call(&tool_call.name, &tool_call.arguments),
                                 )
                             })
                         } else {
@@ -1199,7 +1199,7 @@ impl TreeList {
                 }),
                 None => with_theme(|theme| {
                     theme.fg(ThemeColor::Dim, "[title: ")
-                        + &theme.italic(&theme.fg(ThemeColor::Dim, "empty"))
+                        + &theme.italic(theme.fg(ThemeColor::Dim, "empty"))
                         + &theme.fg(ThemeColor::Dim, "]")
                 }),
             },
@@ -1688,12 +1688,12 @@ fn format_help_keys(keybindings: &[&str]) -> JsString {
     let manager = get_keybindings();
     let keys: Vec<JsString> = keybindings
         .iter()
-        .filter_map(|binding| manager.get_keys(*binding).first().map(|key| key.clone()))
+        .filter_map(|binding| manager.get_keys(*binding).first().cloned())
         .collect();
     if keys.is_empty() {
         return JsString::default();
     }
-    let text = format_key_text(&compact_raw_keys(&keys), Default::default());
+    let text = format_key_text(compact_raw_keys(&keys), Default::default());
     help_replacement_pattern().replace_all_with(&text, |captures| {
         let matched = captures.get(0).expect("whole help-key match").text();
         for (key, replacement) in [
@@ -1771,7 +1771,7 @@ impl Component for TreeHelp {
                 continue;
             }
 
-            lines.extend(wrap_text_with_ansi(&current_line.trim_end(), available_width));
+            lines.extend(wrap_text_with_ansi(current_line.trim_end(), available_width));
             let indented = js_format!("{}{}", indent, item);
             current_line = if visible_width(&indented) <= available_width {
                 indented
@@ -1781,7 +1781,7 @@ impl Component for TreeHelp {
         }
 
         if !current_line.is_empty() {
-            lines.extend(wrap_text_with_ansi(&current_line.trim_end(), available_width));
+            lines.extend(wrap_text_with_ansi(current_line.trim_end(), available_width));
         }
 
         lines

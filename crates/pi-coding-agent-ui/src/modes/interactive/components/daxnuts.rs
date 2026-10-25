@@ -46,8 +46,8 @@ fn build_image() -> Vec<JsString> {
         for x in 0..WIDTH {
             let top = pixels[row][x];
             let bottom = pixels.get(row + 1).map_or(top, |next| next[x]);
-            line.push_str(&rgb(bottom[0], bottom[1], bottom[2], false));
-            line.push_str(&rgb(top[0], top[1], top[2], true));
+            line.push_str(rgb(bottom[0], bottom[1], bottom[2], false));
+            line.push_str(rgb(top[0], top[1], top[2], true));
             line.push_str("\u{2584}");
         }
         line.push_str("\u{1b}[0m");
@@ -162,7 +162,7 @@ impl Component for DaxnutsComponent {
                     width,
                 ));
             } else {
-                lines.push(Self::center(&" ".repeat(WIDTH), width));
+                lines.push(Self::center(" ".repeat(WIDTH), width));
             }
         }
 
@@ -170,15 +170,15 @@ impl Component for DaxnutsComponent {
         let text_phase = (self.tick as f64 - MAX_TICKS as f64 * 0.6).max(0.0);
         if text_phase > 0.0 || self.tick >= MAX_TICKS {
             lines.push(Self::center(
-                &with_theme(|theme| theme.fg(ThemeColor::Accent, "Free Kimi K2.5 via OpenCode Zen")),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, "Free Kimi K2.5 via OpenCode Zen")),
                 width,
             ));
             lines.push(Self::center(
-                &with_theme(|theme| theme.fg(ThemeColor::Success, "\"Powered by daxnuts\"")),
+                with_theme(|theme| theme.fg(ThemeColor::Success, "\"Powered by daxnuts\"")),
                 width,
             ));
             lines.push(Self::center(
-                &with_theme(|theme| theme.fg(ThemeColor::Muted, "\u{2014} @thdxr")),
+                with_theme(|theme| theme.fg(ThemeColor::Muted, "\u{2014} @thdxr")),
                 width,
             ));
         } else {
@@ -190,11 +190,11 @@ impl Component for DaxnutsComponent {
         lines.push(JsString::default());
         if text_phase > 2.0 || self.tick >= MAX_TICKS {
             lines.push(Self::center(
-                &with_theme(|theme| theme.fg(ThemeColor::Dim, "Try OpenCode")),
+                with_theme(|theme| theme.fg(ThemeColor::Dim, "Try OpenCode")),
                 width,
             ));
             lines.push(Self::center(
-                &with_theme(|theme| theme.fg(ThemeColor::MdLink, "https://mistral.ai/news/mistral-vibe-2-0")),
+                with_theme(|theme| theme.fg(ThemeColor::MdLink, "https://mistral.ai/news/mistral-vibe-2-0")),
                 width,
             ));
         } else {

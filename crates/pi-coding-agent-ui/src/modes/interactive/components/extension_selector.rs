@@ -48,7 +48,7 @@ impl ExtensionSelectorComponent {
     ) -> Self {
         let base_title = title.to_owned();
         let title_text = component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold(title))),
+            with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold(title))),
             1,
             0,
         ));
@@ -65,7 +65,7 @@ impl ExtensionSelectorComponent {
                     with_theme(|theme| {
                         theme.fg(
                             ThemeColor::Accent,
-                            &theme.bold(js_format!(
+                            theme.bold(js_format!(
                                 "{} ({}s)",
                                 tick_base_title,
                                 pi_js_compat::number::js_number_to_string(seconds)

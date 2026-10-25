@@ -68,7 +68,7 @@ impl FirstTimeSetupComponent {
         self.container.add_child(component(dynamic_border()));
         self.container.add_child(component(Spacer::new(1)));
         self.container.add_child(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Accent, &SETUP_LOGO_LINES.join("\n"))),
+            with_theme(|theme| theme.fg(ThemeColor::Accent, SETUP_LOGO_LINES.join("\n"))),
             1,
             0,
         )));
@@ -77,7 +77,7 @@ impl FirstTimeSetupComponent {
             with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Accent,
-                    &theme.bold(&js_format!(
+                    theme.bold(&js_format!(
                         "Welcome to {}, the minimal coding agent.",
                         crate::config::package_config().app_name
                     )),

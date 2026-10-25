@@ -149,8 +149,12 @@ fn format_parent_request(agent_id: &JsString, request_id: &JsString, params: &As
         "The child continues meanwhile."
     };
     let mut lines = vec![
-        JsString::from(js_format!("Child agent {} asks (requestId: {}). {}", agent_id, request_id, waiting)),
-        js_format!("Reply with answer_question using agentId \"{}\" and requestId \"{}\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer.", agent_id, request_id).into(),
+        js_format!("Child agent {} asks (requestId: {}). {}", agent_id, request_id, waiting),
+        js_format!(
+            "Reply with answer_question using agentId \"{}\" and requestId \"{}\", answers keyed by exact question text. Ask the user with ask_questions first when you cannot answer.",
+            agent_id,
+            request_id
+        ),
         JsString::default(),
     ];
     lines.extend(
@@ -221,8 +225,8 @@ async fn wait_for_answer(
 ) -> Result<Option<RuntimeMailboxMessage>, HandlerError> {
     let message_id = answer_message_id(&inbox.agent_id, request_id);
     let recipient = RuntimeMailboxAddress {
-        agent_id: Some(inbox.agent_id.clone().into()),
-        session_id: inbox.session_id.clone().into(),
+        agent_id: Some(inbox.agent_id.clone()),
+        session_id: inbox.session_id.clone(),
     };
     loop {
         if signal.as_ref().is_some_and(AbortSignal::aborted) {
@@ -268,7 +272,7 @@ async fn ask_parent(
         );
         let details = result.details.as_mut().unwrap();
         details["queued"] = Value::Bool(true);
-        details["requestId"] = Value::String(request_id.into());
+        details["requestId"] = Value::String(request_id);
         return Ok(result);
     }
     let Some(delivered) = wait_for_answer(&inbox, &request_id, signal).await? else {
@@ -417,8 +421,8 @@ fn answer_question(
     let session = ctx.session_manager()?;
     let sender_session_id = session.get_session_id().to_owned();
     enqueue_stored_runtime_mailbox_message(&persistence.control_db_path, &EnqueueStoredRuntimeMailboxMessageInput {
-        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone().into()), session_id: session_id.into() }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?.map(JsString::from), session_id:sender_session_id.into() }, kind:RuntimeMailboxMessageKind::Reply,
-        message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path.into() }, updated_at:None
+        recipient_host:None, recipient:RuntimeMailboxAddress { agent_id:Some(params.agent_id.clone()), session_id }, sender:RuntimeMailboxAddress { agent_id:ctx.multi_agent_agent_id()?, session_id:sender_session_id }, kind:RuntimeMailboxMessageKind::Reply,
+        message:raw_json!({"body":js_json::stringify_lossless(&answer),"id":message_id,"kind":"reply","status":"pending","fromAgentId":caller_id.unwrap(),"toAgentId":params.agent_id}), store_ref:RuntimeMailboxStoreRef { message_id, session_path:persistence.session_path }, updated_at:None
     }).map_err(handler)?;
     Ok(tool_result(
         JsString::from("Answered ") + &target.display_name + " (request " + &params.request_id + ").",

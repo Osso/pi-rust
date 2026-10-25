@@ -15,6 +15,9 @@ pub type ApplyDecision = Arc<
         + Sync,
 >;
 
+pub type DeferDecision =
+    Arc<dyn Fn(ReviewedGoalResponse, Goal, ExtensionContext, TerminalTurn) -> Result<(), HandlerError> + Send + Sync>;
+
 pub struct GoalAgentEndOptions {
     pub event: AgentEndEvent,
     pub ctx: ExtensionContext,
@@ -23,9 +26,7 @@ pub struct GoalAgentEndOptions {
     pub is_same_goal: IsSameGoal,
     pub is_review_current: Arc<dyn Fn() -> Result<bool, HandlerError> + Send + Sync>,
     pub apply_decision: ApplyDecision,
-    pub defer_decision: Arc<
-        dyn Fn(ReviewedGoalResponse, Goal, ExtensionContext, TerminalTurn) -> Result<(), HandlerError> + Send + Sync,
-    >,
+    pub defer_decision: DeferDecision,
     pub defer_review: Arc<dyn Fn(Goal, ExtensionContext, TerminalTurn) -> Result<(), HandlerError> + Send + Sync>,
 }
 
