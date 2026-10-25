@@ -549,12 +549,13 @@ impl ModelRegistry {
                 }
             }
         }
+        drop(state);
         for oauth in self.auth_storage.get_oauth_providers() {
             if let Some(credential) = oauth_credential(&self.auth_storage, oauth.id()) {
                 models = oauth.modify_models(models, &credential);
             }
         }
-        state.models = models;
+        lock(&self.state).models = models;
     }
     fn load_custom_config(&self) -> Result<JsObject, JsString> {
         let Some(path) = self.models_path.as_ref().filter(|path| !path.is_empty()) else {
@@ -665,13 +666,18 @@ impl ModelRegistry {
                 store_typed_model_headers(&mut state, provider, &model.id, headers);
                 state.models.push(create_registered_model(provider, model, config));
             }
-            if let Some(oauth) = &config.oauth {
-                if let Some(modify) = &oauth.modify_models {
-                    if let Some(credential) = oauth_credential(&self.auth_storage, provider) {
-                        state.models = modify(std::mem::take(&mut state.models), &credential);
-                    }
-                }
-            }
+            let Some(modify) = config.oauth.as_ref().and_then(|oauth| oauth.modify_models.as_ref()) else {
+                return;
+            };
+            let Some(credential) = oauth_credential(&self.auth_storage, provider) else {
+                return;
+            };
+            // Frozen957 keeps the newly installed models visible during reentry.
+            // Owned callback arguments follow the approved value-copy boundary.
+            let models = state.models.clone();
+            drop(state);
+            let models = modify(models, &credential);
+            lock(&self.state).models = models;
         } else if config.base_url.as_ref().is_some_and(|url| !url.is_empty()) || config.headers.is_some() {
             // Frozen960 gates on truthiness; an empty URL only applies when
             // a present headers object enters this branch, then966 uses ??.

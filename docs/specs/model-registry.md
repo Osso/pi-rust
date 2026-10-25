@@ -15,6 +15,8 @@ Port `packages/coding-agent/src/core/model-registry.ts` at the [common pin](../p
 
 Model definitions have optional api/baseUrl, not full output-Model requirements. Missing baseUrl inherits the provider endpoint; explicit empty baseUrl remains empty. API selection retains frozen's logical default. Registration reconstructs only the declared model fields: unrelated root properties, samplingParams and autoCompactionThreshold are dropped. Nested cost/thinking/compat values and their order remain exact; copying a Model into a registration input must not serialize or project those values. Native ProviderModelInput and explicit From<Model> implement this boundary; no empty-string absence sentinels.
 
+OAuth model callbacks run without the registry lock. During registration and reapplication, callbacks can read the newly installed model list and register other providers. The returned model list replaces the current list after the callback returns; registered metadata is upserted after application, matching frozen ordering.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).
