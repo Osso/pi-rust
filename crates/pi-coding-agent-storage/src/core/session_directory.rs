@@ -123,14 +123,14 @@ fn reconcile_current_main_session_bindings(
                 control_db_path,
                 &RuntimeMailboxAddress {
                     agent_id: None,
-                    session_id: listener.session_id.into(),
+                    session_id: listener.session_id,
                 },
                 listener.pid,
             )?;
             continue;
         }
         bindings.insert(
-            JsString::from(listener.session_id),
+            listener.session_id,
             CurrentMainSessionBinding {
                 pid: listener.pid,
                 updated_at: listener.updated_at,

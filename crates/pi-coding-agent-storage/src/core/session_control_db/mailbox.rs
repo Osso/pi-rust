@@ -734,7 +734,7 @@ fn read_runtime_mailbox_authority_snapshot(
     Ok(RuntimeMailboxAuthoritySnapshot {
         listener: read_runtime_mailbox_listener_row(db, recipient)?,
         ownership: match &recipient.agent_id {
-            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, &agent_id)?,
+            Some(agent_id) => read_multi_agent_runtime_ownership_row(db, session_path, agent_id)?,
             None => None,
         },
     })
