@@ -5338,8 +5338,11 @@ impl AgentSession {
         }
         let levels = self.get_available_thinking_levels();
         let current = self.thinking_level();
-        let index = levels.iter().position(|level| *level == current).unwrap_or(0);
-        let next = levels[(index + 1) % levels.len()];
+        let next_index = levels
+            .iter()
+            .position(|level| *level == current)
+            .map_or(0, |index| (index + 1) % levels.len());
+        let next = levels[next_index];
         self.set_thinking_level(next)?;
         Ok(Some(next))
     }
@@ -6103,8 +6106,6 @@ impl AgentSession {
         guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
-        let compaction_started_during_tool_execution =
-            was_running_agent_turn && !self.inner.agent.pending_tool_calls().is_empty();
         self.disconnect_from_agent();
         self.abort().await?;
         self.cancel_background_compaction().await;
@@ -6123,7 +6124,6 @@ impl AgentSession {
                 custom_instructions,
                 &abort,
                 was_running_agent_turn,
-                compaction_started_during_tool_execution,
                 started_at,
                 "manual",
             )
@@ -6221,13 +6221,11 @@ impl AgentSession {
         Ok(extension_compaction)
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn compact_with_settings(
         &self,
         custom_instructions: Option<&JsString>,
         abort: &AbortSignal,
         was_running_agent_turn: bool,
-        compaction_started_during_tool_execution: bool,
         started_at: i64,
         reason: &str,
     ) -> Result<(crate::core::compaction::CompactionResult, bool), AgentSessionError> {
@@ -6271,7 +6269,6 @@ impl AgentSession {
         let duration_ms = (now_millis() - started_at) as f64;
         let compact_result = self.append_compaction_result(compact_result, Some(from_extension), duration_ms)?;
         let will_retry = reason == "manual"
-            && !compaction_started_during_tool_execution
             && (was_running_agent_turn || should_continue_after_manual_compaction(&self.inner.agent.messages()));
         self.emit_session_compact_event(&compact_result.summary, from_extension, reason, will_retry)
             .await;

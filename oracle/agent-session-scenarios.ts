@@ -3,8 +3,25 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai/compat";
 import { runPromptLifecycleScenario } from "./agent-session-prompt-lifecycle.ts";
 import { runInputImagesScenario } from "./agent-session-input-images.ts";
 import { runCompactionEventsScenario } from "./agent-session-compaction-events.ts";
+import { runManualToolCompaction } from "./agent-session-manual-tool.ts";
 
 export async function runAgentSessionScenario(request, context) {
+	if (request.operation === "thinking-cycle-unlisted") {
+		context.agent.state.thinkingLevel = "xhigh";
+		const before = context.session.thinkingLevel;
+		const available = context.session.getAvailableThinkingLevels();
+		const next = context.session.cycleThinkingLevel();
+		const result = {
+			before,
+			available,
+			next,
+			current: context.session.thinkingLevel,
+		};
+		context.session.dispose();
+		return result;
+	}
+	if (request.operation === "manual-tool-compaction")
+		return runManualToolCompaction(context);
 	if (
 		[
 			"manual-compact-events",
