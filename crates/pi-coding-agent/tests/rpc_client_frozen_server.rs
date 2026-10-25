@@ -84,6 +84,19 @@ async fn start_server() -> (tempfile::TempDir, RpcClient, PathBuf) {
 }
 
 #[tokio::test]
+async fn export_path_from_the_actual_frozen_server_retains_unpaired_units() {
+    let (root, client, log) = start_server().await;
+    client.prompt_and_wait("persist", None, 10_000.0).await.unwrap();
+    let path = pi_js_compat::js_json::JsString::from(root.path().to_str().unwrap())
+        + "/out-"
+        + pi_js_compat::js_json::JsString::from_utf16(vec![0xd800])
+        + ".html";
+    let result = check_wire(&log, "export_html", None, client.export_html(Some(path)).await);
+    client.stop().await.unwrap();
+    result.unwrap();
+}
+
+#[tokio::test]
 async fn every_typed_getter_decodes_actual_frozen_server_responses_without_loss() {
     let mut failures = Vec::new();
     // Main-approved isolation: destructive operations each start from a fresh persisted conversation.

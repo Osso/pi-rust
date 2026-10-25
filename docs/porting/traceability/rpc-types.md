@@ -16,7 +16,7 @@ Frozen source: `packages/coding-agent/src/modes/rpc/rpc-types.ts` at [common pin
 
 - `ThinkingLevel`, queue modes, streaming behavior, notification types and widget placements reuse their declared shared enums. Model records in protocol state/response data use the domain Model; the client-specific declared ModelReference/ModelInfo shapes are separate and preserve ordered extras.
 - Native serde record parsing is a declared-branch projection, not frozen runtime routing. Process ingress stays JsValue. Mixed UI answer properties, invalid runtime types, raw unknown command types and arbitrary echoed ids are handled by the raw mode/client authorities, never normalized through the enum decoder.
-- Opaque provider/model ids in native command DTOs remain Unicode scalars under the common-pin approval and reject unpaired units explicitly. Human text and arbitrary JSON are not covered by that approval.
+- Command provider/model-id strings now remain JsString on the wire too (`set_model_command_keeps_raw_string_fields_on_the_wire`, genuine prior scalar-rejection RED). Domain Model metadata's separate opaque-scalar approval is not used to narrow the client transport.
 - `RpcResponse.command` remains optional JsString for the frozen unknown-type error path whose undefined command is omitted; non-string external command echoes use the mode's raw envelope rather than this DTO.
 - The type-only source has no runtime branches or source bugs to classify. Actual process behavior and approved deep-return gaps are listed in the corresponding client/mode traces.
 

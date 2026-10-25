@@ -19,6 +19,9 @@ type Client = {
 	getAvailableModels(): Promise<unknown>;
 	newSession(): Promise<unknown>;
 	getLastAssistantText(): Promise<unknown>;
+	getEntries(): Promise<unknown>;
+	getTree(): Promise<unknown>;
+	getForkMessages(): Promise<unknown>;
 };
 type Api = {
 	RpcClient: new (options: {
@@ -50,7 +53,15 @@ type Request = {
 	idleTimeout?: boolean;
 	listenerFault?: boolean;
 	listenerRemovesItself?: boolean;
-	method?: "model" | "cycle" | "models" | "new" | "text";
+	method?:
+		| "model"
+		| "cycle"
+		| "models"
+		| "new"
+		| "text"
+		| "entries"
+		| "tree"
+		| "fork_messages";
 };
 
 async function sendTyped(
@@ -68,6 +79,12 @@ async function sendTyped(
 			return client.newSession();
 		case "text":
 			return client.getLastAssistantText();
+		case "entries":
+			return client.getEntries();
+		case "tree":
+			return client.getTree();
+		case "fork_messages":
+			return client.getForkMessages();
 		default:
 			throw new Error("unknown test method");
 	}

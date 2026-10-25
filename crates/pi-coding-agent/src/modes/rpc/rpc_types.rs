@@ -55,8 +55,8 @@ pub enum RpcCommandBody {
 
     // Model
     SetModel {
-        provider: String,
-        model_id: String,
+        provider: JsString,
+        model_id: JsString,
     },
     CycleModel,
     GetAvailableModels,

@@ -107,8 +107,8 @@ fn parses_every_state_model_and_thinking_command() {
     assert_eq!(
         parse(r#"{"type":"set_model","provider":"anthropic","modelId":"m"}"#).body,
         RpcCommandBody::SetModel {
-            provider: "anthropic".to_owned(),
-            model_id: "m".to_owned(),
+            provider: "anthropic".into(),
+            model_id: "m".into(),
         }
     );
     assert_eq!(parse(r#"{"type":"cycle_model"}"#).body, RpcCommandBody::CycleModel);
@@ -488,6 +488,16 @@ fn serializes_every_extension_ui_request_in_ts_field_order() {
         .expect("request must serialize"),
         r#"{"type":"extension_ui_request","id":"ui-1","method":"set_editor_text","text":"text"}"#
     );
+}
+
+#[test]
+fn set_model_command_keeps_raw_string_fields_on_the_wire() {
+    // Frozen rpc-types.ts:31 and client :263 only forward these strings.
+    let wire =
+        pi_js_compat::js_json::parse_lossless(r#"{"type":"set_model","provider":"p\ud800","modelId":"i\udfff"}"#)
+            .unwrap();
+    let command: RpcCommand = pi_js_compat::js_json::from_value(&wire).unwrap();
+    assert_eq!(pi_js_compat::js_json::to_value(&command).unwrap(), wire);
 }
 
 #[test]

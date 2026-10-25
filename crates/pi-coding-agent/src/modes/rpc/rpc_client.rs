@@ -93,7 +93,7 @@ pub struct CycleThinkingLevelResult {
 /// `export_html` data.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 pub struct ExportHtmlResult {
-    pub path: String,
+    pub path: JsString,
 }
 
 /// `fork` data.
@@ -107,7 +107,7 @@ pub struct ForkResult {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ForkMessage {
-    pub entry_id: String,
+    pub entry_id: JsString,
     pub text: JsString,
 }
 
@@ -116,7 +116,7 @@ pub struct ForkMessage {
 #[serde(rename_all = "camelCase")]
 pub struct EntriesResult {
     pub entries: Vec<SessionEntry>,
-    pub leaf_id: Option<String>,
+    pub leaf_id: Option<JsString>,
 }
 
 /// `get_tree` data.
@@ -124,7 +124,7 @@ pub struct EntriesResult {
 #[serde(rename_all = "camelCase")]
 pub struct TreeResult {
     pub tree: Vec<SessionTreeNode>,
-    pub leaf_id: Option<String>,
+    pub leaf_id: Option<JsString>,
 }
 
 /// An RPC client error. `Display` matches the TypeScript `Error.message`.
@@ -780,8 +780,8 @@ impl RpcClient {
 
     pub async fn set_model(
         &self,
-        provider: impl Into<String>,
-        model_id: impl Into<String>,
+        provider: impl Into<JsString>,
+        model_id: impl Into<JsString>,
     ) -> Result<ModelReference, RpcClientError> {
         let response = self
             .send(RpcCommandBody::SetModel {
@@ -1313,6 +1313,38 @@ mod tests {
 
     mod source_oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+
+    struct BrokenRead;
+    impl AsyncRead for BrokenRead {
+        fn poll_read(
+            self: std::pin::Pin<&mut Self>,
+            _: &mut std::task::Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> std::task::Poll<std::io::Result<()>> {
+            std::task::Poll::Ready(Err(std::io::Error::from_raw_os_error(
+                rustix::io::Errno::IO.raw_os_error(),
+            )))
+        }
+    }
+
+    #[tokio::test]
+    async fn stderr_read_errors_reach_the_shared_native_uncaught_authority() {
+        let mut source = source_oracle::TsOracle::spawn(
+            "rpc-stream-errors-oracle.mts",
+            "packages/coding-agent/src/modes/rpc/rpc-client.ts",
+        );
+        let expected = source.request(&pi_js_compat::js_json!({"operation":"stderr"}));
+        let client = RpcClient::default();
+        let task = tokio::spawn(read_stderr(Arc::clone(&client.inner), BrokenRead));
+        let panic = task
+            .await
+            .expect_err("unhandled stderr read error must not disappear")
+            .into_panic();
+        let error = panic
+            .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+            .expect("shared native error payload");
+        assert_eq!(error.value(), expected);
     }
 
     #[tokio::test]

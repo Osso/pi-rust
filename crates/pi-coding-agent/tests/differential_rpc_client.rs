@@ -125,6 +125,18 @@ async fn native(request: &JsValue) -> JsValue {
                 .new_session(None)
                 .await
                 .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("entries") => client
+                .get_entries(None)
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("tree") => client
+                .get_tree()
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
+            Some("fork_messages") => client
+                .get_fork_messages()
+                .await
+                .map(|value| pi_js_compat::js_json!({"ok":true,"value":value})),
             Some("text") => client
                 .get_last_assistant_text()
                 .await
@@ -281,6 +293,23 @@ async fn rpc_client_honors_the_runtime_executable_and_argument_order() {
             &pi_js_compat::js_json!({"argv":["runtime-flag","entry","--mode","rpc","--provider","provider","--model","model","extra"],"env":"private"})
         )
     );
+}
+
+#[tokio::test]
+async fn rpc_client_declared_entry_and_leaf_strings_keep_every_unit() {
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for (method, data) in [
+        ("entries", r#"{"entries":[],"leafId":"\ud800"}"#),
+        ("tree", r#"{"tree":[],"leafId":"\udfff"}"#),
+        (
+            "fork_messages",
+            r#"{"messages":[{"entryId":"\ud800","text":"\udfff"}]}"#,
+        ),
+    ] {
+        let request = pi_js_compat::js_json!({"operation":"typed","method":method,"reply":{"type":"response","success":true,"data":js_json::parse_lossless(data).unwrap()}});
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected);
+    }
 }
 
 #[tokio::test]
