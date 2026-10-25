@@ -496,14 +496,14 @@ fn create_child_session_manager(
     let session_dir = options.session_dir.clone().or_else(|| non_empty(&parent.session_dir));
     let manager_options =
         create_child_session_manager_options(&input.agent, parent.session_file.as_ref().unwrap_or(&parent.session_id));
+    let selection = resolve_inherited_leaf_selection(
+        input.context,
+        input.active_tool_call_id.as_deref(),
+        parent.leaf_id.as_ref(),
+        &parent.branch,
+    )?;
     let session_manager = if input.context == super::shared::SpawnContext::Inherit && parent.session_file.is_some() {
         let parent_session_file = parent.session_file.clone().unwrap_or_default();
-        let selection = resolve_inherited_leaf_selection(
-            input.context,
-            input.active_tool_call_id.as_deref(),
-            parent.leaf_id.as_ref(),
-            &parent.branch,
-        )?;
         SessionManager::fork_from(
             &parent_session_file,
             &input.agent.cwd,

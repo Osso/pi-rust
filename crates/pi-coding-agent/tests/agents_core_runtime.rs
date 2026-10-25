@@ -1222,6 +1222,30 @@ async fn recovery_resumes_unjournaled_child_transcript() {
     let store = store_with_persistence(&test);
     let (_runner, ctx) = test_context(&test, None, None, false).await;
     let agent = seed_child(&store, &test, "unjournaled", "saved-transcript");
+    let identity = pi_coding_agent::bundled_extensions::agents_core::lifecycle_runtime::runtime_process_identity();
+    pi_coding_agent::core::session_control_db::register_runtime_mailbox_listener(
+        &test.control_db_path,
+        &pi_coding_agent::core::session_control_db::RuntimeMailboxAddress {
+            session_id: ctx.session_manager().unwrap().get_session_id().clone(),
+            agent_id: None,
+        },
+        identity.pid,
+        Some(&test.session_path),
+        pi_coding_agent::core::session_control_db::RuntimeMailboxRegistrationOptions {
+            runtime_instance_id: Some(pi_coding_agent::core::session_control_db::serialize_process_identity(
+                identity,
+            )),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let db = pi_coding_agent::core::sqlite::create_sqlite_database(&test.control_db_path).unwrap();
+    db.execute(
+        "UPDATE multi_agent_runtime_owners SET process_identity = NULL WHERE agent_id = 'unjournaled'",
+        [],
+    )
+    .unwrap();
+    drop(db);
     let handles = create_multi_agent_runtime_handles();
     let calls = Arc::new(Mutex::new(Vec::new()));
     let observed = Arc::clone(&calls);
@@ -1375,6 +1399,130 @@ async fn contact_parent_delivers_to_parent_session() {
         ctx.session_manager().expect("session").get_session_id()
     );
     assert_eq!(runtime_rows[0].sender.agent_id.clone(), Some(JsString::from("child")));
+}
+
+#[tokio::test]
+async fn wait_coordination_wake_returns_the_supplied_prompt() {
+    let test = test_dir();
+    let store = store_with_persistence(&test);
+    seed_child(&store, &test, "active", "active-transcript");
+    let handles = create_multi_agent_runtime_handles();
+    let waiting_store = Arc::clone(&store);
+    let waiting_handles = handles.clone();
+    let waiting = tokio::spawn(async move { wait_agents(&waiting_store, &waiting_handles, None, None).await });
+    tokio::task::yield_now().await;
+    pi_coding_agent::bundled_extensions::agents_core::runtime::wake_wait_agents_after_coordination(
+        &handles,
+        &"Coordination marker 🦀".into(),
+    );
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert_eq!(text(&result), "Coordination marker 🦀");
+    assert_eq!(result.details, Some(json!({})));
+}
+
+#[tokio::test]
+async fn wait_tool_claims_coordination_but_bridge_wait_releases_without_delivery() {
+    use pi_coding_agent::core::session_control_db::{
+        EnqueueRuntimeMailboxMessageInput, RuntimeMailboxAddress, RuntimeMailboxMessageKind,
+        RuntimeMailboxMessageStatus, RuntimeMailboxStoreRef, enqueue_runtime_mailbox_message,
+        read_runtime_mailbox_message, register_runtime_mailbox_listener, release_runtime_mailbox_message_claim,
+    };
+    for bridge in [false, true] {
+        let test = test_dir();
+        let store = store_with_persistence(&test);
+        let (_runner, ctx) = test_context(&test, None, None, false).await;
+        let recipient = RuntimeMailboxAddress {
+            session_id: ctx.session_manager().unwrap().get_session_id().clone(),
+            agent_id: None,
+        };
+        register_runtime_mailbox_listener(
+            &test.control_db_path,
+            &recipient,
+            std::process::id(),
+            Some(&test.session_path),
+            Default::default(),
+        )
+        .unwrap();
+        let message = store
+            .record_outbound_session_message(
+                &pi_coding_agent::core::multi_agent_store::RecordOutboundSessionMessageInput {
+                    from_agent_id: "sender".into(),
+                    to_agent_id: "main".into(),
+                    body: "Receive this once persisted".into(),
+                    thread_id: None,
+                    file_refs: None,
+                },
+            )
+            .unwrap();
+        let id = enqueue_runtime_mailbox_message(
+            &test.control_db_path,
+            &EnqueueRuntimeMailboxMessageInput {
+                recipient_host: None,
+                recipient: recipient.clone(),
+                sender: RuntimeMailboxAddress {
+                    session_id: "sender-session".into(),
+                    agent_id: None,
+                },
+                kind: RuntimeMailboxMessageKind::Message,
+                store_ref: RuntimeMailboxStoreRef {
+                    session_path: test.session_path.clone(),
+                    message_id: message.id.clone(),
+                },
+            },
+        )
+        .unwrap();
+        let handles = create_multi_agent_runtime_handles();
+        if bridge {
+            let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+                store: Some(Arc::clone(&store)),
+                runtime_handles: Some(handles),
+                ..Default::default()
+            });
+            assert_eq!(
+                handler
+                    .handle(&json!({"method":"agents.wait"}), &ctx, None, None)
+                    .await
+                    .unwrap(),
+                Value::Null
+            );
+            assert_eq!(
+                read_runtime_mailbox_message(&test.control_db_path, id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                RuntimeMailboxMessageStatus::Pending
+            );
+        } else {
+            let result = wait_agents(&store, &handles, None, Some(&ctx)).await.unwrap();
+            assert!(text(&result).contains("Receive this once persisted"));
+            assert_eq!(
+                result.details.unwrap()["runtimeMailboxDelivery"],
+                json!({"controlDbPath":test.control_db_path,"messages":[{"id":id,"storeRef":{"sessionPath":test.session_path,"messageId":message.id}}]})
+            );
+            assert_eq!(
+                read_runtime_mailbox_message(&test.control_db_path, id)
+                    .unwrap()
+                    .unwrap()
+                    .status,
+                RuntimeMailboxMessageStatus::Claimed
+            );
+            release_runtime_mailbox_message_claim(&test.control_db_path, id).unwrap();
+        }
+        assert_eq!(
+            store
+                .list_mailbox_messages()
+                .unwrap()
+                .into_iter()
+                .find(|row| row.id == message.id)
+                .unwrap()
+                .status,
+            pi_coding_agent::core::multi_agent_store::MailboxMessageStatus::Pending
+        );
+    }
 }
 
 #[tokio::test]
