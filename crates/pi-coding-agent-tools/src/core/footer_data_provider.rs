@@ -121,10 +121,7 @@ fn decode_git_branch(bytes: &[u8]) -> Option<JsString> {
 
 impl GitBranchRunner for SystemGitBranchRunner {
     fn resolve_sync(&self, repo_dir: &JsString) -> Option<JsString> {
-        use crate::utils::child_process::{
-            ChildStdio, ChildStdioOptions,
-            sync::{SpawnSyncOptions, spawn_sync},
-        };
+        use crate::utils::child_process::{ChildStdio, ChildStdioOptions, SpawnSyncOptions, spawn_sync};
         let cwd = encode_node_utf8(repo_dir);
         let arguments = GIT_BRANCH_ARGS.map(JsString::from);
         let output = spawn_sync(
