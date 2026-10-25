@@ -2,6 +2,10 @@
 
 Shared state follows `session-control-db.ts` and `multi-agent-store.ts` at [the common frozen pin](../porting/source-lock.json), except the approved zero-delivery-limit and empty-host-retry [deltas](../porting/delta-lock.json). Proof mapping: [control DB traceability](../porting/traceability/session-control-db.md).
 
+## Current module status — 2026-10-25
+
+Whole control-DB/store module audits are complete under the current user-observable parity bar. Compact reciprocal persistence flows and focused native internals pass; [current control proof](../porting/traceability/session-control-db.md) is authoritative. Independent whole-runtime integration remains parent-owned. The older checkpoint limitations below are historical, not current module blockers.
+
 ## Integration status — 2026-10-21
 
 Canonical checkpoint merge `35d6429097833d094ca448068dae07ce30c482af` integrates `c7248cac`, not completed control/store parity. Subsequent canonical merge `128df8af` integrates the bounded model-tool work through `58301d0a`. Checked items below describe bounded checkpoint fixtures, not whole-module or runtime acceptance. Frozen source remains `4f9e6f8a4`; full repin is ongoing. Coverage and pending waiver revalidation are unchanged.
@@ -18,7 +22,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 
 ## What it must do
 
-- [ ] Preserve canonical persisted JSON UTF16 strings/keys through all reads and mutations. The former source-created lone-surrogate public-body counterexample now passes, as do bounded claim/release/fail/recovery/steering/routing and mailbox migration proofs; group-wide raw public/store authority and egress acceptance remain open; [bounded proof](../porting/traceability/session-control-db.md).
+- [x] Preserve canonical persisted JSON UTF16 strings/keys through control/store reads and mutations, with distinct frozen public normalization and raw persistence order; [module proof](../porting/traceability/session-control-db.md).
 
 - [x] Read and update TS-created metadata, and survive TS initialization of Rust-created metadata, without obsolete transcript search columns.
 - [x] Preserve authoritative NULL versus explicit cleared names during metadata updates.
@@ -69,9 +73,9 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Skip retention writes when no mailbox/channel rows are due, so ordinary WAL readers succeed while another connection holds the writer lock.
 - [x] Normalize public mailbox file references to frozen path/label fields and order without rewriting their original canonical payloads.
 - [x] Leave empty listener paths unasserted, matching absent-path trust while preserving the supplied stored path.
-- [ ] Resolve canonical lossless JSON and run independent group acceptance.
+- [ ] Parent integration: run independent whole-runtime acceptance; module canonical JSON and compact persistence proofs are complete.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
-- [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.
+- [x] Complete schema migration/reverse-init and the control-DB export/private-branch audit with compact reciprocal persistence and native internal proof.
 
 ## How it works
 
@@ -91,7 +95,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 
 ## Known gaps (current cycle)
 
-- [ ] Finish group-wide source exports/branches and bidirectional cross-state acceptance. Current bounded proof is not whole-module acceptance.
+- [x] Finish control/store source exports/branches and compact bidirectional cross-state module acceptance; whole-runtime integration is separate.
 - [x] Add failure-injected atomic relocation proof and TS-primary migration fixtures.
 - [x] Reject nested legacy artifact insert/update in both initializers without changing the original row.
 

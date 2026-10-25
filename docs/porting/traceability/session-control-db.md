@@ -1,5 +1,25 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Current frozen audit — 2026-10-25
+
+Closed under the current user-observable parity bar: all7547 frozen lines/127 exported functions and their normal private branches map to the native module. No realistic module branch or blocker remains open. Final whole-runtime integration is parent-owned; historical pending statements below are superseded by this section, not new open module work.
+
+| Features / branches | Native area | Proof |
+|---|---|---|
+| Path/open/transaction callbacks, original throws, runtime UUIDv4/cache, retained reentry/release, cleanup/no-write reads | mod/retention | callback, instance, owned-child reentry and contended-read fixtures; exact-age cleanup |
+| Incoming/restriction claim/status; last message, prompt history/migration, health and counters | incoming/health/sessions/agents | reciprocal base flow, exports/whitespace, history limits |
+| Canonical enqueue/retry/routing/hosts/birth, claim/take eligibility, original predicate rejection, read/public reference normalization, release/fail/CAS-delete and receipts | mailbox/schema/mod | reciprocal mailbox flow, raw JSON/order/CAS, eligibility/reference-wire/acceptance fixtures |
+| Registration/replacement/probe rejection, nonce/PID ownership, retirement/health generations, trusted paths, live IDs/single coordination recipient, dead-claim recovery and real wake | mailbox | listener/legacy-owner/probe/path, mailbox/export/recovery and owned SIGUSR2 fixtures |
+| Trim/import origins, post/read/tail, monotonic cursors, pending-coordination classification and retention | channel/retention | channel fixture and reciprocal channel/cursor flow |
+| Architect claims/renewal/completion; supervisor priority, deadline/recovery, tokens/kinds, cancellation/requeue/late completion | requests | request priority/recovery/cancellation fixtures and reciprocal supervisor flow |
+| Metadata/sparse writes/name clears, model/thinking/goal/sandbox, resume/empty/archive selection, descendants/aliases, delete/atomic relocation/archive/unarchive | sessions | session/export fixtures, reciprocal metadata/rollback/base flows, Unicode archive ordering |
+| Agent raw/copy bytes, child/attachment guards, activity/model/slot/transcript, ownership/acquisition, steering/detach/lifecycle/terminal CAS, detached finalize/recovery/replay and outbox acknowledgements | agents/lifecycle | reciprocal agent/outbox flow; acquisition/metadata/cancellation/recovery/finalization/wire fixtures |
+| Primary DDL/PRAGMAs, future versions, v14/v15 quiescence/self-restart, legacy leases/counters/names/lifecycle/mailbox/outbox/artifacts/columns and birth/rejection triggers | schema | exact source/native schema; migration/reverse-init/constraint fixtures and compact reciprocal table flows |
+
+Final light proof: suite_core_4 repin_control_reciprocal8 PASS; native routing1, retained-reentry1 and reference-wire1 PASS. Protected strict .mts fixture types PASS with unchanged compiler options. Workspace all-target check and formatting PASS. Warning-mode Clippy storage/fixture targets PASS with zero owned changed-line diagnostics; inherited global lint debt is not a clean-workspace claim. Manual changed-line Rust/TS readability audit found no remaining introduced issue. Compact reciprocal/type proofs atd69e6199c remain applicable after76d25b687's type-only callback alias. The final routing-only correction restores frozen BEGIN IMMEDIATE and samples its timestamp after lock acquisition; `/tmp/storage3-control-routing-transaction-{red,green}.log` adds one native exact-error/rollback check to the existing routing byte/order/idempotence test. Logs: `/tmp/storage3-control-light-reciprocal-valid.log`, `/tmp/storage3-control-light-{native-routing,reentrant-final,reference-wire-final}.log`, `/tmp/storage3-control-mts-types.log`, `/tmp/storage3-control-close-clippy-{storage,fixtures}.{jsonl,log}`; command/revision ledger `/tmp/storage3-proof-ledger.md`.
+
+Standing gaps: pathological/wrong-typed JSON, OS/runtime faults, numeric extremes, Windows-only branches and engine/scheduling oddities follow the current parity exclusions; no new carrier/API or fault-hunting matrix.
+
 Hostname reads share the existing OsStr→JsString Node byte-ingress decoder for routing, local claims and notification checks; no control-DB to_string_lossy path remains.
 
 Fixture: `oracle/control-db-oracle.mts` is the single ESM fixture; all Rust callers use it. This replaces the former CommonJS-classified .ts path after protected TS1479, without copies, alternate paths or compiler-option changes.
@@ -184,7 +204,7 @@ Source runtime status is pending/claimed/failed; unknown statuses project failed
 `repin_control_schema.rs` proves Rust-first default INSERT birth, origin uniqueness and restriction-request uniqueness before TS initialization. Four focused tests pass; no whole-module claim. Retention-boundary proof, legacy payload migration proof, remaining mailbox/lifecycle/store deltas and failure-injected atomicity proof remain pending. Existing proofs below are historical, not renewed against the frozen pin. Central coverage remains unchanged.
 
 
-Source: `packages/coding-agent/src/core/session-control-db.ts` (7047 lines) at the pinned revision.
+Historical inventory below predates the current audit; current frozen source is7547 lines at the common pin.
 Rust: `crates/pi-coding-agent-storage/src/core/session_control_db/` (`mod.rs`, `schema.rs`, `sessions.rs`,
 `incoming.rs`, `mailbox.rs`, `requests.rs`, `channel.rs`, `health.rs`, `agents.rs`, `lifecycle.rs`).
 
@@ -207,8 +227,7 @@ The shared `control.sqlite` is opened by TypeScript and Rust processes at the sa
 | `getRuntimeProcessInstanceId()` | `get_runtime_process_instance_id()` | listener registration/claim tests |
 | `retainControlDbConnection()` | `retain_control_db_connection()` + `RetainedControlDbGuard` | `retained_connection_survives_and_releases` |
 
-Every write runs inside `BEGIN IMMEDIATE` (`with_immediate_transaction`), matching TS; reads use a
-short-lived or retained connection. `ControlDbError` carries the SQLite contention flag used by the
+Operations retain their frozen explicit transaction boundaries; other single-statement writes are atomic SQLite statements. Reads use a short-lived or retained connection. `ControlDbError` carries the SQLite contention flag used by the
 TS `isSqliteContentionError` retry branches.
 
 ## Exported symbols by area
@@ -220,7 +239,7 @@ unless noted.
 | Area | TypeScript exports | Rust functions | Tests |
 |---|---|---|---|
 | Incoming messages | `enqueueIncomingMessage`, `claimLatestIncomingMessage`, `completeIncomingMessage`, `failIncomingMessage`, `readIncomingMessageStatus`, `IncomingControlMessage` | `incoming.rs` | `incoming_claim_returns_none_when_queue_is_empty`, `incoming_messages_claim_supersedes_pending_rows` |
-| Runtime mailbox | `enqueueRuntimeMailboxMessage`, `enqueueStoredRuntimeMailboxMessage`, `recoverDeadRuntimeMailboxClaims`, `takeRuntimeMailboxMessagesForDelivery`, `claimRuntimeMailboxMessages`, `readRuntimeMailboxMessageForDelivery`, `consumeRuntimeMailboxMessage`, `deliverRuntimeMailboxMessage`, `consumeRuntimeMailboxMessageByStoreRef`, `markRuntimeMailboxMessageDelivered`, `releaseRuntimeMailboxMessageClaim`, `failRuntimeMailboxMessage`, `readRuntimeMailboxMessage`, `listRuntimeMailboxMessages` | `mailbox.rs` | `runtime_mailbox_routing_preserves_payload_order_and_identity`, `runtime_mailbox_claim_respects_registered_listener_pid`, `runtime_mailbox_claim_deliver_and_consume`, `mailbox_status_transitions_require_pending_state` |
+| Runtime mailbox | `enqueueRuntimeMailboxMessage`, `enqueueStoredRuntimeMailboxMessage`, `recoverDeadRuntimeMailboxClaims`, `takeRuntimeMailboxMessagesForDelivery`, `claimRuntimeMailboxMessages`, `readRuntimeMailboxMessageForDelivery`, `deliverRuntimeMailboxMessage`, `consumeRuntimeMailboxMessageByStoreRef`, `markRuntimeMailboxMessageDelivered`, `releaseRuntimeMailboxMessageClaim`, `failRuntimeMailboxMessage`, `readRuntimeMailboxMessage`, `listRuntimeMailboxMessages` | `mailbox.rs` | `runtime_mailbox_routing_preserves_payload_order_and_identity`, `runtime_mailbox_claim_respects_registered_listener_pid`, `runtime_mailbox_claim_deliver_and_consume`, `mailbox_status_transitions_require_pending_state` |
 | Listener registration | `registerRuntimeMailboxListener`, `retireRuntimeMailboxListener`, `readRuntimeMailboxListener`, `listRuntimeMailboxListeners`, `assertMainSessionRuntimeAvailable`, `resolveOwnMainRuntimeCoordinationRecipient`, `RuntimeMailboxListener`, `RuntimeMailboxRegistrationOptions`, `RuntimeMailboxAddress`, `RuntimeMailboxStoreRef` | `mailbox.rs` | `session_health_and_listener_registration_track_generations`, `runtime_mailbox_claim_respects_registered_listener_pid` |
 | Architect requests | `postArchitectRequest`, `listPendingArchitectRequests`, `claimPendingArchitectRequests`, `renewArchitectRequestClaims`, `completeArchitectRequest`, `ArchitectRequest*` | `requests.rs` | `architect_requests_claim_renew_and_complete` |
 | Supervisor requests | `postSupervisorRequest`, `readSupervisorRequest`, `claimNextSupervisorRequest`, `recoverSupervisorRequests`, `hasPendingSupervisorApprovalRequest`, `requeueSupervisorRequest`, `completeSupervisorRequest`, `Supervisor*` | `requests.rs` | `supervisor_requests_prioritize_approvals_and_validate_responses`, `supervisor_recovery_completes_expired_requests`, `supervisor_advisory_claim_requires_matching_response_kind` |

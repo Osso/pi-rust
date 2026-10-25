@@ -6,7 +6,7 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject as Map, JsValue as Value};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use super::schema::{add_runtime_mailbox_routing, assert_runtime_mailbox_routing};
+use super::schema::add_runtime_mailbox_routing;
 use super::{
     ControlDbError, EnqueueRuntimeMailboxMessageInput, EnqueueStoredRuntimeMailboxMessageInput,
     MultiAgentRuntimeOwnershipRow, RUNTIME_MAILBOX_REGISTRATION_MAX_ATTEMPTS, RUNTIME_MAILBOX_ROUTING_MAX_ATTEMPTS,
@@ -86,7 +86,6 @@ fn route_runtime_mailbox_message(
         );
         let message = parse_stored_json_object_lossless(&row.data, &context)?;
         validate_mailbox_payload(&Value::Object(message.clone()), &context)?;
-        assert_runtime_mailbox_routing(&message, input)?;
         let routed = add_runtime_mailbox_routing(&message, input)?;
         let serialized = js_json::stringify_lossless(&JsValue::Object(routed));
         if serialized == row.data {
@@ -95,12 +94,14 @@ fn route_runtime_mailbox_message(
                 listener: None,
             });
         }
-        if !compare_and_write_serialized_canonical_mailbox_payload(
-            db,
-            &row,
-            &serialized,
-            &crate::utils::iso_time::now_iso_string(),
-        )? {
+        if !with_immediate_transaction(db, |db| {
+            compare_and_write_serialized_canonical_mailbox_payload(
+                db,
+                &row,
+                &serialized,
+                &crate::utils::iso_time::now_iso_string(),
+            )
+        })? {
             continue;
         }
         return Ok(RoutedMailboxMessage {
