@@ -54,7 +54,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
-    runtime.refresh();
+    runtime.refresh().unwrap();
     let model = faux.get_model(None).expect("model");
     let mut manager = SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
         .expect("session manager");

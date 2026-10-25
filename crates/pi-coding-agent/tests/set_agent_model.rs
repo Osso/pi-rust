@@ -154,7 +154,7 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
     ))
     .unwrap();
     scripted_registry::register_scripted_provider(&runtime, faux.provider.clone());
-    runtime.refresh();
+    runtime.refresh().unwrap();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
     for snapshot in [
         agent("child", "running", "explore"),
