@@ -465,8 +465,9 @@ impl PyrunRunnerClient {
         if detached {
             process_command.process_group(0);
         }
-        if self.options.inherit_env == Some(false) {
-            process_command.env_clear();
+        process_command.env_clear();
+        if self.options.inherit_env != Some(false) {
+            process_command.envs(pi_js_compat::process_env::vars());
         }
         if let Some(env) = &self.options.env {
             for (name, value) in env {

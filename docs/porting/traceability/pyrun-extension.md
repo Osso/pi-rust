@@ -245,3 +245,11 @@ absent artifact directory, and proves both a foreground result/completion marker
 and foreground-to-detached ownership/activation/finalization. Both paths preserve
 one exact terminal result and wait for the launched process to exit. No alternate
 launch seam or live provider is used. `/tmp/bundled3-runner-final.log` is GREEN.
+
+Environment merge proof: source inherits current process.env plus explicit options.
+Native std::process inheritance omitted Pi's environment overlay. It now clears the
+spawn environment and passes the shared current environment snapshot unless
+inheritEnv is false, then applies explicit values. Both inherited and isolated
+real-child environments match frozen (`/tmp/bundled3-pyrun-env-{red,green}.log`).
+Environment enumeration order remains the approved sorted-native runtime gap.
+Workspace all-target check passed after this final production edit.
