@@ -26,7 +26,10 @@ pub fn create_lifecycle_coordinator(store: &Arc<MultiAgentStore>) -> Option<Arc<
     })))
 }
 
-pub fn publish_coordinator_snapshot(store: &Arc<MultiAgentStore>, agent: &AgentSnapshot) -> Result<(), ControlDbError> {
+pub fn publish_coordinator_snapshot(
+    store: &Arc<MultiAgentStore>,
+    agent: &AgentSnapshot,
+) -> Result<(), pi_js_compat::callback_error::CallbackError> {
     store
         .publish_lifecycle_coordinator_snapshot(agent)
         .map_err(|error| ControlDbError::new(error.message))?;
@@ -40,7 +43,7 @@ pub fn publish_coordinator_snapshot(store: &Arc<MultiAgentStore>, agent: &AgentS
         artifact_root: None,
         claim_id: pi_ai::utils::random_uuid::random_uuid().into(),
         control_db_path: persistence.control_db_path,
-        now: Arc::new(crate::utils::iso_time::now_iso_string),
+        now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),
         store: Arc::clone(store),
     })?;
     Ok(())

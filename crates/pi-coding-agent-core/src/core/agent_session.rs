@@ -2555,34 +2555,35 @@ impl AgentSession {
     }
 
     /// Delivers terminal-outbox projections to the multi-agent store.
-    pub fn drain_terminal_outbox_projections(&self) {
+    pub fn drain_terminal_outbox_projections(&self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         use crate::core::terminal_outbox_delivery::{
             DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections, is_terminal_outbox_cleanup_due,
             terminal_outbox_retention_threshold,
         };
 
         let Some(control_db_path) = self.runtime_mailbox_control_db_path() else {
-            return;
+            return Ok(());
         };
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return;
+            return Ok(());
         };
         let now = now_millis();
         let last_cleanup = *lock(&self.inner.terminal_outbox_last_cleanup_at);
-        if is_terminal_outbox_cleanup_due(last_cleanup, now) {
-            let _ = crate::core::session_control_db::cleanup_multi_agent_terminal_outbox(
-                &control_db_path,
-                &terminal_outbox_retention_threshold(now),
-            );
+        // Frozen agent-session.ts:3503-3519 propagates all synchronous throws.
+        if is_terminal_outbox_cleanup_due(last_cleanup.map(|time| time as f64), now as f64) {
+            let threshold = terminal_outbox_retention_threshold(now as f64)
+                .map_err(|error| pi_js_compat::callback_error::CallbackError::from(*error))?;
+            crate::core::session_control_db::cleanup_multi_agent_terminal_outbox(&control_db_path, &threshold)?;
             *lock(&self.inner.terminal_outbox_last_cleanup_at) = Some(now);
         }
-        let _ = deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
+        deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
             artifact_root: Some(self.inner.agent_dir.clone()),
             claim_id: self.inner.terminal_outbox_claim_id.clone().into(),
             control_db_path,
-            now: Arc::new(crate::utils::iso_time::now_iso_string),
+            now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),
             store: Arc::clone(store),
-        });
+        })?;
+        Ok(())
     }
 
     /// Drains runtime mailbox and shared-channel messages (TS `drainRuntimeCoordination`).
@@ -2608,7 +2609,14 @@ impl AgentSession {
                 .expire_mailbox_messages(now_millis() as f64)
                 .map_err(|cause| error(cause.message))?;
         }
-        self.drain_terminal_outbox_projections();
+        // Frozen agent-session.ts:3492-3495 catches and logs this drain only.
+        if let Err(error) = self.drain_terminal_outbox_projections() {
+            let message = error.error_or_string_message()?;
+            eprintln!(
+                "Failed to drain terminal outbox projections: {}",
+                encode_node_utf8(&message)
+            );
+        }
         let mailbox_queued = self.drain_runtime_mailbox_messages(options).await?;
         let channel_queued = if options.checkpoint == Some(SteeringCheckpoint::AfterToolResult) {
             false
@@ -3090,7 +3098,9 @@ impl AgentSession {
         if !matches!(finalized, LifecycleCommandResult::Ok { .. }) {
             return false;
         }
-        self.drain_terminal_outbox_projections();
+        // Approved temporary native bool boundary; stage-4 Result listener migration
+        // must remove this sink and prove frozen agent-session.ts:1892 propagation.
+        let _ = self.drain_terminal_outbox_projections();
         true
     }
 
@@ -4463,7 +4473,6 @@ impl AgentSession {
     pub async fn prompt(&self, text: impl Into<JsString>, options: PromptOptions) -> Result<(), AgentSessionError> {
         let text = text.into();
         let text = &text;
-        self.drain_terminal_outbox_projections();
         let expand = options.expand_prompt_templates.unwrap_or(true);
         if expand && text.starts_with("/") && self.try_execute_extension_command(text, &options).await? {
             return Ok(());
