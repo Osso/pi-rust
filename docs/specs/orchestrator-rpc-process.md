@@ -25,3 +25,5 @@ No additional in-slice gap beyond the proof boundary above.
 
 ## Out of scope
 Live services, user state and real Radius network calls; native packaging follows the approved library boundary.
+
+Event and exit subscriptions follow live Set iteration: callbacks removed before their turn are skipped, and newly appended callbacks are visited during the current emission. Callback code runs without the transport state lock.

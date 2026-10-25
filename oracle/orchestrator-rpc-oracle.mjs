@@ -30,6 +30,28 @@ if (process.argv[4] === "listener_identity") {
     unsubscribe();await rpc.send({type:"get_state",id:"two"});await rpc.dispose();
     process.stdout.write(`${JSON.stringify({first,events,exits})}\n`);process.exit(0);
 }
+if (process.argv[4] === "listener_mutation") {
+    const events = [], exits = [];
+    const lateEvent = () => events.push("late");
+    const lateExit = () => exits.push("late");
+    let removeEvent, removeExit;
+    rpc.onEvent(() => {
+        events.push("first");
+        removeEvent();
+        rpc.onEvent(lateEvent);
+    });
+    removeEvent = rpc.onEvent(() => events.push("removed"));
+    rpc.onExit(() => {
+        exits.push("first");
+        removeExit();
+        rpc.onExit(lateExit);
+    });
+    removeExit = rpc.onExit(() => exits.push("removed"));
+    await rpc.send({ type: "get_state", id: "one" });
+    await rpc.dispose();
+    process.stdout.write(`${JSON.stringify({events,exits})}\n`);
+    process.exit(0);
+}
 const events = [], ui = [];
 rpc.onEvent((v) => events.push(v));
 rpc.setUiRequestHandler((v) => ui.push(v));

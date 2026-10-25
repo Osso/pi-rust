@@ -241,6 +241,70 @@ async fn child_jsonl_eof_and_utf8_decoding_match_frozen_node_streams() {
 }
 
 #[tokio::test]
+async fn callback_mutation_matches_frozen_live_set_iteration() {
+    use pi_orchestrator::rpc_process::{ExitListener, Listener};
+    use std::sync::{Arc, Mutex};
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let lock: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(root.join("docs/porting/source-lock.json")).unwrap()).unwrap();
+    let source = std::path::Path::new(lock["worktree"].as_str().unwrap());
+    let fake = root.join("oracle/orchestrator-rpc-fake.mjs");
+    let output = tokio::process::Command::new(source.join("node_modules/.bin/tsx"))
+        .arg("--tsconfig")
+        .arg(source.join("tsconfig.json"))
+        .arg(root.join("oracle/orchestrator-rpc-oracle.mjs"))
+        .arg(source)
+        .arg(&fake)
+        .arg("listener_mutation")
+        .output()
+        .await
+        .unwrap();
+    assert!(output.status.success());
+    let expected: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(expected, json!({"events":["first","late"],"exits":["first","late"]}));
+    let dir = tempfile::tempdir().unwrap();
+    let mut command = tokio::process::Command::new("node");
+    command.arg(fake);
+    let rpc = RpcProcessInstance::spawn_command(&mut command, &dir.path().to_str().unwrap().into()).unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let exits = Arc::new(Mutex::new(Vec::new()));
+    let event_remove = Arc::new(Mutex::new(None));
+    let exit_remove = Arc::new(Mutex::new(None));
+    let trace = events.clone();
+    let late_event: Listener = Arc::new(move |_| trace.lock().unwrap().push("late"));
+    let trace = exits.clone();
+    let late_exit: ExitListener = Arc::new(move |_| trace.lock().unwrap().push("late"));
+    let trace = events.clone();
+    let remove = event_remove.clone();
+    let process = rpc.clone();
+    let first_event = rpc.on_event(Arc::new(move |_| {
+        trace.lock().unwrap().push("first");
+        process.remove_event_listener(remove.lock().unwrap().unwrap());
+        process.on_event(late_event.clone());
+    }));
+    let trace = events.clone();
+    *event_remove.lock().unwrap() = Some(rpc.on_event(Arc::new(move |_| trace.lock().unwrap().push("removed"))));
+    let trace = exits.clone();
+    let remove = exit_remove.clone();
+    let process = rpc.clone();
+    let first_exit = rpc.on_exit(Arc::new(move |_| {
+        trace.lock().unwrap().push("first");
+        process.remove_exit_listener(remove.lock().unwrap().unwrap());
+        process.on_exit(late_exit.clone());
+    }));
+    let trace = exits.clone();
+    *exit_remove.lock().unwrap() = Some(rpc.on_exit(Arc::new(move |_| trace.lock().unwrap().push("removed"))));
+    rpc.send(json!({"type":"get_state","id":"one"})).await.unwrap();
+    rpc.remove_event_listener(first_event);
+    rpc.dispose().await.unwrap();
+    rpc.remove_exit_listener(first_exit);
+    assert_eq!(
+        json!({"events":*events.lock().unwrap(),"exits":*exits.lock().unwrap()}),
+        expected
+    );
+}
+
+#[tokio::test]
 async fn repeated_callback_identity_matches_frozen_set_subscriptions() {
     use std::sync::{
         Arc,

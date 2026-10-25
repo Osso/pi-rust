@@ -302,7 +302,11 @@ fn dispatch_line(inner: &Inner, line: &JsString) -> Result<(), JsString> {
                 vec![]
             }
             Some(tag) if tag == "extension_ui_request" => state.ui.iter().cloned().collect(),
-            _ => state.events.values().cloned().collect(),
+            _ => {
+                drop(state);
+                notify_events(inner, &value);
+                return Ok(());
+            }
         }
     };
     for listener in listeners {
@@ -310,6 +314,33 @@ fn dispatch_line(inner: &Inner, line: &JsString) -> Result<(), JsString> {
     }
     Ok(())
 }
+fn next_listener<T: Clone>(listeners: &IndexMap<usize, T>, previous: Option<usize>) -> Option<(usize, T)> {
+    listeners
+        .iter()
+        .find(|(id, _)| previous.is_none_or(|previous| **id > previous))
+        .map(|(id, listener)| (*id, listener.clone()))
+}
+
+fn notify_events(inner: &Inner, value: &Value) {
+    let mut previous = None;
+    loop {
+        let next = next_listener(&inner.state.lock().unwrap().events, previous);
+        let Some((id, listener)) = next else { return };
+        previous = Some(id);
+        listener(value.clone());
+    }
+}
+
+fn notify_exit(inner: &Inner, error: &JsString) {
+    let mut previous = None;
+    loop {
+        let next = next_listener(&inner.state.lock().unwrap().exits, previous);
+        let Some((id, listener)) = next else { return };
+        previous = Some(id);
+        listener(Some(error.clone()));
+    }
+}
+
 fn reject_pending(state: &mut State, error: &JsString) {
     for (_, sender) in state.pending.drain() {
         let _ = sender.send(Err(error.into()));
@@ -317,7 +348,7 @@ fn reject_pending(state: &mut State, error: &JsString) {
 }
 fn finish_exit(inner: &Inner, status: std::io::Result<std::process::ExitStatus>) {
     use std::os::unix::process::ExitStatusExt;
-    let (error, listeners) = {
+    let error = {
         let mut state = inner.state.lock().unwrap();
         state.exited = true;
         let error = match status {
@@ -337,10 +368,8 @@ fn finish_exit(inner: &Inner, status: std::io::Result<std::process::ExitStatus>)
             ),
         };
         reject_pending(&mut state, &error);
-        (error, state.exits.values().cloned().collect::<Vec<_>>())
+        error
     };
-    for listener in listeners {
-        listener(Some(error.clone()));
-    }
+    notify_exit(inner, &error);
     inner.exited.send_replace(true);
 }

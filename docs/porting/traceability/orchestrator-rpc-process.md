@@ -21,3 +21,5 @@ Proof is bounded to the listed representable runtime/serialization cases; no exh
 Prior unconditional done claim withdrawn. Seven regression mutants (exit EOF, queue abort, four trim sites, successful-body read) were killed by behavioral failures, not compiler failures.
 
 Native UTF-16 integration: [lossless orchestrator proof](lossless-orchestrator.md).
+
+Runtime-services whole-module audit: actual frozen listener mutation RED `/tmp/runtime-services-red-rpc-listeners.log` shows JS Set skips a listener removed by the prior callback and visits a listener added by that callback; old Rust snapshots instead called the removed callback and missed the addition. Native event/exit iteration now looks up the next live registration after each callback, outside the state lock. Both event and exit callback traces are compared with the pinned module. GREEN pending at commit.
