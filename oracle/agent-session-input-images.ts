@@ -49,7 +49,7 @@ export async function runInputImagesScenario(context, continueInput) {
 	);
 	session.setActiveToolsByName([]);
 	core.setResponses(
-		Array.from({ length: 3 }, () => fauxAssistantMessage("reply")),
+		Array.from({ length: 4 }, () => fauxAssistantMessage("reply")),
 	);
 	const image = { type: "image", data: "AA==", mimeType: "image/png" };
 	try {
@@ -58,7 +58,12 @@ export async function runInputImagesScenario(context, continueInput) {
 		await session.prompt(continueInput ? "clear" : "image", {
 			images: [image],
 		});
-		return views;
+		if (!continueInput) return views;
+		await session.prompt("image", { images: [image] });
+		const users = session.messages
+			.filter((message) => message.role === "user")
+			.map((message) => message.content);
+		return { views, users };
 	} finally {
 		session.dispose();
 	}

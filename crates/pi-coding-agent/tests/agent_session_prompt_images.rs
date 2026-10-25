@@ -1,4 +1,5 @@
 use super::*;
+use serde_json::Value;
 use std::sync::Mutex;
 
 #[tokio::test]
@@ -97,7 +98,7 @@ async fn prompt_images_preserve_presence_and_empty_transform_through_before_star
     });
     let fixture = fixture_with_timeout_extension(factory).await;
     fixture.faux.set_responses(
-        (0..3)
+        (0..4)
             .map(|_| faux_assistant_message("reply", Default::default()).into())
             .collect(),
     );
@@ -113,11 +114,23 @@ async fn prompt_images_preserve_presence_and_empty_transform_through_before_star
         )
         .await
         .unwrap();
-    let image = serde_json::from_value(json!({"type":"image", "data":"AA==", "mimeType":"image/png"})).unwrap();
+    let image_json = json!({"type":"image", "data":"AA==", "mimeType":"image/png"});
+    let image: pi_ai::types::ImageContent = serde_json::from_value(image_json.clone()).unwrap();
     fixture
         .session
         .prompt(
             "clear",
+            PromptOptions {
+                images: Some(vec![image.clone()]),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    fixture
+        .session
+        .prompt(
+            "image",
             PromptOptions {
                 images: Some(vec![image]),
                 ..Default::default()
@@ -125,9 +138,27 @@ async fn prompt_images_preserve_presence_and_empty_transform_through_before_star
         )
         .await
         .unwrap();
+    let users: Vec<Value> = fixture
+        .session
+        .messages()
+        .into_iter()
+        .filter_map(|message| match message {
+            AgentMessage::User(user) => Some(serde_json::to_value(user.content).unwrap()),
+            _ => None,
+        })
+        .collect();
     fixture.session.dispose();
     let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
     let expected = oracle.request(&json!({"operation":"input-image-propagation", "dir":fixture._temp_dir.path().join("oracle").display().to_string()}));
-    assert_eq!(expected, json!({"ok":true,"value":["absent",[],[]]}));
-    assert_eq!(json!(views.lock().unwrap().clone()), expected["value"]);
+    assert_eq!(
+        expected,
+        json!({"ok":true,"value": {
+            "views": ["absent",[],[],[image_json.clone()]],
+            "users": [[{"type":"text","text":"absent"}],[{"type":"text","text":"empty"}],[{"type":"text","text":"clear"}],[{"type":"text","text":"image"},image_json]],
+        }})
+    );
+    assert_eq!(
+        json!({"views":views.lock().unwrap().clone(),"users":users}),
+        expected["value"]
+    );
 }
