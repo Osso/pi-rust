@@ -1,5 +1,7 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "extension_context_supervisor_cancellation.rs"]
+pub mod extension_context_supervisor_cancellation;
 #[path = "extension_session_read_view.rs"]
 pub mod extension_session_read_view;
 
