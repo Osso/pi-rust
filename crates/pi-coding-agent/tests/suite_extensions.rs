@@ -54,6 +54,8 @@ pub mod example_subagent_agents;
 pub mod example_trigger_compact;
 #[path = "goal_extension.rs"]
 pub mod goal_extension;
+#[path = "loop_runtime.rs"]
+pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]
 pub mod lossless_extension_loader;
 #[path = "pyrun_extension.rs"]

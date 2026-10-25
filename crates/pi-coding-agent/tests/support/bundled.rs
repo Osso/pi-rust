@@ -182,6 +182,7 @@ impl ExtensionUiContext for RecordingUi {
 #[derive(Default)]
 pub struct RecordedActions {
     pub messages: Mutex<Vec<CustomMessagePayload>>,
+    pub message_options: Mutex<Vec<Option<SendMessageOptions>>>,
     pub user_messages: Mutex<Vec<(UserMessageContent, Option<SendUserMessageOptions>)>>,
     pub entries: Mutex<Vec<(JsString, Option<Value>)>>,
 }
@@ -221,6 +222,8 @@ pub struct Harness {
     pub ui: Arc<RecordingUi>,
     pub actions: Arc<RecordedActions>,
     pub thinking: Arc<Mutex<ThinkingLevel>>,
+    pub idle: Arc<std::sync::atomic::AtomicBool>,
+    pub pending: Arc<std::sync::atomic::AtomicBool>,
 }
 
 fn ensure_theme() {
@@ -241,6 +244,8 @@ impl Harness {
         let thinking = Arc::new(Mutex::new(options.thinking_level));
         let actions = Arc::new(RecordedActions::default());
         let footer_data = Arc::new(FooterDataProvider::new(&options.cwd));
+        let idle = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let pending = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let context_usage = options.context_usage;
         let multi_agent_agent_id = options.multi_agent_agent_id;
         let multi_agent_requires_agent_id = options.multi_agent_requires_agent_id;
@@ -260,7 +265,8 @@ impl Harness {
 
         let recorded = Arc::clone(&actions);
         let send_message: Arc<dyn Fn(CustomMessagePayload, Option<SendMessageOptions>) -> Result<(), _> + Send + Sync> =
-            Arc::new(move |message, _options| {
+            Arc::new(move |message, options| {
+                recorded.message_options.lock().unwrap().push(options);
                 recorded.messages.lock().unwrap().push(message);
                 Ok(())
             });
@@ -285,7 +291,11 @@ impl Harness {
         let thinking_getter = Arc::clone(&thinking);
         let thinking_setter = Arc::clone(&thinking);
         let footer = Arc::clone(&footer_data);
+        let idle_getter = idle.clone();
+        let pending_getter = pending.clone();
         let context_actions = ExtensionContextActions {
+            is_idle: Arc::new(move || idle_getter.load(std::sync::atomic::Ordering::SeqCst)),
+            has_pending_messages: Arc::new(move || pending_getter.load(std::sync::atomic::Ordering::SeqCst)),
             get_model: Arc::new(move || model_getter.lock().unwrap().clone()),
             get_thinking_level: Some(Arc::new(move || *thinking_getter.lock().unwrap())),
             set_thinking_level: Some(Arc::new(move |level| {
@@ -307,6 +317,8 @@ impl Harness {
             ui,
             actions,
             thinking,
+            idle,
+            pending,
         }
     }
 
