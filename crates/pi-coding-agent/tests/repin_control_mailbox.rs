@@ -43,7 +43,7 @@ fn undated_enqueue_retry_after_ts_birth_is_idempotent() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let data = input("retry");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
         .as_f64()
@@ -69,7 +69,7 @@ fn take_claims_and_payload_cas_delivery_deletes_visible_peer_row() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = call(
         &mut ts,
         "enqueueStoredRuntimeMailboxMessage",
@@ -105,7 +105,7 @@ fn foreign_host_cannot_claim_or_consume_local_session_collision() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut data = input("remote");
     data["recipientHost"] = json!("fixture-foreign-host");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
@@ -132,7 +132,7 @@ fn creation_age_not_update_age_expires_peer_rows() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, input("old")]))
         .as_f64()
         .unwrap() as i64;
@@ -162,7 +162,7 @@ fn dead_owned_ts_claim_with_durable_complete_record_is_deleted_not_requeued() {
         .to_owned();
     let transcript = t.path().join("recipient.jsonl");
     let path = transcript.to_str().expect("utf-8 test path").to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let data = input("accepted");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
         .as_f64()
@@ -199,7 +199,7 @@ fn null_birth_defaults_once_and_unknown_status_projects_failed_not_throw() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut data = input("null");
     data["message"]["createdAt"] = Value::Null;
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
@@ -235,7 +235,7 @@ fn frozen_source_limit_zero_discrepancy_fixture() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     call(
         &mut ts,
         "enqueueStoredRuntimeMailboxMessage",
@@ -291,7 +291,7 @@ fn lone_surrogate_receipt_does_not_alias_a_replacement_character_db_key() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut data = input("surrogate");
     data["storeRef"]["sessionPath"] = json!("/fixture/�/source.jsonl");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
@@ -321,7 +321,7 @@ fn lone_surrogate_receipt_does_not_alias_a_replacement_character_db_key() {
         RuntimeMailboxMessageStatus::Pending,
         "different UTF16 identities must not falsely delete the claim"
     );
-    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut peer, "readRuntimeMailboxMessage", json!([db, id]))["status"],
         json!("pending")
@@ -337,7 +337,7 @@ fn frozen_source_empty_host_retry_discrepancy_fixture() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut data = input("empty-host");
     data["recipientHost"] = json!("");
     let response=ts.request(&json!({"id":1,"steps":[{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]},{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,data]]}]}));
@@ -371,7 +371,7 @@ fn cas_payload_changed_by_source_actor_rejects_old_delivery_snapshot() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let data = input("source-race");
     let id = call(&mut ts, "enqueueStoredRuntimeMailboxMessage", json!([db, data]))
         .as_f64()
@@ -407,7 +407,7 @@ fn foreign_claimant_fences_release_fail_and_delivery() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = call(
         &mut ts,
         "enqueueStoredRuntimeMailboxMessage",
@@ -443,7 +443,7 @@ fn malformed_complete_receipt_after_matching_ref_aborts_recovery_before_delete()
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = call(
         &mut ts,
         "enqueueStoredRuntimeMailboxMessage",
@@ -484,7 +484,7 @@ fn malformed_complete_receipt_after_matching_ref_aborts_recovery_before_delete()
         read_runtime_mailbox_message(&db, id).unwrap().unwrap().status,
         RuntimeMailboxMessageStatus::Claimed
     );
-    let mut peer = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut peer = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let expected = peer.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
     assert_eq!(expected["output"][0]["ok"], json!(false));
     assert_eq!(
@@ -507,7 +507,7 @@ fn raw_null_ref_recovery_obeys_some_short_circuit_order() {
             .to_str()
             .expect("utf-8 test path")
             .to_owned();
-        let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+        let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
         let id = call(
             &mut ts,
             "enqueueStoredRuntimeMailboxMessage",

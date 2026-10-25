@@ -9,7 +9,7 @@ use serde_json::{Value, json};
 #[test]
 fn prompt_migration_keeps_js_slice_limits_and_the_complete_persisted_history() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut case = 0;
     for legacy in [
         vec![" first ", "second", "third", "fourth"],
@@ -49,7 +49,7 @@ fn archive_candidates_use_utf16_tie_order_without_archiving_rows() {
     let root = tempfile::tempdir().unwrap();
     let source_db = root.path().join("source.sqlite");
     let native_db = JsString::from(root.path().join("native.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let mut steps = Vec::new();
     for (name, modified, archived, subagent) in [
         ("Ａ", "2020-02-01T00:00:00.000Z", None, false),

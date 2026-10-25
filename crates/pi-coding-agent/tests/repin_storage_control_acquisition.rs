@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 #[test]
 fn attached_runtime_acquisition_rejects_terminal_agents_without_changing_them() {
     let root = tempfile::tempdir().unwrap();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let target = read_process_identity(std::process::id()).unwrap();
     let native_supervisor: ProcessIdentity = serde_json::from_str(get_runtime_process_instance_id().unwrap()).unwrap();
     for (case, lifecycle) in [

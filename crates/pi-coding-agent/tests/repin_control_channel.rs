@@ -11,7 +11,7 @@ fn step(ts: &mut oracle::TsOracle, op: &str, args: Value) -> Value {
 fn foreign_origin_same_session_is_pending_and_preserved_across_peers() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("control.sqlite").display().to_string();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let recipient = RuntimeMailboxAddress {
         session_id: "same".into(),
         agent_id: None,
@@ -49,7 +49,7 @@ fn foreign_origin_same_session_is_pending_and_preserved_across_peers() {
 fn initialization_expires_old_channel_rows_created_by_ts() {
     let tmp = tempfile::tempdir().unwrap();
     let db = tmp.path().join("control.sqlite").display().to_string();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = step(
         &mut ts,
         "call",
@@ -78,7 +78,7 @@ fn initialization_expires_old_channel_rows_created_by_ts() {
 fn retained_connection_sweeps_channel_on_source_minute_timer() {
     let t = tempfile::tempdir().unwrap();
     let db = t.path().join("control.sqlite").display().to_string();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let id = step(
         &mut ts,
         "call",
@@ -129,7 +129,7 @@ fn retained_connection_sweeps_channel_on_source_minute_timer() {
 fn channel_body_uses_javascript_whitespace_not_rust_unicode_trim() {
     let t = tempfile::tempdir().unwrap();
     let db = t.path().join("control.sqlite").display().to_string();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let sender = RuntimeMailboxAddress {
         session_id: "fixture".into(),
         agent_id: None,

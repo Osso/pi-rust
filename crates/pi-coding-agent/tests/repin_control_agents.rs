@@ -22,7 +22,7 @@ fn upsert_keeps_original_birth_and_peer_claim_after_newer_snapshot() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_js_compat::date::js_now_millis() as i64;
     let birth = pi_coding_agent::utils::iso_time::format_iso_millis(now - 1000);
     let message = json!({"id":"m","fromAgentId":"main","toAgentId":"child","kind":"message","status":"pending","createdAt":birth,"body":"hello"});
@@ -55,7 +55,7 @@ fn rust_terminal_commit_peer_delete_and_identical_replay_do_not_require_outbox()
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = read_process_identity(std::process::id()).unwrap();
     let owner = MultiAgentRuntimeOwnerIdentity {
@@ -97,7 +97,7 @@ fn rust_outbox_delivery_deletes_row_instead_of_leaving_delivered_projection() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = read_process_identity(std::process::id()).unwrap();
     let owner = MultiAgentRuntimeOwnerIdentity {
@@ -147,7 +147,7 @@ fn owned_model_and_tool_detail_updates_are_visible_to_same_ts_reader() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let now = pi_coding_agent::utils::iso_time::now_iso_string();
     let identity = read_process_identity(std::process::id()).unwrap();
     let owner = MultiAgentRuntimeOwnerIdentity {

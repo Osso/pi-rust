@@ -68,7 +68,7 @@ fn oracle_call(oracle: &mut oracle::TsOracle, id: u64, steps: Vec<Value>) -> Vec
 #[test]
 fn typescript_writes_are_readable_by_rust() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let metadata = json!({
         "sessionPath": "/sessions/ts.jsonl",
         "id": "ts-session",
@@ -163,7 +163,7 @@ fn rust_writes_are_readable_by_typescript_in_source_order() {
     .expect("channel");
     pi_coding_agent::core::session_control_db::record_prompt_history_entry(&db, "rust prompt").expect("history");
 
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let outputs = oracle_call(
         &mut oracle,
         2,
@@ -200,7 +200,7 @@ fn rust_writes_are_readable_by_typescript_in_source_order() {
 #[test]
 fn concurrent_typescript_and_rust_writers_keep_every_row() {
     let (_directory, db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let oracle_db = db.clone();
     let writer = thread::spawn(move || {
         oracle_call(
@@ -251,7 +251,7 @@ fn schema_text_and_pragmas_match_the_typescript_module() {
     let (_directory, db) = temp_db();
     let _ = read_session_health(&db, &JsString::from("missing")).expect("initialize Rust schema");
     let (_oracle_directory, oracle_db) = temp_db();
-    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.ts", "session-names:packages/coding-agent/src");
+    let mut oracle = oracle::TsOracle::spawn("control-db-oracle.mts", "session-names:packages/coding-agent/src");
     let outputs = oracle_call(
         &mut oracle,
         4,

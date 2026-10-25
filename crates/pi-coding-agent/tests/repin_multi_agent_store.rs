@@ -52,7 +52,7 @@ fn ts_removed_persisted_row_is_evicted_without_resurrection() {
         db: tmp.path().join("control.sqlite").display().to_string(),
         path: "/fixture/s".into(),
     };
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     call(&mut ts, "readMultiAgentState", json!([session.db, session.path]));
     let store = MultiAgentStore::new(MultiAgentStoreOptions::default());
     store.set_persistence_session_manager(Some(&session));

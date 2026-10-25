@@ -31,11 +31,16 @@ function exerciseRetainedReentry(api: Api, path: string): unknown {
 		throw new Error("nested rollback");
 	};
 	try {
-		const id = api.withControlDb(path, () => api.enqueueIncomingMessage(path, "nested"));
+		const id = api.withControlDb(path, () =>
+			api.enqueueIncomingMessage(path, "nested"),
+		);
 		try {
-			api.withControlDb(path, (db: unknown) => api.withImmediateTransaction(db, insertAndFail));
+			api.withControlDb(path, (db: unknown) =>
+				api.withImmediateTransaction(db, insertAndFail),
+			);
 		} catch (error) {
-			if (!(error instanceof Error) || error.message !== "nested rollback") throw error;
+			if (!(error instanceof Error) || error.message !== "nested rollback")
+				throw error;
 		}
 		return {
 			id,

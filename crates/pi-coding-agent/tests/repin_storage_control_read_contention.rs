@@ -7,7 +7,7 @@ use serde_json::json;
 fn fresh_database_reads_do_not_wait_for_an_unrelated_writer() {
     let root = tempfile::tempdir().unwrap();
     let path = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let request = |id| json!({"id":id,"steps":[{"op":"call","args":["listRuntimeMailboxMessages",[path]]}]});
     let initialized = source.request(&request(1));
     assert_eq!(initialized["output"][0]["ok"], true, "{initialized}");

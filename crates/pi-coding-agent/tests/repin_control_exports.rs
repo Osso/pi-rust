@@ -25,7 +25,7 @@ fn resume_and_empty_candidate_queries_match_real_source_for_both_init_orders() {
             .to_str()
             .expect("utf-8 test path")
             .to_owned();
-        let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+        let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
         if ts_first {
             assert!(call(&mut ts, "listResumeSessionMetadata", json!([db,{"archived":false}])).is_null())
         } else {
@@ -81,7 +81,7 @@ fn restriction_claim_and_known_local_admission_share_peer_state() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     assert_eq!(
         call(&mut ts, "claimCodexRestrictionRecovery", json!([db, "peer"])),
         json!(true)
@@ -110,7 +110,7 @@ fn live_agent_ids_track_owned_peer_process_lifetime() {
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let response = ts
         .request(&json!({"id":1,"steps":[{"op":"registerSelf","args":[db,{"sessionId":"s","agentId":"child"},null]}]}));
     assert_eq!(response["output"][0]["ok"], json!(true));
@@ -139,7 +139,7 @@ fn transaction_enqueue_rolls_back_collision_and_publishes_only_committed_rows() 
         .to_str()
         .expect("utf-8 test path")
         .to_owned();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     call(&mut ts, "listRuntimeMailboxMessages", json!([db]));
     let value = json!({"recipient":{"sessionId":"to","agentId":null},"sender":{"sessionId":"from","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s","messageId":"m"},"message":{"id":"m","fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"original"}});
     let input: EnqueueStoredRuntimeMailboxMessageInput = js_json::from_value(&value.clone()).unwrap();
@@ -196,7 +196,7 @@ fn legacy_live_identity_without_incarnation_is_not_superseded_by_current_nonce()
         },
     )
     .unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let peer = call(&mut ts, "readLiveRuntimeMailboxSessionAgentIds", json!([db, "legacy"]));
     assert_eq!(peer, json!([null]));
     assert_eq!(

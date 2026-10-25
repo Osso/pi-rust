@@ -7,7 +7,7 @@ use serde_json::json;
 fn whole_transcript_complete_lf_raw_refs_and_error_order_match_frozen_helper() {
     let t = tempfile::tempdir().unwrap();
     let path = t.path().join("receipt.jsonl");
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let fixtures = [
         ("{\"type\":\"message\",\"mailboxStoreRefs\":[{}]}\n", true),
         ("null\n", false),
@@ -53,7 +53,7 @@ fn transcript_read_errors_match_frozen_node_diagnostics() {
     let file = tmp.path().join("transcript.jsonl");
     std::fs::write(&file, "{}").unwrap();
     let paths = [tmp.path().to_path_buf(), file.join("child")];
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for path in paths {
         let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefs","path":path}]}));
         assert_eq!(peer["output"][0]["ok"], false, "{peer}");
@@ -72,7 +72,7 @@ fn transcript_read_errors_match_frozen_node_diagnostics() {
 fn malformed_complete_transcript_retains_frozen_syntax_error() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("malformed.jsonl");
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     for contents in ["{broken\n", "{\"type\":\"message\",\"mailboxStoreRefs\":[}\n"] {
         std::fs::write(&path, contents).unwrap();
         let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefs","path":path}]}));
@@ -92,7 +92,7 @@ fn malformed_complete_transcript_retains_frozen_syntax_error() {
 #[test]
 fn source_manager_receipts_preserve_lone_surrogate_values_keys_and_raw_items() {
     let t = tempfile::tempdir().unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let payloads = [
         (
             r#"{"mailboxStoreRefs":[{"sessionPath":"/\ud800/source","messageId":"msg\udfff","\ud800":1,"�":2}]}"#,
@@ -130,7 +130,7 @@ fn noniterable_ref_collection_throws_at_the_source_spread_boundary() {
         "{\"type\":\"custom\",\"customType\":\"runtime_mailbox_acceptance\",\"data\":{\"mailboxStoreRefs\":{}}}\n",
     )
     .unwrap();
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let peer = ts.request(&json!({"id":1,"steps":[{"op":"acceptedRefsWire","path":path}]}));
     assert_eq!(peer["output"][0]["ok"], false);
     let error =
@@ -143,7 +143,7 @@ fn noniterable_ref_collection_throws_at_the_source_spread_boundary() {
 fn raw_ref_equality_uses_js_property_access_strict_equality_and_utf16() {
     use pi_coding_agent::core::runtime_mailbox_transcript::mailbox_store_refs_equal;
     use pi_js_compat::js_json::parse_lossless;
-    let mut ts = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut ts = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let cases = [
         ("{}", "{}"),
         ("null", "{}"),

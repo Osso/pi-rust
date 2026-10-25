@@ -17,7 +17,7 @@ fn input(id: &str) -> EnqueueStoredRuntimeMailboxMessageInput {
 
 fn source(delta: bool) -> oracle::TsOracle {
     oracle::TsOracle::spawn_with_environment(
-        "control-db-oracle.ts",
+        "control-db-oracle.mts",
         "packages/coding-agent/src",
         &[("PI_APPROVED_DELTA", if delta { "1" } else { "0" }.into())],
     )

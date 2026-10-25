@@ -66,7 +66,7 @@ fn an_explicit_empty_local_host_still_wakes_the_mailbox_recipient() {
     let fixture = WakeFixture::spawn();
     let root = tempfile::tempdir().unwrap();
     let db = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     let recipient = json!({"sessionId":"recipient","agentId":null});
     let input = |id: &str| json!({"recipientHost":"","recipient":recipient,"sender":{"sessionId":"sender","agentId":null},"kind":"message","storeRef":{"sessionPath":"/fixture/s.jsonl","messageId":id},"message":{"id":id,"fromAgentId":"main","toAgentId":"main","kind":"message","status":"pending","body":"wake"}});
     let response=source.request(&json!({"id":1,"steps":[{"op":"call","args":["registerRuntimeMailboxListener",[db,recipient,fixture.child.id()]]},{"op":"call","args":["enqueueStoredRuntimeMailboxMessage",[db,input("source")]]}]}));

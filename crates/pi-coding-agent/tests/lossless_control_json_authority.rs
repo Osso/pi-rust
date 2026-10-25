@@ -29,7 +29,7 @@ fn bootstrap_raw_child(source: &mut oracle::TsOracle, path: &str) {
 fn source_raw_agent_fields_survive_native_metadata_patch_byte_for_byte() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     bootstrap_raw_child(&mut source, &path);
     let before = read_agent_wire(&mut source, &path);
     let updated = update_multi_agent_agent_slot(&path, "/fixture/session", &"child".into(), None, "after").unwrap();
@@ -45,7 +45,7 @@ fn source_raw_agent_fields_survive_native_metadata_patch_byte_for_byte() {
 fn parent_request_lookup_matches_native_parent_id_not_replacement_text() {
     let temporary = tempfile::tempdir().unwrap();
     let path = temporary.path().join("control.sqlite").display().to_string();
-    let mut source = oracle::TsOracle::spawn("control-db-oracle.ts", "packages/coding-agent/src");
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
     bootstrap_raw_child(&mut source, &path);
     source_call(
         &mut source,
