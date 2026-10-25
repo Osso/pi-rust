@@ -6570,8 +6570,7 @@ impl AgentSession {
         }
 
         let direct_context_tokens = crate::core::compaction::calculate_context_tokens(&assistant_message.usage);
-        let mut context_tokens = direct_context_tokens;
-        if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
+        let context_tokens = if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
             let messages = self.inner.agent.messages();
             let estimate = crate::core::compaction::estimate_context_tokens(&messages);
             let Some(last_usage_index) = estimate.last_usage_index else {
@@ -6585,8 +6584,10 @@ impl AgentSession {
             {
                 return Ok(false);
             }
-            context_tokens = estimate.tokens;
-        }
+            estimate.tokens
+        } else {
+            self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent)
+        };
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
@@ -6611,6 +6612,32 @@ impl AgentSession {
         }
         self.start_background_compaction(context_tokens, context_window)?;
         Ok(false)
+    }
+
+    fn estimate_threshold_context_tokens(
+        &self,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
+        direct_context_tokens: f64,
+        threshold_percent: Option<f64>,
+    ) -> f64 {
+        if threshold_percent.is_none() {
+            return direct_context_tokens;
+        }
+        let Some(identity) = identity else {
+            return direct_context_tokens;
+        };
+        let snapshot = self.inner.agent.identity_snapshot(|_| true);
+        let Some(index) = snapshot
+            .message_tokens()
+            .iter()
+            .position(|candidate| candidate == identity)
+        else {
+            return direct_context_tokens;
+        };
+        let messages = self.messages();
+        messages.get(index + 1..).map_or(direct_context_tokens, |trailing| {
+            direct_context_tokens + estimate_messages_tokens(trailing)
+        })
     }
 
     async fn run_auto_compaction(

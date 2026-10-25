@@ -11,9 +11,9 @@ use pi_ai::types::{
     StopReason, TextContent, Usage, UsageCost, UserContent, UserMessage, UserRole,
 };
 use pi_coding_agent::core::compaction::{
-    CompactionPreparation, CompactionSettings, CompactionSourceType, CompactionSummaryOptions,
-    GenerateSummaryWithUsageOptions, MaterializeCompactionSummaryOptions, MaterializeCompactionSummaryResult, compact,
-    generate_summary, generate_summary_with_usage, materialize_compaction_summary,
+    CompactionPreparation, CompactionSettings, CompactionSourceType, CompactionSummaryOptions, GenerateSummaryOptions,
+    MaterializeCompactionSummaryOptions, MaterializeCompactionSummaryResult, compact, generate_summary,
+    materialize_compaction_summary,
 };
 use pi_coding_agent::core::session_manager::CompactionEntry;
 use serde_json::{Value, json};
@@ -302,7 +302,7 @@ async fn generates_a_summary_with_the_exact_request_shape() {
     let model = model();
     let messages = vec![user("Summarize this.")];
 
-    let result = generate_summary(&GenerateSummaryWithUsageOptions {
+    let result = generate_summary(&GenerateSummaryOptions {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
@@ -329,7 +329,7 @@ async fn generates_a_summary_with_the_exact_request_shape() {
     );
     assert_eq!(
         calls[0].prompt,
-        "<conversation>\n[User]: Summarize this.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages."
+        "<conversation>\n[User]: Summarize this.\n</conversation>\n\nThe messages above are a conversation to summarize. Create a structured context checkpoint summary that another LLM will use to continue the work.\n\nUse this EXACT format:\n\n## Goal\n[What is the user trying to accomplish? Can be multiple items if the session covers different tasks.]\n\n## Constraints & Preferences\n- [Any constraints, preferences, or requirements mentioned by user]\n- [Or \"(none)\" if none were mentioned]\n\n## Progress\n### Done\n- [x] [Completed tasks/changes]\n\n### In Progress\n- [ ] [Current work]\n\n### Blocked\n- [Issues preventing progress, if any]\n\n## Key Decisions\n- **[Decision]**: [Brief rationale]\n\n## Next Steps\n1. [Ordered list of what should happen next]\n\n## Critical Context\n- [Any data, examples, or references needed to continue]\n- [Or \"(none)\" if not applicable]\n\nKeep each section concise. Preserve exact file paths, function names, and error messages.\n\nContinuation rules:\n- Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.\n- Derive ongoing work from the actual conversation, including research and discussion; do not invent a fixed session purpose.\n- Preserve pending user questions and requests, user decisions and corrections, relevant context, and unfinished work.\n- Distinguish completed historical work from ongoing work; do not revive it as a current task.\n- Do not infer the current task or authority from the working directory or messages addressed to another session.\n- Represent ambiguity or missing intent explicitly rather than inventing a goal, assignment, or authorization.\n- Preserve user-stated goals and constraints, reasons for decisions, current status, unresolved blockers, next steps, and exact artifacts needed to continue.\n- Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.\n- Do not invent completion, evidence, file changes, commands, test results, or deployment state.\n- Prioritize the current task, then parked tasks, then only earlier history needed to continue."
     );
 }
 
@@ -340,7 +340,7 @@ async fn uses_the_update_prompt_with_a_previous_summary_and_custom_focus() {
     let model = model();
     let messages = vec![user("Summarize this.")];
 
-    let _ = generate_summary_with_usage(&GenerateSummaryWithUsageOptions {
+    let _ = generate_summary(&GenerateSummaryOptions {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
@@ -362,7 +362,11 @@ async fn uses_the_update_prompt_with_a_previous_summary_and_custom_focus() {
             .prompt
             .contains("<previous-summary>\nprevious\n</previous-summary>\n\n")
     );
-    assert!(calls[0].prompt.ends_with("\n\nAdditional focus: focus"));
+    assert!(
+        calls[0]
+            .prompt
+            .ends_with("\n\nAdditional compaction focus requested by the user:\nfocus")
+    );
 }
 
 #[tokio::test]
@@ -378,7 +382,7 @@ async fn returns_a_transient_summary_failure_without_retrying() {
     let model = model();
     let messages = vec![user("Summarize this.")];
 
-    let result = generate_summary(&GenerateSummaryWithUsageOptions {
+    let result = generate_summary(&GenerateSummaryOptions {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
@@ -406,7 +410,7 @@ async fn reports_summarization_failures_with_provider_detail() {
     let model = model();
     let messages = vec![user("Summarize this.")];
 
-    let error = generate_summary(&GenerateSummaryWithUsageOptions {
+    let error = generate_summary(&GenerateSummaryOptions {
         current_messages: &messages,
         model: &model,
         reserve_tokens: 2000.0,
@@ -454,11 +458,11 @@ async fn compacts_with_file_operations_and_source_details() {
     assert_eq!(result.first_kept_entry_id, "kept-1");
     assert_eq!(result.tokens_before, 42_000.0);
     assert!(result.duration_ms.is_some());
-    let source = result.source.expect("source");
+    let source = result.source.as_ref().expect("source");
     assert_eq!(source.r#type, CompactionSourceType::Local);
     assert_eq!(source.provider, "anthropic");
     assert_eq!(source.model, "claude-sonnet-4-5");
-    assert_eq!(result.usage.expect("usage").total_tokens, 20.0);
+    assert!(serde_json::to_value(&result).unwrap().get("usage").is_none());
     assert_eq!(
         result.details,
         (Some(json!({"readFiles": ["read.ts"], "modifiedFiles": ["edited.ts"]}))).map(JsValue::from)

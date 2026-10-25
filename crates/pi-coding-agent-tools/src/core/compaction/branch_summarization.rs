@@ -10,8 +10,8 @@ use pi_agent_core::harness::messages::{
 };
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantContent, Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, Usage, UserContent,
-    UserMessage, UserRole,
+    AssistantContent, Model, ProviderEnv, ProviderHeaders, StopReason, TextOrImageContent, UserContent, UserMessage,
+    UserRole,
 };
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -27,8 +27,6 @@ use crate::core::session_manager::{KnownSessionEntry, SessionEntry, SessionManag
 pub struct BranchSummaryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<JsString>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub read_files: Option<Vec<JsString>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -276,7 +274,10 @@ pub async fn generate_branch_summary(
     let converted = convert_to_llm(&messages)?;
     let conversation_text = serialize_conversation(&converted);
 
-    let instructions = match (options.replace_instructions, options.custom_instructions) {
+    let custom_instructions = options
+        .custom_instructions
+        .filter(|instructions| !instructions.is_empty());
+    let instructions = match (options.replace_instructions, custom_instructions) {
         (true, Some(custom)) => custom.to_owned(),
         (false, Some(custom)) => JsString::from(BRANCH_SUMMARY_PROMPT) + "\n\nAdditional focus: " + custom,
         _ => BRANCH_SUMMARY_PROMPT.into(),
@@ -354,7 +355,6 @@ pub async fn generate_branch_summary(
         } else {
             summary
         }),
-        usage: Some(response.usage),
         read_files: Some(file_lists.read_files),
         modified_files: Some(file_lists.modified_files),
         ..BranchSummaryResult::default()

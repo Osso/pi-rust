@@ -91,7 +91,6 @@ fn extension_result(
             model: "faux-1".to_owned(),
             endpoint: None,
         }),
-        usage: None,
         provider_native: None,
         details: Some(JsValue::from(json!({"origin": "extension"}))),
     }
@@ -646,6 +645,95 @@ async fn overflow_recovery_resets_when_the_next_user_request_starts_like_frozen(
     }));
     assert_eq!(expected, json!({"ok": true, "value": {"compactions": 2}}));
     assert_eq!(json!({"compactions": compactions}), expected["value"]);
+}
+
+#[tokio::test]
+async fn percentage_threshold_counts_messages_after_the_usage_anchor_like_frozen() {
+    use pi_coding_agent::core::agent_session::PromptOptions;
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = 400.0;
+    anchor.usage.total_tokens = 400.0;
+    let message = pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(anchor));
+    let identity = env.session.agent().append_message(message.clone());
+    {
+        let mut manager = env.session.session_manager();
+        let entry_id = manager.append_message(message).expect("anchor");
+        manager
+            .bind_message_identity(&entry_id, identity)
+            .expect("anchor identity");
+    }
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("trailing custom");
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    let before_run = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+    let recorded = Arc::clone(&before_run);
+    let captured = Arc::clone(&env.captured);
+    env.session
+        .prompt(
+            "next request",
+            PromptOptions {
+                preflight_result: Some(Arc::new(move |accepted| {
+                    if accepted {
+                        recorded.store(
+                            captured.lock().unwrap().compaction.len(),
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                    }
+                })),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("prompt");
+    let compactions = env.captured.lock().unwrap().compaction.len();
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "threshold-trailing", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"compactions": 1, "beforeRun": 1}})
+    );
+    assert_eq!(
+        json!({"compactions": compactions, "beforeRun": before_run.load(std::sync::atomic::Ordering::SeqCst)}),
+        expected["value"]
+    );
 }
 
 #[tokio::test]

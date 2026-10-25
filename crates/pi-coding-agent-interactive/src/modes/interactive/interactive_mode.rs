@@ -17067,7 +17067,6 @@ mod ui_tests {
             compacted_result_tokens: None,
             compacted_result_bytes: None,
             source,
-            usage: None,
             provider_native: None,
             details: None,
         }
