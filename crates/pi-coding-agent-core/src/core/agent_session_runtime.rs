@@ -22,7 +22,7 @@ use crate::core::sdk::CreateAgentSessionResult;
 use crate::core::session_control_db::assert_main_session_runtime_available;
 use crate::core::session_cwd::{assert_session_cwd_exists, find_nearest_existing_cwd};
 use crate::core::session_errors::SessionImportFileNotFoundError;
-use crate::core::session_manager::SessionManager;
+use crate::core::session_manager::{SessionManager, SharedSessionManager};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
 
 /// Result returned by runtime creation.
@@ -96,7 +96,7 @@ pub struct ForkResult {
 
 /// Session setup callback used by `newSession`.
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), CallbackError>> + Send + Sync>;
 /// Callback receiving the replacement session context.
 pub type ReplacedSessionCallback = Arc<
     dyn Fn(crate::core::extensions::types::ReplacedSessionContext) -> BoxFuture<'static, Result<(), CallbackError>>
@@ -851,17 +851,8 @@ impl AgentSessionRuntime {
         self.apply(result);
         if let Some(setup) = options.setup {
             let handle = self.session().session_manager_handle();
-            let mut manager = {
-                let guard = handle.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-                guard.clone()
-            };
-            let future = setup(&mut manager);
-            *handle.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = manager;
-            future.await?;
-            let (context, identities) = handle
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .build_session_context_with_identities();
+            setup(handle.clone()).await?;
+            let (context, identities) = lock(&handle).build_session_context_with_identities();
             self.session()
                 .agent()
                 .set_messages_with_identities(context.messages, identities)
