@@ -211,3 +211,16 @@ nondefault context control DB; native previously omitted that DB and reported
 RED/GREEN `/tmp/bundled3-pyrun-resume-{red,green}.log`. Empty optional session ID,
 code and executed prefix now follow JS truthiness. Exact rendered lines with
 blank leading output rows match frozen: `/tmp/bundled3-pyrun-render-{red,green}.log`.
+
+Process fixture correction: the first integrated child-runner test exposed that
+ownership still named the parent PID. Persisted response/cancel rows stayed pending
+because the child correctly failed the shared mailbox authority check. Fixtures now
+spawn the process, register its actual identity, then publish activation/manifest.
+The child result wait is bounded at 15 seconds and kills its owned child on timeout.
+The resume-live fixture now releases its runner only after observer registration;
+a loaded host can no longer turn it into a replay-before-start test. Existing
+terminal revision, bridge validation and completion-marker assertions are unchanged.
+Original failed/aborted evidence: `/tmp/bundled3-pyrun-integration.log`,
+`/tmp/bundled3-pyrun-process-integration.log`; spawned test groups were cancelled
+and verified exited before proceeding. Workspace all-target check is GREEN after
+the parent API merge (`/tmp/bundled3-workspace-check.log`).
