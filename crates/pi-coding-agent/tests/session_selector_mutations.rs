@@ -90,12 +90,14 @@ async fn native(request: &Value) -> Value {
         Rc::new(|| {}),
         Rc::new(|| {}),
         Rc::new(move || render.borrow_mut().push(json!(["render"]))),
-        None,
-        None,
-        None,
-        (request["withDb"] == true).then_some(db.clone()),
-        None,
-        None,
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: None,
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: (request["withDb"] == true).then_some(db.clone()),
+            archived_sessions_loader: None,
+            current_session_file_path: None,
+        },
     );
     selector.load_current_sessions().await;
     let path = JsString::from(paths[0].as_str());

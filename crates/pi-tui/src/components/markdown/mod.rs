@@ -701,7 +701,6 @@ impl Markdown {
         wrap_text_with_ansi(text, max_width.max(1))
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn render_table(
         &self,
         header: &[TableCell],

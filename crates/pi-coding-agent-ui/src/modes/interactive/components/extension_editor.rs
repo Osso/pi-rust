@@ -57,8 +57,13 @@ pub struct ExtensionEditorComponent {
     focused: bool,
 }
 
+/// Editor configuration independent of the dialog callbacks.
+pub struct ExtensionEditorOptions {
+    pub editor: EditorOptions,
+    pub external_editor_command: Option<JsString>,
+}
+
 impl ExtensionEditorComponent {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tui: Rc<dyn ExtensionEditorHost>,
         keybindings: AppKeybindingsManager,
@@ -66,9 +71,12 @@ impl ExtensionEditorComponent {
         prefill: Option<&JsString>,
         on_submit: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
-        options: EditorOptions,
-        external_editor_command: Option<JsString>,
+        options: ExtensionEditorOptions,
     ) -> Self {
+        let ExtensionEditorOptions {
+            editor: options,
+            external_editor_command,
+        } = options;
         let mut container = Container::new();
         container.add_child(component(dynamic_border()));
         container.add_child(component(Spacer::new(1)));

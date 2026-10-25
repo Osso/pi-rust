@@ -1919,8 +1919,13 @@ pub struct TreeSelectorComponent {
     container: Container,
 }
 
+/// Initial selection and filter for the tree dialog.
+pub struct TreeSelectorOptions {
+    pub initial_selected_id: Option<JsString>,
+    pub initial_filter_mode: Option<FilterMode>,
+}
+
 impl TreeSelectorComponent {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tree: Vec<SessionTreeNode>,
         current_leaf_id: Option<JsString>,
@@ -1928,9 +1933,12 @@ impl TreeSelectorComponent {
         on_select: Rc<dyn Fn(JsString)>,
         on_cancel: Rc<dyn Fn()>,
         on_label_change: Option<LabelEditHandler>,
-        initial_selected_id: Option<JsString>,
-        initial_filter_mode: Option<FilterMode>,
+        options: TreeSelectorOptions,
     ) -> Self {
+        let TreeSelectorOptions {
+            initial_selected_id,
+            initial_filter_mode,
+        } = options;
         let max_visible_lines = js_math_max(5.0, (terminal_height / 2.0).floor());
         let is_empty = tree.is_empty();
         let mut tree_list = TreeList::new(

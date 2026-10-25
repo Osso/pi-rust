@@ -996,8 +996,17 @@ pub struct SessionSelectorComponent {
     tasks: Vec<SelectorTask>,
 }
 
+/// Optional session management and display configuration.
+pub struct SessionSelectorOptions<'a> {
+    pub rename_session: Option<RenameSessionFn>,
+    pub show_rename_hint: Option<bool>,
+    pub keybindings: Option<KeybindingsManager>,
+    pub control_db_path: Option<JsString>,
+    pub archived_sessions_loader: Option<SessionListLoader>,
+    pub current_session_file_path: Option<&'a JsString>,
+}
+
 impl SessionSelectorComponent {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         current_sessions_loader: SessionListLoader,
         all_sessions_loader: SessionListLoader,
@@ -1005,13 +1014,16 @@ impl SessionSelectorComponent {
         on_cancel: Rc<dyn Fn()>,
         on_exit: Rc<dyn Fn()>,
         request_render: Rc<dyn Fn()>,
-        rename_session: Option<RenameSessionFn>,
-        show_rename_hint: Option<bool>,
-        keybindings: Option<KeybindingsManager>,
-        control_db_path: Option<JsString>,
-        archived_sessions_loader: Option<SessionListLoader>,
-        current_session_file_path: Option<&JsString>,
+        options: SessionSelectorOptions<'_>,
     ) -> Self {
+        let SessionSelectorOptions {
+            rename_session,
+            show_rename_hint,
+            keybindings,
+            control_db_path,
+            archived_sessions_loader,
+            current_session_file_path,
+        } = options;
         let keybindings = keybindings.unwrap_or_else(|| KeybindingsManager::new(Default::default(), None));
         let session_list = SessionList::new(
             Vec::new(),

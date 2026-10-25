@@ -990,8 +990,10 @@ fn extension_editor_cases() -> Vec<(Value, Value)> {
             prefill.map(JsString::from).as_ref(),
             std::rc::Rc::new(|_| {}),
             std::rc::Rc::new(|| {}),
-            pi_tui::components::editor::EditorOptions::default(),
-            Some(JsString::from("nano")),
+            pi_coding_agent::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+                editor: pi_tui::components::editor::EditorOptions::default(),
+                external_editor_command: Some(JsString::from("nano")),
+            },
         );
         cases.push((request, json!(editor.render(width))));
     }
@@ -1548,8 +1550,10 @@ fn tree_selector_cases() -> Vec<(Value, Value)> {
             std::rc::Rc::new(|_| {}),
             std::rc::Rc::new(|| {}),
             None,
-            None,
-            filter,
+            pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorOptions {
+                initial_selected_id: None,
+                initial_filter_mode: filter,
+            },
         );
         if let Some(labels) = request["labels"].as_object() {
             for (entry_id, label) in labels {
@@ -1685,12 +1689,14 @@ fn session_selector_cases() -> Vec<(Value, Value)> {
                 std::rc::Rc::new(|| {}),
                 std::rc::Rc::new(|| {}),
                 std::rc::Rc::new(|| {}),
-                None,
-                None,
-                Some(KeybindingsManager::new(Default::default(), None)),
-                None,
-                with_archived.then(|| loader(archived.clone())),
-                current_file.map(JsString::from).as_ref(),
+                pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+                    rename_session: None,
+                    show_rename_hint: None,
+                    keybindings: Some(KeybindingsManager::new(Default::default(), None)),
+                    control_db_path: None,
+                    archived_sessions_loader: with_archived.then(|| loader(archived.clone())),
+                    current_session_file_path: current_file.map(JsString::from).as_ref(),
+                },
             );
             selector.load_current_sessions().await;
 

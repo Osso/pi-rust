@@ -132,8 +132,10 @@ fn extension_editor_preserves_raw_prefill_and_submission() {
             Some(&raw),
             Rc::new(move |value| output.borrow_mut().push(value)),
             Rc::new(|| {}),
-            Default::default(),
-            Some("unused".into()),
+            pi_coding_agent::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+                editor: Default::default(),
+                external_editor_command: Some("unused".into()),
+            },
         );
         assert!(editor.render(40).iter().any(|line| line.contains(&raw)));
         editor.handle_input(&"\r".into());
