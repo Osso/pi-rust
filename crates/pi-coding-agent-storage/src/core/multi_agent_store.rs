@@ -7,6 +7,8 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
+use pi_coding_agent_data::core::desktop_notification::report_callback_error;
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_js_compat::js_json::{self, JsObject, JsString, JsValue};
@@ -929,7 +931,7 @@ pub struct MultiAgentStoreOptions {
 }
 
 type AgentTransitionListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
-type AgentUpdateListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync>;
+type AgentUpdateListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync>;
 type LifecycleNotificationListener = Arc<dyn Fn(&AgentMailboxMessage) + Send + Sync>;
 struct AbortHandler {
     token: Arc<()>,
@@ -1084,7 +1086,7 @@ impl MultiAgentStore {
 
     pub fn subscribe_agent_updates(
         &self,
-        listener: impl Fn(&AgentSnapshot, &AgentSnapshot) + Send + Sync + 'static,
+        listener: impl Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync + 'static,
     ) -> AgentSubscription {
         let id = self.updates.insert(Arc::new(listener));
         subscription(ListenerList::subscription_remover(self.updates.clone()), id)
@@ -2313,7 +2315,9 @@ impl MultiAgentStore {
         let current_snapshot = copy_agent(current);
         let listeners = listener_snapshot(&self.updates);
         for listener in listeners {
-            listener(&previous_snapshot, &current_snapshot);
+            if let Err(error) = listener(&previous_snapshot, &current_snapshot) {
+                report_callback_error("MultiAgentStore agent update listener failed:", &error);
+            }
         }
     }
 

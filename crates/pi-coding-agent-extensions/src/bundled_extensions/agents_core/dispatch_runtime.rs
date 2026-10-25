@@ -713,6 +713,7 @@ async fn wait_for_active_descendants(
     let listener = Arc::clone(&notify);
     let subscription = store.subscribe_agent_updates(move |_previous, _current| {
         listener.notify_waiters();
+        Ok(())
     });
     loop {
         if !has_active_descendants() || signal.is_some_and(|signal| signal.aborted()) {

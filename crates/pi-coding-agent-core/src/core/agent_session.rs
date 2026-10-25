@@ -3005,6 +3005,7 @@ impl AgentSession {
             if let Some(inner) = weak.upgrade() {
                 AgentSession { inner }.retry_runtime_mailbox_steered_terminals();
             }
+            Ok(())
         });
         *lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe) = Some(subscription);
     }

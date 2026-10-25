@@ -877,6 +877,10 @@ name = "repin_storage_spool"
 path = "tests/repin_storage_spool.rs"
 
 [[test]]
+name = "repin_store_listener_failure"
+path = "tests/repin_store_listener_failure.rs"
+
+[[test]]
 name = "resource_loader_constructor_errors"
 path = "tests/resource_loader_constructor_errors.rs"
 
