@@ -21,6 +21,7 @@ type ScenarioOptions = {
 	cacheRetention?: "none" | "short" | "long";
 	headers?: Record<string, string | null>;
 	onPayload?: "augment";
+	observePayload?: boolean;
 };
 
 type Scenario = {
@@ -179,6 +180,13 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 		options.onPayload = (payload: Record<string, unknown>) =>
 			augmentPayload(payload);
 	}
+	let onPayload: string | undefined;
+	if (scenario.options.observePayload) {
+		options.onPayload = (payload: Record<string, unknown>) => {
+			onPayload = JSON.stringify(payload);
+			return scenario.options.onPayload === "augment" ? augmentPayload(payload) : undefined;
+		};
+	}
 	options.onResponse = (response: {
 		status: number;
 		headers: Record<string, string>;
@@ -202,6 +210,7 @@ async function execute(scenario: Scenario, api: StreamApi): Promise<unknown> {
 			ok: true,
 			request: captured[0] ?? null,
 			onResponse: onResponse ?? null,
+			...(scenario.options.observePayload ? { onPayload: onPayload ?? null } : {}),
 			events: events.map(normalizeEvent),
 			message: normalize(message),
 		};

@@ -219,7 +219,7 @@ async fn run(
 }
 
 fn resolve_client(model: &Model, options: &GoogleOptions) -> Result<GoogleClient, String> {
-    let Some(api_key) = options.stream.request.api_key.clone() else {
+    let Some(api_key) = options.stream.request.api_key.clone().filter(|key| !key.is_empty()) else {
         return Err(format!("No API key for provider: {}", model.provider));
     };
     Ok(GoogleClient::generative_ai(
@@ -259,6 +259,9 @@ fn build_params(model: &Model, context: &Context, options: &GoogleOptions) -> Re
 }
 
 fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> Option<Value> {
+    if crate::api::google_shared::uses_server_managed_thinking(&model.id) {
+        return None;
+    }
     let thinking = thinking?;
     if thinking.enabled && model.reasoning {
         let mut config = Map::new();
@@ -277,7 +280,7 @@ fn thinking_config(model: &Model, thinking: Option<&GoogleThinkingOptions>) -> O
 }
 
 fn get_disabled_thinking_config(model: &Model) -> Value {
-    if is_gemini3_pro_id(&model.id) {
+    if is_gemini3_pro_id(&model.id) || model.id == "gemini-3.7-flash" {
         return json!({"thinkingLevel": GoogleThinkingLevel::Low});
     }
     if is_gemini3_flash_id(&model.id) || is_gemma4_id(&model.id) {

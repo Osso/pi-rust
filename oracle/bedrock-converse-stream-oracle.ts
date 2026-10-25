@@ -9,6 +9,7 @@ interface FrameSpec {
 	kind: "event" | "exception";
 	type: string;
 	payload: unknown;
+	rawPayload?: string;
 	corruptPrelude?: boolean;
 	corruptMessage?: boolean;
 }
@@ -114,7 +115,7 @@ function encodeFrameSpec(spec: FrameSpec): Uint8Array {
 	];
 	return encodeFrame(
 		headers,
-		Buffer.from(JSON.stringify(spec.payload), "utf8"),
+		Buffer.from(spec.rawPayload ?? JSON.stringify(spec.payload), "utf8"),
 		spec.corruptPrelude ?? false,
 		spec.corruptMessage ?? false,
 	);

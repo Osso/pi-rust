@@ -174,7 +174,7 @@ enum Credentials {
 /// HTTP client stand-in shared by both Google adapters.
 pub struct GoogleClient {
     api_key: Option<JsString>,
-    credentials: Option<Credentials>,
+    key_filename: Option<JsString>,
     endpoint: Endpoint,
     headers: Vec<(String, JsString)>,
     token: Mutex<Option<(String, f64)>>,
@@ -203,7 +203,7 @@ impl GoogleClient {
         };
         Self {
             api_key: Some(api_key.clone()),
-            credentials: None,
+            key_filename: None,
             endpoint: Endpoint {
                 vertexai: false,
                 base_url,
@@ -237,7 +237,7 @@ impl GoogleClient {
         };
         Self {
             api_key: Some(api_key.clone()),
-            credentials: None,
+            key_filename: None,
             endpoint: Endpoint {
                 vertexai: true,
                 base_url,
@@ -275,10 +275,10 @@ impl GoogleClient {
                 "v1".to_owned(),
             ),
         };
-        let credentials = load_credentials(env)?;
+        let key_filename = get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", env);
         Ok(Self {
             api_key: None,
-            credentials: Some(credentials),
+            key_filename,
             endpoint: Endpoint {
                 vertexai: true,
                 base_url,
@@ -336,8 +336,24 @@ impl GoogleClient {
     /// UTF-8 view of the base and path is the exact parser input.
     fn request_url(&self, model: &str) -> Result<String, GoogleRequestError> {
         let model = transform_model_name(self.endpoint.vertexai, model)?;
+        let path = self.stream_request_path(&model);
+        let base = encode_node_utf8(&self.endpoint.base_url);
+        let mut base = base.strip_suffix('/').unwrap_or(&base).to_owned();
+        if !self.endpoint.api_version.is_empty() {
+            base.push('/');
+            base.push_str(&self.endpoint.api_version);
+        }
+        let raw_url = format!("{base}/{}", encode_node_utf8(&path));
+        let mut url = url::Url::parse(&raw_url).map_err(|_| GoogleRequestError::new("Invalid URL", None))?;
+        set_alt_to_sse(&mut url);
+        Ok(url.into())
+    }
+
+    fn stream_request_path(&self, model: &str) -> JsString {
         let path = JsString::from(format!("{model}:streamGenerateContent?alt=sse"));
-        let path = if self.endpoint.vertexai && !self.endpoint.collection_scope && self.api_key.is_none() {
+        let uses_adc = self.endpoint.vertexai && self.api_key.is_none();
+        let skip_project_prefix = self.endpoint.collection_scope || model.starts_with("projects/");
+        if uses_adc && !skip_project_prefix {
             let empty = JsString::default();
             JsString::from("projects/")
                 + self.endpoint.project.as_ref().unwrap_or(&empty)
@@ -347,15 +363,7 @@ impl GoogleClient {
                 + path
         } else {
             path
-        };
-        let mut base = encode_node_utf8(&self.endpoint.base_url)
-            .trim_end_matches('/')
-            .to_owned();
-        if !self.endpoint.api_version.is_empty() {
-            base.push('/');
-            base.push_str(&self.endpoint.api_version);
         }
-        Ok(format!("{base}/{}", encode_url_path(&encode_node_utf8(&path))))
     }
 
     async fn request_headers(
@@ -401,10 +409,8 @@ impl GoogleClient {
         {
             return Ok(token.clone());
         }
-        let credentials = self.credentials.as_ref().ok_or_else(|| {
-            GoogleRequestError::new("Trying to set google-auth headers but googleAuth is unset", None)
-        })?;
-        let (body, accept) = token_request_body(credentials)?;
+        let credentials = load_credentials(self.key_filename.as_ref())?;
+        let (body, accept) = token_request_body(&credentials)?;
         let request = HttpRequest {
             method: "POST".to_owned(),
             url: GOOGLE_TOKEN_URL.to_owned(),
@@ -634,12 +640,10 @@ fn resolve_custom_base_url(base_url: &JsString) -> Option<JsString> {
 /// never be part of a matching segment, and the separators are ASCII.
 fn base_url_includes_api_version(base_url: &JsString) -> bool {
     let base_url = encode_node_utf8(base_url);
-    let path = base_url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .and_then(|rest| rest.split_once('/').map(|(_, path)| path))
-        .unwrap_or("");
-    path.split('/').any(is_api_version_segment)
+    match url::Url::parse(&base_url) {
+        Ok(url) => url.path().split('/').any(is_api_version_segment),
+        Err(_) => base_url.split('/').any(is_api_version_segment),
+    }
 }
 
 fn is_api_version_segment(segment: &str) -> bool {
@@ -689,18 +693,32 @@ fn transform_model_name(vertexai: bool, model: &str) -> Result<String, GoogleReq
     Ok(format!("models/{model}"))
 }
 
-fn encode_url_path(path: &str) -> String {
-    let mut encoded = String::with_capacity(path.len());
-    for byte in path.bytes() {
-        match byte {
-            b' ' | b'"' | b'<' | b'>' | b'`' | b'{' | b'}' | b'|' | b'\\' | b'^' => {
-                encoded.push_str(&format!("%{byte:02X}"));
-            }
-            0x80..=0xff => encoded.push_str(&format!("%{byte:02X}")),
-            _ => encoded.push(byte as char),
-        }
+fn set_alt_to_sse(url: &mut url::Url) {
+    if url
+        .query_pairs()
+        .find(|(name, _)| name == "alt")
+        .is_some_and(|(_, value)| value == "sse")
+    {
+        return;
     }
-    encoded
+    let mut replaced = false;
+    let mut pairs: Vec<(String, String)> = url
+        .query_pairs()
+        .filter_map(|(name, value)| {
+            if name != "alt" {
+                return Some((name.into_owned(), value.into_owned()));
+            }
+            if replaced {
+                return None;
+            }
+            replaced = true;
+            Some(("alt".into(), "sse".into()))
+        })
+        .collect();
+    if !replaced {
+        pairs.push(("alt".into(), "sse".into()));
+    }
+    url.query_pairs_mut().clear().extend_pairs(pairs);
 }
 
 /// Transform `GenerateContentParameters` into the wire body.
@@ -1023,8 +1041,11 @@ fn form_encode(value: &str) -> String {
     encoded
 }
 
-fn load_credentials(env: Option<&ProviderEnv>) -> Result<Credentials, GoogleRequestError> {
-    let path = get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", env).or_else(well_known_adc_path);
+fn load_credentials(key_filename: Option<&JsString>) -> Result<Credentials, GoogleRequestError> {
+    let path = key_filename
+        .cloned()
+        .or_else(|| get_provider_env_value("GOOGLE_APPLICATION_CREDENTIALS", None))
+        .or_else(well_known_adc_path);
     let Some(path) = path else {
         return Err(GoogleRequestError::new(
             "Could not load the default credentials. Browse to https://cloud.google.com/docs/authentication/getting-started for more information.",
@@ -1072,7 +1093,8 @@ fn required_string(value: &Value, key: &str) -> Result<String, GoogleRequestErro
         })
 }
 
-static TOOL_CALL_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static GENERATIVE_TOOL_CALL_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static VERTEX_TOOL_CALL_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BlockKind {
@@ -1189,7 +1211,7 @@ fn apply_function_call_part(
 }
 
 fn resolve_tool_call_id(output: &AssistantMessage, function_call: &GoogleFunctionCall) -> String {
-    let provided_id = function_call.id.clone();
+    let provided_id = function_call.id.clone().filter(|id| !id.is_empty());
     let duplicate = provided_id.as_ref().is_some_and(|id| {
         output
             .content
@@ -1198,7 +1220,7 @@ fn resolve_tool_call_id(output: &AssistantMessage, function_call: &GoogleFunctio
     });
     match provided_id {
         Some(id) if !duplicate => id,
-        _ => generated_tool_call_id(function_call.name.as_deref().unwrap_or("")),
+        _ => generate_tool_call_id(&output.api, function_call.name.as_deref().unwrap_or("undefined")),
     }
 }
 
@@ -1327,8 +1349,13 @@ fn append_text(output: &mut AssistantMessage, kind: BlockKind, index: usize, tex
     }
 }
 
-fn generated_tool_call_id(name: &str) -> String {
-    let counter = TOOL_CALL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+fn generate_tool_call_id(api: &str, name: &str) -> String {
+    let counter = if api == "google-vertex" {
+        &VERTEX_TOOL_CALL_COUNTER
+    } else {
+        &GENERATIVE_TOOL_CALL_COUNTER
+    };
+    let counter = counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
     format!("{name}_{}_{counter}", now_millis_f64() as i64)
 }
 

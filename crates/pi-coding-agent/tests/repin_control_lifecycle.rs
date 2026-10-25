@@ -142,7 +142,7 @@ fn taking_owned_steer_claims_message_and_advances_agent_atomically() {
         session_id: "child-session".into(),
         agent_id: Some("child".into()),
     };
-    let taken = take_runtime_mailbox_messages_for_delivery(&db, &recipient, |_| true, 1).unwrap();
+    let taken = take_runtime_mailbox_messages_for_delivery(&db, &recipient, |_| Ok(true), 1).unwrap();
     assert_eq!(taken.len(), 1);
     assert_eq!(taken[0].status, RuntimeMailboxMessageStatus::Claimed);
     assert_eq!(
@@ -182,7 +182,7 @@ fn raw_writer_owned_steering_claim_preserves_source_payload() {
         agent_id: Some("child".into()),
     };
     assert_eq!(
-        take_runtime_mailbox_messages_for_delivery(&path, &recipient, |_| true, 1)
+        take_runtime_mailbox_messages_for_delivery(&path, &recipient, |_| Ok(true), 1)
             .unwrap()
             .len(),
         1

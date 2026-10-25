@@ -2,7 +2,7 @@
 
 ## Authorized scope
 
-User-observable `interactive-mode.ts` startup/render/events and command/session-transition slices, `agent-session-runtime.ts`, `self-restart.ts` and `keybindings.ts`, against common pin `4f9e6f8a4`. Keep existing lossless carriers. Mechanical cross-lane adapters are cleared; semantic deviations/dependencies/TS deltas still need approval. No agents, full-suite runs, push, merge, deploy or live providers. Parent owns integration and independent verification.
+User-observable `interactive-mode.ts` startup/render/events and command/session-transition slices, `agent-session-runtime.ts`, `self-restart.ts` and `keybindings.ts`, against common pin `4f9e6f8a4`. Keep existing lossless carriers. Mechanical cross-lane adapters are cleared; semantic deviations/dependencies/TS deltas still need approval. No agents, full-suite runs, push, deploy or live providers. Parent owns integration and independent verification. The current merge train requires a compiling workspace/all-targets tip before each commit and permits periodic parent-tip merges.
 
 ## Baseline repair checkpoint (2026-10-25)
 
@@ -75,6 +75,34 @@ Final proof at `3e36e1421`: `import-command-final-ui.log` has eleven passing foc
 `cd317f852` completes the approved live SharedSessionManager setup correction. Callback differential3/3; requested workspace all-targets0 errors/0 warnings; strict TS/Biome/format/inventory pass; scoped tools/core clippy259 existing diagnostics, zero changed-line primary spans. No code changed after that workspace proof until the independent transfer slice.
 
 Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](traceability/interactive-mode.md#transfer-commands-2026-10-25). Eleven actual process cases cover export/copy/share, including Japanese/lone-unit JSONL bytes, copied clipboard bytes, the real Esc RefCell crash correction and graceful SIGTERM. Shared-loader component differentials also pass. Whole interactive mode remains partial. The resource block owned by276 is untouched.
+
+## Name/inventory checkpoint
+
+`acefd5e8c` mechanically moves both CLI formatter implementations unchanged into the tools layer, with facade re-exports; `f80e52736` ports name/unname/tools/extensions handlers. [Full proof](traceability/interactive-mode.md#name-and-inventory-commands-2026-10-25):16 source/native states at widths25/120, persisted names/events/title effects and repeated inventories; lower formatter3+4 common-pin tests. Required -j3 workspace/all-targets0/0, TS/Biome/fmt/inventory pass, scoped clippy0 owned findings. No changes to cli/args.rs or main.rs for this slice.
+
+## Help/notices checkpoint
+
+`9819acb69` closes the bounded help/notices group:17 actual-source cases, including full-file changelog instead of cached startup excerpt, empty-version/empty-notice truthiness and PI_OFFLINE empty-string behavior. Default/custom hotkeys and extension descriptions match unchanged helpers; only the classified User-Agent runtime token is adapted. [Full ledger](traceability/interactive-mode.md#help-and-startup-notices-2026-10-25). Required pre-commit workspace -j3 all-targets0/0, TS/Biome/fmt pass, clippy0 owned findings. Whole interactive-mode remains partial.
+
+## Interleaved event display checkpoint
+
+`689fc1a50`: the bounded [event-display contract](../specs/interactive-event-display.md) now has twelve actual-source/native event steps and24 complete three-surface frames at widths25/120. RED reproduces premature tool rows/final-order changes, empty retry/compaction truthiness errors and missing provider retry/fallback details. GREEN preserves complete UTF-16 frames and terminal-progress calls. This does not close the event table or message replay.
+
+| Command / Rust scope `689fc1a50` | Result | Artifact |
+|---|---|---|
+| Focused interactive lib `interleaved_text_tool_and_retry_compaction_frames_match_frozen` | 1/1, twelve steps at both widths | `event-frames-final.log`; earlier `event-frames-red-expanded.log` |
+| `cargo check -j3 --workspace --all-targets --message-format=json` | PASS before commit | `event-workspace.log` |
+| `cargo fmt --all --check`; source inventory | PASS;686/186679;634 done/25 gap/18 partial/9 todo | Current checkpoint |
+
+Post-commit strict TS and Biome pass on the unmodified common pin with the approved target/lib ES2024 (`event-{typecheck,biome}-final.log`). Scoped interactive lib/tests clippy passes with100 existing diagnostics and zero changed-line primary findings (`event-clippy*`). Manual changed-line Rust/TS readability audit is complete; the optional metric binary is not installed. The new formatter is a short pure function; sequential event capture remains ordered. Source changes invalidate this proof; documentation-only changes do not. No carrier, dependency, TS delta or adjacent lane algorithm changes.
+
+## Recorded replay follow-up
+
+`d29e15875` extends the same actual-source/capture regression with three real appended-session rebuild states: completed tool result, failed assistant with empty error and aborted assistant. Restored rows now use recorded completion times and frozen error defaults. `replay-frames-{red,green}.log` covers all15 states/30 frames at widths25/120. Pre-commit `cargo check -j3 --workspace --all-targets` passes (`replay-workspace.log`); strict TS/Biome/fmt/inventory pass; post-commit scoped clippy has100 existing diagnostics/0 changed-line findings (`replay-clippy*`). Readability review: three direct source-value corrections, pure fixture construction and one shared sequential frame-capture helper; no new API, carrier or dependency. This proof is scoped to Rust `d29e15875`; documentation-only changes preserve it.
+
+## Thinking and queue-input checkpoint
+
+Parent `67c697fcf` is integrated at `c58b08dd0`; its workspace/all-targets gate passes (`editor-parent-workspace.log`). Code `b6415483a` restores saved/live thinking visibility and status, combined queue clearing/order/spacing and dequeue messages, and the500ms Ctrl+C interval. Actual-source/native31 states compare62 complete width25/120 frames plus editor text, pending previews, settings and terminal progress. Genuine REDs: `editor-frames-red.log`, `editor-ctrl-c-red.log`; GREEN: `editor-frames-final.log`. Required pre-commit workspace/all-targets, strict TS, Biome, fmt and inventory pass (`editor-workspace.log`, `editor-typecheck.log`); scoped clippy96 existing/0 changed-line primary findings (`editor-clippy*`). Changed-line manual readability review is complete; ordered capture intentionally awaits each action, and queue transformation uses the existing lossless join. Locked inventory686/186679,636 done/25 gap/16 partial/9 todo. Whole mode, follow-up submission, Escape/cancellation and remaining transitions stay open. Documentation-only edits preserve this `b6415483a` Rust proof scope.
 
 ## Next work
 

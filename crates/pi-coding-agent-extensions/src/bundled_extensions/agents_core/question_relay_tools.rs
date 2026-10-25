@@ -231,7 +231,7 @@ async fn wait_for_answer(
         let mut messages = take_runtime_mailbox_messages_for_delivery(
             &inbox.db,
             &recipient,
-            |message| message.store_ref.message_id == message_id,
+            |message| Ok(message.store_ref.message_id == message_id),
             1,
         )
         .map_err(handler)?;

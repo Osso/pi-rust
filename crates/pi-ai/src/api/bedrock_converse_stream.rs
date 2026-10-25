@@ -300,7 +300,7 @@ async fn drive(
 ) -> Result<(), BedrockError> {
     let options = BedrockOptions::from_stream_options(stream_options)
         .map_err(|message| BedrockError::other(format!("Invalid Bedrock options: {message}")))?;
-    let config = resolve_runtime_config(model, &options).await?;
+    let config = load_runtime_config(model, &options).await?;
     let cache_retention = resolve_cache_retention(options.stream.cache_retention, options.stream.request.env.as_ref());
     let inference_max_tokens = options
         .stream
@@ -314,7 +314,7 @@ async fn drive(
         cache_retention,
         inference_max_tokens,
         output.timestamp,
-    );
+    )?;
     let mut command_input = command_input;
     if let Some(on_payload) = &options.stream.request.on_payload {
         command_input = apply_on_payload(on_payload, command_input, model).await?;
@@ -418,7 +418,7 @@ fn build_command_input(
     cache_retention: CacheRetention,
     inference_max_tokens: Option<f64>,
     now: f64,
-) -> JsValue {
+) -> Result<JsValue, BedrockError> {
     let env = options.stream.request.env.as_ref();
     let mut inference_config = JsObject::new();
     if let Some(max_tokens) = inference_max_tokens {
@@ -432,7 +432,7 @@ fn build_command_input(
     input.insert("modelId".into(), pi_js_compat::js_json!(model.id));
     input.insert(
         "messages".into(),
-        JsValue::Array(convert_messages(context, model, cache_retention, env, now)),
+        JsValue::Array(convert_messages(context, model, cache_retention, env, now)?),
     );
     if let Some(system) = build_system_prompt(context.system_prompt.as_ref(), model, cache_retention, env) {
         input.insert("system".into(), JsValue::Array(system));
@@ -447,7 +447,7 @@ fn build_command_input(
     if let Some(metadata) = &options.request_metadata {
         input.insert("requestMetadata".into(), JsValue::from(Value::Object(metadata.clone())));
     }
-    JsValue::Object(input)
+    Ok(JsValue::Object(input))
 }
 
 fn convert_messages(
@@ -456,7 +456,7 @@ fn convert_messages(
     cache_retention: CacheRetention,
     env: Option<&ProviderEnv>,
     now: f64,
-) -> Vec<JsValue> {
+) -> Result<Vec<JsValue>, BedrockError> {
     let normalize = |id: &str, _model: &Model, _source: &AssistantMessage| normalize_tool_call_id(id);
     let transformed = transform_messages_with(&context.messages, model, Some(&normalize), now);
     let mut result = Vec::new();
@@ -464,7 +464,7 @@ fn convert_messages(
     while index < transformed.len() {
         match &transformed[index] {
             Message::User(message) => {
-                result.push(convert_user_message(message));
+                result.push(convert_user_message(message)?);
             }
             Message::Assistant(message) => {
                 if let Some(converted) = convert_assistant_message(message, model) {
@@ -473,10 +473,10 @@ fn convert_messages(
             }
             Message::ToolResult(message) => {
                 let mut tool_results = Vec::new();
-                tool_results.push(convert_tool_result(message));
+                tool_results.push(convert_tool_result(message)?);
                 let mut next = index + 1;
                 while let Some(Message::ToolResult(next_message)) = transformed.get(next) {
-                    tool_results.push(convert_tool_result(next_message));
+                    tool_results.push(convert_tool_result(next_message)?);
                     next += 1;
                 }
                 index = next - 1;
@@ -497,10 +497,10 @@ fn convert_messages(
     {
         content.push(cache_point(cache_retention));
     }
-    result
+    Ok(result)
 }
 
-fn convert_user_message(message: &crate::types::UserMessage) -> JsValue {
+fn convert_user_message(message: &crate::types::UserMessage) -> Result<JsValue, BedrockError> {
     let content = match &message.content {
         crate::types::UserContent::Text(text) => vec![required_text_block(text)],
         crate::types::UserContent::Blocks(blocks) => {
@@ -513,9 +513,7 @@ fn convert_user_message(message: &crate::types::UserMessage) -> JsValue {
                         }
                     }
                     crate::types::TextOrImageContent::Image(image) => {
-                        if let Ok(image) = create_image_block(&image.mime_type, &image.data) {
-                            content.push(image);
-                        }
+                        content.push(create_image_block(&image.mime_type, &image.data)?);
                     }
                 }
             }
@@ -525,10 +523,10 @@ fn convert_user_message(message: &crate::types::UserMessage) -> JsValue {
             content
         }
     };
-    object(vec![
+    Ok(object(vec![
         ("role", pi_js_compat::js_json!("user")),
         ("content", JsValue::Array(content)),
-    ])
+    ]))
 }
 
 fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Option<JsValue> {
@@ -555,14 +553,14 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
             }
             AssistantContent::Thinking(thinking) => {
                 let text = sanitize_surrogates(&thinking.thinking);
-                if text.trim().is_empty() {
+                if JsString::from(text.as_str()).trim().is_empty() {
                     continue;
                 }
                 if supports_thinking_signature(model) {
                     match thinking
                         .thinking_signature
                         .as_deref()
-                        .filter(|signature| !signature.trim().is_empty())
+                        .filter(|signature| !JsString::from(*signature).trim().is_empty())
                     {
                         Some(signature) => content.push(object(vec![(
                             "reasoningContent",
@@ -597,28 +595,29 @@ fn convert_assistant_message(message: &AssistantMessage, model: &Model) -> Optio
     ]))
 }
 
-fn convert_tool_result(message: &ToolResultMessage) -> JsValue {
-    object(vec![(
+fn convert_tool_result(message: &ToolResultMessage) -> Result<JsValue, BedrockError> {
+    Ok(object(vec![(
         "toolResult",
         object(vec![
             ("toolUseId", pi_js_compat::js_json!(message.tool_call_id)),
-            ("content", JsValue::Array(convert_tool_result_content(&message.content))),
+            (
+                "content",
+                JsValue::Array(convert_tool_result_content(&message.content)?),
+            ),
             (
                 "status",
                 pi_js_compat::js_json!(if message.is_error { "error" } else { "success" }),
             ),
         ]),
-    )])
+    )]))
 }
 
-fn convert_tool_result_content(content: &[ToolResultContent]) -> Vec<JsValue> {
+fn convert_tool_result_content(content: &[ToolResultContent]) -> Result<Vec<JsValue>, BedrockError> {
     let mut result = Vec::new();
     for block in content {
         match block {
             ToolResultContent::Image(image) => {
-                if let Ok(image) = create_image_block(&image.mime_type, &image.data) {
-                    result.push(image);
-                }
+                result.push(create_image_block(&image.mime_type, &image.data)?);
             }
             ToolResultContent::Text(text) => {
                 if let Some(text) = non_blank_text_block(&text.text) {
@@ -630,7 +629,7 @@ fn convert_tool_result_content(content: &[ToolResultContent]) -> Vec<JsValue> {
     if result.is_empty() {
         result.push(placeholder_text_block());
     }
-    result
+    Ok(result)
 }
 
 fn build_system_prompt(
@@ -660,7 +659,7 @@ fn cache_point(cache_retention: CacheRetention) -> JsValue {
 }
 
 fn non_blank_text_block(text: impl Into<JsString>) -> Option<JsValue> {
-    let sanitized = sanitize_surrogates(text);
+    let sanitized = JsString::from(sanitize_surrogates(text));
     if sanitized.trim().is_empty() {
         None
     } else {
@@ -677,18 +676,13 @@ fn placeholder_text_block() -> JsValue {
 }
 
 fn normalize_tool_call_id(id: &str) -> String {
-    let mut sanitized: String = id
-        .chars()
-        .map(|character| {
-            if character.is_ascii_alphanumeric() || character == '_' || character == '-' {
-                character
-            } else {
-                '_'
-            }
+    id.encode_utf16()
+        .take(64)
+        .map(|unit| match u8::try_from(unit) {
+            Ok(byte) if byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-') => char::from(byte),
+            _ => '_',
         })
-        .collect();
-    sanitized.truncate(64);
-    sanitized
+        .collect()
 }
 
 fn convert_tool_config(tools: Option<&[Tool]>, tool_choice: Option<&BedrockToolChoice>) -> Option<JsValue> {
@@ -945,6 +939,7 @@ fn get_configured_region(options: &BedrockOptions) -> Option<JsString> {
     options
         .region
         .clone()
+        .filter(|value| !value.is_empty())
         .or_else(|| get_provider_env_value("AWS_REGION", options.stream.request.env.as_ref()))
         .or_else(|| get_provider_env_value("AWS_DEFAULT_REGION", options.stream.request.env.as_ref()))
 }
@@ -991,8 +986,8 @@ fn handle_message(
             .get(":exception-type")
             .or_else(|| message.headers.get(":error-code"))
             .cloned();
-        let payload: Value = serde_json::from_slice(&message.payload).unwrap_or(Value::Null);
-        let message_text = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_owned());
+        let payload = parse_bedrock_payload(&message.payload)?;
+        let message_text = pi_js_compat::js_json::stringify_lossless(&payload);
         return Err(BedrockError {
             name,
             message: message_text.into(),
@@ -1005,11 +1000,15 @@ fn handle_message(
     let Some(event_type) = message.headers.get(":event-type") else {
         return Ok(());
     };
-    let payload: Value = serde_json::from_slice(&message.payload)
-        .map_err(|error| BedrockError::stream(format!("Deserialization error: {error}")))?;
+    let payload = parse_bedrock_payload(&message.payload)?;
+    validate_bedrock_metadata(&payload, event_type)?;
     match event_type.as_str() {
         "messageStart" => {
-            if payload.get("role").and_then(Value::as_str) != Some("assistant") {
+            if payload
+                .get("role")
+                .and_then(JsValue::as_string)
+                .is_none_or(|role| role != "assistant")
+            {
                 return Err(BedrockError::other(
                     "Unexpected assistant message start but got user message start instead",
                 ));
@@ -1021,7 +1020,12 @@ fn handle_message(
         "contentBlockStart" => start_tool_block(sender, output, &payload),
         "contentBlockDelta" => handle_content_block_delta(sender, output, &payload),
         "contentBlockStop" => handle_content_block_stop(sender, output, &payload),
-        "messageStop" => output.stop_reason = map_stop_reason(payload.get("stopReason").and_then(Value::as_str)),
+        "messageStop" => {
+            let reason = payload
+                .get("stopReason")
+                .and_then(crate::api::openai_sdk::ingress_metadata_text);
+            output.stop_reason = map_stop_reason(reason.as_deref());
+        }
         "metadata" => {
             if let Some(usage) = payload.get("usage") {
                 handle_metadata(usage, model, output);
@@ -1032,17 +1036,50 @@ fn handle_message(
     Ok(())
 }
 
-fn start_tool_block(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
-    let Some(tool_use) = payload.pointer("/start/toolUse") else {
+fn parse_bedrock_payload(bytes: &[u8]) -> Result<JsValue, BedrockError> {
+    let text =
+        std::str::from_utf8(bytes).map_err(|error| BedrockError::stream(format!("Deserialization error: {error}")))?;
+    pi_js_compat::js_json::parse_lossless(text).map_err(|error| BedrockError::stream(error.into_message()))
+}
+
+fn validate_bedrock_metadata(payload: &JsValue, event_type: &str) -> Result<(), BedrockError> {
+    use crate::api::openai_sdk::validate_metadata_fields;
+    let fields: &[&str] = match event_type {
+        "messageStart" => &["role"],
+        "messageStop" => &["stopReason"],
+        _ => &[],
+    };
+    validate_metadata_fields(payload, fields).map_err(BedrockError::other)?;
+    if event_type == "contentBlockStart"
+        && let Some(tool) = payload.get("start").and_then(|start| start.get("toolUse"))
+    {
+        validate_metadata_fields(tool, &["toolUseId", "name"]).map_err(BedrockError::other)?;
+    }
+    if event_type == "contentBlockDelta"
+        && let Some(reasoning) = payload.get("delta").and_then(|delta| delta.get("reasoningContent"))
+    {
+        validate_metadata_fields(reasoning, &["signature"]).map_err(BedrockError::other)?;
+    }
+    Ok(())
+}
+
+fn start_tool_block(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &JsValue) {
+    let Some(tool_use) = payload.get("start").and_then(|start| start.get("toolUse")) else {
         return;
     };
     let mut block = ToolCall::new(
-        tool_use.get("toolUseId").and_then(Value::as_str).unwrap_or(""),
-        tool_use.get("name").and_then(Value::as_str).unwrap_or(""),
+        tool_use
+            .get("toolUseId")
+            .and_then(crate::api::openai_sdk::ingress_metadata_text)
+            .unwrap_or_default(),
+        tool_use
+            .get("name")
+            .and_then(crate::api::openai_sdk::ingress_metadata_text)
+            .unwrap_or_default(),
         JsObject::new(),
     );
     block.partial_json = Some(JsString::default());
-    block.index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+    block.index = payload.get("contentBlockIndex").and_then(JsValue::as_f64);
     output.content.push(AssistantContent::ToolCall(block));
     sender.push(AssistantMessageEvent::ToolCallStart {
         content_index: output.content.len() - 1,
@@ -1050,14 +1087,14 @@ fn start_tool_block(sender: &AssistantMessageEventSender, output: &mut Assistant
     });
 }
 
-fn handle_content_block_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
-    let provider_index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+fn handle_content_block_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &JsValue) {
+    let provider_index = payload.get("contentBlockIndex").and_then(JsValue::as_f64);
     let Some(delta) = payload.get("delta") else { return };
     let index = output
         .content
         .iter()
         .position(|block| stream_block_index(block) == provider_index);
-    if let Some(text) = delta.get("text").and_then(Value::as_str) {
+    if let Some(text) = delta.get("text").and_then(JsValue::as_string) {
         append_text_delta(sender, output, index, provider_index, text);
     } else if let Some(tool_use) = delta.get("toolUse") {
         if let Some(index) = index {
@@ -1065,7 +1102,10 @@ fn handle_content_block_delta(sender: &AssistantMessageEventSender, output: &mut
                 sender,
                 output,
                 index,
-                tool_use.get("input").and_then(Value::as_str).unwrap_or(""),
+                tool_use
+                    .get("input")
+                    .and_then(JsValue::as_string)
+                    .unwrap_or(&JsString::default()),
             );
         }
     } else if let Some(reasoning) = delta.get("reasoningContent") {
@@ -1078,7 +1118,7 @@ fn append_text_delta(
     output: &mut AssistantMessage,
     index: Option<usize>,
     provider_index: Option<f64>,
-    text: &str,
+    text: &JsString,
 ) {
     let index = index.unwrap_or_else(|| {
         let mut block = crate::types::TextContent::new("");
@@ -1097,12 +1137,17 @@ fn append_text_delta(
     block.text.push_str(text);
     sender.push(AssistantMessageEvent::TextDelta {
         content_index: index,
-        delta: text.into(),
+        delta: text.clone(),
         partial: output.clone(),
     });
 }
 
-fn append_tool_delta(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, index: usize, input: &str) {
+fn append_tool_delta(
+    sender: &AssistantMessageEventSender,
+    output: &mut AssistantMessage,
+    index: usize,
+    input: &JsString,
+) {
     let AssistantContent::ToolCall(block) = &mut output.content[index] else {
         return;
     };
@@ -1114,7 +1159,7 @@ fn append_tool_delta(sender: &AssistantMessageEventSender, output: &mut Assistan
         .unwrap_or_default();
     sender.push(AssistantMessageEvent::ToolCallDelta {
         content_index: index,
-        delta: input.into(),
+        delta: input.clone(),
         partial: output.clone(),
     });
 }
@@ -1124,7 +1169,7 @@ fn append_thinking_delta(
     output: &mut AssistantMessage,
     index: Option<usize>,
     provider_index: Option<f64>,
-    reasoning: &Value,
+    reasoning: &JsValue,
 ) {
     let index = index.unwrap_or_else(|| {
         let mut block = ThinkingContent::new("");
@@ -1140,29 +1185,29 @@ fn append_thinking_delta(
     });
     if let Some(text) = reasoning
         .get("text")
-        .and_then(Value::as_str)
+        .and_then(JsValue::as_string)
         .filter(|text| !text.is_empty())
         && let AssistantContent::Thinking(block) = &mut output.content[index]
     {
         block.thinking.push_str(text);
         sender.push(AssistantMessageEvent::ThinkingDelta {
             content_index: index,
-            delta: text.into(),
+            delta: text.clone(),
             partial: output.clone(),
         });
     }
     if let Some(signature) = reasoning
         .get("signature")
-        .and_then(Value::as_str)
+        .and_then(crate::api::openai_sdk::ingress_metadata_text)
         .filter(|signature| !signature.is_empty())
         && let AssistantContent::Thinking(block) = &mut output.content[index]
     {
-        block.thinking_signature.get_or_insert_default().push_str(signature);
+        block.thinking_signature.get_or_insert_default().push_str(&signature);
     }
 }
 
-fn handle_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &Value) {
-    let provider_index = payload.get("contentBlockIndex").and_then(Value::as_f64);
+fn handle_content_block_stop(sender: &AssistantMessageEventSender, output: &mut AssistantMessage, payload: &JsValue) {
+    let provider_index = payload.get("contentBlockIndex").and_then(JsValue::as_f64);
     let Some(index) = output
         .content
         .iter()
@@ -1197,17 +1242,20 @@ fn handle_content_block_stop(sender: &AssistantMessageEventSender, output: &mut 
     sender.push(event);
 }
 
-fn handle_metadata(usage: &Value, model: &Model, output: &mut AssistantMessage) {
-    let input = usage.get("inputTokens").and_then(Value::as_f64).unwrap_or(0.0);
-    let output_tokens = usage.get("outputTokens").and_then(Value::as_f64).unwrap_or(0.0);
-    let cache_read = usage.get("cacheReadInputTokens").and_then(Value::as_f64).unwrap_or(0.0);
+fn handle_metadata(usage: &JsValue, model: &Model, output: &mut AssistantMessage) {
+    let input = usage.get("inputTokens").and_then(JsValue::as_f64).unwrap_or(0.0);
+    let output_tokens = usage.get("outputTokens").and_then(JsValue::as_f64).unwrap_or(0.0);
+    let cache_read = usage
+        .get("cacheReadInputTokens")
+        .and_then(JsValue::as_f64)
+        .unwrap_or(0.0);
     let cache_write = usage
         .get("cacheWriteInputTokens")
-        .and_then(Value::as_f64)
+        .and_then(JsValue::as_f64)
         .unwrap_or(0.0);
     let total = usage
         .get("totalTokens")
-        .and_then(Value::as_f64)
+        .and_then(JsValue::as_f64)
         .filter(|total| *total != 0.0)
         .unwrap_or(input + output_tokens);
     output.usage = Usage {
@@ -1232,15 +1280,16 @@ struct RuntimeConfig {
     sdk_features: String,
 }
 
-async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Result<RuntimeConfig, BedrockError> {
+async fn load_runtime_config(model: &Model, options: &BedrockOptions) -> Result<RuntimeConfig, BedrockError> {
     let env = options.stream.request.env.as_ref();
     let options_profile = options
         .profile
         .clone()
+        .filter(|value| !value.is_empty())
         .or_else(|| get_provider_env_value("AWS_PROFILE", env));
     let profile = profile_name(options_profile.as_ref(), env);
     let configured_region = get_configured_region(options);
-    let has_ambient_profile = get_provider_env_value("AWS_PROFILE", env).is_some();
+    let has_ambient_profile = get_provider_env_value("AWS_PROFILE", None).is_some();
     let endpoint_region = standard_endpoint_region(&model.base_url).map(JsString::from);
     let use_explicit_endpoint = endpoint_region.is_none() || (configured_region.is_none() && !has_ambient_profile);
 
@@ -1248,6 +1297,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     let bearer_token = options
         .bearer_token
         .clone()
+        .filter(|value| !value.is_empty())
         .or_else(|| get_provider_env_value("AWS_BEARER_TOKEN_BEDROCK", env));
     let use_bearer = bearer_token.is_some() && !skip_auth;
 
@@ -1272,7 +1322,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     };
 
     let configured_credentials = env_credentials(env);
-    let direct_credentials = skip_auth || (options_profile.is_none() && configured_credentials.is_some());
+    let direct_credentials = skip_auth || configured_credentials.is_some();
     let credential_features = if use_bearer {
         "E"
     } else if direct_credentials {
@@ -1280,8 +1330,7 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
     } else {
         "E,n"
     };
-    let custom_endpoint = use_explicit_endpoint && standard_endpoint_region(&model.base_url).is_none();
-    let sdk_features = if custom_endpoint {
+    let sdk_features = if use_explicit_endpoint {
         format!("N,{credential_features}")
     } else {
         credential_features.to_owned()
@@ -1294,18 +1343,8 @@ async fn resolve_runtime_config(model: &Model, options: &BedrockOptions) -> Resu
         })
     } else if use_bearer {
         None
-    } else if options_profile.is_none() {
-        match configured_credentials {
-            Some(credentials) => Some(credentials),
-            None => {
-                let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
-                profile_credentials(&profile, env, fetch)
-                    .await
-                    .map_err(|error| BedrockError::other(error.message))?
-                    .ok_or_else(|| BedrockError::other("Could not load credentials from any providers"))?
-                    .into()
-            }
-        }
+    } else if let Some(credentials) = configured_credentials {
+        Some(credentials)
     } else {
         let fetch = options.stream.request.fetch.clone().unwrap_or_else(default_fetch);
         Some(

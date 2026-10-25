@@ -56,6 +56,8 @@ pub mod differential_github_copilot_headers;
 pub mod differential_github_copilot_oauth;
 #[path = "differential_google_api.rs"]
 pub mod differential_google_api;
+#[path = "differential_google_shared.rs"]
+pub mod differential_google_shared;
 #[path = "differential_hash_sanitize.rs"]
 pub mod differential_hash_sanitize;
 #[path = "differential_headers.rs"]
@@ -100,6 +102,8 @@ pub mod differential_simple_acquisition;
 pub mod differential_simple_options;
 #[path = "differential_stainless_abort.rs"]
 pub mod differential_stainless_abort;
+#[path = "differential_stainless_retry.rs"]
+pub mod differential_stainless_retry;
 #[path = "differential_transform_messages.rs"]
 pub mod differential_transform_messages;
 #[path = "differential_validation.rs"]

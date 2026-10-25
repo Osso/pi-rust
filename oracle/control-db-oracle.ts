@@ -24,6 +24,29 @@ function normalize(value: unknown): unknown {
 	return value === undefined ? null : value;
 }
 
+function exerciseRetainedReentry(api: Api, path: string): unknown {
+	const release = api.retainControlDbConnection(path) as () => void;
+	const insertAndFail = () => {
+		api.enqueueIncomingMessage(path, "rollback");
+		throw new Error("nested rollback");
+	};
+	try {
+		const id = api.withControlDb(path, () => api.enqueueIncomingMessage(path, "nested"));
+		try {
+			api.withControlDb(path, (db: unknown) => api.withImmediateTransaction(db, insertAndFail));
+		} catch (error) {
+			if (!(error instanceof Error) || error.message !== "nested rollback") throw error;
+		}
+		return {
+			id,
+			remaining: api.claimLatestIncomingMessage(path),
+			second: normalize(api.claimLatestIncomingMessage(path)),
+		};
+	} finally {
+		release();
+	}
+}
+
 async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
 	if (!sourceRoot) throw new Error("control-db oracle requires the coding-agent src directory");
@@ -36,6 +59,41 @@ async function main(): Promise<void> {
 	};
 
 	const execute = (step: Step): unknown => {
+		if (step.op === "retainedNested") {
+			const [path] = step.args as [string];
+			return exerciseRetainedReentry(api, path);
+		}
+		if (step.op === "registerThrow") {
+			const [path, recipient] = step.args as [string, unknown];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("runtime probe failed"), { code: "FIXTURE" });
+			try {
+				api.registerRuntimeMailboxListener(path, recipient, process.pid, undefined, {
+					runtimeInstanceId: "replacement",
+					isRuntimeProcessAlive: () => { calls++; throw failure; },
+				});
+				return { calls, ok: true };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
+		if (step.op === "takeThrow") {
+			const [path, recipient, throwAt] = step.args as [string, unknown, number];
+			let calls = 0;
+			const failure = Object.assign(new TypeError("eligibility failed"), { code: "FIXTURE" });
+			try {
+				const delivered = api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => {
+					calls++;
+					if (calls === throwAt) throw failure;
+					return true;
+				});
+				return { calls, ok: true, delivered };
+			} catch (error) {
+				if (error !== failure) throw error;
+				return { calls, ok: false, error: { name: failure.name, message: failure.message, code: failure.code } };
+			}
+		}
 		if (step.op === "takeAll") {
 			const [path, recipient, limit] = step.args as [string, unknown, number];
 			return api.takeRuntimeMailboxMessagesForDelivery(path, recipient, () => true, limit);
@@ -60,6 +118,10 @@ async function main(): Promise<void> {
 		}
 		if (step.op === "acceptedRefsWire") return JSON.stringify(transcript.readAcceptedRuntimeMailboxStoreRefs(step.path));
 		if (step.op === "acceptedRefs") return transcript.readAcceptedRuntimeMailboxStoreRefs(step.path);
+		if (step.op === "clearAgentActivity") {
+			const [path, sessionPath, agentId, updatedAt] = step.args as [string, string, string, string];
+			return api.updateMultiAgentAgentActivity(path, sessionPath, agentId, undefined, updatedAt);
+		}
 		if (step.op === "archiveCandidates") {
 			const [path, cutoff] = step.args as [string, string];
 			return api.archiveSessionsOlderThan(path, new Date(cutoff));
