@@ -1856,7 +1856,6 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         .ok()?
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
-    // Node readdirSync uses scandir filename order; Date mtime drops sub-ms precision.
     entries.sort_by_key(|entry| entry.file_name());
     let mut files: Vec<(JsString, f64)> = Vec::new();
     for entry in entries {
@@ -2282,7 +2281,8 @@ fn system_time_date(value: std::time::SystemTime) -> f64 {
         Ok(duration) => duration.as_secs_f64() * 1000.0,
         Err(error) => -error.duration().as_secs_f64() * 1000.0,
     };
-    pi_js_compat::date::time_clip(millis)
+    // Node fs Stats rounds mtimeMs before constructing its Date property.
+    pi_js_compat::date::time_clip((millis + 0.5).floor())
 }
 
 fn finish_session_info(

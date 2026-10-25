@@ -195,7 +195,7 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
     let dir = tmp.path().to_str().unwrap();
     let mut ts = source();
     // Create b first so filesystem enumeration is not already alphabetic.
-    for (name, nanos) in [("b", 900_000), ("a", 100_000)] {
+    for (name, nanos) in [("b", 400_000), ("a", 100_000)] {
         let path = created(&mut ts, dir, name);
         let renamed = format!("{dir}/{name}.jsonl");
         fs::rename(path, &renamed).unwrap();
@@ -204,6 +204,21 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
         file.set_times(fs::FileTimes::new().set_modified(modified)).unwrap();
     }
     let expected = call(&mut ts, json!({"id":1,"mode":"recent","dir":dir,"cwd":dir}));
+    assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
+    assert_eq!(
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        expected
+    );
+    // Node Stats rounds, rather than truncates, before creating Date objects.
+    for (name, nanos) in [("b", 1_100_000), ("a", 900_000)] {
+        fs::File::options()
+            .write(true)
+            .open(format!("{dir}/{name}.jsonl"))
+            .unwrap()
+            .set_times(fs::FileTimes::new().set_modified(UNIX_EPOCH + Duration::new(1_700_000_000, nanos)))
+            .unwrap();
+    }
+    let expected = call(&mut ts, json!({"id":2,"mode":"recent","dir":dir,"cwd":dir}));
     assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
     assert_eq!(
         json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
