@@ -7,7 +7,7 @@
 //!   dependency.
 //! - `process.emitWarning = () => {}` has no Rust analogue (Rust does not emit
 //!   Node warnings).
-//! - The process environment writes (`PI_CODING_AGENT`, `AI_AGENT`) go through
+//! - The process environment write (`PI_CODING_AGENT`) goes through
 //!   [`pi_js_compat::process_env`]: edition 2024 makes `std::env::set_var` unsafe
 //!   and this workspace denies unsafe code.
 //!
@@ -24,7 +24,7 @@ use crate::core::http_dispatcher::{DEFAULT_HTTP_IDLE_TIMEOUT_MS, configure_http_
 use crate::internal_runner::{DetachedRunnerHost, run_internal_bwrap_fs_worker, run_internal_detached_runner};
 
 /// Environment the TypeScript entry point sets before running `main`.
-pub const CLI_PROCESS_ENV: [(&str, &str); 2] = [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")];
+pub const CLI_PROCESS_ENV: [(&str, &str); 1] = [("PI_CODING_AGENT", "true")];
 
 /// Applies `process.env` writes to the [`pi_js_compat::process_env`] overlay.
 pub fn apply_process_env(entries: &[(&str, &str)]) {

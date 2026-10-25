@@ -10,7 +10,7 @@ fn args(values: &[&str]) -> Vec<String> {
 
 #[test]
 fn rpc_process_env_matches_the_typescript_entry_point() {
-    assert_eq!(RPC_PROCESS_ENV, [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")]);
+    assert_eq!(RPC_PROCESS_ENV, [("PI_CODING_AGENT", "true")]);
     assert_eq!(RPC_MODE_ARGS, ["--mode", "rpc"]);
 }
 
