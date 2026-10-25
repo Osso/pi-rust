@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::oracle;
 use pi_ai::{
     compat::{ApiProvider, register_api_provider},
     request::CallbackError,
@@ -108,14 +107,14 @@ async fn spawn_compaction_http_and_seed_transcript(remote: Arc<AtomicUsize>) -> 
     });
     let agent = PathBuf::from(std::env::var_os("PI_CODING_AGENT_DIR").unwrap());
     let model_path = agent.join("models.json");
-    let mut models = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&model_path).unwrap()).unwrap();
+    let mut models = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&model_path).unwrap()).unwrap();
     for provider in models["providers"].as_object_mut().unwrap().values_mut() {
         provider["api"] = json!("openai-codex-responses");
         provider["baseUrl"] = json!(endpoint);
     }
     std::fs::write(model_path, pi_js_compat::js_json::stringify_lossless(&models)).unwrap();
     let auth_path = agent.join("auth.json");
-    let mut auth = pi_js_compat::js_json::parse_lossless(&std::fs::read_to_string(&auth_path).unwrap()).unwrap();
+    let mut auth = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(&auth_path).unwrap()).unwrap();
     for record in auth.as_object_mut().unwrap().values_mut() {
         record["key"] =
             json!("x.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiZml4dHVyZSJ9fQ.x");

@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use crate::differential_supervisor_service as oracle;
 use pi_coding_agent::{
     core::{
         auth_storage::AuthStorage, model_registry::ModelRegistry, resource_loader::StaticResourceLoader,
