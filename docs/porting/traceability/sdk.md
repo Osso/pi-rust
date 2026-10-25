@@ -16,7 +16,7 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
 
 ## Behavior
 
-- Model resolution: explicit model, persisted session settings, session context, then
+- Model resolution: explicit model, persisted session settings, then
   `find_initial_model`. A missing model yields `modelFallbackMessage` and an `unknown`
   default model with `thinkingLevel: "off"`; prompting then fails on authentication,
   matching TS (`create_agent_session_keeps_running_without_models`).
@@ -60,6 +60,10 @@ Parent requested an absent-model representation only if actual frozen startup/pe
 ## Startup ordering audit (2026-10-25)
 
 Frozen reloads default resources, builds existing-session context, then restores persisted settings. Native restored settings before extension factories ran, so factories saw an already-cleared session sandbox override. Moved the existing restoration block to frozen order. RED `/tmp/ext-api2-sdk-order-red2.log`: native factory sees null, frozen sees full-access; both end at null. The actual default resource loader and inline extension factory are exercised, not a mock ordering assertion. GREEN pending.
+
+## Historical model restoration audit (2026-10-25)
+
+Whole-module comparison found an old-only fallback from persisted metadata to the session context's last `model_change`. Frozen SDK restores only metadata; historical entries without metadata must use configured defaults. Removed that fallback. Actual frozen/native RED `/tmp/ext-api3-sdk-legacy-red.log` selects `preferred` versus native `historical` from the same two-model catalog and session entry. `historical_model_entries_do_not_override_settings_without_persisted_metadata` covers the ordinary in-memory/imported-session boundary; post-commit GREEN pending.
 
 ## Gaps
 

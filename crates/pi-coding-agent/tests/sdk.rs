@@ -140,6 +140,58 @@ async fn default_loader_factories_run_before_persisted_session_settings_restore_
 }
 
 #[tokio::test]
+async fn historical_model_entries_do_not_override_settings_without_persisted_metadata() {
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    let temp = tempfile::tempdir().unwrap();
+    let root: JsString = temp.path().to_str().unwrap().into();
+    let mut oracle = oracle::TsOracle::spawn("sdk-no-model-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"id":101,"operation":"legacy_model","root":root}));
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".into()),
+        models: Some(
+            ["preferred", "historical"]
+                .into_iter()
+                .map(|id| FauxModelDefinition {
+                    id: id.into(),
+                    name: None,
+                    reasoning: None,
+                    input: None,
+                    cost: None,
+                    context_window: None,
+                    max_tokens: None,
+                })
+                .collect(),
+        ),
+        ..Default::default()
+    });
+    let registry = faux_runtime(&faux).await;
+    let settings = SettingsManager::in_memory(
+        serde_json::from_value(json!({"defaultProvider":"faux","defaultModel":"preferred"})).unwrap(),
+        Default::default(),
+    );
+    let mut manager = SessionManager::in_memory(Some(&root), None).unwrap();
+    manager
+        .append_model_change(&"faux".into(), &"historical".into())
+        .unwrap();
+    let result = pi_coding_agent::core::sdk::create_agent_session(CreateAgentSessionOptions {
+        cwd: Some(root.clone()),
+        agent_dir: Some(root),
+        model_registry: Some(registry),
+        settings_manager: Some(Arc::new(Mutex::new(settings))),
+        session_manager: Some(manager),
+        resource_loader: Some(StaticResourceLoader::new()),
+        ..Default::default()
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        json!({"id":101,"model":result.session.model().id,"fallback":result.model_fallback_message}),
+        expected
+    );
+    result.session.dispose();
+}
+
+#[tokio::test]
 async fn no_auth_startup_and_restart_persistence_match_frozen() {
     use pi_coding_agent::core::agent_session_runtime::AgentSessionRuntime;
     use pi_coding_agent::core::agent_session_services::AgentSessionServices;
