@@ -116,8 +116,8 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)
-		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(["threshold-trailing", "next-turn-threshold"].includes(request.operation) ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
+	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "auto-abort-hook", "auto-duration-hook", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)
+		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(["threshold-trailing", "next-turn-threshold", "auto-abort-hook", "auto-duration-hook"].includes(request.operation) ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
 	if (request.operation === "quota-fallback") settingsManager.setRetryEnabled(false);
@@ -198,7 +198,7 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
+	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "auto-abort-hook", "auto-duration-hook", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -263,28 +263,37 @@ async function run(request) {
 				events: events.filter((event) => event !== "compaction"), providerCalls: requestedProviders.length,
 			} : events;
 		}
-		if (["threshold-trailing", "next-turn-threshold"].includes(request.operation)) {
+		if (["threshold-trailing", "next-turn-threshold", "auto-abort-hook", "auto-duration-hook"].includes(request.operation)) {
 			settingsManager.setRetryEnabled(false);
 			agent.state.model = { ...model, contextWindow: 1000, autoCompactionThreshold: 900 };
 			const anchor = fauxAssistantMessage("anchor");
-			anchor.usage.input = request.operation === "next-turn-threshold" ? 600 : 400;
+			anchor.usage.input = request.operation === "threshold-trailing" ? 400 : 600;
 			anchor.usage.totalTokens = anchor.usage.input;
 			sessionManager.appendMessage(anchor);
 			agent.state.messages = sessionManager.buildSessionContext().messages;
 			await session.sendCustomMessage({ customType: "tail", content: "x".repeat(800), display: false });
+			const ends = [];
+			session.subscribe((event) => {
+				if (event.type === "compaction_end") ends.push({ aborted: event.aborted, hasResult: event.result !== undefined,
+					willRetry: event.willRetry, durationPositive: event.result ? event.result.durationMs >= 15 : null });
+			});
 			let compactions = 0;
 			runner.hasHandlers = (type) => type === "compaction";
 			runner.emit = async (event) => {
 				if (event.type !== "compaction") return emit(event);
 				compactions++;
+				if (request.operation === "auto-abort-hook") session.abortCompaction();
+				if (request.operation === "auto-duration-hook") await new Promise((resolve) => setTimeout(resolve, 30));
 				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
 			};
-			if (request.operation === "next-turn-threshold") {
+			if (request.operation !== "threshold-trailing") {
 				const update = await agent.prepareNextTurnWithContext({
 					message: anchor, toolResults: [], newMessages: [],
 					context: { systemPrompt: agent.state.systemPrompt, messages: agent.state.messages.slice(), tools: agent.state.tools.slice() },
 				});
+				const saved = sessionManager.getEntries().filter((entry) => entry.type === "compaction").length;
 				session.dispose();
+				if (request.operation.startsWith("auto-")) return { saved, end: ends.at(-1) };
 				return { compactions, hasSummary: update.context.messages.some((message) => message.role === "compactionSummary") };
 			}
 			core.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "fatal" })]);

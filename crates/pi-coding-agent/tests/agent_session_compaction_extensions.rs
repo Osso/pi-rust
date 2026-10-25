@@ -1376,5 +1376,94 @@ async fn runner_identity_preserves_aliases_but_distinguishes_new_instances_like_
     assert_eq!(actual, expected["value"]);
 }
 
+async fn assert_auto_compaction_hook_matches_frozen(operation: &str) {
+    use pi_agent_core::agent::types::{AgentContext, PrepareNextTurnContext};
+    let abort = operation == "auto-abort-hook";
+    let target: Arc<Mutex<Option<AgentSession>>> = Arc::new(Mutex::new(None));
+    let hook_target = Arc::clone(&target);
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(move |event| {
+            if abort {
+                hook_target
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .expect("session")
+                    .abort_compaction();
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    *target.lock().unwrap() = Some(env.session.clone());
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let anchor = append_usage_anchor(&env.session, 600.0);
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("tail");
+    let state = env.session.state();
+    let hook = env.session.agent().prepare_next_turn_with_context_hook().expect("hook");
+    hook(
+        PrepareNextTurnContext {
+            message: anchor,
+            tool_results: Vec::new(),
+            new_messages: Vec::new(),
+            context: AgentContext {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: Some(state.tools),
+            },
+        },
+        None,
+    )
+    .await
+    .expect("next turn");
+    let end = env.events.lock().unwrap().iter().rev().find_map(|event| match event {
+        AgentSessionEvent::CompactionEnd(end) => Some(json!({"aborted": end.aborted, "hasResult": end.result.is_some(),
+            "willRetry": end.will_retry, "durationPositive": end.result.as_ref().map(|result| result.duration_ms.is_some_and(|duration| duration >= 15.0))})),
+        _ => None,
+    }).expect("compaction end");
+    let actual = json!({"saved": env.session.session_manager().get_entries().iter().filter(|entry| entry.entry_type() == "compaction").count(), "end": end});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected =
+        oracle.request(&json!({"operation": operation, "dir": env._dir.path().join("oracle").display().to_string()}));
+    let expected_value = if abort {
+        json!({"saved": 0, "end": {"aborted": true, "hasResult": false, "willRetry": false, "durationPositive": null}})
+    } else {
+        json!({"saved": 1, "end": {"aborted": false, "hasResult": true, "willRetry": false, "durationPositive": true}})
+    };
+    assert_eq!(expected, json!({"ok": true, "value": expected_value}));
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn auto_compaction_hook_abort_discards_result_before_persistence_like_frozen() {
+    assert_auto_compaction_hook_matches_frozen("auto-abort-hook").await;
+}
+
+#[tokio::test]
+async fn auto_compaction_hook_duration_includes_extension_work_like_frozen() {
+    assert_auto_compaction_hook_matches_frozen("auto-duration-hook").await;
+}
+
 #[path = "support/scripted_registry.rs"]
 mod scripted_registry;
