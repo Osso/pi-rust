@@ -28,7 +28,7 @@ Logs: `session-manager-truthiness-{red,branched-red,green}.log`, `session-manage
 
 **Frozen discrepancy classified: preserve for parity.** A leading-blank file is accepted by the full loader, but the initial first-physical-line header probe returns no header; open therefore retains process cwd rather than the later header cwd. `open-leading-blank` in the real-source matrix establishes this behavior. The old native fallback and old `reads_files_and_headers` expectation silently adopted the later header cwd; both are reconciled to the frozen behavior. No source delta is introduced.
 
-Rust module: `crates/pi-coding-agent-core/src/core/session_manager.rs`.
+Rust module: `crates/pi-coding-agent-storage/src/core/session_manager.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_manager.rs` (39).
 Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (9) against `oracle/session-manager-oracle.ts`, requests `41000..=41070`.
 

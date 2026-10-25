@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/permissions/rule-store.ts` at
 `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent-core/src/core/rule_store.rs`.
+Rust: `crates/pi-coding-agent-data/src/core/rule_store.rs`.
 
 Differential proof: `oracle/permission-rule-store-oracle.ts` drives `buildPermissionRuleContent`,
 `writePermissionRules`, and `PermissionRuleStore` against the pinned module; the Rust side repeats

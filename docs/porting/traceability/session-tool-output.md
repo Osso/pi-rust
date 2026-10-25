@@ -2,7 +2,7 @@
 
 Frozen source: `packages/coding-agent/src/core/session-tool-output.ts` at `4f9e6f8a4`; earlier whole-module proof is not renewed by this bounded delta.
 
-Rust module: `crates/pi-coding-agent-core/src/core/session_tool_output.rs`.
+Rust module: `crates/pi-coding-agent-storage/src/core/session_tool_output.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_tool_output.rs` (6).
 Differential: `crates/pi-coding-agent/tests/differential_session_manager.rs` (`truncates_tool_results_identically`, request `41040`) and byte-identical entry serialization (request `41000`).
 

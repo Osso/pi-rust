@@ -31,7 +31,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/model_catalog_cache.rs`: one process-wide module state, shared by public startup/refresh/getter functions and ModelRegistry. Cache path is recomputed on each startup/ensure call; isolated state objects used by tests take a path per operation, not a stored path.
+- `crates/pi-coding-agent-data/src/core/model_catalog_cache.rs`: one process-wide module state, shared by public startup/refresh/getter functions and ModelRegistry. Cache path is recomputed on each startup/ensure call; isolated state objects used by tests take a path per operation, not a stored path.
 - `oracle/model-catalog-cache-oracle.ts`: actual frozen-module HTTP seam; no field normalization.
 
 ## Tests asserting this spec

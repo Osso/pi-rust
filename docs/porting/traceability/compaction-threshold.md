@@ -1,7 +1,7 @@
 # compaction-threshold.ts
 
 Frozen `4f9e6f8a4`, `packages/coding-agent/src/core/compaction-threshold.ts` (13 lines).
-Rust: `crates/pi-coding-agent-core/src/core/compaction_threshold.rs`.
+Rust: `crates/pi-coding-agent-data/src/core/compaction_threshold.rs`.
 
 | Export / branch | Rust contract | Behavioral proof |
 | --- | --- | --- |

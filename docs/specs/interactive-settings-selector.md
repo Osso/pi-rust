@@ -18,7 +18,7 @@ Port the frozen `coding-agent/src/modes/interactive/components/settings-selector
 
 - `crates/pi-coding-agent-interactive/src/modes/interactive/components/settings_selector.rs`: settings, select, warning and theme components.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: settings construction and persistence callbacks.
-- `crates/pi-coding-agent-core/src/core/http_dispatcher.rs`: single f64 timeout-display helper.
+- `crates/pi-coding-agent-data/src/core/http_dispatcher.rs`: single f64 timeout-display helper.
 
 ## Tests asserting this spec
 

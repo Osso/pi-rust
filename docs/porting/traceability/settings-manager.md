@@ -10,7 +10,7 @@ Frozen settings-manager has no tuiMode/fullscreen known API. Removed typed gette
 `get_agent_profile` accepts `&JsString`, trims native units and queries the configured native key; built-in profile selection alone compares scalar literals. After the source-backed public spawn regressions executed RED, the getter now returns `Option<JsValue>` and clones configured JSON directly; it no longer deserializes/drops the whole profile. Callers project only accessed fields. Built-in defaults serialize to that same native representation, without a parallel typed configured-profile authority. Frozen getter itself only clones configured/default values (lines 509–516), so malformed settings are not blanket-rejected; only errors at fields actually accessed may propagate. The two actual in-crate REDs cover numeric-model failure and preservation of Fresh context with unrelated malformed tools; both pass at `4636282b` (`agents-core-drift-incrate-green.log`). This is bounded profile behavior, not whole settings parity.
 
 Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, `packages/coding-agent/src/core/settings-manager.ts`.
-Rust: `crates/pi-coding-agent-core/src/core/settings_manager.rs`. Governing [contract](../../specs/settings-manager.md); [percentage helper](compaction-threshold.md).
+Rust: `crates/pi-coding-agent-data/src/core/settings_manager.rs`. Governing [contract](../../specs/settings-manager.md); [percentage helper](compaction-threshold.md).
 
 ## Current status
 

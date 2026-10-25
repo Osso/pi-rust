@@ -25,7 +25,7 @@ Frozen `modes/interactive/theme/theme.ts` defines theme loading, styling, global
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/modes/interactive/theme/mod.rs` — theme state, styling, loading and reload lifecycle.
+- `crates/pi-coding-agent-tools/src/modes/interactive/theme/mod.rs` — theme state, styling, loading and reload lifecycle.
 
 ## Tests asserting this spec
 

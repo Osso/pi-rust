@@ -1,7 +1,7 @@
 # visual-truncate.ts
 
 Source: `coding-agent/src/modes/interactive/components/visual-truncate.ts`
-Rust: `crates/pi-coding-agent-core/src/modes/interactive/components/visual_truncate.rs`
+Rust: `crates/pi-coding-agent-tools/src/modes/interactive/components/visual_truncate.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

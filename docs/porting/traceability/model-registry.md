@@ -1,7 +1,7 @@
 # Model registry — Q15 re-port in progress
 
 Frozen: `packages/coding-agent/src/core/model-registry.ts` at `4f9e6f8a4` (1001 lines).
-Rust: `crates/pi-coding-agent-core/src/core/model_registry.rs`, internal `model_registry/schema.rs`.
+Rust: `crates/pi-coding-agent-data/src/core/model_registry.rs`, internal `model_registry/schema.rs`.
 
 The previous 158-line runtime facade described a source-absent architecture, not this pin.
 The replacement owns AuthStorage and a synchronous model list; it does not delegate to ModelRuntime.

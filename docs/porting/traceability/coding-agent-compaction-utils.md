@@ -1,6 +1,6 @@
 # Traceability: `packages/coding-agent/src/core/compaction/utils.ts`
 
-Rust: `crates/pi-coding-agent-core/src/core/compaction/utils.rs`. Tests:
+Rust: `crates/pi-coding-agent-tools/src/core/compaction/utils.rs`. Tests:
 `tests/compaction_utils.rs`, `tests/differential_compaction.rs`.
 
 Pinned source: commit `532f7d12cd19235081bd4d6e425bde185652d86f`.

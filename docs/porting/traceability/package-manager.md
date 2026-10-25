@@ -2,7 +2,7 @@
 
 Source: `packages/coding-agent/src/core/package-manager.ts` (2611 lines, pinned
 revision in `docs/porting/source-lock.json`). Rust:
-`crates/pi-coding-agent-core/src/core/package_manager.rs`.
+`crates/pi-coding-agent-packages/src/core/package_manager.rs`.
 
 Dependencies are reused, not duplicated: `utils::git::parse_git_url`,
 `utils::paths::{resolve_path, relative_path, canonicalize_path, is_local_path,

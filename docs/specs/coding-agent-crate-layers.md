@@ -9,6 +9,7 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 - [x] Compile layered packages independently with the existing workspace lints, profiles, and disabled incremental compilation; touch tests rebuild only the changed layer and its dependents.
 - [x] Add only internal path packages; preserve external dependency versions and features.
 - [x] Keep frozen TypeScript inventory counts unchanged.
+- [ ] Round 2: touching each layer must give `cargo check -j4 -p pi-coding-agent` in at most 30 seconds at comparable load. Record uptime and debug-build timings; split further if the limit is exceeded.
 
 ## How it works
 
@@ -17,7 +18,11 @@ The coding-agent runtime is split into Cargo packages without changing its behav
 ## Implementation inventory
 
 - `crates/pi-coding-agent-base/src/lib.rs`: configuration, utility, console, and runner-mode leaves.
-- `crates/pi-coding-agent-core/src/lib.rs`: core runtime and shared CLI, Supervisor, and UI leaves.
+- `crates/pi-coding-agent-data/src/lib.rs`: auth, settings, models, CLI arguments, permission policy/presets and shared leaves.
+- `crates/pi-coding-agent-storage/src/lib.rs`: SQLite control database, sessions/transcripts and lifecycle storage.
+- `crates/pi-coding-agent-packages/src/lib.rs`: package manager and source metadata.
+- `crates/pi-coding-agent-tools/src/lib.rs`: tools, native extension contracts, resources, shared theme/UI and Supervisor adapters.
+- `crates/pi-coding-agent-core/src/lib.rs`: session runtime and compatibility exports for every lower module.
 - `crates/pi-coding-agent-extensions/src/lib.rs`: bundled native extensions.
 - `crates/pi-coding-agent-interactive/src/lib.rs`: interactive mode.
 - `crates/pi-coding-agent/src/lib.rs`: compatibility facade.
@@ -32,4 +37,4 @@ Existing facade integration tests retain their imports. Checkpoint commands and 
 
 ## Out of scope
 
-Behavior changes, incremental compilation, profile/lint changes, external dependency additions, and further core splitting before round 1 lands. The separately authorized subagent description macro correction preserves the frozen description bytes and has its own differential test.
+Behavior changes, incremental compilation, profile/lint changes, and external dependency additions. The separately authorized subagent description macro correction preserves the frozen description bytes and has its own differential test.

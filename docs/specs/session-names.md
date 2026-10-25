@@ -20,7 +20,7 @@ Session display names follow the authorized [common source pin](../porting/sourc
 ## Implementation inventory
 
 - `crates/pi-coding-agent-core/src/core/session_control_db/` — schema migration and authoritative name storage.
-- `crates/pi-coding-agent-core/src/core/session_manager.rs` — cached name state and lifecycle resets.
+- `crates/pi-coding-agent-storage/src/core/session_manager.rs` — cached name state and lifecycle resets.
 - `crates/pi-coding-agent-core/src/core/agent_session{,_runtime}.rs` — name events and imported-session metadata removal.
 - `crates/pi-coding-agent/src/{main.rs,cli/session_picker.rs,modes/interactive/interactive_mode.rs}` — startup/selector name paths.
 - `crates/pi-coding-agent-extensions/src/bundled_extensions/session_autoname.rs`, `crates/pi-js-compat/src/string.rs` — background title generation and string conversion.

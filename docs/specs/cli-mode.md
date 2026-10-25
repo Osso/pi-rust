@@ -18,7 +18,7 @@ This specification covers the direct-module `Mode` union from `packages/coding-a
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/cli/args.rs` — closed enum and literal mapping.
+- `crates/pi-coding-agent-data/src/cli/args.rs` — closed enum and literal mapping.
 - `crates/pi-coding-agent/src/cli/mod.rs` — public direct `args` module.
 - `crates/pi-coding-agent/tests/cli_mode.rs` — focused behavioral/API proof.
 - `crates/pi-coding-agent/tests/differential_cli_mode.rs` and `.../differential_cli_mode/mod.rs` — one-request direct-module differential proof.

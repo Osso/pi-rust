@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/runtime-coordination-format.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Rust: `crates/pi-coding-agent-core/src/core/runtime_coordination_format.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/runtime_coordination_format.rs`.
 
 Differential proof: `oracle/runtime-coordination-format-oracle.ts` runs the pinned module through `tsx`; `crates/pi-coding-agent/tests/differential_runtime_coordination_format.rs` compares 10 mailbox/shared-channel cases byte-for-byte in source order (same-session, cross-session, unknown sender, empty/trimmed bodies, labeled/unlabeled/empty-label file refs, empty refs, Unicode, empty channel, multi-message channel).
 

@@ -34,7 +34,7 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ### `pi-coding-agent`
 
-- Internal exact `=0.0.0` path packages `pi-coding-agent-base`, `pi-coding-agent-core`, `pi-coding-agent-extensions`, and `pi-coding-agent-interactive` divide rebuild units. The facade retains every executable/integration target. Existing external pins/features move with their consumers; no external package or version is added. [Layer graph and boundary inventory](porting/crate-split.md).
+- Internal exact `=0.0.0` path packages `pi-coding-agent-base`, `pi-coding-agent-data`, `pi-coding-agent-storage`, `pi-coding-agent-packages`, `pi-coding-agent-tools`, `pi-coding-agent-core`, `pi-coding-agent-extensions`, and `pi-coding-agent-interactive` divide rebuild units. Data owns configuration/model leaves; storage owns sessions/control DB; packages owns package management; tools owns tools/native extension contracts; core owns the session runtime. The facade retains every executable/integration target. Existing external pins/features move with their consumers; no external package or version is added. [Round-2 graph and boundary inventory](porting/crate-split-2.md).
 
 - Self-restart reuses exact `nix = 0.30.1` for explicit-environment POSIX execve and existing `rustix = 1.1.5` for safe stdio fcntl get/set. No feature/version/dependency is added. Node's distinct POSIX errno-name table and FD behavior have [version/hash provenance](porting/node-execve-source-lock.json), retained [MIT notice](porting/vendor/Node-LICENSE), and [process proofs](porting/traceability/self-restart.md).
 

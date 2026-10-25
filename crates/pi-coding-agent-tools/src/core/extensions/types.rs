@@ -133,12 +133,6 @@ impl From<crate::utils::paths::PathError> for HandlerError {
         Self::from(crate::config::ConfigError::from(error))
     }
 }
-impl From<crate::core::agent_session::AgentSessionError> for HandlerError {
-    fn from(error: crate::core::agent_session::AgentSessionError) -> Self {
-        Self::from(pi_ai::request::CallbackError::from(error))
-    }
-}
-
 impl From<String> for HandlerError {
     fn from(message: String) -> Self {
         Self::new(message)

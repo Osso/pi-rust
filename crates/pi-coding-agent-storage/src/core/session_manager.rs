@@ -76,7 +76,7 @@ impl SessionManagerError {
         self.config.as_deref()
     }
 
-    pub(crate) fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
+    pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
         self.control_db
             .as_deref()
             .and_then(crate::core::sqlite::ControlDbError::native_error)

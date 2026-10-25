@@ -1,7 +1,7 @@
 # `coding-agent/src/core/sqlite.ts`
 
 Source: `packages/coding-agent/src/core/sqlite.ts` (145 lines) at the pinned revision.
-Rust: `crates/pi-coding-agent-core/src/core/sqlite.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/sqlite.rs`.
 
 ## Exported symbols
 

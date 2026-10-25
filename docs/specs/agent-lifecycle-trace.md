@@ -16,7 +16,7 @@ Frozen `extensions/agent-viewer/src/runtime.ts` and `core/agent-lifecycle-trace.
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/agent_lifecycle_trace.rs` — whole reader and formatter.
+- `crates/pi-coding-agent-storage/src/core/agent_lifecycle_trace.rs` — whole reader and formatter.
 - `crates/pi-coding-agent-extensions/src/bundled_extensions/agents_core/viewer.rs` — persisted viewer integration and trace validation.
 
 ## Tests asserting this spec

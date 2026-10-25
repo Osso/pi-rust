@@ -17,10 +17,10 @@ Port Node v26.11.1 `os.tmpdir()` for frozen `node:os` consumers. Reference: `lib
 ## Implementation inventory
 
 - `crates/pi-js-compat/src/node_os.rs`: shared POSIX query.
-- `crates/pi-coding-agent-core/src/core/bash_executor.rs`: executor spill-path consumer.
-- `crates/pi-coding-agent-core/src/core/tools/output_accumulator.rs`: accumulator spill-path consumer.
+- `crates/pi-coding-agent-tools/src/core/bash_executor.rs`: executor spill-path consumer.
+- `crates/pi-coding-agent-tools/src/core/tools/output_accumulator.rs`: accumulator spill-path consumer.
 - `crates/pi-agent-core/src/harness/env/nodejs.rs`: temporary-directory/file base.
-- `crates/pi-coding-agent-core/src/core/tools/tool_definition_wrapper.rs`: full-output spill base.
+- `crates/pi-coding-agent-tools/src/core/tools/tool_definition_wrapper.rs`: full-output spill base.
 
 ## Tests asserting this spec
 

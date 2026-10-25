@@ -2,7 +2,7 @@
 
 Pinned source: `packages/coding-agent/src/core/output-guard.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
 
-Proof: unit tests for the chunk splitter inside `crates/pi-coding-agent-core/src/core/output_guard.rs`, plus a child-process test (`crates/pi-coding-agent/tests/output_guard.rs`) that writes through the real writer and asserts byte order and takeover-flag transitions.
+Proof: unit tests for the chunk splitter inside `crates/pi-coding-agent-data/src/core/output_guard.rs`, plus a child-process test (`crates/pi-coding-agent/tests/output_guard.rs`) that writes through the real writer and asserts byte order and takeover-flag transitions.
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|

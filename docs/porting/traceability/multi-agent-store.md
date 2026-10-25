@@ -27,7 +27,7 @@ Remaining: full cross-state reverse-init/mutation and exact schema migration acc
 Runtime durability remains blocked at the [delivery boundary](../../specs/control-store-repin.md#integration-status--2026-10-21); these fixtures authorize no deployment or live-state use.
 
 Source: `packages/coding-agent/src/core/multi-agent-store.ts` (1387 lines) at the pinned revision.
-Rust: `crates/pi-coding-agent-core/src/core/multi_agent_store.rs`.
+Rust: `crates/pi-coding-agent-storage/src/core/multi_agent_store.rs`.
 
 ## Exported symbols
 

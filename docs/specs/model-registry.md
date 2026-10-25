@@ -17,7 +17,7 @@ Port `packages/coding-agent/src/core/model-registry.ts` at the [common pin](../p
 
 ## Implementation inventory
 
-`crates/pi-coding-agent-core/src/core/model_registry.rs` and internal `model_registry/schema.rs`: catalog, configuration, request auth and extension registration. Session/services/SDK expose the same registry and storage to consumers.
+`crates/pi-coding-agent-data/src/core/model_registry.rs` and internal `model_registry/schema.rs`: catalog, configuration, request auth and extension registration. Session/services/SDK expose the same registry and storage to consumers.
 
 ## Tests asserting this spec
 

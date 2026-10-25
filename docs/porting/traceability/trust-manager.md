@@ -1,7 +1,7 @@
 # trust-manager traceability
 
 Pinned source: `packages/coding-agent/src/core/trust-manager.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent-core/src/core/trust_manager.rs`.
+Rust: `crates/pi-coding-agent-data/src/core/trust_manager.rs`.
 
 Differential proof: `oracle/trust-manager-oracle.ts` runs a 12-step sequence against a real
 `ProjectTrustStore` in a temporary tree and returns every result plus the final `trust.json` bytes;
