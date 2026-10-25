@@ -15,7 +15,7 @@ Observed dependency: pinned Mistral `lib/http.ts::isConnectionError` uses actual
 
 ## Request boundary producer migration (2026-10-25)
 
-`pi-ai/src/request.rs` header ByteString and URL failures now construct genuine native TypeErrors instead of renaming a plain Error. Actual frozen version-release HTTP input exposed the header constructor mismatch; `lossless_auth_interaction::request_boundary_errors_retain_typeerror_constructor` reproduces both producers. The same-pattern search found and migrated the catalog failure fixture to the source's genuine TypeError with its cause. Focused GREEN pending.
+`pi-ai/src/request.rs` header ByteString and URL failures now construct genuine native TypeErrors instead of renaming a plain Error. Actual frozen version-release HTTP input exposed the header constructor mismatch; `lossless_auth_interaction::request_boundary_errors_retain_typeerror_constructor` reproduces both producers. The same-pattern search found and migrated the catalog failure fixture to the source's genuine TypeError with its cause. At `0824ba3e5`, the frozen release30, native boundary11 and actual-source catalog-cause case are GREEN; workspace/all-targets check passes without warnings. No manual literal TypeError-name assignments remain in the checkout.
 
 ## Q15 nested causes
 
