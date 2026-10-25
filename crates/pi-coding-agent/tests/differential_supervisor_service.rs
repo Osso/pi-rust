@@ -112,6 +112,16 @@ fn prompts_and_parsed_responses_match_the_typescript_module() {
             json!({"content": [{"type": "text", "text": "{\"kind\":\"complete\",\"reason\":\"done\"}"}]}),
         ),
         (
+            "empty-first-text-falls-through",
+            "approval_review",
+            json!({"kind":"approve","reason":"ok","content":[{"type":"text","text":""},{"type":"text","text":"invalid"}]}),
+        ),
+        (
+            "nonempty-invalid-text-does-not-fall-through",
+            "approval_review",
+            json!({"kind":"approve","reason":"ok","content":[{"type":"text","text":"invalid"}]}),
+        ),
+        (
             "wrong-kind",
             "goal_set_review",
             json!({"kind": "continue", "reason": "wrong kind"}),

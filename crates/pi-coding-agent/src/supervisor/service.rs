@@ -250,8 +250,8 @@ fn parse_response_object(raw_response: &JsValue) -> Option<JsObject> {
     match raw_response {
         JsValue::String(text) => parse_json_object(text),
         JsValue::Object(response) => match extract_text_content(response) {
-            Some(text) => parse_json_object(&text),
-            None => Some(response.clone()),
+            Some(text) if !text.is_empty() => parse_json_object(&text),
+            Some(_) | None => Some(response.clone()),
         },
         _ => None,
     }
