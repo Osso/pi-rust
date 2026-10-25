@@ -1,13 +1,9 @@
 //! Behavioral tests for the deterministic agents-core modules.
 
 use pi_js_compat::js_json::JsString;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use pi_agent_core::AgentToolResult;
-use pi_coding_agent::bundled_extensions::agents_core::parent_agent_journal::{
-    ParentAgentJournalWriter, append_parent_agent_completion, append_parent_agent_start,
-    read_active_parent_agent_ids_from_entries, restore_compacted_parent_agent_records,
-};
 use pi_coding_agent::bundled_extensions::agents_core::runtime_utils::create_failed_mailbox_message;
 use pi_coding_agent::bundled_extensions::agents_core::session_factories::{
     MAX_GOAL_OBJECTIVE_CHARS, background_prompt_validation_message, spawn_prompt_validation_message,
@@ -24,7 +20,6 @@ use pi_coding_agent::core::multi_agent_store::{
     AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MailboxMessageKindValue, MultiAgentStore,
     MultiAgentStoreOptions,
 };
-use pi_coding_agent::core::session_manager::FileEntry;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsObject as Map;
 use pi_js_compat::js_json::JsValue as Value;
@@ -382,98 +377,6 @@ fn persisted_agent_viewer_requires_a_control_db_and_known_session() {
             "storeSessionId": "store-session"
         })
     );
-}
-
-#[derive(Default)]
-struct RecordingJournal {
-    entries: Mutex<Vec<(String, Option<Value>)>>,
-}
-
-impl ParentAgentJournalWriter for RecordingJournal {
-    fn append_entry(
-        &self,
-        custom_type: &str,
-        data: Option<Value>,
-    ) -> Result<(), pi_coding_agent::core::extensions::HandlerError> {
-        self.entries
-            .lock()
-            .expect("journal")
-            .push((custom_type.to_owned(), data));
-        Ok(())
-    }
-}
-
-#[test]
-fn parent_agent_journal_records_transcript_identity() {
-    let journal = RecordingJournal::default();
-    let mut agent = agent("a", None, "Alpha", "explore", "running", 1);
-    agent["transcript"] = json!({"path": "/tmp/a.jsonl", "sessionId": "session-a"});
-    append_parent_agent_start(&journal, &parse(agent.clone())).expect("append start");
-    append_parent_agent_completion(&journal, &parse(agent)).expect("append completion");
-
-    let entries = journal.entries.lock().expect("journal").clone();
-    assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0].0, "agent_start");
-    assert_eq!(
-        entries[0].1,
-        Some(json!({
-            "agentId": "a",
-            "childSessionId": "session-a",
-            "lifecycle": "running",
-            "transcriptPath": "/tmp/a.jsonl"
-        }))
-    );
-    assert_eq!(entries[1].0, "agent_complete");
-}
-
-#[test]
-fn parent_agent_journal_rejects_missing_transcript_identity() {
-    let journal = RecordingJournal::default();
-    let error = append_parent_agent_start(&journal, &parse(agent("a", None, "Alpha", "explore", "running", 1)))
-        .expect_err("missing transcript");
-    assert_eq!(
-        error.message,
-        "Cannot persist agent_start for a without transcript identity"
-    );
-}
-
-fn custom_entry(custom_type: &str, agent_id: Option<&str>) -> FileEntry {
-    let data = agent_id.map(|agent_id| json!({"agentId": agent_id}));
-    pi_js_compat::js_json::from_value(&json!({
-        "type": "custom",
-        "customType": custom_type,
-        "data": data,
-        "id": format!("entry-{custom_type}-{}", agent_id.unwrap_or("none")),
-        "parentId": null,
-        "timestamp": "2026-06-21T00:00:00.000Z"
-    }))
-    .expect("custom entry")
-}
-
-#[test]
-fn active_parent_agent_ids_use_start_and_complete_entries() {
-    let entries = vec![
-        custom_entry("agent_start", Some("a")),
-        custom_entry("agent_start", Some("b")),
-        custom_entry("agent_complete", Some("a")),
-        custom_entry("agent_start", Some("c")),
-        custom_entry("agent_complete", Some("c")),
-        custom_entry("other", Some("d")),
-    ];
-    let active = read_active_parent_agent_ids_from_entries(&entries);
-    assert_eq!(active, [JsString::from("b")].into_iter().collect());
-}
-
-#[test]
-fn restore_compacted_parent_agent_records_is_a_noop_without_missing_agents() {
-    let journal = RecordingJournal::default();
-    let store = new_store();
-    // No store entries means nothing can be restored; the call must not panic or append.
-    let entries: Vec<FileEntry> = Vec::new();
-    assert!(read_active_parent_agent_ids_from_entries(&entries).is_empty());
-    assert!(journal.entries.lock().expect("journal").is_empty());
-    assert!(store.list_agents().is_empty());
-    let _ = restore_compacted_parent_agent_records;
 }
 
 #[test]

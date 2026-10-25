@@ -21,15 +21,11 @@ use crate::core::multi_agent_store::{
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
-use super::parent_agent_journal::{ParentAgentJournalWriter, append_parent_agent_record};
 use super::runtime::SharedDispatch;
 use super::shared::AttachedSessionDispatchInput as AttachedSessionFactoryInput;
 use super::shared::{
     AttachedSessionFactory, ChildAgentDispatchInput, ChildAgentSession, ChildAgentSessionFactory, SpawnContext,
 };
-
-pub const AGENT_START_CUSTOM_TYPE: &str = "agent_start";
-pub const AGENT_COMPLETE_CUSTOM_TYPE: &str = "agent_complete";
 
 pub type BackgroundSessionHandles = Arc<Mutex<HashMap<JsString, Arc<dyn ChildAgentSession>>>>;
 pub type ActiveAgentDispatches = Arc<Mutex<HashMap<JsString, SharedDispatch>>>;
@@ -110,21 +106,6 @@ struct FinalizeReservedRuntimeInput {
     reserved_runtime: Arc<OwnedAgentRuntime>,
     store: Arc<MultiAgentStore>,
     terminal_lifecycle: &'static str,
-}
-
-pub fn is_terminal_agent_lifecycle(lifecycle: AgentLifecycle) -> bool {
-    matches!(
-        lifecycle,
-        AgentLifecycle::Completed | AgentLifecycle::Failed | AgentLifecycle::Aborted
-    )
-}
-
-pub fn append_parent_agent_record_for(
-    pi: &dyn ParentAgentJournalWriter,
-    custom_type: &str,
-    agent: &AgentSnapshot,
-) -> Result<(), HandlerError> {
-    append_parent_agent_record(pi, custom_type, agent)
 }
 
 pub fn dispatch_attached_session_agent(
