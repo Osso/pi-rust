@@ -1,3 +1,5 @@
+#[path = "support/model_selector_modifier_rejection.rs"]
+mod modifier_rejection;
 #[path = "support/oracle.rs"]
 mod oracle;
 
