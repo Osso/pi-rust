@@ -1,8 +1,9 @@
-import { mkdirSync, writeFileSync, writeSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import type { Model } from "@pi-oracle-source/ai/src/types.ts";
+import type { CreateAgentSessionRuntimeFactory } from "@pi-oracle-source/coding-agent/src/core/agent-session-runtime.ts";
 import type { ExtensionAPI } from "@pi-oracle-source/coding-agent/src/core/extensions/types.ts";
 import type { Terminal } from "@pi-oracle-source/tui/src/terminal.ts";
 
@@ -18,6 +19,9 @@ const { ModelRegistry } = await load("core/model-registry.ts");
 const { DefaultResourceLoader } = await load("core/resource-loader.ts");
 const { InteractiveMode } = await load("modes/interactive/interactive-mode.ts");
 const themes = await load("modes/interactive/theme/theme.ts");
+const { Text } = await import(
+	pathToFileURL(`${source}/../../tui/src/index.ts`).href
+);
 const units = (text: string) =>
 	Array.from({ length: text.length }, (_, i) => text.charCodeAt(i));
 
@@ -59,7 +63,14 @@ interface Request {
 	restored: boolean;
 	watchChanges: boolean;
 	colors: string[];
-	importFailure?: "missing" | "factory";
+	importFailure?:
+		| "missing"
+		| "factory"
+		| "cancel"
+		| "hook-cancel"
+		| "cwd-cancel"
+		| "cwd-retry-error"
+		| "success";
 	importPath?: string;
 }
 
@@ -71,6 +82,8 @@ async function captureStartup(request: Request) {
 	});
 	const extension = (api: ExtensionAPI) => {
 		api.on("resources_discover", () => ({ skillPaths: [skillPath] }));
+		if (request.importFailure === "hook-cancel")
+			api.on("session_before_switch", () => ({ cancel: true }));
 	};
 	const loader = new DefaultResourceLoader({
 		cwd,
@@ -121,21 +134,38 @@ async function captureStartup(request: Request) {
 		thinkingLevel: "off",
 		scopedModels,
 	});
-	const runtime = new AgentSessionRuntime(
-		result.session,
-		{
-			cwd,
-			agentDir,
-			authStorage,
-			modelRegistry,
-			resourceLoader: loader,
-			settingsManager,
-			diagnostics: [],
-		},
-		async () => {
+	const services = {
+		cwd,
+		agentDir,
+		authStorage,
+		modelRegistry,
+		resourceLoader: loader,
+		settingsManager,
+		diagnostics: [],
+	};
+	const factory: CreateAgentSessionRuntimeFactory = async (options) => {
+		if (!request.importFailure)
 			throw new Error("startup fixture never replaces session");
-		},
-	);
+		if (
+			request.importFailure === "factory" ||
+			request.importFailure === "cwd-retry-error"
+		)
+			throw new Error("File not found: imported dependency");
+		const next = await createAgentSession({
+			...services,
+			cwd: options.cwd,
+			sessionManager: options.sessionManager,
+			model: request.models[0],
+			thinkingLevel: "off",
+			sessionStartEvent: options.sessionStartEvent,
+		});
+		return {
+			...next,
+			services: { ...services, cwd: options.cwd },
+			diagnostics: [],
+		};
+	};
+	const runtime = new AgentSessionRuntime(result.session, services, factory);
 	themes.initTheme("dark", false);
 	const mode = new InteractiveMode(runtime, { verbose: request.verbose });
 	const terminal = new CaptureTerminal();
@@ -178,28 +208,63 @@ async function captureStartup(request: Request) {
 async function captureImportFailure(
 	mode: {
 		chatContainer: { render(width: number): string[] };
+		statusContainer: {
+			render(width: number): string[];
+			addChild(child: unknown): void;
+		};
+		editorContainer: { render(width: number): string[] };
+		extensionSelector?: unknown;
 		handleImportCommand(text: string): Promise<void>;
 	},
-	runtime: { createRuntime: () => Promise<never> },
+	runtime: { session: { messages: unknown[]; sessionFile?: string } },
 	terminal: CaptureTerminal,
 	request: Request,
 ): Promise<never> {
 	if (!request.importPath) throw new Error("import fixture requires a path");
+	const path = request.importPath;
+	const dialogs: number[][][] = [];
+	let rejected: { name: string; message: string } | null = null;
+	mode.statusContainer.addChild(new Text("pre-import status", 0, 0));
 	process.once("exit", (exitCode) => {
 		const output = {
 			exitCode,
+			dialogs,
+			rejected,
 			chat: mode.chatContainer.render(120).map(units),
+			status: mode.statusContainer.render(120).map(units),
+			...(request.importFailure === "success"
+				? {
+						messages: runtime.session.messages,
+						copiedExact: readFileSync(runtime.session.sessionFile).equals(
+							readFileSync(path),
+						),
+					}
+				: {}),
 		};
 		writeSync(1, `${JSON.stringify({ ok: true, output })}\n`);
 	});
-	if (request.importFailure === "factory") {
-		runtime.createRuntime = async () => {
-			throw new Error("File not found: imported dependency");
-		};
+	const operation = mode.handleImportCommand(`/import '${path}' ignored`);
+	let lastFrame = "";
+	const driver = setInterval(() => {
+		if (!mode.extensionSelector) return;
+		const lines = mode.editorContainer.render(120);
+		const frame = JSON.stringify(lines);
+		if (frame === lastFrame) return;
+		lastFrame = frame;
+		dialogs.push(lines.map(units));
+		const cancel =
+			request.importFailure === "cancel" ||
+			(request.importFailure === "cwd-cancel" && dialogs.length === 2);
+		terminal.input?.(cancel ? "\u001b" : "\r");
+	}, 1);
+	try {
+		await operation;
+	} catch (error) {
+		if (!(error instanceof Error)) throw error;
+		rejected = { name: error.name, message: error.message };
+	} finally {
+		clearInterval(driver);
 	}
-	const operation = mode.handleImportCommand(`/import ${request.importPath}`);
-	terminal.input?.("\r");
-	await operation;
 	process.exit(0);
 }
 

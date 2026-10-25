@@ -20,6 +20,14 @@ Frozen :5411–5425 sets the flag, expands the active header and expandable reso
 
 Native init now uses `rebind_current_session(false)` and restores messages only afterward. Extension binding registers the loaded themes, installs autocomplete/shortcuts, lists resources and emits notices in frozen :2133–2139 order. The startup scope console line follows frozen :999–1012, including effective cycle binding and quiet/verbose gates. A subsequent actual-init regression changes the theme through the frozen theme authority and writes a private Git HEAD after the initial render. Frozen repaints both changes; native originally repaints neither. Init now installs the literal theme invalidate/border/render callback and retains the footer branch subscription (owner-thread render request through the existing UI queue). Full original post-theme editor frames and the observed terminal repaint containing the new branch match the pinned mode. RED/GREEN: `startup-watchers-{red,green}.log`. Whole-mode acceptance remains open; this is the realistic startup slice, not a replacement proof matrix for approved gaps.
 
+## Path arguments and import command (2026-10-25)
+
+Frozen :7237–7264 path arguments now preserve command-space validation, trimStart, first matching quote, unquoted whitespace termination, quoted empty values and exact UTF-16 slices. The old native strip-prefix/full-trim accepted `/import\tfile` and included quotes/trailing arguments. `import_export_path_arguments_match_the_frozen_utf16_parser` compares 26 actual-method cases; RED `import-path-red.log`, GREEN in `import-command-green-attempt.log`.
+
+Frozen :7266–7313 now has its native confirmation/cancel, loading/status clear, runtime cancellation, exact success text, typed missing-cwd prompt/retry, typed missing-file recovery and fatal-error branches. `handle_import_command` returns the original retry rejection through existing Result plumbing; no new catch/fallback is added. Real source/native mode processes compare complete dialog/chat/status frames for cancellation, before-switch cancellation, cwd rejection, retry failure, ordinary success, missing file and fatal factory failure (seven scenarios). Successful import also compares restored messages and file-copy state. The fixture now loads Agent initial messages from its supplied manager like the real SDK; previously its manual factory always created an empty Agent, which the new success snapshot exposed. RED `import-command-red.log`, GREEN `import-command-green.log`; all artifacts under `/tmp/repin-interactive-2-proof/`.
+
+The active [contract](../../specs/interactive-import.md) retains two open branches: successful/cancelled fallback retry and frozen in-memory import's empty-directory mkdir failure. No whole-command closure is claimed until those are proven. Other interactive commands/events remain a separate whole-mode audit.
+
 ## Q15 runtime-oddity removal (2026-10-23)
 
 | Frozen branch | Native | Status/proof |

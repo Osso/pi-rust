@@ -88,13 +88,22 @@ fn startup_resources_provider_count_scope_and_restored_frames_match_frozen() {
 
 #[test]
 fn import_error_class_controls_recovery_and_exit_like_frozen() {
+    assert_import_cases_match_frozen(&["missing", "factory"]);
+}
+
+#[test]
+fn import_command_dialogs_state_and_retry_match_frozen() {
+    assert_import_cases_match_frozen(&["cancel", "hook-cancel", "cwd-cancel", "cwd-retry-error", "success"]);
+}
+
+fn assert_import_cases_match_frozen(cases: &[&str]) {
     mod oracle {
         include!(concat!(
             concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
             "/tests/support/oracle.rs"
         ));
     }
-    for failure in ["missing", "factory"] {
+    for failure in cases.iter().copied() {
         let root = tempfile::tempdir().unwrap();
         let cwd = root.path().join("project");
         std::fs::create_dir_all(&cwd).unwrap();
@@ -104,9 +113,16 @@ fn import_error_class_controls_recovery_and_exit_like_frozen() {
             "---\nname: import-probe\ndescription: Import fixture\n---\nbody\n",
         )
         .unwrap();
-        let path = root.path().join("imported.jsonl");
-        if failure == "factory" {
-            std::fs::write(&path, format!("{}\n", serde_json::json!({"type":"session","version":3,"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"1970-01-01T00:00:00.000Z","cwd":cwd}))).unwrap();
+        let path = root.path().join("imported session.jsonl");
+        if failure != "missing" {
+            let stored_cwd = if failure.starts_with("cwd-") {
+                cwd.join("deleted-project")
+            } else {
+                cwd.clone()
+            };
+            let header = serde_json::json!({"type":"session","version":3,"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"1970-01-01T00:00:00.000Z","cwd":stored_cwd});
+            let message = serde_json::json!({"type":"message","id":"abc12345","parentId":null,"timestamp":"1970-01-01T00:00:00.000Z","message":{"role":"user","content":"Imported content","timestamp":0}});
+            std::fs::write(&path, format!("{header}\n{message}\n")).unwrap();
         }
         let request = serde_json::json!({"cwd":cwd,"agentDir":cwd,"skillPath":skill,"quiet":true,"verbose":false,"scoped":false,"restored":false,"watchChanges":false,"importFailure":failure,"importPath":path});
         let output = std::process::Command::new(std::env::current_exe().unwrap())
@@ -142,10 +158,85 @@ fn import_error_class_controls_recovery_and_exit_like_frozen() {
     }
 }
 
+async fn drive_fixture_import(
+    mode: &Rc<InteractiveMode>,
+    terminal: &Rc<RefCell<CaptureTerminal>>,
+    request: &serde_json::Value,
+    factory_failure: &Arc<Mutex<Option<CallbackError>>>,
+) {
+    println!("IMPORT_REQUEST {request}");
+    let case = request["importFailure"].as_str().unwrap().to_owned();
+    let dialogs = Rc::new(RefCell::new(Vec::<Vec<Vec<u16>>>::new()));
+    let rejected = Rc::new(RefCell::new(None::<JsValue>));
+    let capture_dialogs = dialogs.clone();
+    let capture_rejection = rejected.clone();
+    let observer = Rc::downgrade(mode);
+    let path = request["importPath"].as_str().unwrap().to_owned();
+    let success = case == "success";
+    terminal.borrow_mut().lifecycle_observer = Some(Rc::new(move |event| {
+        if event == "stop" {
+            let mode = observer.upgrade().unwrap();
+            let render = |view: &mut dyn Component| {
+                view.render(120)
+                    .into_iter()
+                    .map(|line| line.units().to_vec())
+                    .collect::<Vec<_>>()
+            };
+            let mut output = serde_json::json!({"chat":render(&mut *mode.chat_container.borrow_mut()),"status":render(&mut *mode.status_container.borrow_mut()),"dialogs":*capture_dialogs.borrow(),"rejected":*capture_rejection.borrow()});
+            if success {
+                output["messages"] = serde_json::to_value(mode.session().messages()).unwrap();
+                output["copiedExact"] = serde_json::json!(
+                    std::fs::read(encode_node_utf8(&mode.session().session_file().unwrap())).unwrap()
+                        == std::fs::read(&path).unwrap()
+                );
+            }
+            println!("IMPORT_RESULT {output}");
+        }
+        Ok(())
+    }));
+    mode.status_container
+        .borrow_mut()
+        .add_child(component(Text::new("pre-import status", 0, 0)));
+    if case == "factory" || case == "cwd-retry-error" {
+        *factory_failure.lock().unwrap() = Some(CallbackError::new("File not found: imported dependency"));
+    }
+    let command = js_format!("/import '{}' ignored", request["importPath"].as_str().unwrap());
+    let actor = mode.clone();
+    let operation = tokio::task::spawn_local(async move { actor.handle_import_command(command).await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        let mut last_dialog = Vec::<JsString>::new();
+        while !operation.is_finished() {
+            mode.handle_ui_requests().await;
+            let lines = mode.editor_container.borrow_mut().render(120);
+            let frame = JsString::join(&lines, "\n");
+            let is_dialog = frame.contains("Import session") || frame.contains("Session cwd not found");
+            if is_dialog && lines != last_dialog {
+                last_dialog = lines.clone();
+                dialogs
+                    .borrow_mut()
+                    .push(lines.into_iter().map(|line| line.units().to_vec()).collect());
+                let cancel = case == "cancel" || (case == "cwd-cancel" && dialogs.borrow().len() == 2);
+                terminal.borrow_mut().send_input(if cancel { "\u{1b}" } else { "\r" });
+                mode.ui.process_events();
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("import UI operation settles");
+    if let Err(error) = operation.await.unwrap() {
+        *rejected.borrow_mut() = Some(error.thrown_value().as_error().unwrap().value());
+    }
+    mode.stop().unwrap();
+}
+
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "invoked by startup/import process-boundary parents"]
 async fn startup_capture_child() {
-    use crate::core::extensions::types::{HandlerHandle, ResourcesDiscoverEvent, ResourcesDiscoverResult};
+    use crate::core::extensions::types::{
+        HandlerHandle, ResourcesDiscoverEvent, ResourcesDiscoverResult, SessionBeforeSwitchEvent,
+        SessionBeforeSwitchResult,
+    };
     use crate::core::resource_loader::{
         DefaultResourceLoader, DefaultResourceLoaderOptions, InlineExtension, ResourceLoader,
     };
@@ -153,6 +244,7 @@ async fn startup_capture_child() {
         let mut request: serde_json::Value = serde_json::from_str(&std::env::var("PI_INTERACTIVE_STARTUP_CASE").unwrap()).unwrap();
         let cwd = request["cwd"].as_str().unwrap();
         let path = JsString::from(request["skillPath"].as_str().unwrap());
+        let cancel_switch = request["importFailure"].as_str() == Some("hook-cancel");
         let factory: crate::core::extensions::ExtensionFactory = Arc::new(move |api| {
             let path = path.clone();
             let handler: HandlerHandle<ResourcesDiscoverEvent, ResourcesDiscoverResult> = Arc::new(move |_, _| -> BoxFuture<'static, Result<Option<ResourcesDiscoverResult>, HandlerError>> {
@@ -160,6 +252,10 @@ async fn startup_capture_child() {
                 Box::pin(async move { Ok(Some(ResourcesDiscoverResult { skill_paths: Some(vec![path]), prompt_paths: None, theme_paths: None })) })
             });
             api.on_resources_discover(handler).unwrap();
+            if cancel_switch {
+                let handler: HandlerHandle<SessionBeforeSwitchEvent, SessionBeforeSwitchResult> = Arc::new(|_, _| -> BoxFuture<'static, Result<Option<SessionBeforeSwitchResult>, HandlerError>> { Box::pin(async { Ok(Some(SessionBeforeSwitchResult { cancel: Some(true) })) }) });
+                api.on_session_before_switch(handler).unwrap();
+            }
             Box::pin(async { Ok(()) })
         });
         let settings = SettingsManager::in_memory(pi_js_compat::js_json!({"quietStartup":request["quiet"].as_bool().unwrap()}).as_object().unwrap().clone(), SettingsManagerCreateOptions::default());
@@ -190,38 +286,8 @@ async fn startup_capture_child() {
         println!("\nSTARTUP_BEGIN");
         mode.init().await.unwrap();
         println!("STARTUP_END");
-        if let Some(failure) = request["importFailure"].as_str() {
-            println!("IMPORT_REQUEST {request}");
-            let observer = Rc::downgrade(&mode);
-            terminal.borrow_mut().lifecycle_observer = Some(Rc::new(move |event| {
-                if event == "stop" {
-                    let mode = observer.upgrade().unwrap();
-                    let chat = mode.chat_container.borrow_mut().render(120).into_iter().map(|line|line.units().to_vec()).collect::<Vec<_>>();
-                    println!("IMPORT_RESULT {}",serde_json::json!({"chat":chat}));
-                }
-                Ok(())
-            }));
-            if failure == "factory" {
-                *factory_failure.lock().unwrap() = Some(CallbackError::new("File not found: imported dependency"));
-            }
-            let command = js_format!("/import {}",request["importPath"].as_str().unwrap());
-            let actor = mode.clone();
-            let operation = tokio::task::spawn_local(async move { actor.handle_import_command(command).await });
-            tokio::time::timeout(Duration::from_secs(5), async {
-                let mut confirmed = false;
-                while !operation.is_finished() {
-                    mode.handle_ui_requests().await;
-                    let frame = JsString::join(mode.editor_container.borrow_mut().render(120), "\n");
-                    if !confirmed && frame.contains("Import session") {
-                        terminal.borrow_mut().send_input("\r");
-                        mode.ui.process_events();
-                        confirmed = true;
-                    }
-                    tokio::task::yield_now().await;
-                }
-            }).await.expect("import UI operation settles");
-            operation.await.unwrap();
-            mode.stop().unwrap();
+        if request["importFailure"].is_string() {
+            drive_fixture_import(&mode, &terminal, &request, &factory_failure).await;
             return;
         }
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();

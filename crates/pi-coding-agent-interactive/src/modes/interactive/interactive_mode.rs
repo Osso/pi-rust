@@ -7541,7 +7541,7 @@ impl InteractiveMode {
                 self.handle_export_command(js_format!("/export {}", args)).await;
             }
             value if value == "import" => {
-                self.handle_import_command(js_format!("/import {}", args)).await;
+                self.handle_import_command(js_format!("/import {}", args)).await?;
             }
             value if value == "share" => {
                 self.handle_share_command().await;
@@ -8807,33 +8807,103 @@ impl InteractiveMode {
         }
     }
 
-    async fn handle_import_command(&self, text: JsString) {
-        let Some(path) = Self::path_command_argument(&text, &JsString::from("/import")) else {
+    async fn handle_import_command(&self, text: JsString) -> Result<(), CallbackError> {
+        let path = Self::path_command_argument(&text, &JsString::from("/import"));
+        let Some(path) = path.filter(|path| !path.is_empty()) else {
             self.show_error("Usage: /import <path.jsonl>");
-            return;
+            return Ok(());
         };
-        let runtime = self.runtime.clone();
-        match runtime.import_from_jsonl(&path, None).await {
-            Ok(_) => {
-                self.show_status("Session imported");
-            }
-            Err(error) => {
-                if error
-                    .original
-                    .as_ref()
-                    .is_some_and(|source| source.is::<crate::core::session_errors::SessionImportFileNotFoundError>())
-                {
-                    self.show_error(&js_format!("Failed to import session: {}", error.message));
-                } else {
-                    self.handle_fatal_runtime_error(&JsString::from("Failed to import session"), error);
-                }
-            }
+        let confirmed = self
+            .show_extension_confirm(
+                &"Import session".into(),
+                &js_format!("Replace current session with {}?", path),
+            )
+            .await;
+        if !confirmed {
+            self.show_status("Import cancelled");
+            return Ok(());
+        }
+        self.clear_import_status();
+        match self.runtime.import_from_jsonl(&path, None).await {
+            Ok(result) => self.show_import_result(&path, result.cancelled),
+            Err(error) => self.handle_import_rejection(&path, error).await?,
+        }
+        Ok(())
+    }
+
+    fn clear_import_status(&self) {
+        if let Some(loader) = self.loading_animation.borrow_mut().take()
+            && let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|view| view.downcast_mut::<Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().clear();
+    }
+
+    fn show_import_result(&self, path: &JsString, cancelled: bool) {
+        if cancelled {
+            self.show_status("Import cancelled");
+        } else {
+            self.show_status(&js_format!("Session imported from: {}", path));
         }
     }
 
+    async fn handle_import_rejection(&self, path: &JsString, error: CallbackError) -> Result<(), CallbackError> {
+        let issue = error
+            .original
+            .as_ref()
+            .and_then(|source| source.downcast_ref::<crate::core::session_cwd::MissingSessionCwdError>())
+            .map(|error| error.issue.clone());
+        if let Some(issue) = issue {
+            self.retry_import_in_current_cwd(path, &issue).await?;
+        } else if error
+            .original
+            .as_ref()
+            .is_some_and(|source| source.is::<crate::core::session_errors::SessionImportFileNotFoundError>())
+        {
+            self.show_error(&js_format!("Failed to import session: {}", error.message));
+        } else {
+            self.handle_fatal_runtime_error(&"Failed to import session".into(), error);
+        }
+        Ok(())
+    }
+
+    async fn retry_import_in_current_cwd(
+        &self,
+        path: &JsString,
+        issue: &crate::core::session_cwd::SessionCwdIssue,
+    ) -> Result<(), CallbackError> {
+        let confirmed = self
+            .show_extension_confirm(
+                &"Session cwd not found".into(),
+                &crate::core::session_cwd::format_missing_session_cwd_prompt(issue),
+            )
+            .await;
+        if !confirmed || issue.fallback_cwd.is_empty() {
+            self.show_status("Import cancelled");
+            return Ok(());
+        }
+        let result = self.runtime.import_from_jsonl(path, Some(&issue.fallback_cwd)).await?;
+        self.show_import_result(path, result.cancelled);
+        Ok(())
+    }
+
     fn path_command_argument(text: &JsString, command: &JsString) -> Option<JsString> {
-        let rest = text.strip_prefix(command)?.trim();
-        if rest.is_empty() { None } else { Some(rest.to_owned()) }
+        let rest = text.strip_prefix(js_format!("{} ", command))?.trim_start();
+        let first = *rest.units().first()?;
+        if first == u16::from(b'\"') || first == u16::from(b'\'') {
+            let closing = rest.units()[1..].iter().position(|unit| *unit == first)? + 1;
+            return Some(rest.slice(1, closing));
+        }
+        let end = rest
+            .units()
+            .iter()
+            .position(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+            .unwrap_or(rest.len());
+        Some(rest.slice(0, end))
     }
 
     async fn handle_share_command(&self) {
@@ -12943,6 +13013,10 @@ mod ui_tests {
 
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_path_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_startup.rs"
     ));
     include!(concat!(
@@ -13331,13 +13405,14 @@ mod ui_tests {
                     }
                     let model = faux.get_model(None).expect("faux model");
                     let stream_provider = Arc::clone(&faux.provider);
+                    let messages = request.session_manager.build_session_context().messages;
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
                             system_prompt: Some(JsString::default()),
                             thinking_level: Some(ThinkingLevel::Off),
                             tools: Some(Vec::new()),
-                            messages: None,
+                            messages: Some(messages),
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
