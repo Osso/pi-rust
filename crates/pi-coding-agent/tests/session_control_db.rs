@@ -584,6 +584,9 @@ fn runtime_mailbox_claim_deliver_and_consume() {
 
 #[test]
 fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
+    use pi_coding_agent::core::session_control_db::{
+        retain_control_db_connection, with_control_db, with_immediate_transaction,
+    };
     let (_dir, db) = temp_db();
     let recipient = RuntimeMailboxAddress {
         session_id: "recipient".into(),
@@ -612,17 +615,24 @@ fn runtime_mailbox_routing_preserves_payload_order_and_identity() {
     )
     .expect("upsert");
     register_listener(&db, &recipient);
-    let id = enqueue_runtime_mailbox_message(
-        &db,
-        &EnqueueRuntimeMailboxMessageInput {
-            recipient: recipient.clone(),
-            recipient_host: None,
-            sender: sender.clone(),
-            kind: RuntimeMailboxMessageKind::Message,
-            store_ref: store_ref.clone(),
-        },
-    )
-    .expect("route");
+    let input = EnqueueRuntimeMailboxMessageInput {
+        recipient: recipient.clone(),
+        recipient_host: None,
+        sender: sender.clone(),
+        kind: RuntimeMailboxMessageKind::Message,
+        store_ref: store_ref.clone(),
+    };
+    let path = JsString::from(db.as_str());
+    let _retained = retain_control_db_connection(&path).expect("retain");
+    let nested = with_control_db(&path, |connection| {
+        with_immediate_transaction(connection, |_| enqueue_runtime_mailbox_message(&db, &input))
+    });
+    let error = nested.expect_err("routing owns its immediate transaction, as frozen does");
+    assert_eq!(
+        error.message(),
+        &JsString::from("cannot start a transaction within a transaction")
+    );
+    let id = enqueue_runtime_mailbox_message(&db, &input).expect("route");
     assert_eq!(id, 1);
 
     let connection = pi_coding_agent::core::sqlite::create_sqlite_database(&db).expect("open");

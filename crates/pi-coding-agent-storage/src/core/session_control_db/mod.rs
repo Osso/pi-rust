@@ -1,9 +1,9 @@
 //! Shared control SQLite database (`core/session-control-db.ts`).
 //!
 //! Every Pi runtime on the machine opens the same `control.sqlite`. The TypeScript and Rust
-//! runtimes must agree on schema, migrations, PRAGMAs, SQL text, and transaction boundaries,
-//! so this module keeps the SQL statements verbatim and performs all writes inside
-//! `BEGIN IMMEDIATE` transactions.
+//! runtimes must agree on persisted schema, migrations, PRAGMAs and transaction boundaries.
+//! This module keeps persisted DDL bytes and the source's explicit `BEGIN IMMEDIATE`
+//! boundaries; other single-statement writes remain atomic SQLite statements.
 
 pub(crate) mod agents;
 mod channel;
