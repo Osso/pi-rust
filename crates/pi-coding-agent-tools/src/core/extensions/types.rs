@@ -37,7 +37,7 @@ use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
-    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
+    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
 use crate::core::slash_commands::SlashCommandInfo;
@@ -86,7 +86,7 @@ pub type CompactErrorCallback = Arc<dyn Fn(&CallbackError) -> Result<(), Callbac
 pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type JsStringCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
