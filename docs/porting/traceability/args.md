@@ -1,6 +1,6 @@
 # Coding-agent CLI args traceability
 
-Frozen source: `packages/coding-agent/src/cli/args.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (551 lines).
+Frozen source: `packages/coding-agent/src/cli/args.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (550 lines).
 Rust: `crates/pi-coding-agent-data/src/cli/args.rs`.
 
 Whole-module audit found no remaining production mismatch. The former oracle whitelist hid `noSupervisor` and `refreshModels`; it now snapshots every parsed field and only converts the JS Map to ordered entries. Native snapshots include both fields.
@@ -30,4 +30,4 @@ Whole-module audit found no remaining production mismatch. The former oracle whi
 
 ## Proof
 
-At the version/checkpoint code plus the args fixture expansion: `cargo test -j3 -p pi-coding-agent --test suite_core_1 args:: -- --nocapture` passes all 27 selected tests. Frozen source remains unmodified. Log: `/tmp/settings-models-args-green.log`. Final oracle typecheck and changed-test clippy/readability are recorded with the checkpoint.
+At `95c462006`: `cargo test -j3 -p pi-coding-agent --test suite_core_1 args:: -- --nocapture` passes all 27 selected tests. Frozen source remains unmodified. Log: `/tmp/settings-models-args-green.log`. Strict oracle typecheck and targeted warning-mode clippy pass, with no warnings in changed test code. Manual changed Rust/TS readability passes.
