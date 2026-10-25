@@ -36,6 +36,7 @@ class CaptureTerminal implements Terminal {
 	clearFromCursor() {}
 	clearScreen() {}
 	setTitle() {}
+	setProgress() {}
 }
 interface Request {
 	cwd: string;
