@@ -94,6 +94,8 @@ pub mod repin_control_validation;
 pub mod repin_control_whitespace;
 #[path = "repin_multi_agent_store.rs"]
 pub mod repin_multi_agent_store;
+#[path = "repin_storage_mailbox_compat.rs"]
+pub mod repin_storage_mailbox_compat;
 #[path = "repin_store_persistence.rs"]
 pub mod repin_store_persistence;
 #[path = "request_wake.rs"]

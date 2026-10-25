@@ -19,9 +19,12 @@ function handle(request: Request): unknown {
     if (request.op === "enqueue") return control.enqueueStoredRuntimeMailboxMessage(request.db, request.input);
     if (request.op === "accept") {
         const session = SessionManager.open(request.path);
+        const recipient = { sessionId: session.getSessionId(), agentId: null };
+        control.registerRuntimeMailboxListener(request.db, recipient, process.pid, request.path);
+        const messages = control.takeRuntimeMailboxMessagesForDelivery(request.db, recipient, () => true, 10);
         session.setMetadataControlDbPath(request.db);
         const message = { role: "user", content: [{ type: "text", text: request.text }], inputSource: "extension", timestamp: 1 };
-        acceptance.acceptRuntimeMailboxMessages(session, request.db, request.messages, message);
+        acceptance.acceptRuntimeMailboxMessages(session, request.db, messages, message);
         return { persisted: acceptance.isRuntimeMailboxMessagePersisted(message), refs: transcript.readAcceptedRuntimeMailboxStoreRefs(request.path) };
     }
     const session = SessionManager.openReadOnly(request.path);

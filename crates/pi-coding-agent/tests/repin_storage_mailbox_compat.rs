@@ -57,11 +57,11 @@ fn source_and_native_mailbox_claims_accept_into_the_same_recipient_jsonl() {
             .unwrap()
         };
         ids.push(id);
-        let messages =
-            take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| true, 10).unwrap();
-        assert_eq!(messages.len(), 1);
         expected_refs.push(input["storeRef"].clone());
         if index == 0 {
+            let messages =
+                take_runtime_mailbox_messages_for_delivery(db.to_str().unwrap(), &recipient, |_| true, 10).unwrap();
+            assert_eq!(messages.len(), 1);
             let message = pi_js_compat::js_json::from_value(&JsValue::from(
                 json!({"role":"user","content":[{"type":"text","text":text}],"inputSource":"extension","timestamp":1}),
             ))
@@ -81,10 +81,7 @@ fn source_and_native_mailbox_claims_accept_into_the_same_recipient_jsonl() {
             assert!(acceptance.consume_persisted_message(&message));
             assert!(!acceptance.consume_persisted_message(&message));
         } else {
-            let accepted = call(
-                &mut source,
-                json!({"op":"accept","db":db,"path":path,"messages":messages,"text":text}),
-            );
+            let accepted = call(&mut source, json!({"op":"accept","db":db,"path":path,"text":text}));
             assert_eq!(accepted["persisted"], true);
         }
     }
