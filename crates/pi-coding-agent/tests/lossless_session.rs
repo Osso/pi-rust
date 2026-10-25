@@ -399,7 +399,7 @@ fn session_jsonl_retains_message_summary_and_custom_units_on_reload() {
                 [0xd800]
             );
         }
-        let wire = serialize_session_entry(entry);
+        let wire = serialize_session_entry(entry).unwrap();
         assert_eq!(parse_lossless(&wire).unwrap(), parse_lossless(record).unwrap());
         let reloaded: SessionEntry = serde_json::from_str(&wire).unwrap();
         assert_eq!(&reloaded, entry);

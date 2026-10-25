@@ -27,9 +27,15 @@ Entry sizing directly serializes the lossless KnownSessionEntry; impossible seri
 
 Actual frozen module RED/GREEN: `repin_storage_tool_output` compares the complete migration report for four malformed filenames created out of order and for a source-created oversized session changed from mtime -2 seconds to -1 second inside the scanner callback. Native previously emitted filesystem iteration order and silently projected both negative timestamps to0, then overwrote the changed file; frozen reports one error and leaves its bytes unchanged. Native now sorts entries by their OS filename before the source stack traversal and computes POSIX Node mtimeMs from seconds plus nanoseconds. No timestamp fallback remains; the non-POSIX metadata query propagates failure. Logs: `/tmp/pi-rust-repin-storage/tool-migration-order-time-{red,green}.log`. Whole-module row remains open.
 
-## Gaps
+## Raw persisted input errors and approved gap (2026-10-25)
 
-- Typed boundary: only `AgentMessage::ToolResult` values are truncated. A raw custom object with `role:"toolResult"` and an array `content` is preserved untruncated, because the Rust message union parses that shape as a custom message.
+Truncation and persistence serialization now return `Result<_, Box<NativeNodeError>>`; manager writes/forks/imports propagate, while migration catches the frozen error message into its report. Actual-source RED/GREEN reproduces a null `toolCallId` at the minimal candidate: native previously omitted it silently, but frozen `utf8Prefix` throws Buffer.from's `TypeError`/`ERR_INVALID_ARG_TYPE`. The expanded primitive matrix covers missing/null/bool/number for both identity fields, including1e12 error formatting. Null/missing raw `message` records also throw the exact frozen property-access TypeError before checking content. Raw toolResult objects are inspected directly; the old typed-union-only gap is retired.
+
+| Boundary | Classification | Proof |
+|---|---|---|
+| Non-string Buffer-like array/array-like/object `toolCallId`/`toolName` at minimal fallback | **GAP approved by parent2026-10-25**: no single String conversion; reject explicitly rather than omit/coerce. This does not reject small/untruncated raw records. | `buffer_like_tool_identity_is_explicit_approved_gap_not_silent_omission`: actual frozen returns array[65,66] intact, native returns explicit error |
+
+## Remaining platform boundary
 - Atomic rewrite compares `mtimeMs` as `f64` using the same POSIX seconds/nanoseconds arithmetic as Node. Windows-only behavior remains under the approved platform gap.
 
 ## Discrepancies
