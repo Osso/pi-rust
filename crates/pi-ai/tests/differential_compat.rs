@@ -63,7 +63,6 @@ fn model(api: &str, provider: &str, id: &str) -> Model {
         context_window: 128_000.0,
         auto_compaction_threshold: None,
         max_tokens: 4096.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }
@@ -162,6 +161,8 @@ fn dispatch_injects_env_keys_like_the_pinned_typescript_module() {
         {"name": "explicit-wins", "api": "openai-responses", "provider": "openai", "modelId": "gpt-5", "options": {"apiKey": "request-key", "env": {"OPENAI_API_KEY": "env-key"}}},
         {"name": "blank", "api": "openai-responses", "provider": "openai", "modelId": "gpt-5", "options": {"apiKey": "   ", "env": {"OPENAI_API_KEY": "env-key"}}},
         {"name": "no-key", "api": "openai-responses", "provider": "custom-openai", "modelId": "test-model", "options": {}},
+        {"name": "ambient", "api": "bedrock-converse-stream", "provider": "amazon-bedrock", "modelId": "custom", "options": {"env": {"AWS_PROFILE": "local-fixture"}}},
+        {"name": "simple-ambient", "api": "bedrock-converse-stream", "provider": "amazon-bedrock", "modelId": "custom", "simple": true, "options": {"env": {"AWS_PROFILE": "local-fixture"}}},
         {"name": "simple-env", "api": "openai-responses", "provider": "ant-ling", "modelId": "test-model", "simple": true, "options": {"reasoning": "high", "env": {"ANT_LING_API_KEY": "env-key"}}},
         {"name": "simple-explicit", "api": "openai-responses", "provider": "ant-ling", "modelId": "test-model", "simple": true, "options": {"apiKey": "request-key", "reasoning": "low"}}
     ]);

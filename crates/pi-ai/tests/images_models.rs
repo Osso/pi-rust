@@ -14,8 +14,9 @@ use serde_json::json;
 
 fn test_model(provider: &str, id: &str) -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "test-images".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -24,7 +25,6 @@ fn test_model(provider: &str, id: &str) -> ImagesModel {
         output: vec![Modality::Image],
         cost: Default::default(),
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
     }
 }
@@ -201,7 +201,10 @@ async fn image_request_auth_receives_the_actual_image_model() {
         serde_json::to_value(&auth).unwrap(),
         oracle.request(&json!({"model": model}))
     );
-    let result = models.generate_images(model, context(), Default::default()).await;
+    let result = models
+        .generate_images(model, context(), Default::default())
+        .await
+        .expect("image generation");
     assert_eq!(result.stop_reason, ImagesStopReason::Stop);
     assert_eq!(
         calls.lock().unwrap()[0].options.request.api_key,
@@ -262,7 +265,8 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
     );
     let result = models
         .generate_images(model.clone(), context(), ImagesOptions::default())
-        .await;
+        .await
+        .expect("image generation");
     assert_eq!(result.stop_reason, ImagesStopReason::Stop);
     assert_eq!(
         calls.lock().expect("calls lock")[0].options.request.api_key.as_ref(),
@@ -271,7 +275,10 @@ async fn resolves_auth_and_merges_it_into_requests_with_explicit_options_winning
 
     let mut explicit = ImagesOptions::default();
     explicit.request.api_key = Some(("explicit".to_owned()).into());
-    models.generate_images(model, context(), explicit).await;
+    models
+        .generate_images(model, context(), explicit)
+        .await
+        .expect("image generation");
     assert_eq!(
         calls.lock().expect("calls lock")[1].options.request.api_key.as_ref(),
         Some(&pi_js_compat::js_json::JsString::from("explicit"))
@@ -317,7 +324,10 @@ async fn merges_provider_resolved_env_into_image_options() {
         },
         ..Default::default()
     };
-    models.generate_images(model, context(), options).await;
+    models
+        .generate_images(model, context(), options)
+        .await
+        .expect("image generation");
 
     let recorded = &calls.lock().expect("calls lock")[0].options;
     assert_eq!(
@@ -367,7 +377,10 @@ async fn applies_auth_base_url_and_headers_to_the_request_model() {
         },
         ..Default::default()
     };
-    models.generate_images(model, context(), options).await;
+    models
+        .generate_images(model, context(), options)
+        .await
+        .expect("image generation");
 
     let recorded = &calls.lock().expect("calls lock")[0];
     assert_eq!(recorded.model.base_url, "https://auth.example/v1");
@@ -394,7 +407,8 @@ async fn returns_error_results_for_unknown_providers_and_still_dispatches_unconf
     });
     let ghost = models
         .generate_images(test_model("ghost", "m"), context(), ImagesOptions::default())
-        .await;
+        .await
+        .expect("image generation");
     assert_eq!(ghost.stop_reason, ImagesStopReason::Error);
     assert!(
         ghost
@@ -413,7 +427,10 @@ async fn returns_error_results_for_unknown_providers_and_still_dispatches_unconf
     ));
     let model = models.get_model("p1", "model-a").expect("registered model");
     assert!(models.get_auth(&model).await.expect("auth resolves").is_none());
-    models.generate_images(model, context(), ImagesOptions::default()).await;
+    models
+        .generate_images(model, context(), ImagesOptions::default())
+        .await
+        .expect("image generation");
     assert_eq!(calls.lock().expect("calls lock")[0].options.request.api_key, None);
 }
 
@@ -511,13 +528,21 @@ fn options_metadata_and_extra_are_forwarded() {
     ));
     let model = models.get_model("p1", "m1").expect("model");
     let options = ImagesOptions {
-        metadata: Some(json!({"trace": "abc"}).as_object().expect("object").clone()),
+        metadata: Some(
+            pi_js_compat::js_json!({"trace": "abc"})
+                .as_object()
+                .expect("object")
+                .clone(),
+        ),
         extra: serde_json::Map::from_iter([("custom".to_owned(), json!(true))]),
         ..Default::default()
     };
-    block_on(models.generate_images(model, context(), options));
+    block_on(models.generate_images(model, context(), options)).expect("image generation");
     let recorded = &calls.lock().expect("calls lock")[0].options;
-    assert_eq!(recorded.metadata.as_ref().expect("metadata")["trace"], json!("abc"));
+    assert_eq!(
+        recorded.metadata.as_ref().expect("metadata")["trace"],
+        pi_js_compat::js_json!("abc")
+    );
     assert_eq!(recorded.extra["custom"], json!(true));
 }
 

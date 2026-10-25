@@ -33,7 +33,6 @@ pub fn model() -> Model {
         context_window: 8192.0,
         auto_compaction_threshold: None,
         max_tokens: 2048.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }

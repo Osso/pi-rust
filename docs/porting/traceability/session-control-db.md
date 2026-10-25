@@ -1,5 +1,21 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Raw agent writes versus store copies (2026-10-25)
+
+Actual-source attachment creation RED `/tmp/storage3-control-agent-wire-red.log` shows typed agent serialization incorrectly applied store copyAccount order to a raw control-DB payload. Existing approved AgentNode order-only metadata now records object paths (including reference-array entries); no JSON values are duplicated. Raw control reads/creation/mutation retain original nested orders. Only copyAgent discards metadata for the objects it rebuilds (account root; result/reference, worker, transcript and event-stream subtrees), so store copies keep their distinct frozen constructor order. The fixture compares actual frozen/native attachment SQLite data bytes for five ordinary nested fields.
+
+## Archive-candidate Unicode tie ordering (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-archive-order-red.log` orders ordinary `𠮷野` and fullwidth `Ａ` filenames differently from native UTF-8 sorting. Candidate timestamps/paths now use the existing JsString SQL reader and UTF-16 ordering. The real-source fixture supplies Date to the exported selector; the native test covers date priority, equal-date filename order, cutoff equality, archived/subagent filtering and verifies selection does not archive rows. No new carrier or locale sort.
+
+## Prompt-history migration return limits (2026-10-25)
+
+Actual source/native RED `/tmp/storage3-control-history-red.log` shows ordinary negative migration limits returned every native legacy entry instead of frozen `slice(0, limit)`. Both prepared-empty and successful-insert returns now use the existing JS slice-index authority; persisted rows and subsequent SQLite LIMIT behavior remain unchanged. `repin_storage_control_history` covers six limits on four nonempty entries and four whitespace-only entries, comparing first return, complete stored rows and second return. Four entries prove the positive two-entry limit is not a single-page-only check. No new carrier or fallback. All12 source/native limit/history groups pass atde74f64e0 (`/tmp/storage3-control-history-green.log`); precommit workspace all-target check passes.
+
+## Original callback throws (2026-10-25)
+
+Actual frozen `withControlDb`/`withImmediateTransaction` baseline `/tmp/storage3-control-callback-source.log` preserves original throws and leaves the inserted row committed outside a transaction, rolled back inside one. API RED `/tmp/storage3-control-callback-api-red.log` could not represent CallbackError in ControlDbError. Main approved extending the existing shared SQLite error with one boxed callback source and From conversion, without new signatures or carriers. The existing CallbackError source walker restores original Error identity/properties and non-Error values; no new coercion or panic wrapper. The current eight-case fixture includes coded TypeError and retains existing null/string/object proof only. The eight-case source/native matrix passes at27f88577b (`/tmp/storage3-control-callback-green.log`); all-target workspace check and protected strict fixture types pass. The current60 control/public/differential/reciprocal/schema/concurrent tests also pass (`/tmp/storage3-audit-control_db.log`). Export correspondence audit finds all127 frozen exported functions represented by135 native public functions; this is correspondence, not behavioral acceptance.
+
 ## Reciprocal mailbox acceptance (2026-10-25)
 
 `repin_storage_mailbox_compat` in `suite_core_4` proves TS enqueue → Rust claim/accept → TS read, then Rust enqueue → TS claim/accept → Rust reopen of the same recipient JSONL. Both receipts and messages survive, and canonical claims are deleted. RED `/tmp/storage2-mailbox-red.log` exposed a fixture ownership error, not a native delivery defect: frozen `deliverRuntimeMailboxMessage` rejects another process's claimant identity. SQLite reuses the deleted numeric ID, so the invalid second delivery made both final lookups see the latest row. Each runtime now registers/claims its own delivery; the frozen ownership check is unchanged. GREEN `/tmp/storage2-mailbox-green.log`: 1 differential passed. This is bounded compatibility evidence, not whole-module acceptance.

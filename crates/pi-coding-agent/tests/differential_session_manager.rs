@@ -311,10 +311,7 @@ fn reads_files_and_headers_identically() {
     let response = oracle
         .request(&json!({"id": REQUEST_BASE + 12, "operation": "find_most_recent", "dir": dir.display().to_string()}));
     assert_eq!(
-        json!(find_most_recent_session(
-            &JsString::from(&dir.display().to_string()),
-            None
-        )),
+        json!(find_most_recent_session(&JsString::from(&dir.display().to_string()), None).unwrap()),
         response["output"]["path"]
     );
 

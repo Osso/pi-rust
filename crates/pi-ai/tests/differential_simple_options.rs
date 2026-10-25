@@ -23,9 +23,9 @@ fn observe_base(model: &Value, context: &Value, options: &Value, api_key: Option
     stream.temperature = options.get("temperature").and_then(Value::as_f64);
     stream.max_tokens = options.get("maxTokens").and_then(Value::as_f64);
     stream.request.api_key = options.get("apiKey").and_then(Value::as_str).map(Into::into);
-    stream.sampling_params = options
-        .get("samplingParams")
-        .map(|value| serde_json::from_value(value.clone()).unwrap());
+    if let Some(value) = options.get("samplingParams") {
+        stream.extra.insert("samplingParams".into(), value.clone());
+    }
     stream.extra.insert("oldOnly".into(), json!(true));
     let options = SimpleStreamOptions {
         stream,
@@ -40,7 +40,6 @@ fn observe_base(model: &Value, context: &Value, options: &Value, api_key: Option
         ("temperature", base.temperature.map(|value| json!(value))),
         ("maxTokens", base.max_tokens.map(|value| json!(value))),
         ("apiKey", base.request.api_key.map(|value| json!(value))),
-        ("samplingParams", base.sampling_params.map(|value| json!(value))),
     ] {
         if let Some(value) = value {
             output[key] = value;

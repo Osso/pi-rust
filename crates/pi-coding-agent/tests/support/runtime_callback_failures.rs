@@ -133,7 +133,9 @@ async fn extension_setup_and_replacement_rejections_preserve_frozen_order_state_
                 false,
                 false,
                 Some(Arc::new(move |request| {
-                    if request.session_start_reason != "startup" {
+                    if request.session_start_event.as_ref().is_some_and(|event| {
+                        event.reason != pi_coding_agent::core::extensions::types::SessionStartReason::Startup
+                    }) {
                         events.lock().unwrap().push("create".into());
                     }
                 })),
@@ -238,7 +240,9 @@ async fn setup_writes_across_await_keep_live_state_and_sync_only_on_success_like
             false,
             false,
             Some(Arc::new(move |request| {
-                if request.session_start_reason != "startup" {
+                if request.session_start_event.as_ref().is_some_and(|event| {
+                    event.reason != pi_coding_agent::core::extensions::types::SessionStartReason::Startup
+                }) {
                     events.lock().unwrap().push("create".into());
                 }
             })),

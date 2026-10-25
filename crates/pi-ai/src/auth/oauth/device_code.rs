@@ -1,9 +1,10 @@
-use std::fmt;
 use std::future::Future;
 use std::time::Duration;
 
 use pi_js_compat::abort::AbortSignal;
 use tokio::time::Instant;
+
+use crate::request::CallbackError;
 
 const CANCEL_MESSAGE: &str = "Login cancelled";
 const TIMEOUT_MESSAGE: &str = "Device flow timed out";
@@ -28,34 +29,13 @@ pub struct OAuthDeviceCodePollOptions {
     pub signal: AbortSignal,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum OAuthDeviceCodeError {
-    Cancelled,
-    TimedOut,
-    SlowDownTimedOut,
-    Failed(pi_js_compat::js_json::JsString),
-}
-
-impl fmt::Display for OAuthDeviceCodeError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cancelled => formatter.write_str(CANCEL_MESSAGE),
-            Self::TimedOut => formatter.write_str(TIMEOUT_MESSAGE),
-            Self::SlowDownTimedOut => formatter.write_str(SLOW_DOWN_TIMEOUT_MESSAGE),
-            Self::Failed(message) => formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(message)),
-        }
-    }
-}
-
-impl std::error::Error for OAuthDeviceCodeError {}
-
 pub async fn poll_oauth_device_code_flow<T, F, Fut>(
     options: OAuthDeviceCodePollOptions,
     mut poll: F,
-) -> Result<T, OAuthDeviceCodeError>
+) -> Result<T, CallbackError>
 where
     F: FnMut() -> Fut,
-    Fut: Future<Output = OAuthDeviceCodePollResult<T>>,
+    Fut: Future<Output = Result<OAuthDeviceCodePollResult<T>, CallbackError>>,
 {
     let deadline = deadline_from(options.expires_in_seconds);
     let mut state = PollState::new(options.interval_seconds);
@@ -66,11 +46,11 @@ where
 
     while !is_expired(deadline) {
         if options.signal.aborted() {
-            return Err(OAuthDeviceCodeError::Cancelled);
+            return Err(CallbackError::new(CANCEL_MESSAGE));
         }
-        match poll().await {
+        match poll().await? {
             OAuthDeviceCodePollResult::Complete(value) => return Ok(value),
-            OAuthDeviceCodePollResult::Failed { message } => return Err(OAuthDeviceCodeError::Failed(message)),
+            OAuthDeviceCodePollResult::Failed { message } => return Err(CallbackError::new(message)),
             OAuthDeviceCodePollResult::SlowDown { interval_seconds } => state.record_slow_down(interval_seconds),
             OAuthDeviceCodePollResult::Pending => {}
         }
@@ -103,11 +83,11 @@ impl PollState {
         self.interval_ms = slow_down_interval(self.interval_ms, interval_seconds);
     }
 
-    fn timeout_error(&self) -> OAuthDeviceCodeError {
+    fn timeout_error(&self) -> CallbackError {
         if self.slow_down_responses > 0 {
-            OAuthDeviceCodeError::SlowDownTimedOut
+            CallbackError::new(SLOW_DOWN_TIMEOUT_MESSAGE)
         } else {
-            OAuthDeviceCodeError::TimedOut
+            CallbackError::new(TIMEOUT_MESSAGE)
         }
     }
 }
@@ -127,7 +107,7 @@ async fn sleep_until_deadline(
     interval_ms: f64,
     deadline: Option<Instant>,
     signal: &AbortSignal,
-) -> Result<(), OAuthDeviceCodeError> {
+) -> Result<(), CallbackError> {
     let delay_ms = match deadline {
         Some(deadline) => {
             let remaining_ms = deadline.saturating_duration_since(Instant::now()).as_secs_f64() * 1000.0;
@@ -141,14 +121,14 @@ async fn sleep_until_deadline(
     abortable_sleep(delay_ms, signal).await
 }
 
-async fn abortable_sleep(delay_ms: f64, signal: &AbortSignal) -> Result<(), OAuthDeviceCodeError> {
+async fn abortable_sleep(delay_ms: f64, signal: &AbortSignal) -> Result<(), CallbackError> {
     if signal.aborted() {
-        return Err(OAuthDeviceCodeError::Cancelled);
+        return Err(CallbackError::new(CANCEL_MESSAGE));
     }
 
     tokio::select! {
         biased;
-        _ = signal.wait() => Err(OAuthDeviceCodeError::Cancelled),
+        _ = signal.wait() => Err(CallbackError::new(CANCEL_MESSAGE)),
         _ = tokio::time::sleep(duration_from_ms(delay_ms)) => Ok(()),
     }
 }

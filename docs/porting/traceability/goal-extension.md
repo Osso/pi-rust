@@ -11,7 +11,7 @@ the source basename converted to snake_case.
 
 ## Re-pin fallibility boundary
 
-Frozen `4f9e6f8a4` synchronous settings errors now propagate through the native error-status scheduler and idle-goal selection callbacks. Exact APIs, branch distinctions and currently unproven failure-injection cases: [native fallibility propagation](retry-delay.md#native-fallibility-propagation). Historical tests below do not establish this new boundary or whole new-pin goal parity.
+Frozen `4f9e6f8a4` synchronous settings errors now propagate through the native error-status scheduler and idle-goal selection callbacks. Exact APIs, branch distinctions and currently unproven failure-injection cases: [native fallibility propagation](retry-delay.md#native-fallibility-propagation). The management, scheduling, review and owner-renderer differentials below now cover this boundary against the common pin.
 
 ## Symbols and branches
 

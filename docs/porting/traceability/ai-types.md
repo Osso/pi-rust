@@ -1,3 +1,9 @@
+# Successor carrier audit checkpoint (2026-10-25)
+
+Whole source types.ts read; row remains partial pending final public-surface/trace cleanup and scoped clippy. [Stopped-lane handoff](../handoff-ai-core.md) is the current authority; lower sections include historical migration inventory, not current API claims.
+
+Parent-approved old-only retirement removes samplingParams typed fields from Model/ImagesModel/StreamOptions. ModelProperties retains historical/unknown values and key order; ImagesModel now uses that same authority and native JsString display name. ImagesOptions.metadata is native JsObject. Valid AssistantMessageEvent decoding uses JsValue explicitly: serde internally-tagged enum buffering rejected raw UTF-16 even though nested message fields already used native carriers. The unmodified frozen type witness covers13record families and all12event variants, with strict source typechecking and full-value native roundtrips.23type tests plus1publicOAuth test GREEN;13image and2simple-options source tests GREEN. Exact logs and remaining gates are in the handoff. Mechanical field/literal/test updates in other crates do not alter their algorithms. Existing fixed native assistant-key order, typed-input/opaque-scalar/owned-value approvals remain unchanged.
+
 ## Q15c KnownProvider literal reconciliation (2026-10-24)
 
 Actual frozen TypeScript compiler API exposes the complete exported KnownProvider union, compared to native KNOWN_PROVIDERS as public ordered data. Genuine41vs36 RED → exact36 GREEN; openai-codex-team added, six old-only ids removed. Custom ProviderId strings and frozen Azure API adapter remain valid. [Contract and old-provider implementation audit](../../specs/known-providers.md), [Radius deletion ledger](radius-config.md). This closes only KnownProvider, not the whole types.ts row.

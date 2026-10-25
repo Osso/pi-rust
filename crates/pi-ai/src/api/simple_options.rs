@@ -43,7 +43,6 @@ pub fn build_base_options(
             max_retry_delay_ms: stream.request.max_retry_delay_ms,
         },
         temperature: stream.temperature,
-        sampling_params: None,
         max_tokens: Some(clamp_max_tokens_to_context(
             model,
             context,
@@ -160,7 +159,6 @@ mod tests {
             context_window: 10_000.0,
             auto_compaction_threshold: None,
             max_tokens: 4096.0,
-            sampling_params: None,
             headers: None,
             compat: None,
         }
@@ -197,14 +195,10 @@ mod tests {
 
     #[test]
     fn base_options_drop_old_sampling_params() {
-        let mut model = model();
-        model.sampling_params = Some(JsonObject::from_iter([
-            ("top_p".to_owned(), json!(0.9)),
-            ("seed".to_owned(), json!(1)),
-        ]));
+        let model = model();
         let options = SimpleStreamOptions {
             stream: StreamOptions {
-                sampling_params: Some(JsonObject::from_iter([("seed".to_owned(), json!(2))])),
+                extra: JsonObject::from_iter([("samplingParams".to_owned(), json!({"seed":2}))]),
                 ..Default::default()
             },
             ..Default::default()
@@ -223,6 +217,6 @@ mod tests {
             base.request.api_key.as_ref(),
             Some(&pi_js_compat::js_json::JsString::from("key"))
         );
-        assert_eq!(base.sampling_params, None);
+        assert!(!base.extra.contains_key("samplingParams"));
     }
 }

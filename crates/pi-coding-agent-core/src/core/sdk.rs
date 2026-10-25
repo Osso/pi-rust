@@ -242,13 +242,7 @@ async fn create_agent_session_internal(
     let saved_model = persisted_settings
         .as_ref()
         .and_then(|settings| settings.model.as_ref())
-        .map(|model| (model.provider.clone(), model.model_id.clone()))
-        .or_else(|| {
-            existing_session
-                .model
-                .as_ref()
-                .map(|model| (model.provider.clone(), model.model_id.clone()))
-        });
+        .map(|model| (model.provider.clone(), model.model_id.clone()));
     if model.is_none()
         && let Some((saved_provider, saved_model_id)) = saved_model
     {

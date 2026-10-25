@@ -107,6 +107,179 @@ fn terminal_export_args_match_frozen() {
     }
 }
 
+#[test]
+fn every_builtin_flag_matches_frozen_with_ordinary_next_tokens() {
+    let mut oracle = oracle::TsOracle::spawn("args-oracle.ts", "packages/coding-agent/src/cli/args.ts");
+    let flags = [
+        "--help",
+        "-h",
+        "--version",
+        "-v",
+        "--mode",
+        "--continue",
+        "-c",
+        "--resume",
+        "-r",
+        "--provider",
+        "--model",
+        "--api-key",
+        "--system-prompt",
+        "--append-system-prompt",
+        "--name",
+        "-n",
+        "--no-session",
+        "--no-supervisor",
+        "--session",
+        "--session-id",
+        "--fork",
+        "--session-dir",
+        "--worktree",
+        "-w",
+        "--models",
+        "--no-tools",
+        "-nt",
+        "--no-builtin-tools",
+        "-nbt",
+        "--tools",
+        "-t",
+        "--exclude-tools",
+        "-xt",
+        "--permission-prompt-tool",
+        "--approval-preset",
+        "--approval-policy",
+        "--dangerously-bypass-approvals",
+        "--thinking",
+        "--print",
+        "-p",
+        "--export-terminal",
+        "--export-columns",
+        "--export",
+        "--extension",
+        "-e",
+        "--no-extensions",
+        "-ne",
+        "--skill",
+        "--prompt-template",
+        "--theme",
+        "--no-skills",
+        "-ns",
+        "--no-prompt-templates",
+        "-np",
+        "--no-themes",
+        "--no-context-files",
+        "-nc",
+        "--list-models",
+        "--refresh-models",
+        "tools",
+        "extensions",
+        "login",
+        "--verbose",
+        "--approve",
+        "-a",
+        "--no-approve",
+        "-na",
+        "--offline",
+    ];
+    let next_tokens = [
+        None,
+        Some(""),
+        Some("alpha"),
+        Some("--help"),
+        Some("@file"),
+        Some("---prompt"),
+        Some("001"),
+    ];
+    let mut id = 30_000;
+    for flag in flags {
+        for next in next_tokens {
+            let argv: Vec<String> = std::iter::once(flag).chain(next).map(str::to_owned).collect();
+            let expected = oracle.request(&json!({"id":id,"operation":"parse_args","args":argv}));
+            assert_eq!(expected, response(id, parse_args(&argv)), "{argv:?}");
+            id += 1;
+        }
+    }
+}
+
+#[test]
+fn standalone_worker_diagnostics_and_repeated_fields_match_frozen() {
+    let mut oracle = oracle::TsOracle::spawn("args-oracle.ts", "packages/coding-agent/src/cli/args.ts");
+    let cases: &[&[&str]] = &[
+        &["--no-supervisor"],
+        &["--no-supervisor", "--no-session"],
+        &[
+            "--no-supervisor",
+            "--no-session",
+            "--session",
+            "file",
+            "--session-id",
+            "id",
+            "--session-dir",
+            "dir",
+            "--fork",
+            "old",
+            "-r",
+            "-c",
+            "-n",
+            "named",
+            "--export",
+            "out",
+        ],
+        &[
+            "--export",
+            "out",
+            "-n",
+            "named",
+            "-c",
+            "-r",
+            "--fork",
+            "old",
+            "--session-dir",
+            "dir",
+            "--session-id",
+            "id",
+            "--session",
+            "file",
+            "--no-session",
+            "--no-supervisor",
+        ],
+        &["--refresh-models", "--no-supervisor", "--no-session"],
+        &[
+            "--mode",
+            "json",
+            "--mode",
+            "invalid",
+            "--thinking",
+            "high",
+            "--thinking",
+            "invalid",
+        ],
+        &[
+            "--append-system-prompt",
+            "A",
+            "--append-system-prompt",
+            "B",
+            "--extension",
+            "a",
+            "--extension",
+            "b",
+        ],
+        &[
+            "--unknown=one",
+            "--other",
+            "two",
+            "--unknown=three",
+            "--flag",
+            "@file",
+            "message",
+        ],
+    ];
+    for (id, case) in cases.iter().enumerate() {
+        let argv = case.iter().map(|value| (*value).to_owned()).collect::<Vec<_>>();
+        let expected = oracle.request(&json!({"id":id,"operation":"parse_args","args":argv}));
+        assert_eq!(expected, response(id as u64, parse_args(&argv)), "{argv:?}");
+    }
+}
+
 struct ParseCase {
     id: u64,
     name: &'static str,
@@ -420,6 +593,7 @@ fn args_json(args: &Args) -> Value {
     }
     insert_string(&mut output, "name", &args.name);
     insert_bool(&mut output, "noSession", args.no_session);
+    insert_bool(&mut output, "noSupervisor", args.no_supervisor);
     insert_string(
         &mut output,
         "session",
@@ -463,6 +637,7 @@ fn args_json(args: &Args) -> Value {
         };
         output.insert("listModels".to_owned(), value);
     }
+    insert_bool(&mut output, "refreshModels", args.refresh_models);
     insert_bool(&mut output, "listTools", args.list_tools);
     insert_bool(&mut output, "listExtensions", args.list_extensions);
     insert_string(&mut output, "loginProvider", &args.login_provider);

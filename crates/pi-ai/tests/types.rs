@@ -349,6 +349,50 @@ fn context_round_trips_tools_with_json_schema_parameters() {
 }
 
 #[test]
+fn frozen_public_type_witness_round_trips_all_record_families() {
+    use pi_js_compat::js_json::{JsValue, from_value, to_value};
+    let mut oracle = oracle::TsOracle::spawn("ai-types-contract.mts", "packages/ai/src/types.ts");
+    let expected: JsValue = oracle.request(&pi_js_compat::js_json!({}));
+    macro_rules! check {
+        ($key:literal, $kind:ty) => {{
+            let value: $kind = from_value(&expected[$key]).unwrap();
+            assert_eq!(to_value(&value).unwrap(), expected[$key], $key);
+        }};
+    }
+    check!("usage", pi_ai::Usage);
+    check!("native", pi_ai::ProviderNativeContext);
+    check!("user", pi_ai::UserMessage);
+    check!("assistant", pi_ai::AssistantMessage);
+    check!("toolResult", pi_ai::ToolResultMessage);
+    check!("model", pi_ai::Model);
+    check!("imageModel", pi_ai::ImagesModel);
+    check!("images", pi_ai::AssistantImages);
+    check!("context", pi_ai::Context);
+    check!("response", pi_ai::ProviderResponse);
+    check!("retry", pi_ai::ProviderRetryEvent);
+    check!("signature", pi_ai::TextSignatureV1);
+    check!("events", Vec<pi_ai::AssistantMessageEvent>);
+}
+
+#[test]
+fn retired_model_sampling_keys_remain_lossless_unknown_json() {
+    use pi_js_compat::js_json::{from_value, parse_lossless, stringify_lossless, to_value};
+    let raw = r#"{"id":"m","samplingParams":{"\ud800":"\udc00"},"name":"Model","api":"custom","provider":"p","baseUrl":"https://test","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":4096,"maxTokens":1024}"#;
+    let value = parse_lossless(raw).unwrap();
+    let model: Model = from_value(&value).unwrap();
+    assert_eq!(stringify_lossless(&to_value(&model).unwrap()), raw);
+}
+
+#[test]
+fn image_model_display_name_and_unknown_properties_remain_lossless() {
+    use pi_js_compat::js_json::{from_value, parse_lossless, stringify_lossless, to_value};
+    let raw = r#"{"id":"m","custom":{"\udc00":"\ud800"},"samplingParams":null,"name":"\ud800","api":"custom","provider":"p","baseUrl":"https://test","input":["text"],"output":["image"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0}}"#;
+    let value = parse_lossless(raw).unwrap();
+    let model: pi_ai::types::ImagesModel = from_value(&value).unwrap();
+    assert_eq!(stringify_lossless(&to_value(&model).unwrap()), raw);
+}
+
+#[test]
 fn assistant_message_defaults_omit_optional_fields() {
     let message = AssistantMessage::empty("openai-responses", "openai", "gpt-6", 42.0);
     let wire = serde_json::to_value(&message).expect("serializes");

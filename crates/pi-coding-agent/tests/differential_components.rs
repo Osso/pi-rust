@@ -1013,7 +1013,6 @@ fn run_component_case(case: &Value) -> Value {
                     context_window: 128000.0,
                     auto_compaction_threshold: None,
                     max_tokens: 4096.0,
-                    sampling_params: None,
                     headers: None,
                     compat: None,
                 })

@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 
 fn model() -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: "google/gemini-3.1-flash-image-preview".to_owned(),
-        name: "Gemini 3.1 Flash Image Preview".to_owned(),
+        name: "Gemini 3.1 Flash Image Preview".into(),
         api: "openrouter-images".to_owned(),
         provider: "openrouter".to_owned(),
         base_url: ("https://openrouter.ai/api/v1".to_owned()).into(),
@@ -33,7 +34,6 @@ fn model() -> ImagesModel {
             tiers: None,
         },
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: Some(indexmap::IndexMap::from([(
             "HTTP-Referer".into(),
             "https://example.com".into(),

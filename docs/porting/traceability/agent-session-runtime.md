@@ -2,6 +2,28 @@
 
 Rust: `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`.
 
+## Whole-module audit closure (2026-10-25)
+
+The locked718-line module at `4f9e6f8a4` is accepted at the user-observable bar. Audit covers every constructor/getter/setter, exported result/factory and services/Error re-export, lifecycle operation and helper. Existing pinned process/persistence proofs remain valid where behavior is unchanged; no fault/extreme matrices were repeated. Native service/Error re-exports now match the frozen module; SDK example13 and the runtime integration fixture compile through that public surface.
+
+| Capability | Concrete proof |
+|---|---|
+| Constructor/apply/getters/hooks, factory DTO, initial creation and exports | actual frozen initial-event absence/new/resume differential; real convenience factory → SDK → bind_extensions event; compiled example/public imports |
+| FIFO transitions, prepared permit, rebind/withSession, teardown and hook rejection order | held-gate/worker-owner UI differential; runtime callback native/raw matrices; before-invalidate retry and shutdown/empty-cleanup tests |
+| Cwd resolution, relocation, beforeRun/afterTurn recovery and resource ownership | actual source recovery cases, real local provider deleting its cwd, isolated physical-cwd repair, trust forwarding and prepared activation proofs |
+| New/switch/fork/reload | cancellation/selected text, metadata-before-factory, archive restoration/availability/cwd guards, old-only fork guard removal, live setup writes across await, exact UI options/reload/source frames |
+| Restart/import/dispose and initial cleanup | actual default execve restart + interruption resolution/persistence; import copied/lexical/symlink/name/missing/cwd/error cases; quit shutdown order; initial detached cleanup/idle archival before factory |
+
+Final behavior after parent integration `0a582ca63`: `runtime-event-final-runtime.log` =48/48 plus the explicitly parent-invoked isolated cwd helper; `runtime-event-final-ui.log` =4/4 bounded startup/import/switch-fork/rebind tests. Workspace all-targets passes0 errors/0 warnings for API commit `e4a325a8d`, then the requested -j3 integration gate also passes0/0 (`train-de46-workspace.*`). Strict common-pin TS and Biome pass. Scoped core/interactive clippy156 existing diagnostics, zero owned changed-line primary spans. Manual changed-line Rust/TS readability audit: typed events remove string conversion/defaulting; no new carrier, fallback or suppressed warning. The final public re-export/import cleanup also passes the required `cargo check -j3 --workspace --all-targets` with0 errors/0 warnings (`runtime-public-workspace.*`); only visibility/imports changed after the behavior proofs. Locked inventory passes686/186679 with610 done /25 gap /28 partial /23 todo. Logs: `/tmp/repin-interactive-2-proof/`.
+
+Frozen Agent's `initialState?.model ?? DEFAULT_MODEL` keeps the ordinary no-auth model sentinel defined, so the runtime's model-persistence branch matches without a new optional-model API. Rust getters return approved owned values; built-in hosts retain runtime ownership while using bound actions. Pathological JSON, OS-fault shapes, numeric extremes and runtime scheduling remain the single recorded project gap, not new APIs or matrices. UI-specific reset/render/resource acceptance belongs to the still-partial [interactive mode](interactive-mode.md), not this runtime module. Historical open checkpoint statements below are superseded by this closure.
+
+## Initial session-start event API (2026-10-25)
+
+Main-approved correction: `CreateAgentSessionRuntimeOptions` and initial creation use the existing `Option<SessionStartEvent>`. The flattened string reason/previous fields and main's lossy reason conversion are deleted. Lifecycle replacements construct their typed event; initial creation passes its optional event unchanged. Main, SDK example13, test RPC-demo harness and the Rust convenience factory forward it to the existing SDK option. Fixture observers and all creation callers are mechanical fallout, including the resource-display-home test helper (the276 production resource block is untouched).
+
+Genuine actual-source/runtime RED `runtime-initial-event-red.log`: source factory receives no initial event; native fabricated startup. `initial_runtime_preserves_absent_and_explicit_session_start_events_like_frozen` compares absence, new, and resume with a lone-unit previous path plus the unchanged factory rejection. `convenience_factory_emits_the_requested_session_start_event` creates the real SDK-backed runtime, binds extensions at the actual emission boundary, and observes the requested resume payload. No new carrier, alternate path, dependency or source delta.
+
 ## Missing-import error identity (2026-10-25)
 
 Actual frozen `importFromJsonl` returns `SessionImportFileNotFoundError` with `name`, `message` and `filePath`; native previously projected only its message into a generic Error. `missing_import_preserves_the_frozen_error_name_and_file_path` reproduces the complete visible error-value mismatch. The existing `SessionImportFileNotFoundError` now projects its fields into `NativeNodeError`/`CallbackError` and retains itself as the original Rust source; no new error carrier or constructor class is added.
@@ -131,7 +153,7 @@ CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
 
 | TS | Rust | Tests |
 | --- | --- | --- |
-| `AgentSessionRuntime` | `AgentSessionRuntime` | `tests/agent_session_runtime.rs` (7) |
+| `AgentSessionRuntime` | `AgentSessionRuntime` | `tests/agent_session_runtime.rs` (48 current nonignored tests) |
 | `createAgentSessionRuntime` | `create_agent_session_runtime` | same |
 | `CreateAgentSessionRuntimeFactory` | `CreateAgentSessionRuntimeFactory` | same |
 | `switchSession` | `switch_session` | cancellation test |
@@ -145,7 +167,7 @@ CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
 | `prepare/activateToolResultRelocation` | same | `bound_runtime_actions_relocate_through_the_extension_context` |
 | `bindSessionRuntimeActions` | `AgentSessionRuntime::bind_session_runtime_actions` in constructor/apply | `bound_runtime_actions_relocate_through_the_extension_context` |
 | `emitBeforeSwitch` / `emitBeforeFork` | `emit_before_switch` / `emit_before_fork` | cancellation test |
-| `teardownCurrent` | `teardown_current` (+ `teardown_current_with`) | shutdown event test |
+| `teardownCurrent` | `teardown_current` | shutdown event test |
 | `finishSessionReplacement` | `finish_session_replacement` | `withSession` receives `ReplacedSessionContext` |
 | `runDetachedJobArtifactCleanup` | `run_detached_job_artifact_cleanup` | invoked by `create_agent_session_runtime` |
 
@@ -182,7 +204,7 @@ CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
 
 ## Gaps
 
-The historical project-trust/availability and pre-abort notes are superseded by the 4d and teardown proofs above. Whole-runtime acceptance remains open. Pathological input, OS-fault, numeric-extreme and runtime scheduling cases follow the project user-observable parity exclusions; existing lossless carriers remain intact.
+The historical project-trust/availability and pre-abort notes are superseded by the 4d and teardown proofs above. Whole-runtime acceptance is recorded in the closure above. Pathological input, OS-fault, numeric-extreme and runtime scheduling cases follow the project user-observable parity exclusions; existing lossless carriers remain intact.
 
 ## v15 import/fork names (approved 2026-10-20)
 

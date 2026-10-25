@@ -135,6 +135,34 @@ impl Session {
 }
 
 #[test]
+fn rpc_prompt_images_preserve_absent_empty_and_populated_extension_input() {
+    let (mut session, root) = Session::start_with(&[("PI_HARNESS_RPC_FIXTURE", r#"{"imagesProbe":true}"#)]);
+    let image = json!({"type":"image","data":"AA==","mimeType":"image/png"});
+    for command in [
+        json!({"id":"absent","type":"prompt","message":"absent"}),
+        json!({"id":"empty","type":"prompt","message":"empty","images":[]}),
+        json!({"id":"image","type":"prompt","message":"image","images":[image.clone()]}),
+    ] {
+        let (source, native) = session.command(command);
+        session.assert_same(&source, &native);
+    }
+    let read =
+        |runtime: &str| std::fs::read_to_string(root.path().join(runtime).join("state/images-report.jsonl")).unwrap();
+    let source = read("ts");
+    let native = read("rust");
+    assert_eq!(source, native);
+    let values: Vec<Value> = source.lines().map(|line| serde_json::from_str(line).unwrap()).collect();
+    assert_eq!(values, vec![json!("absent"), json!([]), json!([image])]);
+    let normalizer = session.normalizer;
+    let (source, source_code, source_error) = session.ts.finish();
+    let (native, native_code, native_error) = session.rust.finish();
+    assert_eq!((source_code, native_code), (0, 0));
+    assert_eq!(normalizer.normalize(&source_error), normalizer.normalize(&native_error));
+    let normalize = |lines: Vec<String>| lines.iter().map(|line| normalizer.normalize(line)).collect::<Vec<_>>();
+    assert_eq!(normalize(source), normalize(native));
+}
+
+#[test]
 fn done_error_matches_frozen_rpc_session_events() {
     let (mut session, _root) =
         Session::start_with_responses(&[("PI_HARNESS_DONE_ERROR", "1")], r#"[{"stopReason":"error"}]"#);

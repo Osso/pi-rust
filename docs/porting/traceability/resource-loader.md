@@ -1,144 +1,65 @@
-# resource-loader.ts traceability
+# resource-loader.ts → core::resource_loader
 
-Source: `packages/coding-agent/src/core/resource-loader.ts` (1270 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/resource_loader.rs`.
+Frozen `4f9e6f8a4`, 1191 lines. Native: `crates/pi-coding-agent-tools/src/core/resource_loader.rs`.
+Whole-module audit closed 2026-10-25. Current commands, revisions and results: [extension API proof](../ext-api-repin-proof.md).
 
-Tests: `crates/pi-coding-agent/tests/resource_loader.rs` (25 behavioral cases) and
-`crates/pi-coding-agent/tests/differential_resource_loader.rs` (rules differential + eight
-context-file fixture trees compared against the real pinned TypeScript module).
+## Exported contracts
 
-## Ported symbols
-
-| TS symbol | Rust item | Tests |
+| Frozen symbol | Native mapping | Observable proof |
 | --- | --- | --- |
-| private `firstPartyExtensionName` | `first_party_extension_name` | `names_first_party_and_inline_extension_paths` |
-| private `inlineExtensionName` | `inline_extension_name` | same |
-| private `resolvePromptInput` | `resolve_prompt_input` | `resolves_prompt_input_files_and_literals` |
-| `loadRulesFilesFromDir` | `load_rules_files_from_dir` | differential `coding-agent-resource-loader-oracle.ts` (order, trim, empty-file skip, missing dir, non-`.md`, Unicode collation) |
-| `loadRulesFromDir` | `load_rules_from_dir` | same differential request |
-| `RulesScope` | `RulesScope` | `rules_load_in_sorted_order_and_respect_scope` |
-| private `loadContextFilesFromDir` | `load_context_files_from_dir` | `agents_context_files_layer_with_overrides_and_memory`, `context_file_variants_dedupe_and_directories_are_ignored`, differential fixtures |
-| private `loadInstructionContextFilesFromDirs` | `load_instruction_context_files_from_dirs` | `agents_family_suppresses_claude_family_across_directories`, `claude_family_loads_when_no_agents_family_exists` |
-| private `appendUniqueContextFiles` | `append_unique_context_files` | same tests (realpath dedupe) |
-| private `listAncestorDirs` | `list_ancestor_dirs` | layered fixtures |
-| `findShadowedContextFile` | `find_shadowed_context_file` | `shadowed_worktree_context_files_are_deduplicated`, `bare_layout_container_context_is_not_shadowed`, `submodule_and_missing_gitdir_climb_normally`, differential worktree/bare/sibling/submodule fixtures |
-| `loadProjectContextFiles` | `load_project_context_files` | differential `load_project_context_files_matches_the_pinned_typescript_source` (8 fixture trees) + focused cases |
-| `DefaultResourceLoader` constructor/state | `DefaultResourceLoader::new`, `ResourceLoaderState` | `starts_empty_and_discovers_skills_and_prompts` |
-| `getExtensions/getSkills/getPrompts/getThemes/getAgentsFiles/getRulesFiles/getRulesContent/getSystemPrompt/getSystemPromptSource/getAppendSystemPrompt/getAppendSystemPromptSources` | same-named trait methods | every behavioral test asserts loaded state |
-| `extendResources` | `extend_resources` | `extend_resources_loads_skills_and_prompts_with_metadata` |
-| `loadProjectTrustExtensions` | `load_project_trust_extensions` | `default_project_trust_loader_forces_untrusted_and_loads_inline_factories` |
-| `reload` | `reload`, `reload_with` | `rules_reload_from_disk`, trust/source/override tests |
-| private `resolveExtensionLoadPath` | `resolve_extension_load_path` | pre-trust reuse path in `reload` |
-| private `loadCurrentExtensionSet` | `load_current_extension_set` | trust bootstrap test |
-| private `loadFinalExtensionSet` | `load_final_extension_set` | trust bootstrap + conflict tests |
-| private `addExtensionConflictDiagnostics` | `add_extension_conflict_diagnostics` | `extension_conflicts_report_tools_and_flags` |
-| private `detectExtensionConflicts` | `detect_extension_conflicts` | same (exact `Tool "..." conflicts with ...` / `Flag "--..." conflicts with ...` text) |
-| private `mapSkillPath` | `map_skill_path` | `project_resources_win_name_collisions` |
-| private `normalizeExtensionPaths` | `normalize_extension_paths` | `extend_resources_loads_skills_and_prompts_with_metadata` |
-| private `updateSkillsFromPaths/updatePromptsFromPaths/updateThemesFromPaths` | same snake-case methods | extend/override/collision tests |
-| private `applyExtensionSourceInfo` | `apply_extension_source_info` | `extension_conflicts_report_tools_and_flags` |
-| private `findSourceInfoForPath` | `find_source_info_for_path` | extension/package metadata tests |
-| private `getDefaultSourceInfoForPath` | `get_default_source_info_for_path` | `<inline:...>` source `"inline"`, agent/project root scopes |
-| private `mergePaths` | `merge_paths` | collision tests (project-first canonical dedupe) |
-| private `resolveResourcePath` | `resolve_resource_path` | all path-based tests |
-| private `loadThemes/loadThemesFromDir/loadThemeFromFile` | same snake-case methods | theme collision and discovery tests |
-| private `getDisabledExtensionNames/isExtensionPathDisabled/filterDisabledExtensionPaths/isExtensionFactoryDisabled` | same snake-case methods (shared helpers from `extensions::loader`) | `disabled_inline_extension_factories_are_skipped` |
-| private `loadExtensionFactories` | `load_extension_factories` | conflict/trust/disabled tests |
-| private `dedupePrompts` | `dedupe_prompts` | `project_resources_win_name_collisions` |
-| private `dedupeThemes` | `dedupe_themes` | same |
-| private `discoverSystemPromptFile/discoverAppendSystemPromptFile` | same snake-case methods | `system_and_append_prompt_discovery_and_sources` |
-| private `isUnderPath` | `is_under_path` | source-info root tests |
-| `ResourceLoader` interface | `ResourceLoader` trait (+`LoadedThemes`, `LoadedRulesFiles`) | `StaticResourceLoader`/`DefaultResourceLoader` impls |
-| `ResourceExtensionPaths`, `ResourceLoaderReloadOptions` | `ResourceExtensionPaths`, `ResolveProjectTrust` | extend/trust tests |
-| `DefaultResourceLoaderOptions` | `DefaultResourceLoaderOptions` | all behavioral tests |
-| `InlineExtension` | `InlineExtension` enum (`Factory` with optional `extensionPath`, `Named`) | disabled/trust/conflict tests |
+| ResourceCollision / ResourceDiagnostic | diagnostics reexports | conflict/collision assertions in `resource_loader` |
+| ResourceExtensionPaths | ResourceExtensionPaths / ExtendedResourcePath | extend-resource paths, metadata and invalid-path differential |
+| ResourceLoaderReloadOptions | ResolveProjectTrust callback | trust bootstrap behavioral cases |
+| ResourceLoader | ResourceLoader trait | default/static getters, reload and extend tests |
+| loadProjectContextFiles | load_project_context_files | actual frozen 8-tree context differential, directory warnings and root-error differential |
+| loadRulesFilesFromDir / loadRulesFromDir | same snake-case functions | actual frozen rule differential, locale sorting, empty files, EISDIR failure |
+| RulesScope | RulesScope | shared/main/child/architect selection and trusted-project rules |
+| DefaultResourceLoaderOptions / DefaultResourceLoader | same names | constructor boundary and 23 resource behavioral tests |
+| InlineExtension | native factory/name representation | factory failures, disabled inline IDs, conflict and trust tests |
 
-## Deviations and gaps
+## Branch audit
 
-- **TypeScript extension module loading** is the approved deviation (2026-10-18). `loadExtensionsCached`
-  resolves factories through `ExtensionRegistry` keyed by resolved path or id; filesystem `.ts`/`.js`
-  entries without a registered factory produce the source's
-  `Extension does not export a valid factory function: {path}` diagnostic.
-- `extendResources` is declared `void` in the source; the Rust trait method cannot propagate a
-  `loadSkills`/`loadPromptTemplates` path error. Errors are dropped there, while `reload` propagates
-  them. Recorded as a trait-shape gap, not a source behavior.
-- Theme JSON parse/validation error text comes from the Rust theme loader (`ThemeError` Display), not
-  Node's `JSON.parse` message. Diagnostics still carry the file path and warning type.
-- `resolvePromptInput`/context-file warnings go to stderr without chalk colors; message text matches
-  the source apart from the platform error string appended after `: `.
-- `canonicalizePath` falls back to the input path when `realpath` fails; the source's `realpathSync`
-  would throw and skip the file. Only reachable on races/permission errors.
-- The loader owns an `ExtensionRegistry` option because Rust extensions are registered rather than
-  imported.
+| Frozen branch / private methods | Native mapping | Proof |
+| --- | --- | --- |
+| resolvePromptInput: absent/literal/file/read failure | resolve_prompt_input | literal/file tests; exact stderr FORCE_COLOR=0/1 differential |
+| loadContextFilesFromDir / loadInstructionContextFilesFromDirs | same snake-case helpers | AGENTS family suppresses CLAUDE family globally; all uppercase/local variants; directories warn; no override-file branch |
+| appendUniqueContextFiles / listAncestorDirs | same helpers | realpath dedupe, root-to-leaf order and memory symlink fixtures |
+| global memory exclusion | load_project_context_files | global/project memory fixture trees |
+| constructor normalization and dependency creation | fallible new | eight frozen/native constructor/caller identity cases; owning constructor proof linked below |
+| getters | ResourceLoader trait methods | empty state, successful reload, retained partial state, native text tests |
+| extendResources / normalizeExtensionPaths / mergePaths | extend_resources and helpers | metadata normalization, reentrant getters, canonical first-wins merge and path errors |
+| loadProjectTrustExtensions / loadCurrentExtensionSet | same snake-case methods | forced-untrusted bootstrap, CLI/noExtensions and inline factory tests |
+| reload package/CLI paths and enabled metadata | resolve_resource_sets | project-first collisions, no-resource switches and explicit additional paths |
+| loadFinalExtensionSet / resolveExtensionLoadPath | same snake-case methods | pre-trust runtime reuse, failure-path reconciliation and disabled inline filtering |
+| applyExtensionSourceInfo / findSourceInfoForPath / getDefaultSourceInfoForPath / isUnderPath | same helpers | package/extension prefix metadata, synthetic paths and ordinary local roots |
+| mapSkillPath | map_skill_path | auto/package SKILL.md selection and explicit skill fixtures |
+| updateSkillsFromPaths / updatePromptsFromPaths | same snake-case methods | overrides, source metadata and retained stage publication |
+| updateThemesFromPaths | same method | valid additional-theme default source metadata differential; package/extension/existing/default precedence |
+| loadThemes / loadThemesFromDir / loadThemeFromFile | same methods | file/directory/symlink theme discovery, warning/collision paths and overridden themes |
+| dedupePrompts / dedupeThemes | same helpers | first-wins names and exact collision diagnostics |
+| getDisabledExtensionNames / isExtensionPathDisabled / filterDisabledExtensionPaths / isExtensionFactoryDisabled | shared loader helpers plus resource-root resolution | trimmed IDs, basename/path/native-unit identity and disabled factories |
+| loadExtensionFactories | same method | inline numbering, native Error messages and frozen non-Error fallback differential |
+| detectExtensionConflicts / addExtensionConflictDiagnostics | same helpers | exact Tool/Flag diagnostics; keep both loaded |
+| rule scope/trust selection | load_rules_into | shared and role scopes, untrusted/trusted project rules |
+| discoverSystemPromptFile / discoverAppendSystemPromptFile | same helpers | trusted project precedence, global defaults and explicit literal/file sources |
+| system/append prompt overrides | load_system_prompts_into | actual frozen two-reload publication differential |
 
-## Discrepancies
+## Corrected discrepancies
 
-None found in the ported branches; the context-file differential matched the pinned source for
-ordinary repos, nested/sibling/bare worktrees, submodules, symlinked memory, override layering, and
-directory candidates.
+The successor audit reproduced the remaining realistic defects before code changes:
 
-## Q18 native continuation (2026-10-22)
+- Append prompt callbacks saw the previous system prompt. RED `/tmp/ext-api3-resource-prompt-red.log`; publish the existing state before append source/override processing, with no callback under a lock.
+- Direct additional themes had no default source metadata. RED `/tmp/ext-api3-resource-theme-red.log`; preserve source precedence and fill the missing local default branch.
+- Directory traversal used filesystem order instead of Node readdir's raw-byte name order. RED `/tmp/ext-api3-theme-order-red2.log` proves visible theme order; `/tmp/ext-api3-rule-order-red.log` proves stable locale ties for composed/decomposed filenames. The real trust-bootstrap differential also proves single loading of successful and failed pre-trust factories; its package-manager helper correction is parent-approved.
 
-All stored prompt/rule/context content, path keys, inline names, override inputs,
-diagnostics, and ResourceLoader results now use `JsString`. Native node path
-operations preserve units until actual filesystem reads/stat/readdir; read bytes
-use Node UTF-8 replacement behavior at that ingress. Locale sorting uses UTF-16
-collation. `lossless_resource_loader` checks literal prompts, inline names, and
-static getters with raw units; written but unexecuted.
+Earlier fixes are renewed by the current focused tests: extension/skill/prompt/theme/context stage publication; rule-read failure retaining earlier changes; extend-resource callback deadlock; path/metadata errors; colored Node warning text; directory candidates; old-only prompt-source getters and AGENTS.override/worktree-shadow behavior removed. No old-only behavior remains in this module.
 
-replacement-resources-2: 20 remaining primary diagnostics, all stale package
-resource/metadata contracts or the UI-owned native theme API. Coding tests remain
-library-blocked. No runtime PASS or renewed frozen parity claim.
+Current focused results for `lossless_resource_loader`, 23 `resource_loader` behaviors and two frozen rule/context parents are recorded in the closure proof. The single ignored warning probe is invoked by its parent, not skipped coverage.
 
-Settings `get_disabled_extensions` returns native strings, but its JSON ingress
-remains scalar serde_json pending the separately assigned SettingsManager native
-authority slice. This projection does not claim lossless persisted settings.
+## Representation and gaps
 
-### Source-drift removals
+- Rust-native extensions and static factory registration replace jiti loading/caching, as approved in AGENTS.md. Getters return owned snapshots; live extension handles remain shared where frozen consumers require them.
+- Typed native Skill/PromptTemplate values always carry source info; erased JS optional/union aliases need no additional native carrier.
+- Gap: adversarial shapes, exceptional filesystem failures/races, runtime oddities and numeric extremes are outside the current parity bar; ordinary read/path diagnostics remain exact.
 
-Removed old-only AGENTS.override.md precedence and worktree-shadow suppression;
-neither exists in common-pin resource-loader.ts:88–122 and no locked delta
-authorizes them. Context candidates now match the frozen AGENTS/CLAUDE lists and
-family selection. Deleted shadow-only tests; updated layered instructions
-expectations. New frozen oracle comparison covers an override file beside regular
-AGENTS files. Coding compilation still blocks its execution (no behavioral RED
-claim). The now-unneeded native footer path migration is reverted completely.
-
-`extend_resources` returns `Result` and propagates update failures rather than
-discarding them. AgentSession forwards the error from resource discovery through
-reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
-written but unexecuted. These are source-drift removals, not approved deviations.
-
-## Reload publication and rule-read audit (2026-10-25)
-
-Actual frozen reload publishes extension/skill/prompt/theme/context stages in order, and earlier successful updates remain visible after a later failure. Native previously built an atomic replacement snapshot: prompt overrides saw the old skill set, and a rule-read error discarded new skills. Reload now publishes each stage without retaining state locks across callbacks. Rule reads report Node scandir/read text instead of Rust OS Display text. RED `/tmp/ext-api2-resource-state-red.log`: callback observations `[[],[first]]` and retained first differ from frozen `[[first],[second]]` and retained second; native EISDIR text also differs. Focused GREEN pending.
-
-## Resource path/factory catch audit (2026-10-25)
-
-Source metadata baseDir normalization can fail before resource loading; native previously swallowed this and accepted `file://remote/resources`. Path resolution, path merging, disabled filtering, normalized discovered entries and pre-trust path reconciliation now propagate Result without unresolved-input fallbacks. Inline factory catch policy is deliberately different from runner catches: frozen :1063 uses Error.message or literal `failed to load extension`, not String(non-Error). Native now preserves that exact policy. Actual frozen/native RED `/tmp/ext-api2-resource-path-red.log` reproduces both defects; focused GREEN pending.
-
-## Old-only prompt-source display removal (2026-10-25)
-
-Frozen interactive-mode.ts:1897–1911 lists only getAgentsFiles under Context, not system-prompt or append-system-prompt file paths. Removed native get_system_prompt_source/get_append_system_prompt_sources, LoadedPathSource, their derived state and the extra UI listing. Kept actual system/append prompt loading and its content assertions. Test wrappers only lose old-only trait methods; source-only getter assertions are retired. Parent authorized this deletion.
-
-The existing startup frame differential now creates SYSTEM.md and APPEND_SYSTEM.md for every quiet/verbose/scoped/restored case. RED `/tmp/ext-api2-system-prompt-startup-red.log` contains native-only Context rows; GREEN pending. No source fixture or assertion normalization was loosened.
-
-## Public context root errors (2026-10-25)
-
-loadProjectContextFiles now returns Result with the existing CallbackError carrier and preserves actual path TypeError branding/message instead of falling back to unresolved roots. Resource-loader and three fixture consumers propagate/unwrap mechanically. Source-info normalization uses Node path.resolve (without tilde/file-URL reinterpretation), with Result propagated through prefix lookup. Removed the local process-cwd expect and all unresolved-path fallback helpers. RED `/tmp/ext-api2-context-root-red.log`: invalid file-URL root returned successful empty context; frozen throws TypeError. GREEN pending.
-
-## Extension-resource callback lock boundary (2026-10-25)
-
-Extended the same actual frozen lifecycle fixture to append a prompt after the rule failure. Frozen override reads current skills synchronously. Native held its state mutex throughout extendResources and deadlocked when the override called getSkills. RED `/tmp/ext-api2-resource-extend-red.log` fails the bounded real-thread completion boundary. Native now releases the state lock before overrides and publishes successful resource stages in source order, preserving metadata before failures. No special-case guard or fallback. GREEN pending.
-
-## Warning text and directory candidates (2026-10-25)
-
-Frozen attempts reads for existing AGENTS/CLAUDE candidates, including directories, and logs chalk-yellow Error text on read failures. Native previously silently skipped directory candidates and used Rust OS text for prompt warnings. Context reads now follow read→realpath→collect, skip with the exact Node read/realpath message on failure, and use the existing stdout-bound Chalk authority for yellow diagnostics. RED `/tmp/ext-api2-resource-warnings-red.log` has one native OS-text warning versus three frozen Node-text warnings. The subprocess comparison covers FORCE_COLOR=0/1; GREEN pending.
-
-## Constructor error carrier
-
-[Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.
-
-Actual frozen/native `resource_loader_constructor_nss_errors_keep_native_identity_through_callers` uses a private sequenced getpwuid_r interposer. Direct constructor/default trust loader fail immediately; SDK/services permit their preceding four successful path normalizations before NSS fails at loader construction. Source trust-loader reference is the actual constructor, since that adapter delegates directly to it before loading. Genuine RED `resource-loader-constructor-red.log`: all four native callers returned generic Error/message only instead of SystemError/code/errno/syscall/info. Initial GREEN `resource-loader-constructor-green-attempt.log`:1/1, four callers. Final `resource-loader-constructor-regressions.log` adds later embedded package-manager failures:1/1, eight source/native cases. Constructor/resource/services/project-command regressions60/60 pass; SDK10/11 pass. Parent independently reproduced `custom_provider_response_preserves_header_order_through_sdk_and_json` failing with `No API key found for ordered-custom` on unchanged49b0d18f and assigned the auth regression to233; not waived as a passing SDK suite.
-
-At893a0d39: workspace/all-targets0 errors/0 warnings; scoped strict TS/Biome/fmt pass; inventoryPASS686/186679, statuses403/19/87/177 unchanged. Scoped lib+tests clippy exits0 with1679 warnings. One raw changed-function-span overlap is the unchanged `supervisor/main.rs` test-module placement (`items_after_test_module`); parent confirmed preexistence and reserved it for final clippy. No applicable new finding. Manual Rust/TS readability audited changed lines. Proof ledger and exact commands: `/tmp/pi-rust-repin-lossless-interactive/resource-loader-constructor-proof-ledger.md`. This is bounded constructor/error-carrier evidence, not whole-loader or whole-SDK acceptance. Source/native HOME initialization stays outside the armed failure; no host NSS mutation.
+Constructor error identity contract: [spec](../../specs/resource-loader-constructor-errors.md). Existing constructor proof is `/tmp/pi-rust-repin-lossless-interactive/resource-loader-constructor-proof-ledger.md`; this closure does not rerun the fault-injection matrix.
