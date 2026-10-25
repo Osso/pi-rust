@@ -1,5 +1,7 @@
 import { StringDecoder } from "node:string_decoder";
 import { pathToFileURL } from "node:url";
+import { rename } from "node:fs/promises";
+import { existsSync } from "node:fs";
 
 type RequestId = string | number | null;
 
@@ -24,12 +26,16 @@ type Step = {
 	entries?: Array<Record<string, unknown>>;
 	controlDbPath?: string | null;
 	cwd?: string;
+	renameError?: string;
+	aborted?: boolean;
+	abortOnReady?: string;
 };
 
 type Request = {
 	id: RequestId;
 	extension: string;
 	steps: Step[];
+	useDefaultProvision?: boolean;
 };
 
 type Calls = {
@@ -81,7 +87,7 @@ function normalizeError(error: unknown): { name: string; message: string } {
 	return { name: "UnknownError", message: String(error) };
 }
 
-function createHarness(module: Record<string, unknown>, extension: string, callsRef: { calls: Calls }) {
+function createHarness(module: Record<string, unknown>, extension: string, callsRef: { calls: Calls }, useDefaultProvision = false) {
 	const handlers = new Map<string, Array<(event: unknown, ctx: unknown) => unknown>>();
 	const tools = new Map<string, Record<string, unknown>>();
 	const commands = new Map<string, Record<string, unknown>>();
@@ -89,7 +95,7 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 	const flags = new Map<string, Record<string, unknown>>();
 	const shortcuts = new Map<string, Record<string, unknown>>();
 	const handlerOrder: string[] = [];
-	const state: { inputs: Array<string | null>; runCommandResults: Step["runCommandResults"] } = {
+	const state: { inputs: Array<string | null>; runCommandResults: Step["runCommandResults"]; renameError?: string } = {
 		inputs: [],
 		runCommandResults: [],
 	};
@@ -164,7 +170,11 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 
 	if (typeof module.createAskSecretToolDefinition === "function") {
 		const create = module.createAskSecretToolDefinition as (options: unknown) => Record<string, unknown>;
-		const tool = create({ provision });
+		const renameFile = async (source: string, destination: string) => {
+			if (state.renameError) throw new Error(state.renameError);
+			await rename(source, destination);
+		};
+		const tool = create({ ...(useDefaultProvision ? {} : { provision }), renameFile });
 		tools.set(tool.name as string, tool);
 	} else if (typeof module.createBrowserCliToolDefinition === "function") {
 		const create = module.createBrowserCliToolDefinition as (options: unknown) => Record<string, unknown>;
@@ -174,6 +184,7 @@ function createHarness(module: Record<string, unknown>, extension: string, calls
 
 	const makeCtx = (step: Step) => {
 		state.inputs = [...(step.inputs ?? [])];
+		state.renameError = step.renameError;
 		state.runCommandResults = [...(step.runCommandResults ?? [])];
 		const ui = {
 			confirm: async (title: string, message: string) => {
@@ -343,17 +354,36 @@ async function executeStep(
 				onUpdate: unknown,
 				ctx: unknown,
 			) => unknown;
-			return await execute("call-1", step.params ?? {}, undefined, undefined, ctx);
+			return await executeToolWithAbort(execute, step, ctx);
 		}
 		default:
 			throw new Error(`unknown step: ${step.op}`);
 	}
 }
 
+async function executeToolWithAbort(
+    execute: (id: string, params: unknown, signal: unknown, onUpdate: unknown, ctx: unknown) => unknown,
+    step: Step,
+    ctx: unknown,
+): Promise<unknown> {
+    const controller = step.aborted || step.abortOnReady ? new AbortController() : undefined;
+    if (step.aborted) controller?.abort();
+    const deadline = Date.now() + 10_000;
+    const readyPath = step.abortOnReady;
+    const timer = readyPath ? setInterval(() => {
+        if (existsSync(readyPath) || Date.now() >= deadline) controller?.abort();
+    }, 10) : undefined;
+    try {
+        return await execute("call-1", step.params ?? {}, controller?.signal, undefined, ctx);
+    } finally {
+        if (timer) clearInterval(timer);
+    }
+}
+
 async function execute(request: Request, module: Record<string, unknown>) {
 	const results: unknown[] = [];
 	const callsRef = { calls: newCalls() };
-	const h = createHarness(module, request.extension, callsRef);
+	const h = createHarness(module, request.extension, callsRef, request.useDefaultProvision);
 	for (const step of request.steps) {
 		callsRef.calls = newCalls();
 		let result: unknown = null;

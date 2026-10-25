@@ -81,7 +81,6 @@ enum SecretRequest {
 
 pub fn ask_secret_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
     pi.register_tool(create_ask_secret_tool_definition(AskSecretToolOptions::default()))
-        .map_err(HandlerError::from)
 }
 
 pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolDefinition {
@@ -514,11 +513,28 @@ async fn provision_browser_credential(
         None => operation.await,
     };
     payload.fill(0);
-    throw_if_aborted(signal.as_ref())?;
+    if signal.as_ref().is_some_and(AbortSignal::aborted) {
+        terminate_aborted_provisioner(&mut child, signal.as_ref()).await?;
+        return Err(HandlerError::new("ask_secret cancelled"));
+    }
     match result {
         Ok(Some(0)) => Ok(()),
         _ => Err(provisioning_failure(signal.as_ref())),
     }
+}
+
+async fn terminate_aborted_provisioner(
+    child: &mut tokio::process::Child,
+    signal: Option<&AbortSignal>,
+) -> Result<(), HandlerError> {
+    if let Some(pid) = child.id().and_then(|pid| rustix::process::Pid::from_raw(pid as i32)) {
+        match rustix::process::kill_process(pid, rustix::process::Signal::TERM) {
+            Ok(()) | Err(rustix::io::Errno::SRCH) => {}
+            Err(_) => return Err(provisioning_failure(signal)),
+        }
+        child.wait().await.map_err(|_| provisioning_failure(signal))?;
+    }
+    Ok(())
 }
 
 fn provisioning_failure(signal: Option<&AbortSignal>) -> HandlerError {

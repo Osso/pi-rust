@@ -4,11 +4,11 @@ Match frozen `coding-agent/extensions/ask-secret/src/index.ts` at the [common pi
 
 ## What it must do
 
-- [ ] Accept exactly one of path/label or record/fields; validate strings and browser field types with frozen messages.
-- [ ] Require an interactive TUI; mask file secrets and password fields, preserve field order, and return no secret values.
-- [ ] Provision browser credentials with `--fields-json` and a JSON values array on stdin.
-- [ ] Save file secrets with a trailing newline, owner-only directories/files, sync-before-rename and temporary-file cleanup. Reject symlink/non-regular destinations.
-- [ ] Match cancellation, unavailable results and errors; keep existing destination contents when persistence fails before rename.
+- [x] Accept exactly one of path/label or record/fields; validate strings and browser field types with frozen messages.
+- [x] Require an interactive TUI; mask file secrets and password fields, preserve field order, and return no secret values.
+- [x] Provision browser credentials with `--fields-json` and a JSON values array on stdin.
+- [x] Save file secrets with a trailing newline, owner-only directories/files, sync-before-rename and temporary-file cleanup. Reject symlink/non-regular destinations.
+- [x] Match cancellation, unavailable results and errors; keep existing destination contents when persistence fails before rename.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Match frozen `coding-agent/extensions/ask-secret/src/index.ts` at the [common pi
 
 ## Known gaps (current cycle)
 
-- [ ] Complete focused proof after the current-pin implementation.
+Current-pin tool/UI/file matrices and actual default process proofs pass. The missing-authsudo crash remains an explicitly approved OS-fault discrepancy.
 
 ## Out of scope
 

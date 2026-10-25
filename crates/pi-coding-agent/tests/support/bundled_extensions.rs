@@ -354,10 +354,19 @@ pub fn calls_json(calls: &Calls) -> Value {
         .inputs
         .iter()
         .map(|(title, placeholder, options)| {
-            let options = match options {
-                Some(options) if options.secret == Some(true) => json!({"secret": true}),
-                _ => json!({}),
-            };
+            let mut fields = pi_js_compat::js_json::JsObject::new();
+            if let Some(options) = options {
+                if options.signal.is_some() {
+                    fields.insert("signal".into(), json!({}));
+                }
+                if let Some(timeout) = options.timeout {
+                    fields.insert("timeout".into(), json!(timeout));
+                }
+                if let Some(secret) = options.secret {
+                    fields.insert("secret".into(), json!(secret));
+                }
+            }
+            let options = Value::Object(fields);
             json!([title, placeholder, options])
         })
         .collect();
