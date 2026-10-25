@@ -58,7 +58,7 @@ the pinned TS module).
 
 ## Registered callback prerequisite (2026-10-24)
 
-[Acquisition contract](../../specs/provider-stream-errors.md). Actual frozen registry/public compat dispatch proves4synchronous TypeError/raw UTF-16 callback cases (`model_registry_stream_throw_probe`); native compiler RED exposes the missing callback and dispatch carriers. ProviderStreams raw/simple methods now carry Result; optional deferred methods and provider behavior stay unchanged. Lazy and agent-loop consumers must retain their exact frozen catch boundaries; proof and mechanical migrations are not yet complete.
+[Acquisition contract](../../specs/provider-stream-errors.md). Actual frozen registry/public compat dispatch proves4synchronous TypeError/raw UTF-16 callback cases (`model_registry_stream_throw_probe`); native compiler RED exposes the missing callback and dispatch carriers. ProviderStreams raw/simple methods now carry Result, retaining ApiProvider as a structurally usable provider module; optional deferred methods and provider behavior stay unchanged. Nine success-only module adapters wrap existing streams in Ok. Codex direct Simple errors propagate to the source-cited lazy catch. Lazy and agent-loop consumers must retain their exact frozen catch boundaries; proof and mechanical migrations are not yet complete.
 
 ## Q18 provider request integration (2026-10-22)
 

@@ -300,11 +300,16 @@ pub fn stream_simple(
 pub struct OpenAICodexResponsesApi;
 
 impl ProviderStreams for OpenAICodexResponsesApi {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        match OpenAICodexResponsesOptions::from_stream_options(options) {
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(match OpenAICodexResponsesOptions::from_stream_options(options) {
             Ok(options) => stream(model, context, options),
             Err(message) => crate::request::error_stream(&model, &message),
-        }
+        })
     }
 
     fn stream_simple(
@@ -312,11 +317,9 @@ impl ProviderStreams for OpenAICodexResponsesApi {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        match stream_simple(model.clone(), context, options) {
-            Ok(stream) => stream,
-            Err(error) => crate::request::error_stream(&model, error.message),
-        }
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        // Frozen direct export throws before returning; lazy.ts owns its catch.
+        stream_simple(model, context, options)
     }
 }
 

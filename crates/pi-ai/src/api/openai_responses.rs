@@ -524,8 +524,8 @@ impl ProviderStreams for OpenAIResponsesApi {
         model: Model,
         context: Context,
         options: StreamOptions,
-    ) -> crate::utils::event_stream::AssistantMessageEventStream {
-        stream(model, context, options)
+    ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream(model, context, options))
     }
 
     fn stream_simple(
@@ -533,8 +533,8 @@ impl ProviderStreams for OpenAIResponsesApi {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> crate::utils::event_stream::AssistantMessageEventStream {
-        stream_simple(model, context, options)
+    ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream_simple(model, context, options))
     }
 }
 

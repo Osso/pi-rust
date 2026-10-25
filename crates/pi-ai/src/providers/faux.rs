@@ -456,15 +456,20 @@ impl FauxResolver {
 }
 
 impl ProviderStreams for FauxCore {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        self.stream_with_options(
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(self.stream_with_options(
             model,
             context,
             Some(SimpleStreamOptions {
                 stream: options,
                 ..SimpleStreamOptions::default()
             }),
-        )
+        ))
     }
 
     fn stream_simple(
@@ -472,8 +477,8 @@ impl ProviderStreams for FauxCore {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        self.stream_with_options(model, context, Some(options))
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(self.stream_with_options(model, context, Some(options)))
     }
 }
 

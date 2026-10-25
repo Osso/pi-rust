@@ -13,7 +13,7 @@ Tests: `crates/pi-ai/tests/api_lazy.rs`; differential `lazy_stream_error`.
 
 ## Semantics
 - Setup runs in a spawned Tokio task; the stream is returned synchronously.
-- Setup failure and inner stream failure both terminate with one `error` event whose message is the failure message; the error message carries the requested model's api/provider/id.
+- Setup catches acquisition rejection at frozen lazy.ts:49–53 and uses Error.message/String(error); raw values are not read from an empty CallbackError.message. If String conversion itself rejects, the original conversion rejection reaches the single shared uncaught authority without an invented error event. Inner stream failure handling is unchanged by this prerequisite and still needs its own common-pin audit.
 - `lazyApi` calls the loader on every stream call (no local cache), matching TS's reliance on the host import cache.
 - `fetchDeferred` is exposed only when `capabilities.fetch_deferred`; the method reports `"API does not support deferred responses"` otherwise. Cancellation similarly reports `"API cannot cancel deferred responses"`.
 - Inner events are forwarded unchanged; the final result comes from `EventStream::result`.
@@ -21,6 +21,12 @@ Tests: `crates/pi-ai/tests/api_lazy.rs`; differential `lazy_stream_error`.
 ## Gaps
 - TypeScript module-import behavior (`node:module` hooks, bundler opacity) has no Rust analogue and is covered by the TS-only `lazy-module-load.test.ts`; the lazy wrapper contract is ported.
 - `result()` is always present in Rust, so the `hasResult` branch collapses to always forwarding the result.
+
+## Registered callback prerequisite (2026-10-24)
+
+ProviderStreams raw/simple acquisition returns Result. LazyApi still returns Ok(outer stream) immediately; loaded-module Result belongs to its async setup catch. Codex's direct Simple export rejection now reaches that catch instead of being encoded by the direct module adapter. Success-only module adapters wrap their existing streams in Ok; producer behavior is unchanged. Consumer/current proof is pending.
+
+Parent approved moving throw_callback_uncaught unchanged to pi-js-compat::callback_error and re-exporting its old Core path. Pure move0863de71 precedes this usage; the one process crash hook/installation stays in Core-base. Existing authority tests must run after migration compiles.
 
 ## Discrepancies
 - None observed by differential `lazy_stream_error`.
