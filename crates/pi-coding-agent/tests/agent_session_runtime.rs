@@ -17,10 +17,9 @@ use pi_coding_agent::core::agent_session::{
     AgentSession, AgentSessionConfig, PromptOptions, ToolDefinition, WorkingDirectoryRecoveryHandlers,
 };
 use pi_coding_agent::core::agent_session_runtime::{
-    AgentSessionRuntime, CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, ForkPosition,
-    NewSessionOptions, create_agent_session_runtime,
+    AgentSessionRuntime, AgentSessionRuntimeDiagnostic, AgentSessionServices, CreateAgentSessionRuntimeOptions,
+    CreateAgentSessionRuntimeResult, ForkPosition, NewSessionOptions, create_agent_session_runtime,
 };
-use pi_coding_agent::core::agent_session_services::{AgentSessionRuntimeDiagnostic, AgentSessionServices};
 use pi_coding_agent::core::auth_storage::AuthStorage;
 use pi_coding_agent::core::extensions::types::{
     ExtensionEvent, LoadExtensionsResult, SessionBeforeForkResult, SessionBeforeSwitchResult, SessionShutdownEvent,

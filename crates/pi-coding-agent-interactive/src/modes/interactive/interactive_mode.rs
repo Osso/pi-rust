@@ -8919,7 +8919,7 @@ impl InteractiveMode {
         } else if error
             .original
             .as_ref()
-            .is_some_and(|source| source.is::<crate::core::session_errors::SessionImportFileNotFoundError>())
+            .is_some_and(|source| source.is::<crate::core::agent_session_runtime::SessionImportFileNotFoundError>())
         {
             self.show_error(&js_format!("Failed to import session: {}", error.message));
         } else {

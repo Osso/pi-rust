@@ -4,12 +4,9 @@ mod resources;
 use pi_coding_agent::core::{
     agent_session::{AgentSession, AgentSessionEvent, ExtensionBindings},
     agent_session_runtime::{
-        AgentSessionRuntime, CreateAgentSessionRuntimeFactory, CreateAgentSessionRuntimeOptions,
-        CreateAgentSessionRuntimeResult, create_agent_session_runtime,
-    },
-    agent_session_services::{
-        CreateAgentSessionFromServicesOptions, CreateAgentSessionServicesOptions, create_agent_session_from_services,
-        create_agent_session_services,
+        AgentSessionRuntime, CreateAgentSessionFromServicesOptions, CreateAgentSessionRuntimeFactory,
+        CreateAgentSessionRuntimeOptions, CreateAgentSessionRuntimeResult, CreateAgentSessionServicesOptions,
+        create_agent_session_from_services, create_agent_session_runtime, create_agent_session_services,
     },
     sdk::CreateAgentSessionOptions,
     session_manager::{SessionManager, get_default_session_dir},
