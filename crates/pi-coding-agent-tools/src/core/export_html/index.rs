@@ -382,7 +382,7 @@ fn pre_render_custom_tools(
                     }
                     let call_html =
                         tool_renderer.render_call(&call.id, &call.name, &JsValue::Object(call.arguments.clone()));
-                    if let Some(call_html) = call_html {
+                    if let Some(call_html) = call_html.filter(|html| !html.is_empty()) {
                         rendered_tools.insert(
                             call.id.clone(),
                             RenderedToolHtml {
