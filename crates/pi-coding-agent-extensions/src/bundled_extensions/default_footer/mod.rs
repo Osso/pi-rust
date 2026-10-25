@@ -359,28 +359,6 @@ pub fn create_default_footer_component(input: DefaultFooterComponentInput) -> De
     DefaultFooterComponent::new(input)
 }
 
-#[cfg(test)]
-mod raw_text_tests {
-    use super::*;
-
-    #[test]
-    fn selected_agent_label_retains_unmatched_units() {
-        for raw in [
-            JsString::from_utf16(vec![0xd800]),
-            JsString::from_utf16(vec![0xdc00]),
-            JsString::from("😀"),
-        ] {
-            let result = format_selected_agent(Some(DefaultFooterSelectedAgent {
-                display_name: raw.clone(),
-                lifecycle: AgentLifecycle::Running,
-                slot_index: Some(2),
-            }))
-            .unwrap();
-            assert_eq!(result, JsString::from("selected #2 ") + &raw + " running");
-        }
-    }
-}
-
 fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore>>) -> ExtensionUiFooterFactory {
     Arc::new(
         move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
@@ -468,4 +446,26 @@ pub fn default_footer_extension(
         },
     )?;
     Ok(())
+}
+
+#[cfg(test)]
+mod raw_text_tests {
+    use super::*;
+
+    #[test]
+    fn selected_agent_label_retains_unmatched_units() {
+        for raw in [
+            JsString::from_utf16(vec![0xd800]),
+            JsString::from_utf16(vec![0xdc00]),
+            JsString::from("😀"),
+        ] {
+            let result = format_selected_agent(Some(DefaultFooterSelectedAgent {
+                display_name: raw.clone(),
+                lifecycle: AgentLifecycle::Running,
+                slot_index: Some(2),
+            }))
+            .unwrap();
+            assert_eq!(result, JsString::from("selected #2 ") + &raw + " running");
+        }
+    }
 }

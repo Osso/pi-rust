@@ -48,21 +48,6 @@ pub fn is_openai_hosted_web_search_model(model: Option<&Model>) -> bool {
     model.is_some_and(|model| model.api == "openai-responses" || model.api == "openai-codex-responses")
 }
 
-#[cfg(test)]
-mod lossless_tests {
-    use super::*;
-    #[test]
-    fn hosted_payload_keeps_raw_content_and_tool_arguments() {
-        let payload = pi_js_compat::js_json::parse_lossless(
-            r#"{"input":"\ud800","tools":[{"type":"function","name":"keep","parameters":{"label":"\udc00"}}]}"#,
-        )
-        .unwrap();
-        let changed = add_web_search_tool_to_payload(&payload).unwrap();
-        assert_eq!(changed["input"], payload["input"]);
-        assert_eq!(changed["tools"][0], payload["tools"][0]);
-    }
-}
-
 pub fn add_web_search_tool_to_payload(payload: &Value) -> Option<Value> {
     let object = payload.as_object()?;
     let tools = object
@@ -338,4 +323,19 @@ pub fn register(registry: &mut crate::core::extensions::loader::ExtensionRegistr
             Box::pin(async move { result })
         }),
     );
+}
+
+#[cfg(test)]
+mod lossless_tests {
+    use super::*;
+    #[test]
+    fn hosted_payload_keeps_raw_content_and_tool_arguments() {
+        let payload = pi_js_compat::js_json::parse_lossless(
+            r#"{"input":"\ud800","tools":[{"type":"function","name":"keep","parameters":{"label":"\udc00"}}]}"#,
+        )
+        .unwrap();
+        let changed = add_web_search_tool_to_payload(&payload).unwrap();
+        assert_eq!(changed["input"], payload["input"]);
+        assert_eq!(changed["tools"][0], payload["tools"][0]);
+    }
 }
