@@ -1,9 +1,7 @@
 //! Differential tests for `core/package-manager.ts` against the pinned TypeScript module.
 
 use crate::shared_executable_script as executable_script;
-#[path = "support/oracle.rs"]
-#[allow(dead_code)]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use pi_js_compat::js_json::JsString;
 use std::fs;

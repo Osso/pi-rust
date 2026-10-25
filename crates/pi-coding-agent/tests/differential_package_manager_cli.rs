@@ -1,8 +1,6 @@
 //! Differential test for `package-manager-cli.ts` argument/validation output.
 
-#[path = "support/oracle.rs"]
-#[allow(dead_code)]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use oracle::TsOracle;
 use pi_coding_agent::package_manager_cli::{handle_config_command, handle_package_command};

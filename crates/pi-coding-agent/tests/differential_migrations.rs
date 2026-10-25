@@ -1,8 +1,6 @@
 //! Differential test for `migrations.ts` against fixture agent directories.
 
-#[path = "support/oracle.rs"]
-#[allow(dead_code)]
-mod oracle;
+use crate::shared_oracle as oracle;
 
 use std::fs;
 use std::path::{Path, PathBuf};
