@@ -1670,8 +1670,9 @@ impl Component for SharedBorderedLoader {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        if let Ok(mut loader) = self.0.try_borrow_mut() {
-            loader.handle_input(data);
+        let on_abort = self.0.borrow().abort_for_input(data);
+        if let Some(on_abort) = on_abort {
+            on_abort();
         }
     }
 
