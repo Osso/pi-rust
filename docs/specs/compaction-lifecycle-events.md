@@ -12,7 +12,7 @@ Agent-session compaction exposes the frozen saved-entry event and controller lif
 
 ### Manual tool continuation
 
-- [ ] Manual compaction of an active tool turn reports retry and resumes after aborting/waiting for that tool, as frozen.
+- [x] Manual compaction of an active tool turn reports retry and resumes after aborting/waiting for that tool, as frozen.
 
 ## How it works
 
@@ -31,7 +31,7 @@ Agent-session compaction exposes the frozen saved-entry event and controller lif
 
 ## Known gaps (current cycle)
 
-The four lifecycle scenarios pass. Active-tool manual continuation has RED proof; GREEN is pending. Duplicate-summary selection follows the audited source lookup but is not in this runtime matrix.
+The four lifecycle scenarios and active-tool manual continuation pass. Duplicate-summary selection follows the audited source lookup but is not in this runtime matrix.
 
 ## Out of scope
 
