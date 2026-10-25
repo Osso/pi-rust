@@ -53,6 +53,7 @@ pub struct SessionManagerError {
     message: JsString,
     config: Option<Box<crate::config::ConfigError>>,
     control_db: Option<Box<crate::core::sqlite::ControlDbError>>,
+    native: Option<Box<pi_js_compat::node_error::NativeNodeError>>,
 }
 
 impl SessionManagerError {
@@ -62,6 +63,7 @@ impl SessionManagerError {
             message: message.into(),
             config: None,
             control_db: None,
+            native: None,
         }
     }
 
@@ -77,9 +79,13 @@ impl SessionManagerError {
     }
 
     pub fn native_error(&self) -> Option<&pi_js_compat::node_error::NativeNodeError> {
-        self.control_db
+        self.native
             .as_deref()
-            .and_then(crate::core::sqlite::ControlDbError::native_error)
+            .or_else(|| {
+                self.control_db
+                    .as_deref()
+                    .and_then(crate::core::sqlite::ControlDbError::native_error)
+            })
             .or_else(|| self.config_error().and_then(crate::config::ConfigError::native_error))
     }
 
@@ -108,12 +114,25 @@ impl std::fmt::Display for SessionManagerError {
 
 impl std::error::Error for SessionManagerError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        self.control_db
+        self.native
             .as_deref()
             .map(|error| error as &dyn std::error::Error)
+            .or_else(|| self.control_db.as_deref().map(|error| error as &dyn std::error::Error))
             .or_else(|| self.config_error().map(|error| error as &dyn std::error::Error))
     }
 }
+impl From<Box<pi_js_compat::node_error::NativeNodeError>> for SessionManagerError {
+    fn from(error: Box<pi_js_compat::node_error::NativeNodeError>) -> Self {
+        Self {
+            name: error.constructor_class().name(),
+            message: error.message.clone(),
+            config: None,
+            control_db: None,
+            native: Some(error),
+        }
+    }
+}
+
 impl From<crate::config::ConfigError> for SessionManagerError {
     fn from(error: crate::config::ConfigError) -> Self {
         Self {
@@ -121,6 +140,7 @@ impl From<crate::config::ConfigError> for SessionManagerError {
             message: error.message().clone(),
             config: Some(Box::new(error)),
             control_db: None,
+            native: None,
         }
     }
 }
@@ -132,6 +152,7 @@ impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
             message: cause.to_string().into(),
             config: None,
             control_db: None,
+            native: None,
         }
     }
 }
@@ -148,6 +169,7 @@ fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManage
         message: cause.message().clone(),
         config: None,
         control_db: Some(Box::new(cause)),
+        native: None,
     }
 }
 
@@ -2203,6 +2225,7 @@ fn new_date_value(value: Option<&JsValue>) -> Result<f64, SessionManagerError> {
                 message: message.into(),
                 config: None,
                 control_db: None,
+                native: None,
             })?;
             Ok(pi_js_compat::date::date_parse_utf16(text.units()))
         }

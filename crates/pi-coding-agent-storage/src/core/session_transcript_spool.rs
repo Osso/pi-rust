@@ -19,8 +19,7 @@ pub fn run_internal_session_transcript_worker(args: &[String]) -> Option<i32> {
     }
     let result = match args.get(1..3) {
         Some(paths) if args.len() == 3 => spool_worker(&paths[0], &paths[1]),
-        _ => Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
+        _ => Err(pi_js_compat::callback_error::CallbackError::from(
             "Transcript worker requires source and target",
         )),
     };
@@ -32,8 +31,9 @@ pub fn run_internal_session_transcript_worker(args: &[String]) -> Option<i32> {
         }
     })
 }
-fn spool_worker(source: &str, target: &str) -> io::Result<()> {
-    let mut input = create_session_transcript_read_stream(source)?;
+fn spool_worker(source: &str, target: &str) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+    let mut input = create_session_transcript_read_stream(source)
+        .map_err(|error| pi_js_compat::callback_error::CallbackError::from(*error))?;
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -43,7 +43,8 @@ fn spool_worker(source: &str, target: &str) -> io::Result<()> {
     }
     let mut output = options.open(target)?;
     io::copy(&mut input, &mut output)?;
-    output.flush()
+    output.flush()?;
+    Ok(())
 }
 
 struct Worker(Child);

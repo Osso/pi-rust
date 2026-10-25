@@ -1,5 +1,11 @@
 # session-transcript.ts → session_transcript.rs
 
+## Storage filesystem error boundary (2026-10-25)
+
+`repin_storage_transcript::transcript_filesystem_errors_keep_frozen_error_identity_and_fields` compares the actual frozen module for bytes/text/public stream across missing paths, non-directory ancestors, NUL arguments and directory reads (12 cases). Native previously lost Node name/message/code/errno/syscall/path and constructor/stringification; RED/GREEN logs are `/tmp/pi-rust-repin-storage/transcript-fs-{valid-red,green-attempt}.log`. Public creation/whole-file APIs now return `Box<NativeNodeError>`; only `std::io::Read` retains IO errors, translated once by `session_transcript_read_error`. `SessionManagerError` keeps native identity through the shared callback carrier. Spool/history creation callers propagate the typed error. Remaining spool/history IO sites still await exact translation; no whole-module closure.
+
+`repin_storage_transcript::transcript_codec_errors_keep_frozen_error_identity_and_fields` adds actual-source RED/GREEN for synchronous truncated/invalid zstd. The decoder now uses the already-pinned `zstd_safe::DCtx` streaming API so libzstd numeric codes survive the required IO trait instead of reverse-mapping error messages. `session_transcript/errors.rs` maps the pinned libzstd error-code enum names; incomplete input becomes Node `Z_BUF_ERROR`/errno -5/`unexpected end of file`. This changes no dependency. Decoder success/frame/resource regression gates remain pending until recorded below.
+
 Frozen 4f9e6f8a4. Exports: isSessionTranscriptFile, readSessionTranscriptPath, readSessionTranscriptBytes, readSessionTranscriptText, createSessionTranscriptReadStream.
 
 `repin_session_storage::frozen_archive_stale_path_never_allocates_identity_or_masks_history`: public TS manager creates and persists, public archive storage compresses; Rust header/load sees original identity; mutable open refuses stale archive without masking. Initial RED: Rust header None. Recorded focused frame/UTF-8, plain-precedence and resource evidence: [integration ledger](session-storage-integration.md). Whole-module proof remains todo.
