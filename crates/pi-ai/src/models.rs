@@ -177,7 +177,7 @@ fn merge_request_maps<K: std::hash::Hash + Eq, V>(
     Some(merged)
 }
 
-fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
+pub(crate) fn wrap_refresh_error(provider: &str, error: CallbackError) -> ModelsError {
     // Frozen :205 tests the thrown error itself, never a ModelsError in its cause chain.
     if let Some(existing) = error
         .original

@@ -3,6 +3,7 @@ import { pathToFileURL } from "node:url";
 
 type Request = {
 	id: number;
+	reject?: boolean;
 	operation: "read" | "generate" | "unknown";
 	auth?: {
 		apiKey?: string;
@@ -94,6 +95,7 @@ async function execute(request: Request, api: ImagesModelsApi) {
 			models: [testModel("p1", "m1"), testModel("p1", "m2")],
 			api: {
 				generateImages: async (model, _context, options) => {
+					if (request.reject) throw new TypeError("image request failed");
 					const typedModel = model as { id: string; baseUrl: string };
 					calls.push({
 						modelId: typedModel.id,
