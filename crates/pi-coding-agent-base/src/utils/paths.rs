@@ -440,7 +440,11 @@ fn preserve_file_url_empty_segments(input: &JsString, url: &url::Url) -> Result<
     let first_segment = path.strip_prefix(['/', '\\']).unwrap_or(path);
     let first_segment_end = first_segment.find(['/', '\\', '?', '#']).unwrap_or(first_segment.len());
     if is_windows_drive_segment(authority) || is_windows_drive_segment(&first_segment[..first_segment_end]) {
-        return Ok(url.path().to_owned());
+        let mut path = url.path().to_owned();
+        if path.as_bytes().get(2) == Some(&b'|') {
+            path.replace_range(2..3, ":");
+        }
+        return Ok(path);
     }
     let path = if path.starts_with(['/', '\\']) {
         path.to_owned()
