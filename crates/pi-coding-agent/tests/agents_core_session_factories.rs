@@ -459,6 +459,88 @@ async fn bound_child_dispose_emits_shutdown_before_releasing_the_session() {
 }
 
 #[tokio::test]
+async fn public_spawn_profile_validation_and_initial_model_match_frozen() {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::{
+        MultiAgentExtensionOptions, create_multi_agent_pi_request_handler,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::shared::ChildAgentSessionFactory;
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let cases = [
+        (true, None, json!({})),
+        (
+            true,
+            None,
+            json!({"agents":{"default":{"model":"faux/faux-1","thinkingLevel":"xhigh","context":"fresh"}}}),
+        ),
+        (
+            true,
+            Some("configured"),
+            json!({"agents":{"configured":{"thinkingLevel":"high"}}}),
+        ),
+        (false, Some("missing"), json!({})),
+        (true, Some("missing"), json!({"agents":{"z-last":{},"a-first":{}}})),
+    ];
+    let mut mismatches = Vec::new();
+    for (persisted, agent_type, settings) in cases {
+        let env = test_env_with_settings(Some(settings.clone())).await;
+        env.session
+            .set_thinking_level(pi_agent_core::harness::ThinkingLevel::High)
+            .unwrap();
+        let store = Arc::new(MultiAgentStore::new(Default::default()));
+        if persisted {
+            lock_session_manager(&env.session_manager)
+                .persist_for_recovery()
+                .unwrap();
+            store.set_persistence_session_manager(Some(&*lock_session_manager(&env.session_manager)));
+        }
+        let source = ts.request(&json!({
+            "id":43,"op":"spawnProfile","persisted":persisted,"agentType":agent_type,
+            "settings":settings,"model":env.session.model(),"cwd":env.cwd,
+            "sessionDir":env._dir.path().join("source-sessions").to_str().unwrap(),
+            "db":env._dir.path().join("source-control.db").to_str().unwrap(),
+        }));
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let captured = Arc::new(Mutex::new(Value::Null));
+        let observed = Arc::clone(&captured);
+        let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+            store: Some(store),
+            create_child_session: Some(ChildAgentSessionFactory::new(move |input| {
+                *observed.lock().unwrap() = json!({"model":input.agent.model,"context":match input.context {SpawnContext::Fresh=>"fresh",SpawnContext::Inherit=>"inherit"}});
+                Box::pin(async { Err("stop after profile capture".into()) })
+            })),
+            ..Default::default()
+        });
+        let mut params = json!({"prompt":"task"});
+        if let Some(agent_type) = agent_type {
+            params["agentType"] = json!(agent_type);
+        }
+        let error = handler
+            .handle(
+                &json!({"method":"agents.spawn","params":params}),
+                &env.session.extension_runner().create_context(),
+                None,
+                None,
+            )
+            .await
+            .err()
+            .map(|error| error.message);
+        let actual = json!({"captured":captured.lock().unwrap().clone(),"error":error});
+        if actual != source["output"] {
+            mismatches
+                .push(json!({"settings":settings,"agentType":agent_type,"actual":actual,"expected":source["output"]}));
+        }
+    }
+    assert!(
+        mismatches.is_empty(),
+        "{}",
+        pi_js_compat::js_json::stringify_lossless(&json!(mismatches))
+    );
+}
+
+#[tokio::test]
 async fn factory_options_match_frozen_parent_registry_tools_and_settings() {
     let mut ts = oracle::TsOracle::spawn(
         "agents-core-repin-oracle.ts",
