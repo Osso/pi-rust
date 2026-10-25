@@ -318,7 +318,7 @@ fn compare_cloud_sync_processes(directory: &std::path::Path, log: &std::path::Pa
 #[ignore = "invoked explicitly by cloud-sync process differential"]
 fn cloud_sync_process_child() {
     let input = pi_js_compat::js_json::parse_lossless(&std::env::var("PATHS_INPUT").unwrap()).unwrap();
-    pi_coding_agent::utils::paths::mark_path_ignored_by_cloud_sync(input.as_str().unwrap()).unwrap();
+    pi_coding_agent::utils::paths::mark_path_ignored_by_cloud_sync(input.as_string().unwrap()).unwrap();
 }
 
 #[test]
