@@ -115,8 +115,8 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing"].includes(request.operation)
-		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(request.operation === "threshold-trailing" ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
+	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold"].includes(request.operation)
+		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(["threshold-trailing", "next-turn-threshold"].includes(request.operation) ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
 	if (request.operation === "quota-fallback") settingsManager.setRetryEnabled(false);
@@ -190,7 +190,7 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing"].includes(request.operation)) {
+	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -201,12 +201,12 @@ async function run(request) {
 		settingsManager.setCompactionEnabled(false);
 		const runner = session.extensionRunner;
 		const emit = runner.emit.bind(runner);
-		if (request.operation === "threshold-trailing") {
+		if (["threshold-trailing", "next-turn-threshold"].includes(request.operation)) {
 			settingsManager.setRetryEnabled(false);
 			agent.state.model = { ...model, contextWindow: 1000, autoCompactionThreshold: 900 };
 			const anchor = fauxAssistantMessage("anchor");
-			anchor.usage.input = 400;
-			anchor.usage.totalTokens = 400;
+			anchor.usage.input = request.operation === "next-turn-threshold" ? 600 : 400;
+			anchor.usage.totalTokens = anchor.usage.input;
 			sessionManager.appendMessage(anchor);
 			agent.state.messages = sessionManager.buildSessionContext().messages;
 			await session.sendCustomMessage({ customType: "tail", content: "x".repeat(800), display: false });
@@ -217,6 +217,14 @@ async function run(request) {
 				compactions++;
 				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
 			};
+			if (request.operation === "next-turn-threshold") {
+				const update = await agent.prepareNextTurnWithContext({
+					message: anchor, toolResults: [], newMessages: [],
+					context: { systemPrompt: agent.state.systemPrompt, messages: agent.state.messages.slice(), tools: agent.state.tools.slice() },
+				});
+				session.dispose();
+				return { compactions, hasSummary: update.context.messages.some((message) => message.role === "compactionSummary") };
+			}
 			core.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "fatal" })]);
 			let beforeRun;
 			await session.prompt("next request", { preflightResult: (accepted) => { if (accepted) beforeRun = compactions; } });

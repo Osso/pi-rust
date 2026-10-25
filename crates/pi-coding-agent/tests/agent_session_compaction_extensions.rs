@@ -737,6 +737,83 @@ async fn percentage_threshold_counts_messages_after_the_usage_anchor_like_frozen
 }
 
 #[tokio::test]
+async fn next_turn_refresh_compacts_percentage_context_before_returning_snapshot_like_frozen() {
+    use pi_agent_core::agent::types::{AgentContext, AgentMessage, PrepareNextTurnContext};
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = 600.0;
+    anchor.usage.total_tokens = 600.0;
+    let message = AgentMessage::Assistant(Box::new(anchor.clone()));
+    let identity = env.session.agent().append_message(message.clone());
+    {
+        let mut manager = env.session.session_manager();
+        let id = manager.append_message(message).expect("anchor");
+        manager.bind_message_identity(&id, identity).expect("anchor identity");
+    }
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("trailing custom");
+    let hook = env
+        .session
+        .agent()
+        .prepare_next_turn_with_context_hook()
+        .expect("installed hook");
+    let state = env.session.state();
+    let update = hook(
+        PrepareNextTurnContext {
+            message: anchor,
+            tool_results: Vec::new(),
+            new_messages: Vec::new(),
+            context: AgentContext {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: Some(state.tools),
+            },
+        },
+        None,
+    )
+    .await
+    .expect("hook result")
+    .expect("snapshot");
+    let actual = json!({
+        "compactions": env.captured.lock().unwrap().compaction.len(),
+        "hasSummary": update.context.expect("context").messages.iter().any(|message| message.has_role("compactionSummary")),
+    });
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "next-turn-threshold", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"compactions": 1, "hasSummary": true}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
 async fn manual_compaction_preflight_cancel_reports_cancelled() {
     let env = env_with(
         json!({"keepRecentTokens": 1}),
