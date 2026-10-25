@@ -1,8 +1,12 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Storage-3 live listener membership (2026-10-25)
+
+`repin_storage_listener_membership` compares actual frozen update, transition and lifecycle-notification dispatch after a callback removes a later subscriber or appends a new one. RED `/tmp/storage3-store-membership-red.log` invoked the removed update listener; frozen invoked only the first. Native dispatch now walks monotonic registration IDs in a BTreeMap, retrieving one live listener at a time without a lock across callbacks. This preserves frozen Set removal/append behavior rather than copying the listener set. Whole-store acceptance remains open.
+
 ## Storage-3 callback, clock and state boundaries (2026-10-25)
 
-Actual frozen/native RED `/tmp/storage3-store-state-valid-red.log` reproduced empty DB bindings incorrectly creating persistence, slot projections using binary instead of locale order, slot conflicts selecting HashMap order instead of first insertion, and restore skipping its clock for an existing empty mailbox. Restore now samples once after restoring agents, including empty existing state, and uses that timestamp for every mailbox record. The callback runs without the state mutex held.
+Actual frozen/native RED `/tmp/storage3-store-state-valid-red.log` reproduced empty DB bindings incorrectly creating persistence, slot projections using binary instead of locale order, slot conflicts selecting HashMap order instead of first insertion, and restore skipping its clock for an existing empty mailbox. Restore now samples once after restoring agents, including empty existing state, and uses that timestamp for every mailbox record. The callback runs without the state mutex held. All six focused source/native callback/state tests pass at13182f321 (`/tmp/storage3-store-callback-green-2.log`); the initial GREEN attempt failed compilation due to a duplicate callback conversion, removed in favor of the existing shared conversion.
 
 `now` returns `Result<JsString,CallbackError>`; store errors retain the existing callback source rather than projecting away original Error/non-Error values. Abort callbacks return Result; a handler is removed before its throw and subsequent abort returns false. API RED `/tmp/storage3-store-callback-api-red.log`; actual frozen abort/outbound baseline `/tmp/storage3-store-callback-source-valid.log` covers null, string, object and coded TypeError at timestamp/put boundaries. The initial source-only probe omitted the frozen tsconfig and failed module resolution; it is not behavior evidence.
 

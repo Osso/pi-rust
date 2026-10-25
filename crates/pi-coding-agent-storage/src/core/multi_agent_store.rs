@@ -4,7 +4,7 @@
 //! selection. When a persistence target is attached, metadata and mailbox writes go
 //! through `session_control_db` so the state survives process restarts.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use pi_coding_agent_data::core::desktop_notification::report_callback_error;
@@ -981,14 +981,14 @@ struct AbortHandler {
 }
 
 struct ListenerList<T> {
-    listeners: Mutex<Vec<(u64, T)>>,
+    listeners: Mutex<BTreeMap<u64, T>>,
     next_id: Mutex<u64>,
 }
 
 impl<T> Default for ListenerList<T> {
     fn default() -> Self {
         Self {
-            listeners: Mutex::new(Vec::new()),
+            listeners: Mutex::new(BTreeMap::new()),
             next_id: Mutex::new(1),
         }
     }
@@ -999,34 +999,35 @@ impl<T> ListenerList<T> {
         let mut next_id = self.next_id.lock().expect("listener id mutex");
         let id = *next_id;
         *next_id += 1;
-        self.listeners.lock().expect("listener mutex").push((id, listener));
+        self.listeners.lock().expect("listener mutex").insert(id, listener);
         id
     }
 
     fn clear(&self) -> Result<(), MultiAgentStoreError> {
-        self.listeners
-            .lock()
-            .map_err(|error| MultiAgentStoreError::new(error.to_string()))?
-            .clear();
+        let removed = std::mem::take(
+            &mut *self
+                .listeners
+                .lock()
+                .map_err(|error| MultiAgentStoreError::new(error.to_string()))?,
+        );
+        drop(removed);
         Ok(())
     }
 
     fn remove(&self, id: u64) {
-        self.listeners
-            .lock()
-            .expect("listener mutex")
-            .retain(|(listener_id, _)| *listener_id != id);
+        let removed = self.listeners.lock().expect("listener mutex").remove(&id);
+        drop(removed);
     }
 }
 
-/// Copies registered listeners so callbacks can publish without holding the registry lock.
-fn listener_snapshot<T: Clone>(list: &ListenerList<T>) -> Vec<T> {
+/// Live Set iteration: observe removals and newly appended listeners without locking across callbacks.
+fn next_listener<T: Clone>(list: &ListenerList<T>, after: u64) -> Option<(u64, T)> {
     list.listeners
         .lock()
         .expect("listener mutex")
-        .iter()
-        .map(|(_, listener)| listener.clone())
-        .collect()
+        .range((std::ops::Bound::Excluded(after), std::ops::Bound::Unbounded))
+        .next()
+        .map(|(id, listener)| (*id, listener.clone()))
 }
 
 /// Handle returned by `subscribe_*`; dropping it unsubscribes, matching the TS closure.
@@ -2340,8 +2341,9 @@ impl MultiAgentStore {
 
     fn notify_lifecycle_notification_listeners(&self, message: &AgentMailboxMessage) {
         let snapshot = copy_message(message);
-        let listeners = listener_snapshot(&self.lifecycle_notifications);
-        for listener in listeners {
+        let mut cursor = 0;
+        while let Some((id, listener)) = next_listener(&self.lifecycle_notifications, cursor) {
+            cursor = id;
             if let Err(error) = listener(&snapshot) {
                 report_callback_error("MultiAgentStore lifecycle notification listener failed:", &error);
             }
@@ -2357,8 +2359,9 @@ impl MultiAgentStore {
     fn notify_transition_listeners(&self, previous: &AgentNode, current: &AgentNode) {
         let previous_snapshot = copy_agent(previous);
         let current_snapshot = copy_agent(current);
-        let listeners = listener_snapshot(&self.transitions);
-        for listener in listeners {
+        let mut cursor = 0;
+        while let Some((id, listener)) = next_listener(&self.transitions, cursor) {
+            cursor = id;
             if let Err(error) = listener(&previous_snapshot, &current_snapshot) {
                 report_callback_error("MultiAgentStore transition listener failed:", &error);
             }
@@ -2368,8 +2371,9 @@ impl MultiAgentStore {
     fn notify_agent_update_listeners(&self, previous: &AgentNode, current: &AgentNode) {
         let previous_snapshot = copy_agent(previous);
         let current_snapshot = copy_agent(current);
-        let listeners = listener_snapshot(&self.updates);
-        for listener in listeners {
+        let mut cursor = 0;
+        while let Some((id, listener)) = next_listener(&self.updates, cursor) {
+            cursor = id;
             if let Err(error) = listener(&previous_snapshot, &current_snapshot) {
                 report_callback_error("MultiAgentStore agent update listener failed:", &error);
             }
