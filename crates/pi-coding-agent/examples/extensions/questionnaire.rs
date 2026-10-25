@@ -33,7 +33,7 @@ pub fn questionnaire_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
 }
 fn result(message: JsString, details: Value) -> AgentToolResult {
     let mut result = AgentToolResult::text(message);
-    result.details = Some(JsValue::from(details));
+    result.details = Some(details);
     result
 }
 fn error(message: &str) -> AgentToolResult {
@@ -135,7 +135,7 @@ impl Questionnaire {
             .all(|q| state.answers.contains_key(q["id"].as_string().unwrap()))
     }
     fn submit(&self, state: &State, cancelled: bool) {
-        self.done.call(Some(JsValue::from(json!({"questions":self.questions,"answers":state.answers.values().collect::<Vec<_>>(),"cancelled":cancelled}))));
+        self.done.call(Some(json!({"questions":self.questions,"answers":state.answers.values().collect::<Vec<_>>(),"cancelled":cancelled})));
     }
     fn advance(&self, state: &mut State) {
         if self.questions.len() == 1 {
@@ -192,14 +192,14 @@ impl Questionnaire {
                 q["label"].as_string().unwrap()
             );
             let styled = if i == state.tab {
-                theme.bg(B::SelectedBg, &theme.fg(C::Text, &text))
+                theme.bg(B::SelectedBg, theme.fg(C::Text, &text))
             } else {
                 theme.fg(if answered { C::Success } else { C::Muted }, &text)
             };
             tabs.push_str(js_format!("{} ", styled));
         }
         let submit = if state.tab == self.questions.len() {
-            theme.bg(B::SelectedBg, &theme.fg(C::Text, " ✓ Submit "))
+            theme.bg(B::SelectedBg, theme.fg(C::Text, " ✓ Submit "))
         } else {
             theme.fg(if self.all_answered(state) { C::Success } else { C::Dim }, " ✓ Submit ")
         };
@@ -209,7 +209,7 @@ impl Questionnaire {
     }
     fn render_submit(&self, lines: &mut Vec<JsString>, width: usize, state: &State) {
         let theme = &self.theme;
-        wrap_prefixed(lines, width, " ", &theme.fg(C::Accent, &theme.bold("Ready to submit")));
+        wrap_prefixed(lines, width, " ", theme.fg(C::Accent, &theme.bold("Ready to submit")));
         lines.push(JsString::default());
         for q in &self.questions {
             if let Some(answer) = state.answers.get(q["id"].as_string().unwrap()) {
@@ -231,7 +231,7 @@ impl Questionnaire {
         }
         lines.push(JsString::default());
         if self.all_answered(state) {
-            wrap_prefixed(lines, width, " ", &theme.fg(C::Success, "Press Enter to submit"));
+            wrap_prefixed(lines, width, " ", theme.fg(C::Success, "Press Enter to submit"));
         } else {
             let missing = JsString::join(
                 self.questions
@@ -245,7 +245,7 @@ impl Questionnaire {
                 lines,
                 width,
                 " ",
-                &theme.fg(C::Warning, &js_format!("Unanswered: {}", missing)),
+                theme.fg(C::Warning, &js_format!("Unanswered: {}", missing)),
             );
         }
     }
@@ -319,11 +319,11 @@ impl ExtensionUiComponent for Questionnaire {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let mut state = self.state.borrow_mut();
         if let Some(cache) = &state.cache {
-            return cache.clone().into_iter().map(JsString::from).collect::<Vec<_>>();
+            return cache.clone().into_iter().collect::<Vec<_>>();
         }
         let width = width.max(1);
         let theme = &self.theme;
-        let mut lines = vec![theme.fg(C::Accent, &"─".repeat(width))];
+        let mut lines = vec![theme.fg(C::Accent, "─".repeat(width))];
         if self.questions.len() > 1 {
             self.render_tabs(&mut lines, width, &state);
         }
@@ -332,7 +332,7 @@ impl ExtensionUiComponent for Questionnaire {
                 &mut lines,
                 width,
                 " ",
-                &theme.fg(C::Text, q["prompt"].as_string().unwrap()),
+                theme.fg(C::Text, q["prompt"].as_string().unwrap()),
             );
             lines.push(JsString::default());
             let options = self
@@ -361,7 +361,7 @@ impl ExtensionUiComponent for Questionnaire {
                     &mut lines,
                     width,
                     " ",
-                    &theme.fg(C::Dim, "Enter to submit • Esc to cancel"),
+                    theme.fg(C::Dim, "Enter to submit • Esc to cancel"),
                 );
             }
         } else {
@@ -373,7 +373,7 @@ impl ExtensionUiComponent for Questionnaire {
                 &mut lines,
                 width,
                 " ",
-                &theme.fg(
+                theme.fg(
                     C::Dim,
                     if self.questions.len() > 1 {
                         "Tab/←→ navigate • ↑↓ select • Enter confirm • Esc cancel"
@@ -383,7 +383,7 @@ impl ExtensionUiComponent for Questionnaire {
                 ),
             );
         }
-        lines.push(theme.fg(C::Accent, &"─".repeat(width)));
+        lines.push(theme.fg(C::Accent, "─".repeat(width)));
         state.cache = Some(lines.clone());
         lines
     }
@@ -406,13 +406,13 @@ fn render_call(args: &Value, theme: &Theme) -> JsString {
             .collect::<Vec<_>>(),
         ", ",
     );
-    let mut text = theme.fg(C::ToolTitle, &theme.bold("questionnaire "))
+    let mut text = theme.fg(C::ToolTitle, theme.bold("questionnaire "))
         + &theme.fg(
             C::Muted,
-            &format!("{count} question{}", if count != 1 { "s" } else { "" }),
+            format!("{count} question{}", if count != 1 { "s" } else { "" }),
         );
     if !labels.is_empty() {
-        text.push_str(&theme.fg(C::Dim, &js_format!(" ({})", labels)));
+        text.push_str(theme.fg(C::Dim, &js_format!(" ({})", labels)));
     }
     text
 }

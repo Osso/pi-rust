@@ -82,22 +82,20 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
             let api = api.clone();
             let shared = shared.clone();
             Box::pin(async move {
-                let name = (&args).trim();
+                let name = args.trim();
                 if name.is_empty() {
                     return select(&api, &shared, &ctx).await;
                 }
                 let preset = shared.lock().unwrap().presets.get(&name).cloned();
                 if let Some(preset) = preset {
                     apply(&api, &shared, &name, preset, &ctx).await?;
-                    ctx.ui()?.notify(
-                        &JsString::from(js_format!("Preset \"{}\" activated", name)),
-                        Some(NotifyType::Info),
-                    )?;
+                    ctx.ui()?
+                        .notify(&js_format!("Preset \"{}\" activated", name), Some(NotifyType::Info))?;
                     status(&shared, &ctx)?;
                 } else {
                     let available = available(&shared);
                     ctx.ui()?.notify(
-                        &JsString::from(js_format!("Unknown preset \"{}\". Available: {}", name, available)),
+                        &js_format!("Unknown preset \"{}\". Available: {}", name, available),
                         Some(NotifyType::Error),
                     )?;
                 }
@@ -147,11 +145,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                         )?;
                     } else {
                         ctx.ui()?.notify(
-                            &JsString::from(js_format!(
-                                "Unknown preset \"{}\". Available: {}",
-                                name,
-                                available(&shared)
-                            )),
+                            &js_format!("Unknown preset \"{}\". Available: {}", name, available(&shared)),
                             Some(NotifyType::Warning),
                         )?;
                     }
@@ -322,13 +316,13 @@ async fn apply(
         if let Some(model) = ctx.model_registry()?.find(provider, id) {
             if !pi.set_model(model).await? {
                 ctx.ui()?.notify(
-                    &JsString::from(js_format!("Preset \"{}\": No API key for {}/{}", name, provider, id)),
+                    &js_format!("Preset \"{}\": No API key for {}/{}", name, provider, id),
                     Some(NotifyType::Warning),
                 )?;
             }
         } else {
             ctx.ui()?.notify(
-                &JsString::from(js_format!("Preset \"{}\": Model {}/{} not found", name, provider, id)),
+                &js_format!("Preset \"{}\": Model {}/{} not found", name, provider, id),
                 Some(NotifyType::Warning),
             )?;
         }
@@ -343,7 +337,7 @@ async fn apply(
         let (valid, invalid): (Vec<_>, Vec<_>) = tools.iter().cloned().partition(|name| all.contains(name));
         if !invalid.is_empty() {
             ctx.ui()?.notify(
-                &JsString::from(js_format!("Preset \"{}\": Unknown tools: {}", name, invalid.join(", "))),
+                &js_format!("Preset \"{}\": Unknown tools: {}", name, invalid.join(", ")),
                 Some(NotifyType::Warning),
             )?;
         }
@@ -414,10 +408,8 @@ async fn cycle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Re
     let preset = shared.lock().unwrap().presets.get(name).cloned();
     if let Some(preset) = preset {
         apply(pi, shared, &JsString::from(name), preset, ctx).await?;
-        ctx.ui()?.notify(
-            &JsString::from(js_format!("Preset \"{}\" activated", name)),
-            Some(NotifyType::Info),
-        )?;
+        ctx.ui()?
+            .notify(&js_format!("Preset \"{}\" activated", name), Some(NotifyType::Info))?;
         status(shared, ctx)?;
     }
     Ok(())
@@ -461,13 +453,13 @@ async fn select(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> R
             .presets
             .iter()
             .map(|(name, preset)| SelectItem {
-                value: JsString::from(name.clone()),
+                value: name.clone(),
                 label: if state.active.as_ref() == Some(name) {
-                    JsString::from(js_format!("{} (active)", name))
+                    js_format!("{} (active)", name)
                 } else {
-                    JsString::from(name.clone())
+                    name.clone()
                 },
-                description: Some(JsString::from(description(preset))),
+                description: Some(description(preset)),
             })
             .collect::<Vec<_>>()
     };
@@ -547,7 +539,7 @@ impl ExtensionUiComponent for Selector {
     fn render(&self, width: usize) -> Vec<pi_js_compat::js_json::JsString> {
         let theme: &Theme = &self.context.theme;
         let mut lines = self.border(width);
-        lines.extend(Text::new(theme.fg(ThemeColor::Accent, &theme.bold("Select Preset")), 1, 1).render(width));
+        lines.extend(Text::new(theme.fg(ThemeColor::Accent, theme.bold("Select Preset")), 1, 1).render(width));
         lines.extend(self.list().render(width));
         lines.extend(
             Text::new(
@@ -558,7 +550,7 @@ impl ExtensionUiComponent for Selector {
             .render(width),
         );
         lines.extend(self.border(width));
-        lines.into_iter().map(JsString::from).collect::<Vec<_>>()
+        lines.into_iter().collect::<Vec<_>>()
     }
     fn handle_input(&self, data: &pi_js_compat::js_json::JsString) {
         let mut list = self.list();

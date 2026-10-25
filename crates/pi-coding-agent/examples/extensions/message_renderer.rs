@@ -39,7 +39,7 @@ pub fn message_renderer_extension(pi: &ExtensionApi) -> Result<(), HandlerError>
                 .filter(|time| options.expanded && *time != 0.0)
             {
                 let time = to_locale_string(timestamp, LocaleDateFormat::TimeEnUs);
-                text.push_str(js_format!("\n{}", theme.fg(ThemeColor::Dim, &format!("  at {time}"))));
+                text.push_str(js_format!("\n{}", theme.fg(ThemeColor::Dim, format!("  at {time}"))));
             }
             let bg_theme = theme.clone();
             let mut card = BoxComponent::new(

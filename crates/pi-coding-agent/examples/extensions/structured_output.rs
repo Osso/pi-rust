@@ -45,7 +45,7 @@ pub fn structured_output_extension(pi: &ExtensionApi) -> Result<(), HandlerError
             let headline = details["headline"].as_string().ok_or_else(|| HandlerError::new("headline must be a string"))?;
             let summary = details["summary"].as_string().ok_or_else(|| HandlerError::new("summary must be a string"))?;
             let items = details["actionItems"].as_array().ok_or_else(|| HandlerError::new("actionItems must be an array"))?;
-            let mut lines = vec![theme.fg(ThemeColor::ToolTitle, &theme.bold(headline)), theme.fg(ThemeColor::Text, summary), JsString::default()];
+            let mut lines = vec![theme.fg(ThemeColor::ToolTitle, theme.bold(headline)), theme.fg(ThemeColor::Text, summary), JsString::default()];
             for (index, item) in items.iter().enumerate() {
                 let item = item.as_string().ok_or_else(|| HandlerError::new("action item must be a string"))?;
                 lines.push(theme.fg(ThemeColor::Muted, &pi_js_compat::js_format!("{}. {}", index + 1, item)));

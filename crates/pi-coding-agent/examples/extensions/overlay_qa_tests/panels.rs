@@ -235,7 +235,7 @@ impl ExtensionUiComponent for Panel {
                             " {}",
                             model
                                 .theme
-                                .fg(ThemeColor::Accent, &format!("{:02}:{:02}", seconds / 60, seconds % 60))
+                                .fg(ThemeColor::Accent, format!("{:02}:{:02}", seconds / 60, seconds % 60))
                         ),
                         model.theme.fg(ThemeColor::Dim, " nonCapturing: true"),
                     ],
@@ -243,19 +243,10 @@ impl ExtensionUiComponent for Panel {
                     "Timer",
                 ))
                 .into_iter()
-                .map(JsString::from)
                 .collect::<Vec<_>>()
             }
-            Demo::Focus => self
-                .focus_render(&model, width)
-                .into_iter()
-                .map(JsString::from)
-                .collect::<Vec<_>>(),
-            Demo::Streaming => self
-                .streaming_render(&model, width)
-                .into_iter()
-                .map(JsString::from)
-                .collect::<Vec<_>>(),
+            Demo::Focus => self.focus_render(&model, width).into_iter().collect::<Vec<_>>(),
+            Demo::Streaming => self.streaming_render(&model, width).into_iter().collect::<Vec<_>>(),
             _ => Vec::new(),
         }
     }

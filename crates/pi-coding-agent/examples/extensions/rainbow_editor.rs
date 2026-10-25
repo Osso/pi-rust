@@ -98,7 +98,7 @@ impl EditorBehavior for Rainbow {
                     let start = found.start();
                     result.push_str(line.slice(from, start));
                     from = start + 10;
-                    result.push_str(&colorize(&line.slice(start, from), shine));
+                    result.push_str(colorize(&line.slice(start, from), shine));
                 }
                 result.push_str(line.slice(from, line.len()));
                 result

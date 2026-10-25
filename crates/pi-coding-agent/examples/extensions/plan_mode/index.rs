@@ -264,7 +264,7 @@ fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let status = if s.executing && !s.todos.is_empty() {
         Some(th.fg(
             C::Accent,
-            &format!(
+            format!(
                 "📋 {}/{}",
                 s.todos.iter().filter(|t| t.completed).count(),
                 s.todos.len()
@@ -417,7 +417,7 @@ async fn finish_turn(
             }),
         )?;
         pi.send_user_message(
-            UserMessageContent::Text((&text).trim().into()),
+            UserMessageContent::Text((&text).trim()),
             Some(SendUserMessageOptions {
                 deliver_as: Some(UserMessageDelivery::FollowUp),
                 ..Default::default()

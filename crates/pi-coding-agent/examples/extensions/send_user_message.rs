@@ -56,7 +56,7 @@ async fn deliver(
             TextOrImageContent::Text(TextContent::new("Please respond concisely.")),
         ])
     } else {
-        UserMessageContent::Text(JsString::from(args))
+        UserMessageContent::Text(args)
     };
     let options = if idle {
         None

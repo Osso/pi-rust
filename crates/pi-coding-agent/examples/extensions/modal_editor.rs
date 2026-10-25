@@ -48,7 +48,7 @@ impl EditorBehavior for Modal {
             }
             _ => data.clone(),
         };
-        editor.handle_input_deferred(&JsString::from(sequence))
+        editor.handle_input_deferred(&sequence)
     }
     fn render(&mut self, editor: &mut CustomEditor, width: usize) -> Vec<JsString> {
         let mut lines = editor.render(width);
