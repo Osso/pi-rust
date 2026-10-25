@@ -51,3 +51,7 @@ Warning-mode `cargo clippy -j3 -p pi-coding-agent-core --lib --message-format=js
 - Renamed summary options in lossless/acquisition fixtures; propagated the existing message identity into `agent_session/restriction.rs` without changing restriction decisions.
 
 Two regex_replace tool attempts failed before writing because this lane is outside the harness cwd. Exact literal edits were then applied through the edit tool with absolute paths. No source worktree was changed.
+
+## Oracle fixture readability follow-up
+
+The agent-session oracle's added scenarios are extracted into named helpers in `oracle/agent-session-scenarios.ts`; the root keeps session setup and its original multi-turn scenario. Extraction uses the pinned TypeScript parser only on this repository's fixture statements, never on frozen source. Request/result projections and scenario bodies are unchanged; Biome formatting is applied to the changed fixtures. The auto-hook fixture clears its session cell after the hook to avoid a self-reference cycle. This routing refactor requires bounded scenario/legacy re-execution; earlier source/runtime behavior evidence is retained but not substituted for that compilation/execution proof. Planned checks: the focused compaction-extension target, original legacy differential, and the changed cycle/tree/steer/export/quota scenarios.

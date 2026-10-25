@@ -1436,6 +1436,7 @@ async fn assert_auto_compaction_hook_matches_frozen(operation: &str) {
     )
     .await
     .expect("next turn");
+    *target.lock().unwrap() = None;
     let end = env.events.lock().unwrap().iter().rev().find_map(|event| match event {
         AgentSessionEvent::CompactionEnd(end) => Some(json!({"aborted": end.aborted, "hasResult": end.result.is_some(),
             "willRetry": end.will_retry, "durationPositive": end.result.as_ref().map(|result| result.duration_ms.is_some_and(|duration| duration >= 15.0))})),
