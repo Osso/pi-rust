@@ -240,10 +240,11 @@ pub struct RuntimeMailboxListener {
     pub updated_at: String,
 }
 
+type RuntimeProcessAliveProbe = dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync;
+
 #[derive(Clone, Default)]
 pub struct RuntimeMailboxRegistrationOptions {
-    pub is_runtime_process_alive:
-        Option<Arc<dyn Fn(u32) -> Result<bool, pi_js_compat::callback_error::CallbackError> + Send + Sync>>,
+    pub is_runtime_process_alive: Option<Arc<RuntimeProcessAliveProbe>>,
     pub reconcile_runtime_replacement: Option<bool>,
     pub runtime_instance_id: Option<String>,
 }
