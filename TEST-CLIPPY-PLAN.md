@@ -1,19 +1,18 @@
 # Active goal
 
-Make the requested test, bench, and example targets pass strict Clippy without suppressions, weaker behavioral assertions, or production behavior changes. Exclude protected src directories in storage, tools, orchestrator, and facade. Verify each changed crate with the requested Clippy command; every commit must first pass cargo fmt --check and cargo check -j3 --workspace --all-targets. No agents, network, stash, push, or deployment.
+Make the requested test, bench, and example targets pass strict Clippy without suppressions, weaker behavioral assertions, or production behavior changes. The parent released the storage, tools, orchestrator, and facade src directories after its library-lint work merged. Every change commit must first pass cargo fmt --check and cargo check -j3 --workspace --all-targets. No agents, network, stash, push, or deployment.
 
 ## Work
 
 - [x] Merge parent f34da978a and read AGENTS.md.
-- [x] pi-coding-agent-base: strict target Clippy passes unchanged at f34da978a.
-- [x] data, models, packages, settings: requested strict target Clippy passes unchanged.
-- [x] tool-support: remove redundant conversions and borrow in lossless tests; strict Clippy passes.
-- [ ] Check and fix storage, tools, ui, core, extensions, interactive.
-- [ ] Check and fix pi-orchestrator.
-- [ ] Check and fix facade in batches of about 20 test files.
-- [ ] Report final SHA and per-crate proof to main.
+- [x] Merge the parent's completed library-lint fixes through d71a47ae9.
+- [x] Pass all 12 pi-coding-agent component crates with the requested strict test-target command.
+- [x] Pass pi-orchestrator with the requested command.
+- [x] Fix facade examples and tests in batches of about 20 files.
+- [x] Compile shared support once per target, following the AI/TUI layout. The 567-file layout commit is atomic because shared aliases and target roots must change together.
+- [x] Pass facade strict test-target Clippy and recheck pi-js-compat all-target Clippy after its shared-fixture root update.
+- [x] Record the proof ledger in docs/porting/test-target-clippy-proof.md.
 
 ## Proof ledger
 
-- f34da978a: base, data, models, packages, settings requested strict target Clippy PASS (logs /tmp/pi-test-clippy/<suffix>.log).
-- tool-support diff test edits: requested strict Clippy PASS; workspace all-target check PASS; cargo fmt --check PASS. Readability: only redundant wrappers removed; no behavioral assertions changed. Logs /tmp/pi-test-clippy/{tool-support,workspace-check,fmt}.log.
+The detailed ledger and final per-crate results are in docs/porting/test-target-clippy-proof.md. Rust proof scope: d1fea2df0959bafaa5577f387b23abbe817ddef1. Subsequent documentation-only changes do not invalidate this scope. No lints were skipped.
