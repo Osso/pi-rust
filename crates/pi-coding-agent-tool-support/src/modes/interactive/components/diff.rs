@@ -78,7 +78,7 @@ fn render_intra_line_diff(old_content: &JsString, new_content: &JsString) -> (Js
                 is_first_removed = false;
             }
             if !value.is_empty() {
-                removed_line.push_str(&with_theme(|theme| theme.inverse(&value)));
+                removed_line.push_str(with_theme(|theme| theme.inverse(&value)));
             }
         } else if part.added {
             let mut value = part.value.clone();
@@ -89,7 +89,7 @@ fn render_intra_line_diff(old_content: &JsString, new_content: &JsString) -> (Js
                 is_first_added = false;
             }
             if !value.is_empty() {
-                added_line.push_str(&with_theme(|theme| theme.inverse(&value)));
+                added_line.push_str(with_theme(|theme| theme.inverse(&value)));
             }
         } else {
             removed_line.push_str(&part.value);

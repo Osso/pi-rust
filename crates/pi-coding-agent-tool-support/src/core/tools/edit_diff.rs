@@ -167,7 +167,7 @@ async fn read_editable_file(absolute_path: &JsString, display_path: &JsString) -
     let mut bytes = Vec::new();
     match file.read_to_end(&mut bytes).await {
         Ok(_) => Ok(String::from_utf8_lossy(&bytes).into_owned()),
-        Err(error) => Err(node_promises_read_error(&error, &absolute_path).into()),
+        Err(error) => Err(node_promises_read_error(&error, absolute_path)),
     }
 }
 

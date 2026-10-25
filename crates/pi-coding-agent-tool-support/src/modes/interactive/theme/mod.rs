@@ -512,10 +512,10 @@ fn resolve_var_refs(value: &Value, vars: &JsObject, visited: &mut HashSet<JsStri
         _ => return Ok(resolved),
     };
     if visited.contains(&reference) {
-        return Err(ThemeError::CircularVariableReference(reference.into()));
+        return Err(ThemeError::CircularVariableReference(reference));
     }
     let Some(target) = vars.get(&reference) else {
-        return Err(ThemeError::VariableReferenceNotFound(reference.into()));
+        return Err(ThemeError::VariableReferenceNotFound(reference));
     };
     visited.insert(reference);
     resolve_var_refs(target, vars, visited)
@@ -685,7 +685,7 @@ fn read_theme_file(path: &JsString) -> Result<JsString, ThemeError> {
     fs::read(&encoded_path)
         .map(|bytes| JsString::from(String::from_utf8_lossy(&bytes).as_ref()))
         .map_err(|error| ThemeError::Io {
-            message: node_read_error(&error, path).into(),
+            message: node_read_error(&error, path),
         })
 }
 
@@ -772,7 +772,7 @@ fn get_custom_theme_infos() -> Result<Vec<ThemeInfo>, ThemeError> {
     }
     let directory = custom_themes_dir.clone();
     let scan_error = |error| ThemeError::Io {
-        message: node_fs_error(&error, "scandir", &directory).into(),
+        message: node_fs_error(&error, "scandir", &directory),
     };
     let mut files = fs::read_dir(encode_node_utf8(&custom_themes_dir))
         .map_err(scan_error)?
@@ -951,7 +951,7 @@ fn validate_theme_json(label: &JsString, json: &Value) -> Result<(), ThemeError>
         missing_colors.sort();
         message.push_str("\nMissing required color tokens:\n");
         message.push_str(
-            &missing_colors
+            missing_colors
                 .iter()
                 .map(|color| format!("  - {color}"))
                 .collect::<Vec<_>>()
@@ -966,7 +966,7 @@ fn validate_theme_json(label: &JsString, json: &Value) -> Result<(), ThemeError>
     }
     Err(ThemeError::Invalid {
         label: label.into(),
-        message: message.into(),
+        message,
     })
 }
 

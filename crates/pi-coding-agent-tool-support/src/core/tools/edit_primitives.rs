@@ -530,20 +530,20 @@ fn render_preserved_groups(
     let mut original_line_index = 0;
     let mut result = JsString::default();
     for group in groups {
-        result.push_str(&JsString::join(
+        result.push_str(JsString::join(
             &original_lines[original_line_index..group.start_line],
             "",
         ));
         let group_start_offset = base_lines[group.start_line].start;
         let group_end_offset = base_lines[group.end_line - 1].end;
-        result.push_str(&apply_replacements(
-            &base_content.slice(group_start_offset, group_end_offset),
+        result.push_str(apply_replacements(
+            base_content.slice(group_start_offset, group_end_offset),
             &group.replacements,
             group_start_offset,
         ));
         original_line_index = group.end_line;
     }
-    result.push_str(&JsString::join(&original_lines[original_line_index..], ""));
+    result.push_str(JsString::join(&original_lines[original_line_index..], ""));
     result
 }
 
