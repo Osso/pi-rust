@@ -1,4 +1,121 @@
 #[tokio::test(flavor = "current_thread")]
+async fn native_audit_live_empty_assistant_error_completes_pending_tool_with_error() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, _, _, _temp) = build_mode().await;
+            mode.ensure_tool_component("read", "audit-pending", pi_js_compat::js_json!({"path":"fixture.txt"}));
+            let view = mode
+                .pending_tools
+                .borrow()
+                .get(&JsString::from("audit-pending"))
+                .unwrap()
+                .clone();
+            let mut message = faux_assistant_message("", Default::default());
+            message.stop_reason = pi_ai::types::StopReason::Error;
+            message.error_message = Some(JsString::default());
+            mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart {
+                message: message.clone().into(),
+            }))
+            .await;
+            mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageEnd {
+                message: message.into(),
+            }))
+            .await;
+            let output = JsString::join(view.borrow_mut().render(100), "\n");
+            assert!(output.contains("Error"), "{output:?}");
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_summary_edit_precedes_selected_child_steering() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let store = test_store();
+            let child = spawn_agent(&store, "Child", Some(1), None, None);
+            let (mode, _, _, _temp) = build_mode_with_store(Arc::clone(&store)).await;
+            let user: AgentMessage = pi_js_compat::js_json::from_value(
+                &pi_js_compat::js_json!({"role":"user","content":"Original context","timestamp":1000}),
+            )
+            .unwrap();
+            let first = mode.session().session_manager().append_message(user).unwrap();
+            let id = mode
+                .session()
+                .session_manager()
+                .append_compaction(&"Old summary".into(), &first, 100.0, Default::default())
+                .unwrap();
+            *mode.pending_compaction_summary_edit_id.borrow_mut() = Some(id.clone());
+            store.select_agent_view(&child);
+            mode.submit("Rewritten summary".into()).await.unwrap();
+            let entry = mode.session().session_manager().get_entry(&id).unwrap().clone();
+            let Some(KnownSessionEntry::Compaction(compaction)) = entry.known().as_deref().cloned() else {
+                panic!("expected compaction");
+            };
+            assert_eq!(compaction.summary, "Rewritten summary");
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_prepared_user_transit_and_duplicate_guard_visibility() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, _, _, _temp) = build_mode().await;
+            let user: AgentMessage = pi_js_compat::js_json::from_value(
+                &pi_js_compat::js_json!({"role":"user","content":"Prepared question","timestamp":1000}),
+            )
+            .unwrap();
+            mode.render_prepared_user_message(&user);
+            let pending = JsString::join(mode.chat_container.borrow_mut().render(100), "\n");
+            assert!(pending.contains("⧗ sending…"), "{pending:?}");
+            mode.handle_event(AgentSessionEvent::Agent(AgentEvent::MessageStart { message: user }))
+                .await;
+            let started = JsString::join(mode.chat_container.borrow_mut().render(100), "\n");
+            assert!(!started.contains("⧗ sending…"));
+            let guard: AgentMessage = pi_js_compat::js_json::from_value(
+                &pi_js_compat::js_json!({"role":"user","content":"Internal turn guard","timestamp":2000}),
+            )
+            .unwrap();
+            mode.handle_event(AgentSessionEvent::Message(
+                crate::core::agent_session::AgentMessageEvent {
+                    event: AgentEvent::MessageStart { message: guard },
+                    runtime_message_marker: Some(
+                        crate::core::runtime_message_markers::RuntimeMessageMarker::DuplicateTurnGuard,
+                    ),
+                },
+            ))
+            .await;
+            assert_eq!(
+                JsString::join(mode.chat_container.borrow_mut().render(100), "\n"),
+                started
+            );
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_main_input_uses_trimmed_submission() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, _, faux, _temp) = build_mode().await;
+            faux.set_responses(vec![completed_fixture_response("done")]);
+            mode.submit("  Main prompt  ".into()).await.unwrap();
+            let users = mode
+                .session()
+                .agent()
+                .state()
+                .messages
+                .iter()
+                .filter_map(|message| {
+                    matches!(message, AgentMessage::User(_)).then(|| InteractiveMode::get_user_message_text(message))
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(users, vec![JsString::from("Main prompt")]);
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn native_audit_mode_keeps_frozen_default_output_padding() {
     tokio::task::LocalSet::new()
         .run_until(async {

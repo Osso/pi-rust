@@ -4835,6 +4835,7 @@ impl InteractiveMode {
         if components.is_empty() {
             return;
         }
+        Self::set_user_messages_in_transit(&components, true);
         self.provisional_user_messages
             .borrow_mut()
             .push((message.clone(), components));
@@ -4859,10 +4860,38 @@ impl InteractiveMode {
                 .iter()
                 .all(|component| children.iter().any(|child| Rc::ptr_eq(child, component)));
         if remain {
+            Self::set_user_messages_in_transit(&components, false);
             return true;
         }
         self.remove_components_from_chat(&components);
         false
+    }
+
+    fn set_user_messages_in_transit(components: &[ComponentRef], in_transit: bool) {
+        use crate::modes::interactive::components::coordination_message::CoordinationMessageComponent;
+        for component in components {
+            let mut component = component.borrow_mut();
+            let Some(component) = component.as_any_mut() else {
+                continue;
+            };
+            if let Some(user) = component.downcast_mut::<UserMessageComponent>() {
+                user.set_in_transit(in_transit);
+            } else if let Some(coordination) = component.downcast_mut::<CoordinationMessageComponent>() {
+                coordination.set_in_transit(in_transit);
+            }
+        }
+    }
+
+    fn discard_prepared_user_message(&self, message: &AgentMessage) {
+        let index = self
+            .provisional_user_messages
+            .borrow()
+            .iter()
+            .position(|(prepared, _)| prepared == message);
+        if let Some(index) = index {
+            let (_, components) = self.provisional_user_messages.borrow_mut().remove(index);
+            self.remove_components_from_chat(&components);
+        }
     }
 
     /// `removeProvisionalUserMessages`.
@@ -7586,13 +7615,6 @@ impl InteractiveMode {
                 .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
         }
 
-        if !text.starts_with('/')
-            && !text.starts_with('!')
-            && self.submit_selected_agent_steering(&text, &submitted_text).await?
-        {
-            return Ok(());
-        }
-
         if let Some(command) = text.strip_prefix('/') {
             let (name, args) = match command.find(' ') {
                 Some(index) => (command.slice(0, index), command.slice(index + 1, command.len()).trim()),
@@ -7631,6 +7653,9 @@ impl InteractiveMode {
         }
 
         if self.submit_pending_compaction_summary_edit(&text)? {
+            return Ok(());
+        }
+        if self.submit_selected_agent_steering(&text, &submitted_text).await? {
             return Ok(());
         }
 
@@ -7680,25 +7705,61 @@ impl InteractiveMode {
             callback(text);
             return Ok(());
         }
-        if let Err(error) = session
+        self.submit_main_loop_input(&text).await;
+        Ok(())
+    }
+
+    async fn submit_main_loop_input(&self, text: &JsString) {
+        let direct_command = text
+            .strip_prefix('/')
+            .and_then(|command| command.split(' ').next())
+            .is_some_and(|command| self.session().extension_runner().get_prompt_command(&command).is_some());
+        let submitted = (!direct_command).then(|| {
+            AgentMessage::User(pi_ai::types::UserMessage {
+                role: Default::default(),
+                content: pi_ai::types::UserContent::Blocks(vec![pi_ai::types::TextOrImageContent::Text(
+                    pi_ai::types::TextContent::new(text.clone()),
+                )]),
+                input_source: None,
+                provider_native: None,
+                timestamp: js_now_millis(),
+            })
+        });
+        if let Some(message) = &submitted {
+            self.render_prepared_user_message(message);
+        }
+        let pending = Arc::new(std::sync::Mutex::new(submitted));
+        let mode_id = self.ui_id.get();
+        let prepared: crate::core::agent_session::UserMessagePreparedCallback = Arc::new(move |message| {
+            if let Some(mode) = with_mode(mode_id, |mode| mode) {
+                let previous = pending
+                    .lock()
+                    .unwrap_or_else(|_| throw_uncaught(ERROR, "Provisional prompt lock poisoned"))
+                    .take();
+                if let Some(previous) = previous {
+                    mode.discard_prepared_user_message(&previous);
+                }
+                mode.render_prepared_user_message(message);
+            }
+        });
+        match self
+            .session()
             .prompt(
-                &submitted_text,
+                text,
                 PromptOptions {
                     streaming_behavior: Some(StreamingBehavior::Steer),
-                    on_user_message_prepared: Some(prepared_user_message_callback()),
+                    on_user_message_prepared: Some(prepared),
                     ..PromptOptions::default()
                 },
             )
             .await
         {
-            self.show_error(error.message());
-        } else {
-            self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(&text);
+            Ok(()) => self.clipboard_temp_files.borrow_mut().cleanup_referenced_in(text),
+            Err(error) => self.show_error(error.message()),
         }
         if self.remove_provisional_user_messages() {
             self.ui.request_render();
         }
-        Ok(())
     }
 
     fn is_extension_command(&self, text: &JsString) -> bool {
@@ -12181,6 +12242,12 @@ impl InteractiveMode {
                     self.ui.request_render();
                 }
                 AgentMessage::User(_) => {
+                    if crate::core::runtime_message_markers::is_duplicate_turn_guard_message(
+                        None,
+                        runtime_message_marker,
+                    ) {
+                        return;
+                    }
                     if !self.consume_prepared_user_message(&message) {
                         self.add_message_to_chat(&message, false);
                     }
@@ -12271,7 +12338,7 @@ impl InteractiveMode {
                         pi_ai::types::StopReason::Aborted | pi_ai::types::StopReason::Error
                     ) {
                         let error_message = error_message
-                            .or_else(|| assistant.error_message.clone())
+                            .or_else(|| assistant.error_message.clone().filter(|error| !error.is_empty()))
                             .unwrap_or_else(|| JsString::from("Error"));
                         for component in self.pending_tools.borrow().values() {
                             if let Some(component_value) = component

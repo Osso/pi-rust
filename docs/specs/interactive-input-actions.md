@@ -21,6 +21,10 @@ Bash input invokes `user_bash` interception before execution. Replacement result
 
 Manual compaction clears the old working status and relies on compaction events for its normal display. Only an error after a saved compaction is reported again by the command handler. Global interrupt respects focused dialog cancellation and key releases, and cancels a Supervisor review even when the editor does not handle Escape itself.
 
+## Prepared messages
+
+Normal main-loop submission uses the trimmed editor value, while selected-child steering keeps its submitted-text authority. Show provisional input with its sending indicator until preparation/message-start replaces or confirms it. Duplicate-turn guard messages stay hidden. A pending compaction summary edit takes precedence over selected-child steering. Empty live assistant failures complete pending tool rows with `Error`.
+
 ## Follow-up submission
 
 Alt+Enter reads expanded, trimmed editor text and ignores empty input. During compaction, extension commands execute immediately and other text queues as follow-up input. During streaming, submit through the session prompt API with follow-up behavior and show prompt failures. While idle, use the installed editor submit callback, not the session follow-up queue; clear the editor only if that callback exists. Custom editors inherit the default submit callback.
