@@ -216,11 +216,11 @@ mod lossless_tests {
         let new = JsString::from_utf16(vec![0x61, 0xd801, 0x62]);
         let (removed, added) = render_intra_line_diff(&old, &new);
         assert_eq!(
-            JsString::from(removed.clone()),
+            removed,
             JsString::from("a") + with_theme(|theme| theme.inverse(JsString::from_utf16(vec![0xd800]))) + "b"
         );
         assert_eq!(
-            JsString::from(added.clone()),
+            added,
             JsString::from("a") + with_theme(|theme| theme.inverse(JsString::from_utf16(vec![0xd801]))) + "b"
         );
         assert_ne!(added, removed);
@@ -232,6 +232,6 @@ mod lossless_tests {
         let input = JsString::from_utf16(vec![45, 49, 32, 0xd83d, 0xde00, 10, 43, 49, 32, 0xfffd]);
         let output = render_diff(&input);
         assert!(output.contains("😀"));
-        assert!(output.contains(&with_theme(|theme| theme.inverse("�"))));
+        assert!(output.contains(with_theme(|theme| theme.inverse("�"))));
     }
 }
