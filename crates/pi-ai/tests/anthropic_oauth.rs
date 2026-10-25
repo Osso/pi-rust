@@ -18,7 +18,7 @@ const NOW: f64 = 1_750_000_000_000.0;
 
 fn verifier() -> String {
     let random = TestRandom::new();
-    generate_pkce_with(|bytes| random.fill(bytes)).verifier
+    generate_pkce_with(|bytes| random.fill(bytes)).unwrap().verifier
 }
 
 #[tokio::test]

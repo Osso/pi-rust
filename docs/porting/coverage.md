@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 464, `gap` 19, `partial` 46, `todo` 157.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 465, `gap` 19, `partial` 46, `todo` 156.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -189,7 +189,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/utils/oauth/load.ts` | 21 | — | done | `crates/pi-ai/src/auth/oauth/load.rs` | Three frozen loaders only; direct native links, no old-only override registry/bun module/extra flow exports. Actual frozen exports/auth names/method sets/toAuth results GREEN. Deleted old-only tests and outside-consumer audit: [traceability](traceability/load.md). |
 | `ai/src/utils/oauth/oauth-page.ts` | 109 | 0 | todo | `crates/pi-ai/src/auth/oauth/oauth_page.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/oauth_page.rs`; old path: `ai/src/auth/oauth/oauth-page.ts`; Success/error HTML rendering with escaping; byte-exact differential. |
 | `ai/src/utils/oauth/openai-codex.ts` | 696 | 2 | todo | `crates/pi-ai/src/auth/oauth/openai_codex.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/openai_codex.rs`; old path: `ai/src/auth/oauth/openai-codex.ts`; select prompt, device grant, localhost:1455 callback, JWT accountId decoded with `atob` semantics (base64url rejected), form exchange/refresh; differential device + refresh. |
-| `ai/src/utils/oauth/pkce.ts` | 34 | 0 | todo | `crates/pi-ai/src/auth/oauth/pkce.rs` | re-pin delta; old status: done; old Rust: `crates/pi-ai/src/auth/oauth/pkce.rs`; old path: `ai/src/auth/oauth/pkce.ts`; Base64url verifier and SHA-256 challenge; differential challenge check. |
+| `ai/src/utils/oauth/pkce.ts` | 34 | 0 | done | `crates/pi-ai/src/auth/oauth/pkce.rs` | Whole frozen generator: four deterministic actual-source verifier/challenge pairs, random/digest rejection probes, exact native entropy/state/UUID-helper rejection, and six real OAuth failure cases before network/notifications. Private helpers stay private; OS errors use approved pinned Node empty-queue shape. System UUID migration remains a separate prerequisite. [Traceability](traceability/pkce.md). |
 | `ai/src/utils/oauth/types.ts` | 79 | — | partial | `crates/pi-ai/src/oauth_registry.rs` | provider interface + existing compat callbacks; builtin callback/flow revalidation pending; [trace](traceability/oauth-registry.md) |
 | `ai/src/utils/overflow.ts` | 166 | 2 | done | `crates/pi-ai/src/utils/overflow.rs` | Whole frozen module: old-only recoverable-length/range pattern removed; JS regex behavior and truthiness restored. RED → GREEN 14 + differential + seeded consumer; [traceability](traceability/overflow.md); ledger `/tmp/pi-rust-repin-delta-ai/ledger.md`. |
 | `ai/src/utils/provider-env.ts` | 52 | 1 | done | `crates/pi-ai/src/utils/provider_env.rs` | Scoped → process env precedence; Bun `/proc/self/environ` fallback is a documented typed exclusion ([traceability](traceability/provider-env.md)).; re-run vs 4f9e6f8a4 pending |

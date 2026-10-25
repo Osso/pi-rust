@@ -45,13 +45,14 @@ fn runtime(fetch: Arc<dyn Fetch>) -> OAuthRuntime {
 fn oauth_support_random() -> Arc<dyn pi_ai::auth::oauth::support::RandomSource> {
     struct FixedRandom;
     impl pi_ai::auth::oauth::support::RandomSource for FixedRandom {
-        fn fill(&self, bytes: &mut [u8]) {
+        fn fill(&self, bytes: &mut [u8]) -> Result<(), pi_ai::request::CallbackError> {
             for (index, byte) in bytes.iter_mut().enumerate() {
                 *byte = (index % 255 + 1) as u8;
             }
+            Ok(())
         }
-        fn uuid(&self) -> String {
-            "00000000-0000-4000-8000-000000000000".to_owned()
+        fn uuid(&self) -> Result<String, pi_ai::request::CallbackError> {
+            Ok("00000000-0000-4000-8000-000000000000".to_owned())
         }
     }
     Arc::new(FixedRandom)

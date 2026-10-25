@@ -67,7 +67,7 @@ impl CustomOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let runtime = self.0.clone();
         Box::pin(async move {
-            let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
+            let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes))?;
             let url = url_with_query(
                 "https://claude.ai/oauth/authorize",
                 &[

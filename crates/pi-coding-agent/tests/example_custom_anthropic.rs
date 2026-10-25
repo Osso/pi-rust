@@ -27,12 +27,13 @@ use std::sync::{Arc, Mutex};
 
 struct Random;
 impl RandomSource for Random {
-    fn fill(&self, bytes: &mut [u8]) {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CallbackError> {
         for (i, b) in bytes.iter_mut().enumerate() {
             *b = i as u8;
         }
+        Ok(())
     }
-    fn uuid(&self) -> String {
+    fn uuid(&self) -> Result<String, CallbackError> {
         panic!("not a UUID flow")
     }
 }

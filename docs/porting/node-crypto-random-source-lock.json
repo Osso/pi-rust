@@ -1,0 +1,20 @@
+{
+  "version": "v26.11.1",
+  "approval": "Parent 2026-10-25: native getrandom failures use Node empty OpenSSL queue shape; never panic or fallback.",
+  "sources": [
+    {
+      "path": "src/crypto/crypto_random.cc",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/src/crypto/crypto_random.cc",
+      "sha256": "03d441e91c8656235de3ec2da735fb92dcb88b0baa4e3a1d97497090b37df9b8"
+    },
+    {
+      "path": "src/crypto/crypto_util.h",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/src/crypto/crypto_util.h",
+      "sha256": "17ef1d34245c0c4eac4b4b9a154e3350dcb3ad8fcbbfb2673a43472afde6a78f"
+    }
+  ],
+  "branches": {
+    "src/crypto/crypto_random.cc:197-224": "RandomFillSync: failed CSPRNG, empty CryptoErrorStore -> DERIVING_BITS_FAILED plus ERR_CRYPTO_OPERATION_FAILED",
+    "src/crypto/crypto_util.h:104": "DERIVING_BITS_FAILED message is Deriving bits failed"
+  }
+}
