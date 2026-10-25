@@ -6053,14 +6053,13 @@ impl AgentSession {
         custom_instructions: Option<&JsString>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let guard = self.inner.turn_start_lock.lock().await;
-        let result = self.compact_inner(custom_instructions).await;
-        drop(guard);
-        result
+        self.compact_inner(custom_instructions, guard).await
     }
 
     async fn compact_inner(
         &self,
         custom_instructions: Option<&JsString>,
+        guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
         let compaction_started_during_tool_execution =
@@ -6101,7 +6100,8 @@ impl AgentSession {
                 })));
                 self.reconnect_to_agent();
                 if should_continue {
-                    self.continue_after_manual_compaction(was_running_agent_turn).await?;
+                    self.continue_after_manual_compaction(was_running_agent_turn, guard)
+                        .await?;
                 }
                 Ok(compaction_result)
             }
@@ -6122,14 +6122,22 @@ impl AgentSession {
         }
     }
 
-    async fn continue_after_manual_compaction(&self, remove_tool_use_assistant: bool) -> Result<(), AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
+    async fn continue_after_manual_compaction(
+        &self,
+        remove_tool_use_assistant: bool,
+        guard: tokio::sync::MutexGuard<'_, ()>,
+    ) -> Result<(), AgentSessionError> {
+        let result = if self.is_streaming() {
+            Err(error(
                 "Agent is already processing. Wait for completion before continuing.",
-            ));
-        }
-        self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
-        self.run_agent_continuation().await
+            ))
+        } else {
+            self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
+            drop(guard);
+            self.run_agent_continuation().await
+        };
+        self.flush_pending_bash_messages();
+        result
     }
 
     /// Runs the `session_before_compact` preflight and the `compaction` provider
@@ -7066,11 +7074,6 @@ impl AgentSession {
         target_id: &JsString,
         options: NavigateTreeOptions,
     ) -> Result<NavigateTreeResult, AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
-                "Wait for the current response to finish before navigating the session tree.",
-            ));
-        }
         let (old_leaf_id, target_entry, entries_to_summarize, common_ancestor_id) = {
             let manager = lock(&self.inner.session_manager);
             let old_leaf_id = manager.get_leaf_id().cloned();
@@ -7157,9 +7160,8 @@ impl AgentSession {
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
-            let auth = self.get_compaction_request_auth(&model).await.map_err(|error| {
+            let auth = self.get_required_request_auth(&model).await.inspect_err(|_| {
                 *lock(&self.inner.branch_summary_abort_controller) = None;
-                error
             })?;
             let reserve_tokens = lock(&self.inner.settings_manager)
                 .get_branch_summary_settings()
@@ -7234,6 +7236,8 @@ impl AgentSession {
             _ => (Some(target_id.to_owned()), None),
         };
 
+        let summary_text = summary_text.filter(|text| !text.is_empty());
+        let label = label.filter(|label| !label.is_empty());
         let mut summary_entry = None;
         let had_summary = summary_text.is_some();
         {
@@ -7424,8 +7428,13 @@ impl AgentSession {
             crate::utils::paths::resolve_path(output_path.unwrap_or(&default_name), "", &Default::default())
                 .map_err(|path_error| error(path_error.message()))?;
         let parent = crate::utils::paths::node_dirname(&file_path);
-        std::fs::create_dir_all(encode_node_utf8(&parent))
-            .map_err(|io_error| error(format!("Failed to create export directory: {io_error}")))?;
+        if !std::path::Path::new(&encode_node_utf8(&parent)).exists() {
+            std::fs::create_dir_all(encode_node_utf8(&parent)).map_err(|failure| {
+                pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                    &failure, "mkdir", &parent,
+                ))
+            })?;
+        }
         let (session_id, cwd, branch_entries) = {
             let manager = lock(&self.inner.session_manager);
             (
@@ -7460,8 +7469,16 @@ impl AgentSession {
             previous_id = entry.id().cloned();
             lines.push(pi_js_compat::js_json::stringify_lossless(&value));
         }
-        std::fs::write(encode_node_utf8(&file_path), format!("{}\n", lines.join("\n")))
-            .map_err(|io_error| error(format!("Failed to write session export: {io_error}")))?;
+        let mut file = std::fs::File::create(encode_node_utf8(&file_path)).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                &failure, "open", &file_path,
+            ))
+        })?;
+        std::io::Write::write_all(&mut file, format!("{}\n", lines.join("\n")).as_bytes()).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_file_write_error_record(
+                &failure,
+            ))
+        })?;
         Ok(file_path)
     }
 

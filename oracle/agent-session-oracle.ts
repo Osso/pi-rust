@@ -115,7 +115,7 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = request.operation === "preflight-compaction"
+	const settingsManager = ["preflight-compaction", "compaction-lock"].includes(request.operation)
 		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1 } })
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
@@ -148,7 +148,49 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
-	if (request.operation === "preflight-compaction") {
+	if (request.operation === "export-error") {
+		try {
+			session.exportToJsonl(request.outputPath);
+			return { success: true };
+		} catch (error) {
+			return { name: error.name, message: error.message, ...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "stack")) };
+		} finally {
+			session.dispose();
+		}
+	}
+	if (request.operation === "navigation-empty-summary") {
+		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		const runner = session.extensionRunner;
+		const emit = runner.emit.bind(runner);
+		runner.hasHandlers = (type) => type === "session_before_tree";
+		runner.emit = async (event) => event.type === "session_before_tree" ? { summary: { summary: "" }, label: "" } : emit(event);
+		const result = await session.navigateTree(first, { summarize: true, label: "" });
+		const entries = sessionManager.getEntries();
+		session.dispose();
+		return {
+			hasSummary: result.summaryEntry !== undefined,
+			atRoot: sessionManager.getLeafId() === null,
+			summaries: entries.filter((entry) => entry.type === "branch_summary").length,
+			labels: entries.filter((entry) => entry.type === "label").length,
+		};
+	}
+	if (request.operation === "navigation-auth") {
+		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
+		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
+		agent.state.model = { ...model, provider: "unconfigured-provider" };
+		agent.state.messages = sessionManager.buildSessionContext().messages;
+		try {
+			await session.navigateTree(first, { summarize: true });
+			return { success: true };
+		} catch (error) {
+			return { error: error.message };
+		} finally {
+			session.dispose();
+		}
+	}
+	if (["preflight-compaction", "compaction-lock"].includes(request.operation)) {
 		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
 		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
 		for (let i = 0; i < 4; i++) {
@@ -159,6 +201,35 @@ async function run(request) {
 		settingsManager.setCompactionEnabled(false);
 		const runner = session.extensionRunner;
 		const emit = runner.emit.bind(runner);
+		if (request.operation === "compaction-lock") {
+			sessionManager.appendMessage({ role: "user", content: "unfinished request", timestamp: 10 });
+			agent.state.messages = sessionManager.buildSessionContext().messages;
+			settingsManager.setRetryEnabled(false);
+			runner.hasHandlers = (type) => type === "compaction";
+			runner.emit = async (event) => event.type === "compaction" ? {
+				compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
+			} : emit(event);
+			let release;
+			let markStarted;
+			const gate = new Promise((resolve) => { release = resolve; });
+			const started = new Promise((resolve) => { markStarted = resolve; });
+			core.setResponses([async () => {
+				markStarted();
+				await gate;
+				return fauxAssistantMessage("resumed answer");
+			}]);
+			const compacting = session.compact();
+			await started;
+			const accepted = await Promise.race([
+				session.prompt("new input", { streamingBehavior: "followUp" }).then(() => true),
+				new Promise((resolve) => setTimeout(() => resolve(false), 100)),
+			]);
+			release();
+			await session.abort();
+			await compacting;
+			session.dispose();
+			return accepted;
+		}
 		runner.hasHandlers = (type) => type === "session_before_compact";
 		runner.emit = async (event) => event.type === "session_before_compact" ? {
 			compaction: { summary: "obsolete preflight summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
@@ -172,8 +243,9 @@ async function run(request) {
 			session.dispose();
 		}
 	}
-	if (request.operation === "idle-steer") {
-		agent.state.messages.push({ role: "user", content: "earlier request", timestamp: 0 });
+	if (["idle-steer", "navigation-streaming"].includes(request.operation)) {
+		sessionManager.appendMessage({ role: "user", content: "earlier request", timestamp: 0 });
+		agent.state.messages = sessionManager.buildSessionContext().messages;
 		let release;
 		let markStarted;
 		const gate = new Promise((resolve) => { release = resolve; });
@@ -185,6 +257,14 @@ async function run(request) {
 		}]);
 		const steering = session.steer("idle steer");
 		await started;
+		let navigation;
+		if (request.operation === "navigation-streaming") {
+			try {
+				navigation = await session.navigateTree(sessionManager.getLeafId());
+			} catch (error) {
+				navigation = { error: error.message };
+			}
+		}
 		const returnedBeforeResponse = await Promise.race([
 			steering.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100)),
 		]);
@@ -192,7 +272,7 @@ async function run(request) {
 		await steering;
 		await session.abort();
 		session.dispose();
-		return returnedBeforeResponse;
+		return request.operation === "navigation-streaming" ? navigation : returnedBeforeResponse;
 	}
 	if (request.operation === "quota-fallback") {
 		await session.prompt("quota test");

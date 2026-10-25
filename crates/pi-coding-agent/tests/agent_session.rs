@@ -108,6 +108,40 @@ async fn jsonl_export_preserves_javascript_value_bytes() {
     );
 }
 
+#[tokio::test]
+async fn jsonl_export_directory_target_preserves_frozen_native_error() {
+    use std::error::Error;
+    let fixture = fixture().await;
+    let directory = fixture._temp_dir.path().join("directory-target");
+    std::fs::create_dir(&directory).expect("target directory");
+    let file = fixture._temp_dir.path().join("file-parent");
+    std::fs::write(&file, "existing file").expect("file parent");
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    for path in [directory, file.join("export.jsonl"), file.join("nested/export.jsonl")] {
+        let output = JsString::from(path.display().to_string());
+        let expected = oracle.request(&pi_js_compat::js_json!({
+            "operation": "export-error", "outputPath": output,
+            "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+        }));
+        assert_eq!(expected.get("ok"), Some(&JsValue::Bool(true)));
+        let failure = fixture
+            .session
+            .export_to_jsonl(Some(&output))
+            .expect_err("invalid export target");
+        let actual = failure
+            .source()
+            .and_then(|source| source.downcast_ref::<pi_js_compat::node_error::NativeNodeError>())
+            .map(|source| source.value())
+            .unwrap_or_else(|| pi_js_compat::js_json!({"name": "Error", "message": failure.message()}));
+        assert_eq!(
+            actual,
+            expected.get("value").expect("oracle value").clone(),
+            "path={path:?}"
+        );
+    }
+    assert_eq!(std::fs::read_to_string(file).expect("existing file"), "existing file");
+}
+
 async fn fixture() -> Fixture {
     fixture_with(Default::default(), Vec::new(), None, Some(Vec::new())).await
 }
@@ -869,6 +903,190 @@ async fn get_last_assistant_text_skips_empty_aborted_messages() {
         fixture.session.get_last_assistant_text().as_ref(),
         Some(&JsString::from("final answer"))
     );
+}
+
+#[tokio::test]
+async fn navigate_tree_summary_requires_auth_before_calling_provider_like_frozen() {
+    let fixture = fixture().await;
+    let first = fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("first request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }))
+        .expect("user");
+    fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::Assistant(Box::new(faux_assistant_message(
+            "old answer",
+            Default::default(),
+        ))))
+        .expect("assistant");
+    let mut model = fixture.session.model();
+    model.provider = "unconfigured-provider".to_owned();
+    fixture.session.agent().set_model(model);
+    fixture.faux.set_responses(vec![
+        faux_assistant_message("unauthenticated summary", Default::default()).into(),
+    ]);
+    let package_dir = pi_coding_agent::config::get_package_dir().expect("package dir");
+    let mut oracle = tools_oracle::TsOracle::spawn_with_environment(
+        "agent-session-oracle.ts",
+        "packages/coding-agent/src/core/sdk.ts",
+        &[(
+            "PI_PACKAGE_DIR",
+            std::ffi::OsString::from(encode_node_utf8(&package_dir)),
+        )],
+    );
+    let expected = oracle.request(&json!({
+        "operation": "navigation-auth", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected["ok"], true, "oracle: {expected}");
+    assert!(
+        expected["value"]["error"]
+            .as_str()
+            .expect("auth error")
+            .contains("unconfigured-provider")
+    );
+    let result = fixture
+        .session
+        .navigate_tree(
+            &first,
+            NavigateTreeOptions {
+                summarize: Some(true),
+                ..Default::default()
+            },
+        )
+        .await;
+    let actual = match result {
+        Ok(_) => json!({"success": true}),
+        Err(error) => json!({"error": error.message()}),
+    };
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn navigate_tree_empty_extension_summary_and_label_match_frozen() {
+    use pi_coding_agent::core::extensions::types::{HandlerError, SessionBeforeTreeResult, SessionTreeSummary};
+    let fixture = fixture_with_timeout_extension(Arc::new(|api| {
+        let registered = api.on_session_before_tree(|_event, _ctx| {
+            Box::pin(async {
+                Ok(Some(SessionBeforeTreeResult {
+                    summary: Some(SessionTreeSummary {
+                        summary: JsString::default(),
+                        details: None,
+                        usage: None,
+                    }),
+                    label: Some(JsString::default()),
+                    ..Default::default()
+                }))
+            }) as pi_ai::request::BoxFuture<'static, Result<Option<SessionBeforeTreeResult>, HandlerError>>
+        });
+        Box::pin(async move { registered.map_err(HandlerError::new) })
+    }))
+    .await;
+    let first = fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("first request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 0.0,
+        }))
+        .expect("user");
+    fixture
+        .session
+        .session_manager()
+        .append_message(AgentMessage::Assistant(Box::new(faux_assistant_message(
+            "old answer",
+            Default::default(),
+        ))))
+        .expect("assistant");
+    let result = fixture
+        .session
+        .navigate_tree(
+            &first,
+            NavigateTreeOptions {
+                summarize: Some(true),
+                label: Some(JsString::default()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("navigate");
+    let manager = fixture.session.session_manager();
+    let entries = manager.get_entries();
+    let actual = json!({
+        "hasSummary": result.summary_entry.is_some(), "atRoot": manager.get_leaf_id().is_none(),
+        "summaries": entries.iter().filter(|entry| entry.entry_type() == "branch_summary").count(),
+        "labels": entries.iter().filter(|entry| entry.entry_type() == "label").count(),
+    });
+    drop(manager);
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "navigation-empty-summary", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"hasSummary": false, "atRoot": true, "summaries": 0, "labels": 0}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn navigate_tree_current_leaf_is_noop_during_streaming_like_frozen() {
+    let fixture = fixture().await;
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (start_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    fixture
+        .faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let (started, release) = (Arc::clone(&start_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("answer", Default::default()))
+                })
+            },
+        ))]);
+    let session = fixture.session.clone();
+    let prompt = tokio::spawn(async move { session.prompt("first request", PromptOptions::default()).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("provider started");
+    let target = fixture
+        .session
+        .session_manager()
+        .get_leaf_id()
+        .expect("current leaf")
+        .clone();
+    let result = fixture
+        .session
+        .navigate_tree(&target, NavigateTreeOptions::default())
+        .await;
+    let leaf_after_navigation = fixture.session.session_manager().get_leaf_id().cloned();
+    let actual = match result {
+        Ok(result) => json!({"cancelled": result.cancelled}),
+        Err(error) => json!({"error": error.message()}),
+    };
+    release.notify_one();
+    fixture.session.abort().await.expect("abort");
+    prompt.await.expect("prompt task").expect("prompt result");
+    let mut oracle = tools_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "navigation-streaming", "dir": fixture._temp_dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"cancelled": false}}));
+    assert_eq!(actual, expected["value"]);
+    assert_eq!(leaf_after_navigation.as_ref(), Some(&target));
 }
 
 #[tokio::test]

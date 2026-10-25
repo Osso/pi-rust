@@ -508,6 +508,80 @@ async fn manual_compaction_preflight_only_cancels_and_forwards_custom_instructio
 }
 
 #[tokio::test]
+async fn resumed_manual_compaction_releases_turn_start_for_streaming_input() {
+    use pi_coding_agent::core::agent_session::{PromptOptions, StreamingBehavior};
+    let env = env_with(
+        json!({"keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    env.session
+        .session_manager()
+        .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("unfinished request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1.0,
+        }))
+        .expect("unfinished request");
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (start_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    env.faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let (started, release) = (Arc::clone(&start_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("resumed answer", Default::default()))
+                })
+            },
+        ))]);
+    let session = env.session.clone();
+    let compact = tokio::spawn(async move { session.compact(None).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("resumed provider started");
+    let input = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        env.session.prompt(
+            "new input",
+            PromptOptions {
+                streaming_behavior: Some(StreamingBehavior::FollowUp),
+                ..Default::default()
+            },
+        ),
+    )
+    .await;
+    release.notify_one();
+    env.session.abort().await.expect("abort resumed turn");
+    tokio::time::timeout(std::time::Duration::from_secs(5), compact)
+        .await
+        .expect("compact settled")
+        .expect("compact task")
+        .expect("saved compaction");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "compaction-lock", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": true}));
+    assert!(
+        matches!(input, Ok(Ok(()))),
+        "streaming prompt must be accepted while compact awaits resumed turn: {input:?}"
+    );
+}
+
+#[tokio::test]
 async fn manual_compaction_preflight_cancel_reports_cancelled() {
     let env = env_with(
         json!({"keepRecentTokens": 1}),
