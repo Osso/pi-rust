@@ -27,6 +27,8 @@ OAuth model modifiers return Result<Vec<Model>, CallbackError>. Registration, bo
 
 The model-selector consumer distinguishes refresh rejection from its caught availability lookup failure. Selector construction stays infallible; an uncaught refresh rejection is published after construction through the existing shared uncaught authority with its original carrier. This is not a rendered getter error or a new panic channel.
 
+Provider reapplication during refresh follows the live insertion order. A modifier's newly appended provider is visited in that pass; a deleted provider is skipped; deletion and reinsertion creates a new visit with its current config. Updating an existing provider retains its position. A stale snapshot must not restore deleted models or old config.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).
