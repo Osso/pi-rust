@@ -38,3 +38,11 @@ Nine assigned source rows: bwrap backend/index, claude-bash-hook, claude-memory-
 - GREEN same target filter `codex_hosted_tools::`, 13/13 (includes differential due substring filter); `/tmp/ext-b-hosted-behavior.log`. This filter should not be repeated.
 - GREEN `cargo test -j3 -p pi-coding-agent --test suite_core_1 differential_codex_hosted_abort::`, 1/1; `/tmp/ext-b-hosted-abort.log`.
 - Proof covers hosted implementation commit (this change); relevant edits invalidate it.
+
+## Bwrap
+
+- RED empty env differentials: `/tmp/ext-b-bwrap-env-red.log`; GREEN `/tmp/ext-b-bwrap-env-green.log` (2/2, suite_core_1 filter `differential_bwrap::matches_typescript`).
+- RED status/custom shell: `/tmp/ext-b-bwrap-status-red.log`; GREEN `/tmp/ext-b-bwrap-status-green.log` (2/2, suite_extensions filter `bwrap_repin::`).
+- RED worker-null/zero-notice: `/tmp/ext-b-bwrap-worker-red.log`; GREEN `/tmp/ext-b-bwrap-worker-green.log` (8/8, extensions --lib filter `bwrap::index::operation_tests::`).
+- Commands use `cargo test -j3 -p <crate> --test <suite> <filter>` (or --lib). All proofs cover bwrap implementation commit (this change). No actual host sandbox.
+- Index stays partial: explicit unimplemented full-access detached-job/registry forwarding, recorded in traceability.

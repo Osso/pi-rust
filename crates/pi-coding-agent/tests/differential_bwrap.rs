@@ -83,6 +83,7 @@ fn matches_typescript_bwrap_profiles_and_runner_environment() {
     let env_cases = [
         json!({"hostEnv": {"LANG": "C.UTF-8", "PATH": "/bin", "TERM": "xterm", "USER": "tester"}}),
         json!({"hostEnv": {"LANG": "C.UTF-8", "PATH": "/bin", "USER": "tester"}, "pythonPath": "/py"}),
+        json!({"hostEnv": {"LANG": "", "PATH": "", "TERM": "", "USER": ""}, "pythonPath": ""}),
     ];
     let output = oracle.request(&json!({"id": 2, "operation": "runner-env", "cases": env_cases}));
     let actual: Vec<Value> = env_cases
@@ -114,6 +115,7 @@ fn matches_typescript_bwrap_invocation_arguments() {
         .expect("utf-8 test path")
         .to_owned();
     let cases = [
+        json!({"bwrapCommand":"bwrap", "command":["/bin/sh"], "cwd":workspace, "profile":"read-only", "env":{"PYTHONPATH":"", "TERM":"", "USER":""}}),
         json!({
             "bwrapCommand": "bwrap",
             "command": ["/bin/sh", "-lc", "echo ok"],
