@@ -14,9 +14,10 @@ use crate::utils::child_process::node_spawn_error_message;
 
 const BROWSER_CLI_EXECUTABLE: &str = "browser-cli";
 
-const BROWSER_CLI_PROMPT_GUIDELINES: [&str; 6] = [
+const BROWSER_CLI_PROMPT_GUIDELINES: [&str; 7] = [
     "When spawn_agent is available, use a fresh agentType \"browser\" for multi-step browser workflows; direct browser-cli use remains allowed for simple actions.",
     "Pass deterministic command sequences in one ordered commands batch. Use separate calls when an intermediate result determines the next action.",
+    "Each agent drives its own dedicated background tab (BROWSER_CLI_SESSION is set automatically); `tabs list` marks it with *. Never activate or navigate other tabs.",
     "Observe with snapshot --interactive --compact before interacting. Re-observe after navigation or page mutation instead of repeatedly guessing selectors.",
     "Use open for navigation; fill, click, and press for interaction. `press` takes only a key, not a selector. Wait for bounded delays or selectors; use get url, get title, and visible text for completion proof.",
     "When a login form appears, attempt mapped authentication with broker-unlock --current-origin followed by broker-fill --current-origin. Never request or pass credential values.",

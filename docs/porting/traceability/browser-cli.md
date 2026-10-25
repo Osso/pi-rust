@@ -24,3 +24,7 @@ Gaps / discrepancies:
   they arrive. Byte content matches for deterministic commands.
 - Spawn failures use Node-style `spawn <cmd> ENOENT`/`EACCES`; other OS errors pass
   through.
+
+## Baseline display re-pin (2026-10-25)
+
+Registration restores the frozen dedicated background-tab prompt guideline verbatim; existing browser_cli differential RED was only that missing line.
