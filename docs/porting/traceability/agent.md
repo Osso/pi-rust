@@ -21,6 +21,10 @@ Evidence and exclusions: [slice-1 proof ledger](agent-core-api-repin.md). Comple
 | processEvents | process_events | state reduction, truthy error text, awaited listeners; log rejection and continue |
 | prepareNextTurn wrappers | build_prepare_next_turn_hook | context-hook precedence and dynamic replacement after turn listeners |
 
+## Registered acquisition rejection (2026-10-24 prerequisite)
+
+Frozen agent-loop.ts:488–494 does not stringify acquisition throws. Default Agent.runWithLifecycle catches at agent.ts:515–520; handleRunFailure:524–548 uses Error.message/String(error), and finally calls finishRun even if that conversion rejects. New actual-source `model_registry_agent_stream_throw` compares complete event/message/state values with independently clock-bounded timestamp masking. RED q15e-default-agent-stream-throw-red-3: raw lone-unit text and String-conversion rejection differ from native's empty-message projection; TypeError control passes. Native emit_run_failure now performs the source catch conversion from the retained CallbackError; finish_run_with always clears the run after the conversion/event Result settles, including conversion rejection. No StreamFn injection is used. All3source/native cases GREENbcf84da0, renewed after fixture extraction at561c6693; existing31Agent regressions also GREEN.
+
 The removed process-global get/setDefaultStreamFn API has no frozen counterpart. Default streaming calls pi-ai/compat directly. Rust support types (PromptInput, ContinueOptions, AgentInitialState, listener/hook aliases) express TS overloads/inline structural types; they do not add old runtime behavior.
 
 ## Frozen reference identity

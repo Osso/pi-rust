@@ -17,8 +17,7 @@ pub async fn run(
             pi_coding_agent::core::auth_storage::AuthStorage::create(None)
                 .map_err(pi_ai::request::CallbackError::from)?,
             None,
-        )
-        .map_err(pi_ai::request::CallbackError::from)?,
+        )?,
     };
     for (provider, id, label) in [
         ("anthropic", "claude-opus-4-5", "Found model"),

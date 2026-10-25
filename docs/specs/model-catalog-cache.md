@@ -37,6 +37,7 @@ Frozen `packages/coding-agent/src/core/model-catalog-cache.ts` supplies startup 
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/differential_model_catalog_cache.rs`: startup boundary, validation, native objects, mapping, persisted bytes and terminal errors.
+- `differential_catalog_startup`: fresh frozen main --list-models process and actual native binary have exact stdout/stderr/exit for a fresh cache-only model, without memo priming; cache bytes stay unchanged. Forced offline refresh failure remains covered.
 
 ## Known gaps (current cycle)
 

@@ -178,30 +178,42 @@ async fn aliases_match_the_pinned_typescript_module() {
 
     let mut results: Vec<Value> = Vec::new();
     for case in &CASES {
-        let plain: fn(Model, Context, StreamOptions) -> pi_ai::utils::event_stream::AssistantMessageEventStream =
-            match case.name {
-                "Anthropic" => stream_anthropic,
-                "AzureOpenAIResponses" => stream_azure_openai_responses,
-                "Google" => stream_google,
-                "GoogleVertex" => stream_google_vertex,
-                "Mistral" => stream_mistral,
-                "OpenAICodexResponses" => stream_openai_codex_responses,
-                "OpenAICompletions" => stream_openai_completions,
-                "OpenAIResponses" => stream_openai_responses,
-                other => panic!("unknown case {other}"),
-            };
-        let simple: fn(Model, Context, SimpleStreamOptions) -> pi_ai::utils::event_stream::AssistantMessageEventStream =
-            match case.name {
-                "Anthropic" => stream_simple_anthropic,
-                "AzureOpenAIResponses" => stream_simple_azure_openai_responses,
-                "Google" => stream_simple_google,
-                "GoogleVertex" => stream_simple_google_vertex,
-                "Mistral" => stream_simple_mistral,
-                "OpenAICodexResponses" => stream_simple_openai_codex_responses,
-                "OpenAICompletions" => stream_simple_openai_completions,
-                "OpenAIResponses" => stream_simple_openai_responses,
-                other => panic!("unknown case {other}"),
-            };
+        let plain: fn(
+            Model,
+            Context,
+            StreamOptions,
+        ) -> Result<
+            pi_ai::utils::event_stream::AssistantMessageEventStream,
+            pi_ai::request::CallbackError,
+        > = match case.name {
+            "Anthropic" => stream_anthropic,
+            "AzureOpenAIResponses" => stream_azure_openai_responses,
+            "Google" => stream_google,
+            "GoogleVertex" => stream_google_vertex,
+            "Mistral" => stream_mistral,
+            "OpenAICodexResponses" => stream_openai_codex_responses,
+            "OpenAICompletions" => stream_openai_completions,
+            "OpenAIResponses" => stream_openai_responses,
+            other => panic!("unknown case {other}"),
+        };
+        let simple: fn(
+            Model,
+            Context,
+            SimpleStreamOptions,
+        ) -> Result<
+            pi_ai::utils::event_stream::AssistantMessageEventStream,
+            pi_ai::request::CallbackError,
+        > = match case.name {
+            "Anthropic" => stream_simple_anthropic,
+            "AzureOpenAIResponses" => stream_simple_azure_openai_responses,
+            "Google" => stream_simple_google,
+            "GoogleVertex" => stream_simple_google_vertex,
+            "Mistral" => stream_simple_mistral,
+            "OpenAICodexResponses" => stream_simple_openai_codex_responses,
+            "OpenAICompletions" => stream_simple_openai_completions,
+            "OpenAIResponses" => stream_simple_openai_responses,
+            other => panic!("unknown case {other}"),
+        };
 
         for is_simple in [false, true] {
             let fetch = fetch();
@@ -210,7 +222,7 @@ async fn aliases_match_the_pinned_typescript_module() {
             } else {
                 plain(model(case), context(), stream_options(case, Arc::clone(&fetch)))
             };
-            let message = stream.result().await.expect("stream result");
+            let message = stream.expect("acquisition").result().await.expect("stream result");
             let requests: Vec<Value> = fetch
                 .requests()
                 .into_iter()

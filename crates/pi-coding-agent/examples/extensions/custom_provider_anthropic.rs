@@ -39,7 +39,12 @@ pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAut
             api: Some(API.into()),
             models: Some(catalog()),
             stream_simple: Some(Arc::new(move |model, context, options| {
-                stream::start(runtime.clone(), model, context, options.unwrap_or_default())
+                Ok(stream::start(
+                    runtime.clone(),
+                    model,
+                    context,
+                    options.unwrap_or_default(),
+                ))
             })),
             oauth: Some(ExtensionOAuthConfig {
                 name: "Custom Anthropic (Claude Pro/Max)".into(),

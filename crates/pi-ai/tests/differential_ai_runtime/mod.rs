@@ -437,18 +437,20 @@ async fn run_faux_case(case: &Value) -> Value {
             .get("cacheRetention")
             .and_then(Value::as_str)
             .map(|retention| serde_json::from_value(json!(retention)).unwrap());
-        let mut stream = core.stream_simple(
-            core.get_model(None).unwrap(),
-            context,
-            SimpleStreamOptions {
-                stream: StreamOptions {
-                    session_id: session_id.map(pi_js_compat::js_json::JsString::from),
-                    cache_retention,
+        let mut stream = core
+            .stream_simple(
+                core.get_model(None).unwrap(),
+                context,
+                SimpleStreamOptions {
+                    stream: StreamOptions {
+                        session_id: session_id.map(pi_js_compat::js_json::JsString::from),
+                        cache_retention,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
-                ..Default::default()
-            },
-        );
+            )
+            .expect("acquisition");
         let mut events = Vec::new();
         while let Some(event) = stream.next().await {
             events.push(event_type(&event.unwrap()));
@@ -502,16 +504,21 @@ fn compare_lazy_stream_error(oracle: &mut oracle::TsOracle) {
 struct EmptyStreams;
 
 impl ProviderStreams for EmptyStreams {
-    fn stream(&self, _model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
-        create_assistant_message_event_stream().1
+    fn stream(
+        &self,
+        _model: Model,
+        _context: Context,
+        _options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(create_assistant_message_event_stream().1)
     }
     fn stream_simple(
         &self,
         _model: Model,
         _context: Context,
         _options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        create_assistant_message_event_stream().1
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
+        Ok(create_assistant_message_event_stream().1)
     }
 }
 
@@ -595,7 +602,12 @@ struct CapturingStreams {
 }
 
 impl ProviderStreams for CapturingStreams {
-    fn stream(&self, model: Model, _context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        _context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         *self.captured.lock().unwrap() = Some(json!({
             "baseUrl": model.base_url,
             "apiKey": options.request.api_key,
@@ -614,14 +626,14 @@ impl ProviderStreams for CapturingStreams {
             message: message.clone(),
         });
         sender.end(Some(message));
-        stream
+        Ok(stream)
     }
     fn stream_simple(
         &self,
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.stream(model, context, options.stream)
     }
 }

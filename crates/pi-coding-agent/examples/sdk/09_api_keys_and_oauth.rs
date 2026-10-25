@@ -49,7 +49,7 @@ fn load_default_registry(options: &mut CreateAgentSessionOptions) -> Result<Mode
         return Ok(registry);
     }
     let storage = AuthStorage::create(None).map_err(CallbackError::from)?;
-    ModelRegistry::create(storage, None).map_err(CallbackError::from)
+    ModelRegistry::create(storage, None)
 }
 
 fn load_custom_registry(options: &mut CreateAgentSessionOptions) -> Result<ModelRegistry, CallbackError> {
@@ -58,7 +58,7 @@ fn load_custom_registry(options: &mut CreateAgentSessionOptions) -> Result<Model
     }
     let agent_dir = options.agent_dir.clone().unwrap_or_else(|| "/tmp/my-app".into());
     let storage = AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json"))).map_err(CallbackError::from)?;
-    ModelRegistry::create(storage, Some(agent_dir + "/models.json")).map_err(CallbackError::from)
+    ModelRegistry::create(storage, Some(agent_dir + "/models.json"))
 }
 
 async fn print_session(

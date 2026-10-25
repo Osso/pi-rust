@@ -181,7 +181,7 @@ fn stream_fixture(
         )
         .unwrap();
     let model = registry.find("custom-anthropic", id).unwrap();
-    (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
+    (config.stream_simple.as_ref().unwrap())(model, context, Some(options)).expect("acquisition")
 }
 async fn provider(
     input: &Value,

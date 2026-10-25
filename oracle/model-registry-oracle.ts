@@ -1,4 +1,4 @@
-// Frozen registry; no runtime/composer modules or live provider requests.
+// Frozen registry and its default Agent dispatch consumer; no live provider requests.
 
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -9,10 +9,28 @@ import {
 	setFetchScript,
 } from "./scripted-fetch.ts";
 
+function createStreamRejection(
+	kind: unknown,
+	value: unknown,
+	method: unknown,
+): unknown {
+	if (kind === "error") {
+		return Object.assign(new TypeError(value as string), {
+			code: "E_STREAM",
+			detail: { method },
+		});
+	}
+	if (kind === "conversion") return { toString: null, valueOf: null };
+	return value;
+}
+
 async function main(): Promise<void> {
+	const { runRegisteredAgentThrow } = await import(
+		"./model-registry-stream-agent.mts"
+	);
 	installScriptedFetch();
 	const source = pathToFileURL(process.argv[2]);
-	const { ModelRegistry } = await import(source.href);
+	const { ModelRegistry, clearApiKeyCache } = await import(source.href);
 	const { AuthStorage } = await import(new URL("auth-storage.ts", source).href);
 	serve(async (request) => {
 		if (request.operation === "oauth_throw") {
@@ -327,6 +345,141 @@ async function main(): Promise<void> {
 				commandCount: readCommandCount(),
 			};
 		}
+		if (request.operation === "registration_live_map") {
+			const provider = "registry-live-parent";
+			const side = "registry-live-side";
+			const config = request.config as { models: Record<string, unknown>[] };
+			const sideConfig = (name: string) => ({
+				...config,
+				apiKey: "side-key",
+				name,
+				models: [{ ...config.models[0], id: "side", name }],
+			});
+			let calls = 0;
+			registry.registerProvider(provider, {
+				...config,
+				oauth: {
+					name: "Live Parent",
+					login: async () => {
+						throw new Error("unused login");
+					},
+					refreshToken: async (value: unknown) => value,
+					getApiKey: (value: { access: string }) => value.access,
+					modifyModels: (models: unknown[]) => {
+						calls++;
+						if (calls === 1) {
+							if (request.mode !== "append") registry.unregisterProvider(side);
+							if (request.mode !== "delete")
+								registry.registerProvider(side, sideConfig("Side new"));
+						}
+						return models;
+					},
+				},
+			});
+			if (request.mode !== "append")
+				registry.registerProvider(side, sideConfig("Side old"));
+			storage.set(provider, {
+				type: "oauth",
+				access: "access",
+				refresh: "refresh",
+				expires: 9999999999999,
+			});
+			const snapshot = () => {
+				const models = registry
+					.getAll()
+					.filter(
+						(model: { provider: string }) =>
+							model.provider === provider || model.provider === side,
+					);
+				return {
+					models,
+					serializedModels: JSON.stringify(models),
+					sideDisplay: registry.getProviderDisplayName(side),
+				};
+			};
+			registry.refresh();
+			const first = snapshot();
+			registry.refresh();
+			const second = snapshot();
+			registry.unregisterProvider(provider);
+			registry.unregisterProvider(side);
+			return { mode: request.mode, first, second, calls };
+		}
+		if (request.operation === "registration_stream_throw") {
+			const provider = "registry-stream-throw";
+			const api = "registry-stream-throw-api";
+			const thrown = createStreamRejection(
+				request.kind,
+				request.value,
+				request.method,
+			);
+			let callbackCount = 0;
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				api,
+				apiKey: "config-key",
+				streamSimple: () => {
+					callbackCount++;
+					throw thrown;
+				},
+			});
+			const model = registry.find(provider, "one");
+			const dispatch = await import(
+				new URL("../../../ai/src/compat.ts", source).href
+			);
+			let rejection: unknown = null;
+			try {
+				dispatch[request.method as "stream" | "streamSimple"](
+					model,
+					{ messages: [] },
+					{ apiKey: "stream-key" },
+				);
+			} catch (error) {
+				rejection =
+					error instanceof Error
+						? {
+								kind: "error",
+								value: {
+									name: error.name,
+									message: error.message,
+									...Object.fromEntries(
+										Object.entries(error).filter(([key]) => key !== "stack"),
+									),
+								},
+							}
+						: { kind: "value", value: error };
+			}
+			registry.unregisterProvider(provider);
+			return { callbackCount, rejection };
+		}
+		if (request.operation === "registration_agent_throw") {
+			return runRegisteredAgentThrow(
+				source,
+				registry,
+				request,
+				createStreamRejection(request.kind, request.value, "streamSimple"),
+			);
+		}
+		if (request.operation === "clear_alias_snapshot") {
+			if (
+				typeof request.command !== "string" ||
+				typeof request.witness !== "string"
+			)
+				throw new TypeError("Fixture command/witness must be strings");
+			const config = await import(
+				new URL("resolve-config-value.ts", source).href
+			);
+			const first = config.resolveConfigValue(request.command);
+			const second = config.resolveConfigValue(request.command);
+			const before = readFileSync(request.witness, "utf8").length;
+			clearApiKeyCache();
+			const third = config.resolveConfigValue(request.command);
+			return {
+				values: [first, second, third],
+				before,
+				after: readFileSync(request.witness, "utf8").length,
+			};
+		}
 		if (request.operation === "config_request") {
 			const response = request.response;
 			const modelId = request.modelId;
@@ -404,6 +557,14 @@ async function main(): Promise<void> {
 				if (!model) throw new Error("Source fixture model missing");
 				config = { ...(config as Record<string, unknown>), models: [model] };
 			}
+			if (request.streamCallback === true) {
+				config = {
+					...(config as Record<string, unknown>),
+					streamSimple: () => {
+						throw new Error("unused validation callback");
+					},
+				};
+			}
 			const updates = request.updates;
 			if (updates !== undefined && !Array.isArray(updates))
 				throw new TypeError("Fixture updates must be an array");
@@ -425,6 +586,8 @@ async function main(): Promise<void> {
 				models,
 				serializedModels: JSON.stringify(models),
 			};
+			if (request.streamCallback === true)
+				registry.unregisterProvider(request.provider);
 			if (request.operation === "registration_from_existing") {
 				const value = models[0]?.compat?.supportsStore;
 				return {

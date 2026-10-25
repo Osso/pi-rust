@@ -68,7 +68,7 @@ fn stream_fn(faux: &FauxProviderHandle) -> pi_agent_core::agent::types::StreamFn
     let provider = Arc::clone(&faux.provider);
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
         let stream = provider.stream_simple(model, context, options);
-        Box::pin(async move { Ok(stream) })
+        Box::pin(async move { stream.map_err(pi_agent_core::agent::AgentError::from) })
     })
 }
 

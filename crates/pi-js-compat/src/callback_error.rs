@@ -20,6 +20,11 @@ pub struct CallbackError {
     pub original: Option<Arc<dyn std::error::Error + Send + Sync>>,
 }
 
+/// A callback rejection reaches an uncaught process/callback boundary.
+pub fn throw_callback_uncaught(error: CallbackError) -> ! {
+    std::panic::panic_any(error)
+}
+
 impl PartialEq for CallbackError {
     fn eq(&self, other: &Self) -> bool {
         let same_value = (&self.message, &self.name, &self.rejection, &self.code, &self.cause)

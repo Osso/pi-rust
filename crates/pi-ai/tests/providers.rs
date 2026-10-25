@@ -482,6 +482,7 @@ async fn every_catalog_api_dispatches_to_an_implementation() {
                     },
                     options,
                 )
+                .expect("acquisition")
                 .result()
                 .await
                 .expect("stream result");

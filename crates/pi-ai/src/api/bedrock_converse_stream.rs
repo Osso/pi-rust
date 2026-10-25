@@ -237,8 +237,13 @@ pub fn stream_simple(model: Model, context: Context, options: SimpleStreamOption
 pub struct BedrockProviderModule;
 
 impl ProviderStreams for BedrockProviderModule {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        stream(model, context, options)
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream(model, context, options))
     }
 
     fn stream_simple(
@@ -246,8 +251,8 @@ impl ProviderStreams for BedrockProviderModule {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        stream_simple(model, context, options)
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream_simple(model, context, options))
     }
 }
 

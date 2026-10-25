@@ -14,11 +14,16 @@ use crate::api::openai_responses::open_ai_responses_api;
 use crate::request::{ProviderStreams, SimpleStreamOptions, StreamOptions};
 use crate::types::{Context, Model};
 use crate::utils::event_stream::AssistantMessageEventStream;
+use pi_js_compat::callback_error::CallbackError;
 
 macro_rules! stream_aliases {
     ($stream:ident, $stream_simple:ident, $factory:path) => {
         /// Deprecated `stream` alias for the corresponding api module.
-        pub fn $stream(model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+        pub fn $stream(
+            model: Model,
+            context: Context,
+            options: StreamOptions,
+        ) -> Result<AssistantMessageEventStream, CallbackError> {
             $factory().stream(model, context, options)
         }
 
@@ -27,7 +32,7 @@ macro_rules! stream_aliases {
             model: Model,
             context: Context,
             options: SimpleStreamOptions,
-        ) -> AssistantMessageEventStream {
+        ) -> Result<AssistantMessageEventStream, CallbackError> {
             $factory().stream_simple(model, context, options)
         }
     };

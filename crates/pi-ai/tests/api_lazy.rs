@@ -82,9 +82,14 @@ struct FakeStreams {
 }
 
 impl ProviderStreams for FakeStreams {
-    fn stream(&self, model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        _context: Context,
+        _options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().push(format!("{}:{}", self.label, model.id));
-        completed_stream(&model, "ok")
+        Ok(completed_stream(&model, "ok"))
     }
 
     fn stream_simple(
@@ -92,9 +97,9 @@ impl ProviderStreams for FakeStreams {
         model: Model,
         _context: Context,
         _options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().push(format!("{}:{}", self.label, model.id));
-        completed_stream(&model, "ok")
+        Ok(completed_stream(&model, "ok"))
     }
 
     fn supports_fetch_deferred(&self) -> bool {
@@ -215,6 +220,7 @@ async fn lazy_api_loads_on_first_use_and_exposes_only_declared_capabilities() {
 
     let result = api
         .stream_simple(model(), context(), SimpleStreamOptions::default())
+        .expect("outer acquisition")
         .result()
         .await
         .unwrap();
@@ -274,6 +280,7 @@ async fn lazy_api_surfaces_load_failure_as_stream_error() {
     );
     let result = api
         .stream(model(), context(), StreamOptions::default())
+        .expect("outer acquisition")
         .result()
         .await
         .unwrap();

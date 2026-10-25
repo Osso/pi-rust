@@ -249,3 +249,114 @@ async fn isolated_request_auth_reentry_probe() {
     let actual = js_json!({"first":first,"second":second,"count":*count.lock().unwrap()});
     assert_eq!(actual, expected);
 }
+
+#[tokio::test]
+async fn refresh_visits_a_provider_appended_by_a_modifier() {
+    compare_live_registration("append");
+}
+#[tokio::test]
+async fn refresh_skips_a_provider_deleted_by_a_modifier() {
+    compare_live_registration("delete");
+}
+#[tokio::test]
+async fn refresh_visits_the_new_slot_after_provider_reinsertion() {
+    compare_live_registration("reinsert");
+}
+fn compare_live_registration(mode: &str) {
+    let mut source = oracle::TsOracle::spawn(
+        "model-registry-oracle.ts",
+        "packages/coding-agent/src/core/model-registry.ts",
+    );
+    let expected = source.request(&js_json!({"operation":"registration_live_map","mode":mode,"config":input()}));
+    compare_private_probe(&expected, "isolated_registry_live_map_probe");
+}
+fn side_config(name: &str) -> ProviderConfigInput {
+    let mut model = js_json::from_value::<ProviderModelInput>(&input()["models"][0]).unwrap();
+    model.id = "side".into();
+    model.name = name.into();
+    ProviderConfigInput {
+        name: Some(name.into()),
+        api: Some("openai-completions".into()),
+        base_url: Some("https://provider.invalid".into()),
+        api_key: Some("side-key".into()),
+        models: Some(vec![model]),
+        ..Default::default()
+    }
+}
+fn live_map_snapshot(registry: &ModelRegistry) -> JsValue {
+    let models = registry
+        .get_all()
+        .into_iter()
+        .filter(|model| model.provider == "registry-live-parent" || model.provider == "registry-live-side")
+        .collect::<Vec<_>>();
+    let models = js_json::to_value(&models).unwrap();
+    js_json!({"models":models,"serializedModels":js_json::stringify_lossless(&models),"sideDisplay":registry.get_provider_display_name("registry-live-side")})
+}
+#[test]
+#[ignore = "private live-map callback process entry"]
+fn isolated_registry_live_map_probe() {
+    const LIVE: &str = "registry-live-parent";
+    const SIDE: &str = "registry-live-side";
+    let expected_path = std::env::var_os(EXPECTED_PATH).expect("private fixture path");
+    let expected = js_json::parse_lossless(std::fs::read_to_string(expected_path).unwrap()).unwrap();
+    let mode = expected["mode"].as_string().unwrap().to_utf8().unwrap();
+    let callback_mode = mode.clone();
+    let storage = AuthStorage::in_memory(serde_json::Map::new());
+    let registry = ModelRegistry::in_memory(storage.clone()).unwrap();
+    let reader = registry.clone();
+    let calls = Arc::new(Mutex::new(0));
+    let callback_calls = calls.clone();
+    registry
+        .register_provider(
+            LIVE,
+            ProviderConfigInput {
+                api: Some("openai-completions".into()),
+                base_url: Some("https://provider.invalid".into()),
+                models: Some(vec![
+                    js_json::from_value::<ProviderModelInput>(&input()["models"][0]).unwrap(),
+                ]),
+                oauth: Some(ExtensionOAuthConfig {
+                    name: "Live Parent".into(),
+                    uses_callback_server: None,
+                    login: Arc::new(|_| Box::pin(async { unreachable!("unused login") })),
+                    refresh_token: Arc::new(|credential, _| Box::pin(async move { Ok(credential) })),
+                    get_api_key: Arc::new(|credential| Ok(credential.access.clone())),
+                    modify_models: Some(Arc::new(move |models, _| {
+                        let count = {
+                            let mut count = callback_calls.lock().unwrap();
+                            *count += 1;
+                            *count
+                        };
+                        if count == 1 {
+                            if callback_mode != "append" {
+                                reader.unregister_provider(SIDE)?;
+                            }
+                            if callback_mode != "delete" {
+                                reader.register_provider(SIDE, side_config("Side new"))?;
+                            }
+                        }
+                        Ok(models)
+                    })),
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+    if mode != "append" {
+        registry.register_provider(SIDE, side_config("Side old")).unwrap();
+    }
+    storage
+        .set(
+            LIVE,
+            js_json!({"type":"oauth","access":"access","refresh":"refresh","expires":9999999999999_f64}),
+        )
+        .unwrap();
+    registry.refresh().unwrap();
+    let first = live_map_snapshot(&registry);
+    registry.refresh().unwrap();
+    let second = live_map_snapshot(&registry);
+    registry.unregister_provider(LIVE).unwrap();
+    registry.unregister_provider(SIDE).unwrap();
+    let actual = js_json!({"mode":mode,"first":first,"second":second,"calls":*calls.lock().unwrap()});
+    assert_eq!(actual, expected);
+}

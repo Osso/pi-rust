@@ -287,7 +287,11 @@ async fn build_harness_with_runtime_observer(
                     stream_fn: Some(Arc::new(
                         move |model: Model, context: Context, options: SimpleStreamOptions| {
                             let provider = Arc::clone(&stream_provider);
-                            Box::pin(async move { Ok(provider.stream_simple(model, context, options)) })
+                            Box::pin(async move {
+                                provider
+                                    .stream_simple(model, context, options)
+                                    .map_err(pi_agent_core::agent::AgentError::from)
+                            })
                         },
                     )),
                     ..Default::default()

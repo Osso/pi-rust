@@ -662,7 +662,7 @@ async fn custom_provider_response_preserves_header_order_through_sdk_and_json() 
                                 });
                                 sender.end(Some(message));
                             });
-                            stream
+                            Ok(stream)
                         })),
                         ..Default::default()
                     },

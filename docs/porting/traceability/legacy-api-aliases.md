@@ -30,6 +30,10 @@ method, `stopReason`, and `errorMessage`. Codex uses a JWT access token and
 (their SDK adapters reject `options.fetch`), while Rust injects the recording
 fetch.
 
+## Required acquisition propagation (2026-10-24)
+
+Common-pin legacy-api-aliases.ts:19–28,30–108 aliases the lazy factory methods without a catch. Native aliases therefore forward the shared acquisition Result directly; they do not encode a registered rejection as an event. LazyApi itself returns Ok(outer stream), with inner acquisition owned by the lazy setup catch. Existing alias behavior tests need renewed proof after this signature migration; the old-pin coverage below is not current acceptance.
+
 ## Notes
 
 - TypeScript constructs the lazy api instances once at module load; Rust

@@ -3,10 +3,9 @@
 //! Legacy global API: the api registry, api-dispatch `stream()`/`complete()`
 //! with env API-key injection, generated catalog reads, and faux providers.
 //!
-//! TypeScript throws from `stream()` when no api provider is registered and
-//! from a wrapped stream function on an api mismatch. Rust encodes both in the
-//! returned stream (`stopReason: "error"`) instead, matching every other
-//! provider entry point (see traceability for the typed deviation).
+//! Missing APIs, API mismatches and registered callback throws reject before a
+//! stream exists. Only the frozen lazy/forwarding consumers encode caught
+//! rejections in an error stream.
 
 pub mod extension_oauth_types;
 
@@ -18,8 +17,8 @@ use crate::providers::faux::{
     FauxCore, FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions, create_faux_core,
 };
 use crate::request::{
-    BoxFuture, DeferredCancelOptions, DeferredFetchOptions, ProviderStreams, SimpleStreamOptions, StreamOptions,
-    error_stream,
+    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, ProviderStreams, SimpleStreamOptions,
+    StreamOptions, error_stream,
 };
 use crate::types::{AssistantMessage, Context, DeferredHandle, Model};
 use crate::utils::event_stream::AssistantMessageEventStream;
@@ -57,10 +56,12 @@ pub fn get_providers() -> Vec<String> {
 }
 
 /// `ApiStreamFunction`: wrapped `stream` with a runtime api check.
-pub type ApiStreamFunction = Arc<dyn Fn(Model, Context, StreamOptions) -> AssistantMessageEventStream + Send + Sync>;
+pub type ApiStreamFunction =
+    Arc<dyn Fn(Model, Context, StreamOptions) -> Result<AssistantMessageEventStream, CallbackError> + Send + Sync>;
 /// `ApiStreamSimpleFunction`: wrapped `streamSimple` with a runtime api check.
-pub type ApiStreamSimpleFunction =
-    Arc<dyn Fn(Model, Context, SimpleStreamOptions) -> AssistantMessageEventStream + Send + Sync>;
+pub type ApiStreamSimpleFunction = Arc<
+    dyn Fn(Model, Context, SimpleStreamOptions) -> Result<AssistantMessageEventStream, CallbackError> + Send + Sync,
+>;
 
 /// One registered api implementation (`ApiProviderInternal`).
 ///
@@ -77,8 +78,14 @@ impl ApiProvider {
     /// Builds a provider from raw stream functions, applying the api check.
     pub fn new(
         api: impl Into<String>,
-        stream: impl Fn(Model, Context, StreamOptions) -> AssistantMessageEventStream + Send + Sync + 'static,
-        stream_simple: impl Fn(Model, Context, SimpleStreamOptions) -> AssistantMessageEventStream + Send + Sync + 'static,
+        stream: impl Fn(Model, Context, StreamOptions) -> Result<AssistantMessageEventStream, CallbackError>
+        + Send
+        + Sync
+        + 'static,
+        stream_simple: impl Fn(Model, Context, SimpleStreamOptions) -> Result<AssistantMessageEventStream, CallbackError>
+        + Send
+        + Sync
+        + 'static,
     ) -> Self {
         let api = api.into();
         let stream_api = api.clone();
@@ -87,13 +94,13 @@ impl ApiProvider {
             api,
             stream: Arc::new(move |model, context, options| {
                 if model.api != stream_api {
-                    return mismatch_stream(&model, &stream_api);
+                    return Err(mismatch_error(&model, &stream_api));
                 }
                 stream(model, context, options)
             }),
             stream_simple: Arc::new(move |model, context, options| {
                 if model.api != simple_api {
-                    return mismatch_stream(&model, &simple_api);
+                    return Err(mismatch_error(&model, &simple_api));
                 }
                 stream_simple(model, context, options)
             }),
@@ -117,7 +124,12 @@ impl ApiProvider {
 }
 
 impl ProviderStreams for ApiProvider {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         (self.stream)(model, context, options)
     }
 
@@ -126,7 +138,7 @@ impl ProviderStreams for ApiProvider {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         (self.stream_simple)(model, context, options)
     }
 
@@ -153,8 +165,12 @@ impl ProviderStreams for ApiProvider {
     }
 }
 
-fn mismatch_stream(model: &Model, expected: &str) -> AssistantMessageEventStream {
-    error_stream(model, format!("Mismatched api: {} expected {expected}", model.api))
+fn mismatch_error(model: &Model, expected: &str) -> CallbackError {
+    pi_js_compat::node_error::NativeNodeError::new(
+        "Error",
+        format!("Mismatched api: {} expected {expected}", model.api),
+    )
+    .into()
 }
 
 struct RegisteredApiProvider {
@@ -410,13 +426,13 @@ pub fn stream(
     model: Model,
     context: Context,
     options: StreamOptions,
-) -> Result<AssistantMessageEventStream, pi_js_compat::node_error::NativeNodeError> {
+) -> Result<AssistantMessageEventStream, CallbackError> {
     if get_builtin_provider_for_model(&model).is_some() {
         return Ok(COMPAT_MODELS.stream(model, context, options));
     }
     let provider = resolve_api_provider(&model)?;
     let options = with_env_api_key(&model, options)?;
-    Ok(provider.stream(model, context, options))
+    provider.stream(model, context, options)
 }
 
 /// `complete()`.
@@ -425,8 +441,7 @@ pub async fn complete(
     context: Context,
     options: StreamOptions,
 ) -> Result<AssistantMessage, crate::request::CallbackError> {
-    stream(model, context, options)
-        .map_err(|error| crate::request::CallbackError::from_rejection(error.into()))?
+    stream(model, context, options)?
         .result()
         .await
         .map_err(|error| crate::request::CallbackError::new(error.message().clone()))
@@ -437,13 +452,13 @@ pub fn stream_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> Result<AssistantMessageEventStream, pi_js_compat::node_error::NativeNodeError> {
+) -> Result<AssistantMessageEventStream, CallbackError> {
     if get_builtin_provider_for_model(&model).is_some() {
         return Ok(COMPAT_MODELS.stream_simple(model, context, options));
     }
     let provider = resolve_api_provider(&model)?;
     let options = with_env_api_key_simple(&model, options)?;
-    Ok(provider.stream_simple(model, context, options))
+    provider.stream_simple(model, context, options)
 }
 
 /// `completeSimple()`.
@@ -452,8 +467,7 @@ pub async fn complete_simple(
     context: Context,
     options: SimpleStreamOptions,
 ) -> Result<AssistantMessage, crate::request::CallbackError> {
-    stream_simple(model, context, options)
-        .map_err(|error| crate::request::CallbackError::from_rejection(error.into()))?
+    stream_simple(model, context, options)?
         .result()
         .await
         .map_err(|error| crate::request::CallbackError::new(error.message().clone()))

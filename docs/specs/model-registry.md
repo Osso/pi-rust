@@ -27,6 +27,10 @@ OAuth model modifiers return Result<Vec<Model>, CallbackError>. Registration, bo
 
 The model-selector consumer distinguishes refresh rejection from its caught availability lookup failure. Selector construction stays infallible; an uncaught refresh rejection is published after construction through the existing shared uncaught authority with its original carrier. This is not a rendered getter error or a new panic channel.
 
+Provider reapplication during refresh follows the live insertion order. A modifier's newly appended provider is visited in that pass; a deleted provider is skipped; deletion and reinsertion creates a new visit with its current config. Updating an existing provider retains its position. A stale snapshot must not restore deleted models or old config.
+
+Registered raw/simple callbacks preserve synchronous throws according to the shared [stream acquisition contract](provider-stream-errors.md). The registry wrapper does not invent an error event where frozen returns no stream.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).
@@ -37,11 +41,11 @@ The model-selector consumer distinguishes refresh rejection from its caught avai
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/model_registry_frozen.rs`, `model_registry_auth_drift.rs` and `model_registry_oauth_throw_probe.rs` use `oracle/model-registry-oracle.ts` against the actual frozen module. Other registry/catalog/UI matrices and all-target checks remain open.
+`crates/pi-coding-agent/tests/model_registry_frozen.rs`, `model_registry_auth_drift.rs` and the configuration/registration/auth/reentry/throw matrices use actual frozen modules. `model_registry_dispatch_lifecycle` compares full positive dispatch and reset/upsert/unregister/OAuth states. `differential_catalog_startup` now compares a fresh frozen main --list-models process against the actual native binary, requiring the cache-only ID and exact output plus unchanged cache bytes. Final symbol/branch reconciliation and checkpoint gates remain open.
 
 ## Known gaps (current cycle)
 
-- [ ] Complete consumer test migration, configuration/registration/request-auth differential matrices, production cache wiring, nested compat unknown fields and real RPC serialization proof.
+Implementation/consumer migration and configuration/registration/auth/cache matrices are present; the [complete symbol/branch map](../porting/traceability/model-registry.md) records exact proof levels and approved exclusions. Current parent-merge verification and independent acceptance remain open. RPC has its own serialization proof/approval boundary; this module does not add a second wire representation.
 
 ## Out of scope
 
