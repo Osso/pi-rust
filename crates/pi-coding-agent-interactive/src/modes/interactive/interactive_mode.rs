@@ -6882,7 +6882,6 @@ impl InteractiveMode {
     }
 
     fn print_model_scope(&self) -> Result<(), CallbackError> {
-        use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
         use std::io::Write;
 
         let models = self.session().scoped_models();
@@ -6894,13 +6893,7 @@ impl InteractiveMode {
             Some(level) => js_format!("{}:{}", entry.model.id, level.as_str()),
             None => entry.model.id.as_str().into(),
         });
-        let keys = self.keybindings.get_keys("app.model.cycleForward");
-        let hint = if keys.is_empty() {
-            JsString::default()
-        } else {
-            let keys = format_key_text(JsString::join(keys, "/"), KeyTextFormatOptions { capitalize: true });
-            with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!(" ({} to cycle)", keys)))
-        };
+        let hint = self.model_cycle_hint();
         let line = with_theme(|theme| {
             theme.fg(
                 ThemeColor::Dim,
@@ -6914,6 +6907,16 @@ impl InteractiveMode {
                     pi_js_compat::node_fs::node_file_write_error_record(&error),
                 ))
             })
+    }
+
+    fn model_cycle_hint(&self) -> JsString {
+        use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
+        let keys = self.keybindings.get_keys("app.model.cycleForward");
+        if keys.is_empty() {
+            return JsString::default();
+        }
+        let keys = format_key_text(JsString::join(keys, "/"), KeyTextFormatOptions { capitalize: true });
+        with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!(" ({} to cycle)", keys)))
     }
 
     fn update_ui_shared(&self) {
