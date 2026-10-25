@@ -1,46 +1,28 @@
 # session-autoname traceability
 
-Source: `coding-agent/extensions/session-autoname/src/index.ts` at authorized
-`c248b0067c9fc3fa438f967f826c222875c54834` (2026-10-20 deviation;
-[common source lock](../source-lock.json); old approval to re-validate against 4f9e6f8a4). Rust:
-`crates/pi-coding-agent-extensions/src/bundled_extensions/session_autoname.rs`.
+Source: `packages/coding-agent/extensions/session-autoname/src/index.ts` at common pin `4f9e6f8a4`. Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/session_autoname.rs`.
 
-| Source symbol / branch | Rust | Proof in `tests/session_autoname.rs` |
+| Frozen symbol / branch | Rust | Proof |
 |---|---|---|
-| default factory, agent-end/name-change/shutdown hooks | `session_autoname_extension` | real extension runner in all async cases; `main_process::extensions_command_lists_the_ported_first_party_extensions` proves CLI registration |
-| `decideAutonameTurn`, real vs extension user message, continuation carry | `decide_autoname_turn` | `turn_decision_tracks_pending_real_user_turns_across_continuations`, extension-only/history case |
-| eligibility: TUI/RPC, persisted file, not child, no stored name state | `can_autoname_session` | explicit clear/manual name/history cases |
-| first real user plus completed assistant text; bounded transcript | `find_first_exchange`, `bound_source_text` | first real-user exchange and historical JSONL cases |
-| background generation, at-most-once attempt, metadata recheck | `handle_agent_end`, `generate_and_set_title` | successful naming and explicit clear/manual name cases |
-| auth, 15s cancellation, retries1/delay cap3000ms/tokens64 | `request_generated_title` | faux-provider integration; timeout/cancellation tests below |
-| stop reasons, title error text | `read_generated_title` | `generated_titles_map_stop_reasons_to_outcomes` |
-| title prompt/context | `build_title_context` | `title_context_bounds_the_transcript_and_labels_missing_responses` |
-| normalization and 80-unit title limit | `normalize_title`, `truncate_title` | normalization/word-boundary/JS-whitespace tests |
+| default factory, tool metadata/schema/guidelines/approval | `session_autoname_extension` | `suite_extensions::session_autoname::session_name_tool_matches_frozen_registration_refusals_and_updates` compares full registration with real frozen module |
+| normalize whitespace, no formatting stripping, 80-unit word/hard limit | `normalize_name` | same differential: multiline/tab, formatting, empty, long words, boundary words, split surrogate, raw UTF-16 |
+| empty-name refusal before other checks | `describe_refusal` | whitespace-only case |
+| truthy runtime child or header subagent | `describe_refusal` | child, empty child id, subagent cases |
+| persisted-only, explicit clear, existing user name | `describe_refusal` | ephemeral, null initial name, existing initial name |
+| same-extension rename allowed, external rename/clear denied | `execute_name_tool`, retained tool name | successive names; external name/clear between tool calls |
+| write failures reject without updating retained tool name | `execute_name_tool` | failed write followed by successful retry |
+| exact success/error content, details and isError presence | `name_result` | every differential result |
 
-Uses the AgentSession's shared manager from `ExtensionContext::session_manager()`.
-No external service is contacted in tests; native faux providers exercise the same
-request path. JS trim/whitespace/UTF-16 utilities are shared through `pi-js-compat`.
+The oracle `oracle/session-name-tool-oracle.ts` calls the unmodified frozen extension through its registered tool and records the write boundary and returned values. Rust uses the actual extension runner and a private real SessionManager/control DB. The old provider-issued title-generation implementation, hooks, helpers, faux-provider tests and old-pin oracle calls are removed; they are absent from the common pin. The test is now a module of `suite_extensions` because it does not mutate process-global state.
 
-## Behavioral and differential proof
+## Proof ledger
 
-`tests/session_autoname.rs` has 22 tests, including the TS file's nonblocking prompt
-settlement, RPC/print/JSON/ephemeral/child boundaries, first-user recovery after
-empty/failed/aborted responses, partial-failure exchanges, cwd continuations,
-metadata-clear/history rules, and pending shutdown/manual-clear/manual-name races.
-The real 15-second timeout case asserts the provider receives maxTokens64,
-maxRetries1, maxRetryDelayMs3000 and timeoutMs15000 before observing cancellation.
-`title_outputs_match_the_real_c248_extension` invokes the real default TS extension
-through the shared watchdog-backed oracle for 12 concrete title inputs; names,
-errors, call count and name-state flag compare in source key order.
+- RED: `/tmp/bundled-name-red.log`: frozen tool registration is missing in the previous Rust module.
+- No provider request, timer, or agent-end event is needed or registered.
+- Gap: pathological input types and runtime/OS faults are outside the user-observable parity bar; valid UTF-16 tool inputs/results remain lossless.
 
 ## Approved intermediate-string gap (2026-10-20)
 
-User decision: “Match DB; record gap”. Valid generated title `"x".repeat(79) + "🙂"`
-reaches the 80-UTF16-unit limit inside the emoji. Real c248 returns 79x plus U+D83D
-from `truncateTitle` (`JSON.stringify` ends `\\ud83d`); SQLite bindings persist
-79x plus U+FFFD. Rust's shared `utf16_slice_to_utf8` preserves the sliced code units
-and converts the unpaired surrogate to U+FFFD before persistence. Stored names and
-serialized metadata therefore match; only the intermediate JS helper string differs.
-`split_surrogate_titles_match_typescript_at_the_sqlite_boundary` asserts both exact
-TS representations separately and compares the actual stored Rust name. No oracle
-field is removed or normalized to hide this difference.
+Historical generated-title proof at the old c248 pin is superseded: that title generator does not exist at the common pin. Tool input, truncation and result strings now retain exact UTF-16, including split surrogate units. The existing SQLite binding name-storage approval remains owned by the [session manager](session-manager.md) and [control DB](session-control-db.md) modules, not by an alternate naming implementation.
+
+- GREEN at `97bb81df3`: 16 exact frozen cases pass in `suite_extensions` (`/tmp/bundled-name-green.log`). After merging parent `77c92996b`, extension-local clippy reaches the crate but finds 120 errors; the one new redundant error conversion was removed. Remaining errors are existing other extension modules (`/tmp/bundled-ext-clippy-after-parent.log`). Rust/TS changed lines reviewed with the readability checklists.

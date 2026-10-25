@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 483, `gap` 21, `partial` 50, `todo` 132.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 484, `gap` 21, `partial` 50, `todo` 131.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -372,7 +372,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/extensions/safe/src/index.ts` | 71 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/safe.rs` | /safe completions/status/toggle and the safe-mode tool gate; differential covers allowlist and blocked tools.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/self-restart/src/index.ts` | 32 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/self_restart.rs` | /restart command and restart_self tool metadata/result; differential.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/session-archive/src/index.ts` | 110 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/session_archive.rs` | Frozen whole-module re-port; registration/commands/quit-after-final-write and shutdown stderr differential/behavior GREEN; [trace](traceability/session-archive.md). |
-| `coding-agent/extensions/session-autoname/src/index.ts` | 78 | — | todo | — | new on master |
+| `coding-agent/extensions/session-autoname/src/index.ts` | 78 | — | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/session_autoname.rs` | Frozen model-invoked naming tool replaces old provider title generation. 16 frozen cases cover registration/schema, refusals, updates, write failure and exact UTF-16; [map](traceability/session-autoname.md). |
 | `coding-agent/extensions/session-id/src/index.ts` | 10 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/session_id.rs` | /session-id notification; differential.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/extensions/spec-validation/src/index.ts` | 34 | 22 | done | `crates/pi-coding-agent-extensions/src/bundled_extensions/spec_validation.rs` | Prompt text, idle gate, sendUserMessage and editor clear; differential.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/native/darwin/build.mjs` | 114 | — | todo | — | new on master |
