@@ -14,6 +14,49 @@ use pi_coding_agent::core::session_control_db::{
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use tempfile::TempDir;
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[test]
+fn cancellation_matching_ignores_incarnation_like_frozen() {
+    let current = identity();
+    let mut candidate = current.clone();
+    candidate.process_identity.incarnation = Some("different-incarnation".into());
+    let native = fixture();
+    let frozen = fixture();
+    for fixture in [&native, &frozen] {
+        enqueue_control(
+            fixture,
+            "incarnation-command",
+            pi_js_compat::js_json!({
+                "command": "cancel", "identity": candidate, "reason": "stop",
+            }),
+        );
+    }
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src");
+    let expected = oracle.request(&pi_js_compat::js_json!({
+        "id": 28101,
+        "module": "core/detached-job-control.ts",
+        "operation": "detachedControlClaim",
+        "db": frozen.control_db_path,
+        "recipient": frozen.recipient,
+        "identity": current,
+    }));
+    assert_eq!(expected["ok"], JsValue::Bool(true));
+    assert_eq!(expected["output"].as_array().unwrap().len(), 1);
+    let commands = claim_detached_job_control_commands(&native.control_db_path, &native.recipient, &current).unwrap();
+    let actual = commands
+        .iter()
+        .map(|command| {
+            pi_js_compat::js_json!({
+                "command": "cancel", "identity": command.identity, "reason": command.reason,
+                "mailboxRowId": command.mailbox_row_id,
+            })
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(JsValue::Array(actual), expected["output"]);
+}
+
 fn test_process_identity(name: &str) -> ProcessIdentity {
     let mut value: u32 = 0;
     for character in name.chars() {

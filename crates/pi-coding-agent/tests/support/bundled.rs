@@ -84,6 +84,7 @@ pub struct RecordingUi {
     pub notifications: Mutex<Vec<(JsString, Option<NotifyType>)>>,
     pub statuses: Mutex<BTreeMap<JsString, Option<JsString>>>,
     pub status_calls: Mutex<Vec<(JsString, Option<JsString>)>>,
+    pub status_values: Mutex<BTreeMap<JsString, Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>>>,
     pub editor_texts: Mutex<Vec<JsString>>,
     pub select_result: Mutex<Option<JsString>>,
     pub select_calls: Mutex<Vec<(JsString, Vec<JsString>)>>,
@@ -159,6 +160,7 @@ impl ExtensionUiContext for RecordingUi {
         key: &JsString,
         text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
     ) -> Result<(), pi_ai::request::CallbackError> {
+        self.status_values.lock().unwrap().insert(key.to_owned(), text.clone());
         let value = text.map(|text| text.evaluate(None)).transpose()?.flatten();
         self.statuses.lock().unwrap().insert(key.to_owned(), value.clone());
         self.status_calls.lock().unwrap().push((key.to_owned(), value));
@@ -182,6 +184,8 @@ pub struct RecordedActions {
     pub messages: Mutex<Vec<CustomMessagePayload>>,
     pub user_messages: Mutex<Vec<(UserMessageContent, Option<SendUserMessageOptions>)>>,
     pub entries: Mutex<Vec<(JsString, Option<Value>)>>,
+    pub active_tools: Mutex<Vec<String>>,
+    pub tool_updates: Mutex<Vec<Vec<String>>>,
 }
 
 pub struct HarnessOptions {
@@ -278,6 +282,14 @@ impl Harness {
         extension_actions.send_message = send_message;
         extension_actions.send_user_message = send_user_message;
         extension_actions.append_entry = append_entry;
+        let recorded = Arc::clone(&actions);
+        extension_actions.get_active_tools = Arc::new(move || Ok(recorded.active_tools.lock().unwrap().clone()));
+        let recorded = Arc::clone(&actions);
+        extension_actions.set_active_tools = Arc::new(move |names| {
+            *recorded.active_tools.lock().unwrap() = names.to_vec();
+            recorded.tool_updates.lock().unwrap().push(names.to_vec());
+            Ok(())
+        });
 
         let model_getter = Arc::clone(&model);
         let thinking_getter = Arc::clone(&thinking);

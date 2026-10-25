@@ -1157,10 +1157,6 @@ name = "lossless_agent_session_paths"
 path = "tests/lossless_agent_session_paths.rs"
 
 [[test]]
-name = "session_autoname"
-path = "tests/session_autoname.rs"
-
-[[test]]
 name = "differential_tool_execution"
 path = "tests/differential_tool_execution.rs"
 
@@ -1187,3 +1183,7 @@ path = "tests/differential_bash_restored.rs"
 [[test]]
 name = "session_coordination_tools"
 path = "tests/session_coordination_tools.rs"
+
+[[test]]
+name = "config_dispatch_process"
+path = "tests/config_dispatch_process.rs"

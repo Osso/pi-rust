@@ -354,6 +354,10 @@ async fn rust_fast_results(cases: &[Value]) -> Vec<Value> {
 #[tokio::test(start_paused = true)]
 async fn differential_codex_fast_handlers() {
     let cases = vec![
+        json!({"name": "team-provider", "model": {"provider": "openai-codex-team"}, "ops": [{"kind": "command", "args": "ultra"}, {"kind": "before_provider_request", "payload": {"model": "test-model", "service_tier": "default"}}]}),
+        json!({"name": "invalid-command", "model": {}, "ops": [{"kind": "command", "args": "invalid"}]}),
+        json!({"name": "missing-model", "model": null, "ops": [{"kind": "command", "args": "on"}]}),
+        json!({"name": "persisted-null-over-config", "model": {}, "settings": {"defaultCodexFastMode": "priority"}, "branch": [{"customType": "codex-fast-mode", "data": {"serviceTier": "ultrafast"}}, {"customType": "codex-fast-mode", "data": {"serviceTier": null}}, {"customType": "codex-fast-mode", "data": {"serviceTier": "invalid"}}], "ops": [{"kind": "session_start"}]}),
         json!({"name": "toggle", "model": {}, "ops": [{"kind": "command", "args": ""}, {"kind": "command", "args": ""}]}),
         json!({"name": "explicit", "model": {"provider": "openai-codex-gc"}, "ops": [{"kind": "command", "args": "on"}, {"kind": "command", "args": "off"}]}),
         json!({"name": "ultra", "model": {}, "ops": [{"kind": "command", "args": "ultra"}, {"kind": "before_provider_request", "payload": {"model": "test-model"}}, {"kind": "command", "args": "off"}, {"kind": "before_provider_request", "payload": {"model": "test-model"}}]}),
@@ -376,6 +380,75 @@ async fn differential_codex_fast_handlers() {
         pi_js_compat::js_json::from_value(&response["output"]["results"].clone()).expect("oracle results");
     let actual = rust_fast_results(&cases).await;
     assert_eq!(actual, expected);
+}
+
+#[tokio::test]
+async fn codex_fast_status_reads_current_authority_and_display_override() {
+    use pi_coding_agent::bundled_extensions::codex_fast::{
+        CodexFastOptions, FastModeAuthority, FastServiceTier, codex_fast_extension,
+    };
+    use pi_coding_agent::core::footer_data_provider::FooterSessionOverride;
+
+    let runtime = create_extension_runtime();
+    let authority = FastModeAuthority::new();
+    let shared = authority.clone();
+    let extension = load_extension_from_factory(
+        Arc::new(move |pi| {
+            let result = codex_fast_extension(
+                pi,
+                &CodexFastOptions {
+                    authority: shared.clone(),
+                },
+            );
+            Box::pin(async move { result })
+        }),
+        &"/repo".into(),
+        Arc::new(pi_coding_agent::core::event_bus::EventBusController::new()),
+        runtime.clone(),
+        &"<first-party:codex-fast>".into(),
+    )
+    .await
+    .expect("extension");
+    let mut options = HarnessOptions::new("/repo");
+    options.model = fast_model(&json!({"model": {}}));
+    let harness = Harness::new(vec![extension], runtime, options).await;
+    let mut event = ExtensionEvent::SessionStart(SessionStartEvent {
+        reason: SessionStartReason::Resume,
+        previous_session_file: None,
+    });
+    harness.runner.emit(&mut event).await;
+    let status = harness
+        .ui
+        .status_values
+        .lock()
+        .unwrap()
+        .get(&JsString::from("codex-fast"))
+        .cloned()
+        .flatten()
+        .expect("status callback remains registered when off");
+    assert_eq!(status.evaluate(None).expect("off"), None);
+    authority.set_service_tier(Some(FastServiceTier::Ultrafast));
+    assert_eq!(
+        status.evaluate(None).expect("live authority"),
+        Some("fast ultra".into())
+    );
+    let mut view = FooterSessionOverride {
+        cwd: "/repo".into(),
+        session_manager: None,
+        model: fast_model(&json!({"model": {"provider": "anthropic"}})),
+        thinking_level: "off".into(),
+        context_usage: None,
+    };
+    assert_eq!(status.evaluate(Some(view.clone())).expect("unsupported display"), None);
+    view.model = fast_model(&json!({"model": {"provider": "openai-codex-team"}}));
+    assert_eq!(
+        status.evaluate(Some(view.clone())).expect("team display"),
+        Some("fast ultra".into())
+    );
+    view.model = None;
+    assert_eq!(status.evaluate(Some(view)).expect("missing display model"), None);
+    authority.set_service_tier(None);
+    assert_eq!(status.evaluate(None).expect("cleared authority"), None);
 }
 
 fn effort_model(case: &Value) -> Option<pi_ai::types::Model> {
@@ -437,6 +510,13 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             .filter(|child| *child)
             .map(|_| JsString::from("child-agent"));
         let harness = Harness::new(vec![extension.clone()], runtime, options).await;
+        *harness.actions.active_tools.lock().unwrap() = case
+            .get("activeTools")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|name| name.as_string().unwrap().to_utf8().unwrap())
+            .collect();
         harness.ui.select_result(
             case.get("selectResult")
                 .and_then(Value::as_string)
@@ -530,6 +610,8 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             "editor": harness.ui.editor_texts.lock().unwrap().clone(),
             "entries": harness.actions.entries.lock().unwrap().iter().map(|(custom_type, data)| json!([custom_type, data])).collect::<Vec<_>>(),
             "selectCalls": select_calls,
+            "activeTools": harness.actions.active_tools.lock().unwrap().clone(),
+            "toolUpdates": harness.actions.tool_updates.lock().unwrap().clone(),
             "systemPrompt": system_prompt,
         }));
     }
@@ -539,6 +621,10 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
 #[tokio::test(start_paused = true)]
 async fn differential_effort_handlers() {
     let cases = vec![
+        json!({"name":"disable-tools","model":{},"activeTools":["read","spawn_agent","send_agent_message","spawn_agent","custom"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"before_agent_start","systemPrompt":"base\n\n<multi_agent_mode>old policy</multi_agent_mode>"}]}),
+        json!({"name":"restore-tools","model":{},"activeTools":["read","spawn_agent","wait_agent"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"command","command":"multi-agent","args":"proactive"}]}),
+        json!({"name":"disabled-ultra","model":{},"thinkingLevel":"ultra","ops":[{"kind":"command","command":"multi-agent","args":"disabled"}]}),
+        json!({"name":"select-active","model":{},"selectResult":"active","ops":[{"kind":"command","command":"multi-agent","args":""}]}),
         json!({"name": "select-high", "model": {}, "selectResult": "high", "ops": [{"kind": "command", "command": "effort", "args": ""}]}),
         json!({"name": "set-high", "model": {}, "thinkingLevel": "off", "ops": [{"kind": "command", "command": "effort", "args": "high"}]}),
         json!({"name": "unsupported", "model": {"reasoning": false}, "ops": [{"kind": "command", "command": "effort", "args": "high"}]}),

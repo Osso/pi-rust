@@ -166,10 +166,6 @@ impl AgentTool for EditTool {
         "edit".into()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        crate::core::experimental::get_experimental_tool_constrained_sampling()
-    }
-
     fn prepare_arguments(&self, args: Value) -> Result<Value, ToolError> {
         Ok(prepare_edit_arguments(args))
     }

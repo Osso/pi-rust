@@ -161,5 +161,74 @@ async fn default_resource_loader_options_build_a_loader() {
     assert!(services.resource_loader.get_skills().skills.is_empty());
 }
 
+#[path = "support/oracle.rs"]
+mod oracle;
 #[path = "support/scripted_registry.rs"]
 mod scripted_registry;
+
+#[tokio::test]
+async fn services_paths_and_flag_diagnostics_match_frozen() {
+    let mut oracle = oracle::TsOracle::spawn(
+        "agent-session-services-oracle.mts",
+        "packages/coding-agent/src/core/agent-session-services.ts",
+    );
+    let root = tempfile::tempdir().expect("temp dir");
+    let cwd = root.path().display().to_string();
+    for agent_dir in [Some(""), None, Some(cwd.as_str())] {
+        let flags = serde_json::json!([
+            ["verbose", false],
+            ["label", true],
+            ["first-missing", true],
+            ["second-missing", "value"]
+        ]);
+        let expected = oracle.request(&serde_json::json!({
+            "cwd": cwd, "agentDir": agent_dir, "flags": flags
+        }));
+        let services = create_agent_session_services(CreateAgentSessionServicesOptions {
+            cwd: cwd.clone().into(),
+            agent_dir: agent_dir.map(JsString::from),
+            settings_manager: Some(pi_coding_agent::core::settings_manager::SettingsManager::in_memory(
+                Default::default(),
+                Default::default(),
+            )),
+            model_registry: Some(faux_runtime().await),
+            auth_storage: Some(AuthStorage::in_memory(serde_json::Map::new())),
+            extension_flag_values: Some(IndexMap::from([
+                ("verbose".to_owned(), UnknownFlagValue::Boolean(false)),
+                ("label".to_owned(), UnknownFlagValue::Boolean(true)),
+                ("first-missing".to_owned(), UnknownFlagValue::Boolean(true)),
+                (
+                    "second-missing".to_owned(),
+                    UnknownFlagValue::String("value".to_owned()),
+                ),
+            ])),
+            resource_loader_options: Some(DefaultResourceLoaderOptions {
+                extension_factories: vec![flag_extension()],
+                no_extensions: true,
+                no_skills: true,
+                no_prompt_templates: true,
+                no_themes: true,
+                no_context_files: true,
+                ..Default::default()
+            }),
+            resource_loader: None,
+            resource_loader_reload_options: None,
+        })
+        .await
+        .expect("services");
+        let runtime = services.resource_loader.get_extensions().runtime;
+        assert_eq!(
+            serde_json::json!({
+                "cwd": services.cwd,
+                "agentDir": services.agent_dir,
+                "diagnostics": services.diagnostics,
+                "flags": {"verbose": runtime.flag_value("verbose").map(|value| match value {
+                    FlagValue::Boolean(value) => value,
+                    FlagValue::String(_) => panic!("verbose must be boolean"),
+                }).expect("verbose value")}
+            }),
+            expected,
+            "agentDir={agent_dir:?}"
+        );
+    }
+}

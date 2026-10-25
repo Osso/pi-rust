@@ -761,7 +761,6 @@ fn simple_stream_options(
         reasoning: options
             .get("reasoning")
             .and_then(|value| serde_json::from_value(value.clone()).ok()),
-        deferred: None,
         thinking_budgets: options
             .get("thinkingBudgets")
             .and_then(|value| serde_json::from_value(value.clone()).ok()),

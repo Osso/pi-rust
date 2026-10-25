@@ -20,6 +20,7 @@ pub mod bwrap;
 pub mod claude_bash_hook;
 pub mod claude_memory_enrich;
 pub mod claude_memory_session_end;
+pub mod codex_daybreak;
 pub mod codex_fast;
 pub mod codex_image_generation;
 pub mod codex_usage;
@@ -95,6 +96,13 @@ pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &Sma
         "<first-party:claude-memory-session-end>",
         Arc::new(|pi| {
             let result = claude_memory_session_end::claude_memory_session_end_extension(pi);
+            Box::pin(async move { result })
+        }),
+    );
+    registry.register(
+        "<first-party:codex-daybreak>",
+        Arc::new(|pi| {
+            let result = codex_daybreak::codex_daybreak_extension(pi);
             Box::pin(async move { result })
         }),
     );

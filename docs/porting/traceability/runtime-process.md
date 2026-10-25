@@ -1,6 +1,6 @@
 # coding-agent runtime-process traceability
 
-Pinned source: `packages/coding-agent/src/core/runtime-process.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Earlier process/differential proofs below remain historical pre-repin evidence, not current-pin acceptance.
+Pinned source: `packages/coding-agent/src/core/runtime-process.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Whole-module Linux audit completed 2026-10-25. Current-pin targeted execution passed at ccb73a6d2; the ledger below names the proofs.
 
 Differential proof: request `27012` compares `commandLineIsPiRuntime` across 13 command lines (basenames, entrypoint suffixes, backslash paths, near-miss extensions, empty argv). Behavioral proof: `crates/pi-coding-agent/tests/runtime_process.rs` runs against real `/proc` entries, a real zombie, and real child processes.
 
@@ -11,6 +11,8 @@ Differential proof: request `27012` compares `commandLineIsPiRuntime` across 13 
 | `readProcessStat` | Linux `/proc/<pid>/stat`: state, start time (field 22), rejects missing `)`, non-safe-integer or zero start time | `read_process_stat`; errors `Invalid /proc stat for process {pid}` / `Invalid process stat for process {pid}`; zombie test |
 | `readProcessIdentity` | Identity only | `read_process_identity`; live/zombie tests |
 | `isProcessIdentityAlive` | Same start time and state not `Z`/`X` | `is_process_identity_alive`; `matches_a_live_process_only_at_its_exact_start_time`, zombie test |
+| `readProcessGroupId` | `/proc` process-group field | `read_process_group_id`; same-process frozen snapshot differential GREEN. |
+| `isSupersededRuntimeIdentity` | Same pid/start and both incarnations present but different (including empty string) | `is_superseded_runtime_identity`; twelve-pair frozen differential. |
 | `isPiRuntimeProcessAlive` | Own pid → true; missing → false; unreadable cmdline → true; else runtime check | `is_pi_runtime_process_alive`; `identifies_pi_runtime_processes_by_command_line` |
 | `isVerifiedPiRuntimeProcess` | Unreadable cmdline → false | `is_verified_pi_runtime_process`; same test |
 | `processExists` | `kill(pid, 0)`; `EPERM` counts as existing | `test_kill_process` + `Errno::PERM`; `reports_missing_processes_as_dead` |
@@ -25,8 +27,16 @@ Differential proof: request `27012` compares `commandLineIsPiRuntime` across 13 
 
 ## Gaps
 
-- macOS/BSD `ps -p <pid> -o command=` fallback for command lines is not ported; on non-Linux hosts `try_read_process_command_line` returns `None`, so `isPiRuntimeProcessAlive` reports `true` for any existing process and `isVerifiedPiRuntimeProcess` reports `false`. Process identity already requires Linux `/proc` in the source.
+- Darwin native binding/identity and non-Linux `ps` command-line branches are not ported (assigned Darwin gap); Rust identity requires Linux `/proc`.
+- Adversarial stat contents, numeric extremes and OS/runtime fault shapes are outside the parity bar.
+
+## Re-pin proof ledger
+
+- `suite_core_2` filter `runtime_identity`: missing-process error RED at `/tmp/runtime-services-red-identity.log` (Rust OS text vs frozen `ENOENT: no such file or directory, open '/proc/4194303/stat'`); new superseded export RED at `/tmp/runtime-services-red-exports.log`. GREEN at ccb73a6d2; `/tmp/runtime-services-green-leaves.log`.
+- Existing `runtime_process` real-process tests cover live, absent, zombie, own and foreign processes. Existing `runtime_process_matches_typescript` covers command lines; all five current-pin behavior tests GREEN at ccb73a6d2 (`/tmp/runtime-services-green-process.log`).
 
 ## Discrepancies
 
 None.
+
+The changed module tests all pass. The 16-test core-leaf batch also exposed an unrelated project-resolver fixture failure (`key must be a string` at differential_core_leaves.rs:641); its proof is not claimed here. Empty-executable RED: `/tmp/runtime-services-red-empty-executable.log`.

@@ -55,7 +55,7 @@ pub fn app_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
                 } else {
                     &["ctrl+v"]
                 },
-                "Paste image from clipboard (text fallback)",
+                "Paste image from clipboard",
             ),
         ),
         ("app.session.new", definition(&[], "Start a new session")),
@@ -64,11 +64,11 @@ pub fn app_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
         ("app.session.resume", definition(&[], "Resume a session")),
         (
             "app.tree.foldOrUp",
-            definition(tree_fold_keys(), "Fold tree branch or move up"),
+            definition(&["ctrl+left", "alt+left"], "Fold tree branch or move up"),
         ),
         (
             "app.tree.unfoldOrDown",
-            definition(tree_unfold_keys(), "Unfold tree branch or move down"),
+            definition(&["ctrl+right", "alt+right"], "Unfold tree branch or move down"),
         ),
         ("app.tree.editLabel", definition(&["shift+l"], "Edit tree label")),
         (
@@ -187,22 +187,6 @@ pub fn app_keybindings() -> Vec<(JsString, KeybindingDefinition)> {
         .into_iter()
         .map(|(name, definition)| (JsString::from(name), definition))
         .collect()
-}
-
-fn tree_fold_keys() -> &'static [&'static str] {
-    if cfg!(target_os = "macos") {
-        &["alt+left", "ctrl+left"]
-    } else {
-        &["ctrl+left", "alt+left"]
-    }
-}
-
-fn tree_unfold_keys() -> &'static [&'static str] {
-    if cfg!(target_os = "macos") {
-        &["alt+right", "ctrl+right"]
-    } else {
-        &["ctrl+right", "alt+right"]
-    }
 }
 
 fn definition(default_keys: &[&str], description: &str) -> KeybindingDefinition {
