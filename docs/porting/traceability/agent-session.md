@@ -396,3 +396,9 @@ RPC input-presence process differential passes1 at488941fa0 (`/tmp/repin-agent-s
 ## Remaining audit scope
 
 The whole-file coverage row remains partial. Constructor/hooks, prompt/queues, runtime coordination, events/continuations, model/thinking, compaction/retry and binding/build/reload require closure, as do frozen :5807–6444 (bash, naming, summary materialization, navigateTree, fork extraction, stats and export).
+
+## Re-pin saved-compaction event and finalizer state
+
+Frozen :4486–4519/:5084–5155 awaits session_compact after persistence/context replacement. Native previously never emitted that existing extension event. Manual cancellation and every auto completion also cleared their controller before compaction_end, unlike the source catch/finally boundary. The shared saved-event helper now selects and awaits the existing event; manual errors and auto success/cancel/error keep controller state through notification, then clear the matching controller. Manual success still clears before notification exactly as frozen. No extension carrier or callback API is added.
+
+Source discrepancy classification: preserved source bug at4486/5084—the lookup uses the first entry with a matching summary, not necessarily the newly appended entry. The native helper intentionally matches that lookup; duplicate-summary selection has source-audit proof, not a new runtime matrix. The four real registered-hook/gated source/native scenarios independently assert event payload, promise settlement, ordering and public isCompacting state. `/tmp/repin-agent-session-saved-events-red2.log` is four genuine REDs. The first auto probes in red.log did not cross the threshold because percentage settings were absent; they are not mismatch evidence. `cargo check -j3 --workspace --all-targets` passes before commit (`/tmp/repin-agent-session-saved-events-workspace-check.log`). Runtime GREEN pending.
