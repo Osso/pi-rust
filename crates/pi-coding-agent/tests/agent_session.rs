@@ -1,5 +1,7 @@
 //! Behavioral tests for `core/agent-session.ts`.
 
+#[path = "agent_session_effort_prefix.rs"]
+mod effort_prefix;
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
 #[path = "agent_session_manual_tool_compaction.rs"]

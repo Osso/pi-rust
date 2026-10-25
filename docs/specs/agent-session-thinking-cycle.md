@@ -4,7 +4,7 @@ Coding-agent thinking cycling follows frozen `agent-session.ts:4256–4268`. See
 
 ## What it must do
 
-- [ ] If the current valid thinking level is not in the model's available list, cycling selects its first level, not its second.
+- [x] If the current valid thinking level is not in the model's available list, cycling selects its first level, not its second.
 
 ## How it works
 
@@ -21,7 +21,7 @@ Coding-agent thinking cycling follows frozen `agent-session.ts:4256–4268`. See
 
 ## Known gaps (current cycle)
 
-- [ ] Runtime GREEN is pending; the valid unlisted `xhigh` case has actual-frozen RED proof.
+The valid unlisted `xhigh` case passes against frozen. Contradictory model capability configurations remain outside this slice.
 
 ## Out of scope
 

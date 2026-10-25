@@ -4,22 +4,37 @@ import { runPromptLifecycleScenario } from "./agent-session-prompt-lifecycle.ts"
 import { runInputImagesScenario } from "./agent-session-input-images.ts";
 import { runCompactionEventsScenario } from "./agent-session-compaction-events.ts";
 import { runManualToolCompaction } from "./agent-session-manual-tool.ts";
+import {
+	runThinkingListenerScenario,
+	runThinkingPendingScenario,
+} from "./agent-session-thinking-listener.ts";
+import { runEffortPrefixScenario } from "./agent-session-effort-prefix.ts";
 
-export async function runAgentSessionScenario(request, context) {
-	if (request.operation === "thinking-cycle-unlisted") {
+const THINKING_SCENARIOS = new Map<
+	string,
+	(context: unknown) => Promise<unknown>
+>([
+	["thinking-effort-prefix", runEffortPrefixScenario],
+	["thinking-sync-listener", runThinkingListenerScenario],
+	["thinking-pending-listener", runThinkingPendingScenario],
+	["thinking-cycle-unlisted", runUnlistedThinkingCycle],
+]);
+
+async function runUnlistedThinkingCycle(context) {
+	try {
 		context.agent.state.thinkingLevel = "xhigh";
 		const before = context.session.thinkingLevel;
 		const available = context.session.getAvailableThinkingLevels();
 		const next = context.session.cycleThinkingLevel();
-		const result = {
-			before,
-			available,
-			next,
-			current: context.session.thinkingLevel,
-		};
+		return { before, available, next, current: context.session.thinkingLevel };
+	} finally {
 		context.session.dispose();
-		return result;
 	}
+}
+
+export async function runAgentSessionScenario(request, context) {
+	const thinkingScenario = THINKING_SCENARIOS.get(request.operation);
+	if (thinkingScenario) return thinkingScenario(context);
 	if (request.operation === "manual-tool-compaction")
 		return runManualToolCompaction(context);
 	if (

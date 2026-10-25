@@ -5321,12 +5321,7 @@ impl AgentSession {
                 event_type: "thinking_level_changed",
                 level: effective,
             }));
-            if let Ok(handle) = tokio::runtime::Handle::try_current() {
-                let session = self.clone();
-                handle.spawn(async move {
-                    session.emit_thinking_level_select(effective, previous).await;
-                });
-            }
+            self.start_thinking_level_select(effective, previous)?;
         }
         Ok(())
     }
@@ -8139,6 +8134,26 @@ impl AgentSession {
             source,
         }));
         self.runner().emit(&mut event).await;
+    }
+
+    fn start_thinking_level_select(
+        &self,
+        level: ThinkingLevel,
+        previous: ThinkingLevel,
+    ) -> Result<(), AgentSessionError> {
+        use std::future::Future;
+        let session = self.clone();
+        let mut event = Box::pin(async move { session.emit_thinking_level_select(level, previous).await });
+        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
+        if event.as_mut().poll(&mut context).is_pending() {
+            let handle = tokio::runtime::Handle::try_current().map_err(|cause| {
+                error(format!(
+                    "Cannot continue thinking-level event without a Tokio runtime: {cause}"
+                ))
+            })?;
+            handle.spawn(event);
+        }
+        Ok(())
     }
 
     async fn emit_thinking_level_select(&self, level: ThinkingLevel, previous: ThinkingLevel) {
