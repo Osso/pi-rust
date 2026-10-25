@@ -205,6 +205,11 @@ name = "suite_core_5"
 path = "tests/suite_core_5.rs"
 
 [[test]]
+# Mutates process PATH to test the real first-party availability gate.
+name = "browser_cli_availability"
+path = "tests/browser_cli_availability.rs"
+
+[[test]]
 name = "suite_extensions"
 path = "tests/suite_extensions.rs"
 

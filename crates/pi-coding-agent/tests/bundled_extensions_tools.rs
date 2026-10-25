@@ -258,18 +258,18 @@ async fn browser_cli_matches_typescript() {
 
     let queue = Arc::new(std::sync::Mutex::new(vec![
         BrowserCliCommandResult {
-            stdout: "Clicked\n".to_owned(),
-            stderr: String::new(),
+            stdout: "Clicked\n".into(),
+            stderr: JsString::default(),
             exit_code: Some(0),
         },
         BrowserCliCommandResult {
-            stdout: "Waited\n".to_owned(),
-            stderr: String::new(),
+            stdout: "Waited\n".into(),
+            stderr: JsString::default(),
             exit_code: Some(0),
         },
         BrowserCliCommandResult {
-            stdout: "Report ready\n".to_owned(),
-            stderr: String::new(),
+            stdout: "Report ready\n".into(),
+            stderr: JsString::default(),
             exit_code: Some(0),
         },
     ]));
@@ -341,13 +341,13 @@ async fn browser_cli_matches_typescript() {
 
     let failing_queue = Arc::new(std::sync::Mutex::new(vec![
         BrowserCliCommandResult {
-            stdout: "Clicked\n".to_owned(),
-            stderr: String::new(),
+            stdout: "Clicked\n".into(),
+            stderr: JsString::default(),
             exit_code: Some(0),
         },
         BrowserCliCommandResult {
-            stdout: String::new(),
-            stderr: "denied".to_owned(),
+            stdout: JsString::default(),
+            stderr: "denied".into(),
             exit_code: Some(7),
         },
     ]));
@@ -383,8 +383,8 @@ async fn browser_cli_rejects_an_aborted_command() {
                 signal.wait().await;
             }
             Ok(BrowserCliCommandResult {
-                stdout: "late".to_owned(),
-                stderr: String::new(),
+                stdout: "late".into(),
+                stderr: JsString::default(),
                 exit_code: Some(0),
             })
         })

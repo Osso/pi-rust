@@ -1,43 +1,25 @@
-# browser-cli traceability
+# Browser CLI extension traceability
 
-Source: `packages/coding-agent/extensions/browser-cli/src/index.ts` (169 lines).
-Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/browser_cli.rs`.
-Tests: `crates/pi-coding-agent/tests/bundled_extensions_tools.rs`.
+Source: `packages/coding-agent/extensions/browser-cli/src/index.ts`, common pin `4f9e6f8a4`. Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/browser_cli.rs`.
 
-| Source symbol / branch | Rust item | Proof |
-| --- | --- | --- |
-| default `browserCliExtension(pi, options)` | `browser_cli_extension` | registration differential |
-| `createBrowserCliToolDefinition` | `create_browser_cli_tool_definition` | registration differential |
-| schema (minItems, nested array, descriptions) | `browser_cli_schema` | registration differential |
-| `BROWSER_CLI_PROMPT_GUIDELINES` | `BROWSER_CLI_PROMPT_GUIDELINES` | registration differential |
-| `runBrowserCliBatch` ordering/stop-on-nonzero | `run_browser_cli_batch` | differential success/failure steps |
-| `{ args, ...result }` execution shape | `BrowserCliCommandExecution` field order | differential details JSON |
-| `formatBrowserCliBatchOutput` | `format_browser_cli_batch_output` | differential content text |
-| `formatBrowserCliFailure` (stderr then stdout, unknown code) | `format_browser_cli_failure` | differential error text |
-| `waitForAbort` / `throwIfAborted` | `wait_for_abort`, `run_browser_cli_command` | abort test (`browser-cli command aborted`) |
-| default `runBrowserCliCommand` | `run_browser_cli_command` | implementation; tests inject a runner |
+| Frozen symbol / branch | Native item | Proof |
+|---|---|---|
+| default factory executable-availability gate | `browser_cli_extension` | standalone `browser_cli_availability`: absent, non-executable and executable PATH entries |
+| exported result/execution/batch interfaces and injected runner/options | native structs/type aliases, exact JsString output/argv/session | existing native/frozen callback differential plus raw-result serialization roundtrip |
+| exported tool factory: metadata, seven guidelines, schema and sequential mode | `create_browser_cli_tool_definition`, `browser_cli_schema` | `suite_extensions::bundled_extensions_tools::browser_cli_matches_typescript` |
+| exported dedicated session id: tool agent, runtime agent, main; absent/empty session throws | `browser_cli_session` | existing callback fixture checks exact session; real child environment test |
+| ordered batch, stop on nonzero/null, args copied, abort observation | `run_browser_cli_batch`, `wait_for_abort` | frozen success/failure differential and native abort test |
+| default runner: pre-abort, spawn args/session env, remove BROWSER_CLI_TAB, capture streams/exit code | `run_browser_cli_command` | real env child; existing injected-runner differential |
+| active abort SIGTERM and child reaping; outer abort must not cancel runner cleanup | detached native runner task, shared TERM capture | `abort_keeps_default_runner_alive_to_send_sigterm_and_reap`: real Python child writes its SIGTERM marker |
+| output stdout/stderr order, no separators, JS trim in errors, unknown exit code | `format_browser_cli_batch_output`, `format_browser_cli_failure` | differential plus BOM-trim and raw UTF-16 unit tests |
 
-Gaps / discrepancies:
-- Abort kills the child with SIGKILL via `Child::kill`; Node `kill()` sends SIGTERM.
-  The observable abort error text matches.
-- Output is drained by `wait_for_child_process`; Node concatenates stream chunks as
-  they arrive. Byte content matches for deterministic commands.
-- Spawn failures use Node-style `spawn <cmd> ENOENT`/`EACCES`; other OS errors pass
-  through.
+## Re-pin proof ledger
 
-## Baseline display re-pin (2026-10-25)
+- RED `/tmp/bundled-browser-runtime-red.log`: frozen JS-whitespace trim and real-child SIGTERM behavior fail in old port.
+- RED `/tmp/bundled-browser-availability-red.log`: old factory registers despite absent executable.
+- RED `/tmp/bundled-browser-raw-red.log`: native runner result rejects raw UTF-16 stdout/stderr.
+- Previous lane already proved dedicated session environment/signature propagation and exact guideline text; current audit retains those fixes.
 
-Registration restores the frozen dedicated background-tab prompt guideline verbatim; existing browser_cli differential RED was only that missing line.
+The default process stdout/stderr decoder uses replacement on invalid UTF-8 bytes, as Node `setEncoding("utf8")` does; this is not a UTF-16-to-scalar projection. Injected runner results and all formatting remain native UTF-16. Abort rejection leaves the runner active to perform the frozen child-termination/settlement side effect. No real browser is invoked in these tests.
 
-## Dedicated session tab and stale callback seam (2026-10-25)
-
-Frozen `BrowserCliCommandRunner` receives `(executable, args, session, signal)`.
-The old oracle treated the session string as the signal, producing a false
-signal-presence mismatch. Both callback signatures now include session. Native
-execution derives `sessionId:(toolExecutionAgentId ?? multiAgentAgentId ?? main)`
-from the live context, removes inherited `BROWSER_CLI_TAB`, and supplies
-`BROWSER_CLI_SESSION` to the real child. Missing/empty session context fails
-with the exact frozen message. The existing native callback asserts the exact
-session passed. A new real `env` child test reproduced missing session env RED.
-No command/result assertions were relaxed. Mechanical test callback signatures
-and the oracle's stale injection seam changed with the runtime API.
+Gap: pathological inputs, inherited environment-name oddities and OS-fault shapes follow the shared parity exclusions; normal argv, environment and process lifecycle remain mapped above.
