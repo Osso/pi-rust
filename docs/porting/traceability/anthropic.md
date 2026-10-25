@@ -1,30 +1,25 @@
-# auth/oauth/anthropic traceability
+# Anthropic OAuth — common-pin audit
 
-Q18 human-error representation and bounded proof: [lossless provider errors](lossless-provider-errors.md). Earlier counts are historical, not rerun evidence.
+Whole `packages/ai/src/utils/oauth/anthropic.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` audited 2026-10-25. Native: `crates/pi-ai/src/auth/oauth/{anthropic,support}.rs`; public legacy bridge in `oauth_registry.rs`. [Contract](../../specs/oauth-common-pin.md), [final proof ledger](../ai-core-successor-proof.md).
 
-Current reason/deadline proof imports `packages/ai/src/utils/oauth/anthropic.ts` at common pin `4f9e6f8a4`; older full-flow evidence below remains historical.
+## Whole-module branch audit
 
-## Reason-bearing request deadline
+Constants match the decoded client ID, claude.ai authorize URL, platform.claude.com token URL, callback host setting/default, fixed port53692/path /callback, localhost redirect URI and the entire scope string. PKCE verifier is the expected state; authorize parameters preserve frozen order and URLSearchParams encoding. Browser/Node import readiness is a runtime exclusion, not an alternate provider implementation.
 
-`post_json` passes only its independent shared 30,000ms timeout signal through fetch/body, not the Rust trait's caller signal. `format_error_details` consumes `CallbackError::thrown_value`: native Error/DOMException name/message, truthy code, present errno and raw cause; non-Errors use native String conversion, including conversion failures. V8 stacks are omitted by approved decision. Recursive branded Error causes are not yet representable in NativeNodeError's raw JSON metadata and remain partial, never inferred from plain name/message objects.
+parseAuthorizationInput follows trim, absolute URL query, first two hash segments, query-string form and raw code precedence. URLSearchParams.get takes the first duplicate key. Native regression reproduced last-value and extra-hash drift; native string parsing retains code/state until the URL/HTTP boundary. State checks ignore empty state where source uses truthiness; an explicitly empty resolved state still reaches Missing OAuth state.
 
-Actual frozen refresh helper RED→GREEN: `differential_anthropic_timeout` tests native TimeoutError/code23 and seven Error/value format cases (native UTF-16, raw object lookalike, non-callable toString TypeError, errno zero/null and false/plain-object cause). Source oracle records requested 30,000ms then accelerates only the builtin clock to1ms; Rust advances virtual time. Logs `anthropic-timeout-red-2.log`, `anthropic-reason-format-red.log`, `anthropic-timeout-green-2.log` under `/tmp/pi-rust-repin-delta-ai`. Full OAuth malformed token/runtime behavior is not proven by this slice.
+The callback listener returns exact shared error/success pages: unknown path404; nonempty OAuth error400 without settling; missing/empty code or state400; mismatched state400; valid code/state200 and settle once. Empty error is ignored. Callback query/header/runtime HTTP oddities are excluded; ordinary occupied-port rejection now has Node listen message/code/errno/syscall/address/port, proven with a real occupied loopback listener.
 
-| TypeScript source | Observable contract | Rust mapping and proof |
-|---|---|---|
-| Constants | Client id, authorize/token URLs, callback host env (`PI_OAUTH_CALLBACK_HOST`), port 53692, `/callback`, localhost redirect, scopes. | Private constants in `anthropic`; `manual_code_login_posts_the_expected_exchange_body_and_cancels_the_prompt`, `callback_login_uses_the_local_server_and_redirect_uri`. |
-| `parseAuthorizationInput` | Trim; URL query `code`/`state`; `code#state`; query-string form; otherwise whole input as code. | `support::parse_authorization_input`; `manual_state_mismatch_fails_with_the_source_message` and differential manual flow. |
-| `formatErrorDetails` | `Name: message`, optional code/errno/cause/stack. | `format_error_details` uses branded rejection and native metadata; `differential_anthropic_timeout` covers deadline + seven rejection cases. Recursive Error causes remain partial; stacks omitted by approval. |
-| `startCallbackServer` | Bind `host:53692`; 404 unknown path; 400 error/missing/state mismatch; 200 success page; settle code once. | `start_anthropic_callback_server` + `support::start_callback_server`; callback test asserts status/body. |
-| `postJson` | POST JSON, 30 s timeout, non-2xx error text. | `post_json`; shared independent timeout signal exposes TimeoutError DOMException; differential deadline test. |
-| `exchangeAuthorizationCode` | Body order `grant_type, client_id, code, state, redirect_uri, code_verifier`; wrapped request/JSON errors; expiry `now + expires_in*1000 - 5min`. | `exchange_authorization_code`; differential flow compares body, credential, and expiry. |
-| `loginAnthropic` | PKCE; state = verifier; notify auth URL then progress; manual prompt races callback; manual state check; missing code/state errors; close server and abort prompt signal. | `login_anthropic`; manual + callback tests; differential manual and callback scenarios compare events/prompts/requests/callback page. |
-| `refreshAnthropicToken` | JSON refresh without `scope`; wrapped errors; 5 min skew. | `refresh_anthropic`; `refresh_omits_scope_and_applies_the_five_minute_skew`; differential refresh. |
-| `anthropicOAuth` | Name, subscription flag, `toAuth` → access token as api key. | `AnthropicOAuth`; `to_auth_returns_the_access_token_and_marks_subscription_login`. |
+postJson sends POST Content-Type/Accept and ordered JSON, reads the text body, uses only its own 30,000ms timeout signal, and creates the exact non-2xx diagnostic. exchangeAuthorizationCode catches request rejection separately from JSON.parse failure, preserving native error details; credentials use refresh/access/expires with Date.now after response and the five-minute skew. refreshAnthropicToken sends refresh grant/client/refresh token, applies the same separate catches/skew and omits scope.
 
-## Exclusions and discrepancies
+formatErrorDetails preserves name/message, truthy code, present errno and recursively branded causes using the existing NativeNodeError::cause authority. Non-Errors use the shared String(value) conversion. V8 stack omission is approved. Native RED showed branded Error causes becoming [object Object]; the regression now proves TypeError→Error/code/errno recursion. Existing seven-case source proof still covers raw objects, false/null causes, errno0, native units and conversion errors.
 
-- Token responses are validated as typed fields; the source would return `undefined` access/refresh/expires on malformed JSON shapes. Rust returns a `... response missing ...` error.
-- Error details now preserve code/errno/raw cause and names; recursive Error cause brands remain partial. Stack omission follows the approved general rule.
-- The source's Web Crypto / `node:http` runtime checks have no Rust equivalent; the callback server is always available and bind failures surface as login errors.
-- Differential: `oracle/oauth-flows-oracle.ts` patches `Date.now`, `crypto.getRandomValues`, `crypto.randomUUID`, and `node:crypto.randomBytes`; PKCE/state therefore compare exactly. Callback pages are compared byte-for-byte.
+loginAnthropic starts the listener before onAuth, then races optional manual input with callback completion. Manual Error rejections keep their identity; other rejections become Error(String(value)). Manual state mismatch fails with OAuth state mismatch. Empty/manual input with no code uses the second text prompt and exact placeholder; missing code/state errors remain exact. No manual callback means wait for callback, not an immediate text prompt. onProgress occurs before exchange. The listener closes before awaiting the returned exchange promise; outer modern auth finally aborts the manual prompt only after completion/rejection. Browser helpers do not inherit a caller cancellation signal absent from source.
+
+anthropicOAuth exposes the frozen name, login/refresh with the existing tagged credential authority and toAuth(access). anthropicOAuthProvider exposes id/name/callback flag, direct callbacks/refresh/getApiKey with no extra selection. The shared legacy bridge retains optional manual presence and Result notification failures. No credential/key-order reimplementation.
+
+## Proof
+
+Existing standalone `anthropic_oauth` six tests, current actual-source `differential_oauth_flows` manual/callback/refresh HTTP+credential/page comparisons, `differential_anthropic_timeout` deadline and error-format cases, `auth_types_contract` notification failures, and `oauth_registry` native token/header/form tests pass. Native `oauth_repin_edges` covers parser/manual/JSON/cause/callback/bind/listener lifetime discrepancies found in this audit. Exact commands and immutable code revision are in the [checkpoint](../ai-core-successor-proof.md).
+
+Gap: malformed/wrong-typed token JSON, adversarial/exotic callback inputs, browser/Node/crypto readiness, extreme numbers and runtime scheduling/fault shapes follow AGENTS.md; existing lossless strings/errors stay native. No live provider calls or new frozen differential/matrix.

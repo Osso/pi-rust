@@ -1,5 +1,7 @@
 # AI core lane handoff — 2026-10-25
 
+**Successor completion:** all seven remaining rows are closed; the original six remain done. Current audit, fixes, exact code revision, tests, warning classification and inventory are in [AI core successor checkpoint](ai-core-successor-proof.md). The remainder below is the historical predecessor handoff, not current pending work.
+
 Worktree `/home/osso/.worktrees/pi-rust-repin-delta-ai`, branch `repin/delta-ai`. Stopped on parent instruction (agent cap), not task completion. All current code compiles: `cargo check -j3 --workspace --all-targets --keep-going`, exit0, `/tmp/ai3-types-workspace-check.log`. No uncompiled patch or background job.
 
 ## Closed rows (6 of13 assigned)

@@ -22,10 +22,10 @@ The successor also retired the unused old-only ThinkingFormat::Baseten variant (
 Persistence/wire proof remains authoritative, not replaced by the declaration audit:
 
 - [Lossless content](lossless-content.md), [model JSON properties](model-json-properties.md), [image content properties](../../specs/image-content-properties.md), [model registry](model-registry.md): native human text, unknown fields/order, real session/RPC/provider boundaries and model reconstruction. Session JSONL retains old pending/deferred/endTurn fields as frozen raw records; `lossless_session_persistence::old_pending_deferred_and_end_turn_fields_load_and_save_as_frozen_raw_records` is unchanged.
-- [Tool metadata](../../specs/tool-enumerable-metadata.md): AgentTool's enumerable label/executionMode reach whole-tool JSON and estimators, but provider adapters explicitly map only their source fields. [Tool descriptions](../../specs/tool-render-paths.md) and provider tests retain human description units.
+- [Tool metadata](../../specs/tool-enumerable-metadata.md): AgentTool's enumerable label/executionMode reach whole-tool JSON and estimators, but provider adapters explicitly map only their source fields. `tests/tool_description.rs` and its provider request tests retain human description units.
 - [Content stream scratch](../../specs/content-stream-scratch.md): optional index/partialJson/partialArgs/streamIndex are real frozen runtime fields, not old-only type interfaces. Anthropic, Responses and Completions traces own their producer lifecycle.
 - [AI API audit](../ai-api-repin-proof.md), [request error identity](native-http-failure-identity.md), [headers](headers.md), [agent loop](agent-loop.md): callback Result propagation, reason-bearing abort signals, fetched header ordering, stream acquisition and payload/request contracts.
-- [EventStream](events.md): sender/receiver ownership replaces JS identity while preserving push/end/iteration/result behavior. No second event carrier was introduced.
+- `tests/{event_stream,differential_event_stream}.rs`: sender/receiver ownership replaces JS identity while preserving push/end/iteration/result behavior. No second event carrier was introduced.
 
 ## Approved boundaries and source discrepancies
 

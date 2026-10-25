@@ -30,7 +30,7 @@ Frozen `packages/ai/src/utils/oauth/{anthropic,github-copilot,openai-codex,index
 
 ## Known gaps (current cycle)
 
-- [ ] Final whole-lane verification is recorded in the successor checkpoint, not inferred from this spec.
+No open in-scope module gap. [Successor verification](../porting/ai-core-successor-proof.md) records the actual focused gates and inherited persistence/HTTP proof; no independent agent was used.
 
 ## Out of scope
 
