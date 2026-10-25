@@ -2,7 +2,7 @@
 //! versus the Rust port.
 
 #[path = "support/oracle.rs"]
-mod oracle;
+pub(crate) mod oracle;
 
 use pi_js_compat::js_json::{JsString, JsValue};
 use std::fs;

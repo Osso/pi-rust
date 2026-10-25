@@ -1,6 +1,5 @@
 //! Frozen injected-stream request/result contracts; no live provider access.
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::differential_compaction::oracle;
 
 use pi_agent_core::agent::{AgentMessage, StreamFn};
 use pi_ai::types::{AssistantMessage, Model, ProviderEnv, ProviderHeaders, StopReason};

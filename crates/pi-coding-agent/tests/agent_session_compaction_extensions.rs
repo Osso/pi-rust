@@ -671,12 +671,13 @@ async fn percentage_threshold_counts_messages_after_the_usage_anchor_like_frozen
     anchor.usage.total_tokens = 400.0;
     let message = pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(anchor));
     let identity = env.session.agent().append_message(message.clone());
-    let mut manager = env.session.session_manager();
-    let entry_id = manager.append_message(message).expect("anchor");
-    manager
-        .bind_message_identity(&entry_id, identity)
-        .expect("anchor identity");
-    drop(manager);
+    {
+        let mut manager = env.session.session_manager();
+        let entry_id = manager.append_message(message).expect("anchor");
+        manager
+            .bind_message_identity(&entry_id, identity)
+            .expect("anchor identity");
+    }
     env.session
         .send_custom_message(
             &"tail".into(),
