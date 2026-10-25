@@ -1037,9 +1037,11 @@ fn read_aborted_session_line(root: &Path, runtime: &str) -> String {
 
 #[test]
 fn thinking_timeout_recovery_matches_frozen_rpc() {
+    // The pending first factory must time out; the immediate recovery must not.
+    // A 100 ms budget races native event I/O under the parallel process matrix.
     let (mut session, root) = Session::start_with_responses(
         &[
-            ("PI_HARNESS_THINKING_TIMEOUT_MS", "100"),
+            ("PI_HARNESS_THINKING_TIMEOUT_MS", "1000"),
             ("PI_HARNESS_IMMUTABLE_PARTIALS", "1"),
         ],
         r#"[{"pending":true},{"text":"Recovered","endTurn":"done","toolId":"recovered"}]"#,

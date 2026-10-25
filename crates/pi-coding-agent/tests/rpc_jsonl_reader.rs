@@ -5,8 +5,10 @@ use pi_coding_agent::modes::rpc::{attach_jsonl_line_reader, serialize_json_line}
 use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
+type CollectedLines = Arc<Mutex<Vec<String>>>;
+
 fn collector() -> (
-    Arc<Mutex<Vec<String>>>,
+    CollectedLines,
     impl FnMut(String) -> Result<(), pi_ai::request::CallbackError> + Send + 'static,
 ) {
     let lines = Arc::new(Mutex::new(Vec::new()));
