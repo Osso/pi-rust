@@ -6,14 +6,8 @@ use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_regex::JsRegex as Regex;
 use std::sync::Arc;
 pub fn permission_gate_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
-    // Match non-Unicode JS /i and word boundaries, the exact JS whitespace
-    // class, and JS dot's four excluded line terminators (not just Rust's LF).
-    let patterns = [
-        r"(?i-u:\brm)[\t\n\x0b\x0c\r \u{a0}\u{1680}\u{2000}-\u{200a}\u{2028}\u{2029}\u{202f}\u{205f}\u{3000}\u{feff}]+(?i-u:-rf?|--recursive)",
-        r"(?i-u:\bsudo\b)",
-        r"(?i-u:\b(chmod|chown)\b)[^\n\r\u{2028}\u{2029}]*777",
-    ];
-    let patterns = Arc::new(patterns.map(|pattern| Regex::new(pattern).expect("constant JS-compatible pattern")));
+    let patterns = [r"\brm\s+(-rf?|--recursive)", r"\bsudo\b", r"\b(chmod|chown)\b.*777"];
+    let patterns = Arc::new(patterns.map(|pattern| Regex::with_flags(pattern, "i").expect("constant JS pattern")));
     pi.on_tool_call(
         move |event: ToolCallEvent,
               ctx: ExtensionContext|
