@@ -9,7 +9,7 @@ pub fn abort_agent_handle_safely(store: &MultiAgentStore, agent_id: &JsString) {
     if let Err(error) = store.abort_agent_handle(agent_id) {
         let prefix = pi_js_compat::js_format!("Failed to abort agent runtime {}:", agent_id);
         crate::core::desktop_notification::report_callback_error(
-            &pi_js_compat::js_json::encode_node_utf8(&prefix),
+            pi_js_compat::js_json::encode_node_utf8(&prefix),
             &error,
         );
     }
