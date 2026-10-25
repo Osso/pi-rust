@@ -28,9 +28,7 @@ use crate::core::bash_executor::BashResult;
 use crate::core::compaction::CompactionResult;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
-use crate::modes::rpc::rpc_types::{
-    QueueMode, RpcCommand, RpcCommandBody, RpcResponse, RpcSessionState, RpcSlashCommand,
-};
+use crate::modes::rpc::rpc_types::{QueueMode, RpcCommand, RpcCommandBody, RpcSessionState, RpcSlashCommand};
 use crate::utils::child_process::node_spawn_error_message;
 
 /// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
@@ -293,7 +291,7 @@ struct SyncState {
     stopping: bool,
     stop_error: Option<RpcClientError>,
     next_request_id: u64,
-    pending: HashMap<String, oneshot::Sender<Result<RpcResponse, RpcClientError>>>,
+    pending: HashMap<String, oneshot::Sender<Result<JsValue, RpcClientError>>>,
     listeners: Vec<Listener>,
     next_listener_id: u64,
 }
@@ -306,7 +304,7 @@ struct ProcessHandle {
 struct PendingRequest {
     id: String,
     line: String,
-    receiver: oneshot::Receiver<Result<RpcResponse, RpcClientError>>,
+    receiver: oneshot::Receiver<Result<JsValue, RpcClientError>>,
 }
 
 #[derive(Default)]
@@ -333,11 +331,7 @@ impl ClientInner {
         if let Some(id) = response_id(&value) {
             let sender = self.sync.lock().expect("sync state poisoned").pending.remove(&id);
             if let Some(sender) = sender {
-                let response =
-                    js_json::from_value::<RpcResponse>(&value).map_err(|error| RpcClientError::MalformedResponse {
-                        message: error.to_string(),
-                    });
-                let _ = sender.send(response);
+                let _ = sender.send(Ok(value));
                 return;
             }
         }
@@ -536,7 +530,7 @@ impl RpcClient {
     }
 
     /// Sends a command and waits for its response.
-    pub async fn send(&self, body: RpcCommandBody) -> Result<RpcResponse, RpcClientError> {
+    pub async fn send(&self, body: RpcCommandBody) -> Result<JsValue, RpcClientError> {
         let command_type = body.command_type();
         let request = self.begin_request(body)?;
         self.write_request_line(&request).await?;
@@ -607,7 +601,7 @@ impl RpcClient {
         &self,
         request: PendingRequest,
         command_type: &str,
-    ) -> Result<RpcResponse, RpcClientError> {
+    ) -> Result<JsValue, RpcClientError> {
         match tokio::time::timeout(REQUEST_TIMEOUT, request.receiver).await {
             Ok(Ok(response)) => response,
             Ok(Err(_)) => Err(RpcClientError::Stopped {
@@ -854,7 +848,7 @@ impl RpcClient {
     // Helpers
     // =========================================================================
 
-    /// Waits for the final agent end after any automatic retry.
+    /// Waits for the first agent_end event, including a retrying end.
     pub async fn wait_for_idle(&self, timeout: Duration) -> Result<(), RpcClientError> {
         let (sender, mut receiver) = mpsc::unbounded_channel();
         let _subscription = self.subscribe_sender(sender);
@@ -984,19 +978,22 @@ impl Drop for RpcEventSubscription {
 
 fn is_final_agent_end(event: &JsValue) -> bool {
     event.get("type").and_then(JsValue::as_string) == Some(&"agent_end".into())
-        && !event.get("willRetry").and_then(JsValue::as_bool).unwrap_or(false)
 }
 
-fn response_data<T: DeserializeOwned>(response: RpcResponse, command: &str) -> Result<T, RpcClientError> {
-    if !response.success {
-        return Err(RpcClientError::CommandFailed {
-            message: response.error.unwrap_or_default(),
-        });
+fn response_data<T: DeserializeOwned>(response: JsValue, command: &str) -> Result<T, RpcClientError> {
+    if !response.get("success").is_some_and(js_json::is_truthy) {
+        let message = match response.get("error") {
+            None => JsString::default(),
+            Some(value) => js_json::to_js_string(value).map_err(|message| RpcClientError::CommandFailed {
+                message: message.into(),
+            })?,
+        };
+        return Err(RpcClientError::CommandFailed { message });
     }
-    let data = response.data.ok_or_else(|| RpcClientError::MissingData {
+    let data = response.get("data").ok_or_else(|| RpcClientError::MissingData {
         command: command.to_owned(),
     })?;
-    js_json::from_value(&data).map_err(|error| RpcClientError::InvalidData {
+    js_json::from_value(data).map_err(|error| RpcClientError::InvalidData {
         command: command.to_owned(),
         message: error.to_string(),
     })

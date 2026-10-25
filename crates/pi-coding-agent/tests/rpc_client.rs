@@ -223,7 +223,7 @@ setInterval(() => {{}}, 1000);
 }
 
 #[tokio::test]
-async fn collects_retry_events_through_the_final_agent_end() {
+async fn collects_events_through_the_first_agent_end_including_retry() {
     let dir = tempfile::tempdir().expect("temp dir");
     let script = write_script(
         &dir,
@@ -248,27 +248,17 @@ lines.on("line", (line) => {
         .expect("prompt must complete");
     assert_eq!(
         events,
-        vec![
-            json!({"type": "agent_end", "messages": [], "willRetry": true}),
-            json!({
-                "type": "auto_retry_start",
-                "attempt": 1,
-                "maxAttempts": 3,
-                "delayMs": 100,
-                "errorMessage": "retry"
-            }),
-            json!({"type": "agent_end", "messages": [], "willRetry": false}),
-        ]
-        .into_iter()
-        .map(JsValue::from)
-        .collect::<Vec<_>>()
+        vec![json!({"type": "agent_end", "messages": [], "willRetry": true}),]
+            .into_iter()
+            .map(JsValue::from)
+            .collect::<Vec<_>>()
     );
 
     client.stop().await.expect("client must stop");
 }
 
 #[tokio::test]
-async fn waits_through_retrying_agent_ends() {
+async fn waits_for_the_first_agent_end_including_retry() {
     let dir = tempfile::tempdir().expect("temp dir");
     let script = write_script(
         &dir,
