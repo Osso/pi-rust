@@ -22,3 +22,5 @@ The frozen runtime oracle calls the real default extension with controlled timer
 - RED `/tmp/bundled-loop-red.log`: prior Rust implementation emits repeated user messages, not the frozen guarded custom messages.
 - Timer callback failures use the shared uncaught authority, not an alternate stderr-and-stop behavior.
 - Gap: JS/libuv timer scheduling races and numeric timer extremes are outside the user-observable parity bar. Ordinary timer, deferral and shutdown behavior is mapped above.
+
+- GREEN at `770ac1955`: eight focused tests pass (`/tmp/bundled-loop-green.log`), including eight frozen runtime scenarios and 14 command/tool cases. The older registration oracle retained real timers after each case; it now calls the registered shutdown handler and exposes `sendMessage`, removing its post-response TypeError without changing asserted results. Strict no-emit for the runtime oracle passes (`/tmp/bundled-loop-oracle-types.log`). Extension clippy in warning mode passes with no warnings on changed lines (`/tmp/bundled-clippy-warnings.log`); unchanged pre-existing conversion warnings remain.

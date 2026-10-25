@@ -49,15 +49,18 @@ function createLoopHarness(loopExtension: (pi: AnyRecord) => void): AnyRecord {
 	const notifications: Array<[string, string | null]> = [];
 	const editor: string[] = [];
 	const sends: unknown[] = [];
+	let shutdown = () => {};
 	const pi = {
-		on() {},
+		on(name: string, handler: () => void) {
+			if (name === "session_shutdown") shutdown = handler;
+		},
 		registerCommand(name: string, value: AnyRecord) {
 			if (name === "loop") command = value;
 		},
 		registerTool(definition: AnyRecord) {
 			if (definition.name === "loop") tool = definition;
 		},
-		sendUserMessage(...args: unknown[]) {
+		sendMessage(...args: unknown[]) {
 			sends.push(args);
 		},
 	};
@@ -76,7 +79,7 @@ function createLoopHarness(loopExtension: (pi: AnyRecord) => void): AnyRecord {
 			},
 		},
 	};
-	return { command, tool, ctx, notifications, editor, sends };
+	return { command, tool, ctx, notifications, editor, sends, shutdown: () => shutdown() };
 }
 
 function loopMetadata(harness: AnyRecord): unknown {
@@ -97,32 +100,34 @@ async function runLoopCase(
 	input: AnyRecord,
 ): Promise<unknown> {
 	const harness = createLoopHarness(loopExtension);
-	if (typeof input.command === "string") {
-		await harness.command.handler(input.command, harness.ctx);
+	try {
+		if (typeof input.command === "string") {
+			await harness.command.handler(input.command, harness.ctx);
+			return {
+				name: input.name,
+				metadata: loopMetadata(harness),
+				notifications: harness.notifications,
+				editor: harness.editor,
+				sends: harness.sends,
+			};
+		}
+		const result = await harness.tool.execute(
+			"loop-call",
+			input.tool,
+			undefined,
+			undefined,
+			harness.ctx,
+		);
 		return {
 			name: input.name,
 			metadata: loopMetadata(harness),
+			text: result.content.map((item: AnyRecord) => item.text),
+			details: result.details,
 			notifications: harness.notifications,
 			editor: harness.editor,
 			sends: harness.sends,
 		};
-	}
-	const result = await harness.tool.execute(
-		"loop-call",
-		input.tool,
-		undefined,
-		undefined,
-		harness.ctx,
-	);
-	return {
-		name: input.name,
-		metadata: loopMetadata(harness),
-		text: result.content.map((item: AnyRecord) => item.text),
-		details: result.details,
-		notifications: harness.notifications,
-		editor: harness.editor,
-		sends: harness.sends,
-	};
+	} finally { harness.shutdown(); }
 }
 
 function createFastHarness(

@@ -4,11 +4,11 @@ The bundled loop extension follows the [common source pin](../porting/source-loc
 
 ## What it must do
 
-- [ ] Preserve frozen command/tool metadata, interval parsing/formatting, validation and output.
-- [ ] Send visible custom loop messages with generation/session details, followUp delivery and triggerTurn; allow only one in-flight prompt.
-- [ ] Defer busy/pending ticks and release deferred work at agent-end only when the frozen pending/in-flight checks permit it. Ignore session continuations and stale generation/session messages.
-- [ ] Stop replaced/shutdown timers, preserve status/stop behavior, and reject starts after shutdown.
-- [ ] Preserve exact UTF-16 prompts and serialized details.
+- [x] Preserve frozen command/tool metadata, interval parsing/formatting, validation and output.
+- [x] Send visible custom loop messages with generation/session details, followUp delivery and triggerTurn; allow only one in-flight prompt.
+- [x] Defer busy/pending ticks and release deferred work at agent-end only when the frozen pending/in-flight checks permit it. Ignore session continuations and stale generation/session messages.
+- [x] Stop replaced/shutdown timers, preserve status/stop behavior, and reject starts after shutdown.
+- [x] Preserve exact UTF-16 prompts and serialized details.
 
 ## How it works
 
@@ -24,7 +24,7 @@ The bundled loop extension follows the [common source pin](../porting/source-loc
 
 ## Known gaps (current cycle)
 
-- [ ] Execute focused GREEN after the implementation commit.
+No current behavioral gap in the mapped module.
 
 ## Out of scope
 
