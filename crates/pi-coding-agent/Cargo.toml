@@ -1010,6 +1010,10 @@ name = "login_command"
 path = "tests/login_command.rs"
 
 [[test]]
+name = "version_check_release"
+path = "tests/version_check_release.rs"
+
+[[test]]
 name = "main"
 path = "tests/main.rs"
 
