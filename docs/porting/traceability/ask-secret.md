@@ -55,3 +55,9 @@ and `ask_secret_atomic_overwrite_matches_frozen` (existing file changes from
 0644 to 0600 with exact replacement bytes). Runtime source is unchanged by
 these fixture additions; `renameError` and aborted signals use frozen's own
 renameFile and signal seams.
+
+The first expanded matrix exposed a fixture omission, not runtime drift:
+source serialized the supplied AbortSignal as `{}` in dialog options while
+the native calls recorder discarded signal/timeout entirely. The recorder now
+keeps all present dialog option fields (signal as its exact JSON `{}`), without
+changing runtime options or weakening source comparisons.
