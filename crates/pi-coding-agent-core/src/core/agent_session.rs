@@ -2267,7 +2267,7 @@ impl AgentSession {
                         None,
                     )
                     .await
-                    .map_err(crate::core::extensions::types::HandlerError::new)?;
+                    .map_err(crate::core::extensions::types::HandlerError::from)?;
                 match selection.as_ref() {
                     Some(choice) if choice == "Allow once" => Ok(None),
                     Some(choice) if choice == "Allow always" => {
