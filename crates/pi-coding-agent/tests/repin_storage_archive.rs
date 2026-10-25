@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::repin_storage_history::oracle;
 
 use pi_coding_agent::core::session_archive_storage::{
     archive_persisted_session, archive_session_file, restore_archived_session, restore_archived_session_file,

@@ -6,8 +6,8 @@ The six frozen `core/session-archive-storage.ts` exports archive and restore ses
 
 - [x] Compress and restore bidirectionally with TypeScript while preserving decompressed bytes and file modes.
 - [x] Roll back archive or restore publication when metadata relocation fails; preserve a newer surviving plain transcript.
-- [ ] Preserve original filesystem, decoder and metadata Error constructors, messages and properties.
-- [ ] Match missing-file, already-archived, plain-file and existing-target short circuits without replacing input files.
+- [x] Preserve original filesystem, decoder and metadata Error constructors, messages and properties.
+- [x] Match missing-file, already-archived, plain-file and existing-target short circuits without replacing input files.
 
 ## How it works
 
@@ -27,7 +27,7 @@ The six frozen `core/session-archive-storage.ts` exports archive and restore ses
 
 ## Known gaps (current cycle)
 
-- [ ] New error-record and short-circuit matrix needs GREEN and scoped lint proof.
+Current focused matrix, reciprocal tests, protected fixture checks, scoped lint and storage check pass. Whole manager/control acceptance remains separate.
 
 ## Out of scope
 
