@@ -31,7 +31,9 @@ use pi_coding_agent::core::session_health::{
     SessionCheckStatus, SessionHealthRecord, SessionLiveStatus, advance_generation_for_pid, derive_live_status,
     empty_session_health, end_session_health, is_session_eligible_to_receive, is_sticky_dead, parse_goal_objective,
 };
-use pi_coding_agent::core::tool_capabilities::{CHILD_DISABLED_AGENT_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES};
+use pi_coding_agent::core::tool_capabilities::{
+    CHILD_DISABLED_AGENT_TOOL_NAMES, STANDALONE_DISABLED_TOOL_NAMES, SUPERVISOR_ONLY_TOOL_NAMES,
+};
 use pi_coding_agent::supervisor::project_resolver::{
     SupervisorProjectConfig, extract_remote_repository_identity, extract_remote_repository_name,
     read_supervisor_project_config, resolve_supervisor_project,
@@ -169,10 +171,6 @@ fn constant_modules_match_typescript() {
         oracle.call("core/provider-display-names.ts", "providerDisplayNames", json!([])),
         json!(BUILT_IN_PROVIDER_DISPLAY_NAMES)
     );
-    assert_eq!(
-        oracle.call("core/tool-capabilities.ts", "toolCapabilities", json!([])),
-        json!({"child": CHILD_DISABLED_AGENT_TOOL_NAMES, "supervisor": SUPERVISOR_ONLY_TOOL_NAMES})
-    );
     let paths = ["/tmp/missing.jsonl", "", "relative/ünïcode.jsonl"];
     let actual: Vec<Value> = paths
         .iter()
@@ -184,6 +182,49 @@ fn constant_modules_match_typescript() {
     assert_eq!(
         oracle.call("core/session-errors.ts", "sessionErrors", json!(paths)),
         json!(actual)
+    );
+}
+
+#[test]
+fn all_tool_capability_exports_and_membership_match_frozen() {
+    let queries = [
+        "agent_viewer",
+        "answer_question",
+        "attach_session_agent",
+        "close_agent",
+        "list_agents",
+        "set_agent_model",
+        "spawn_agent",
+        "steer_agent",
+        "wait_agent",
+        "ask_supervisor",
+        "manage_goal",
+        "send_agent_message",
+        "contact_parent",
+        "list_sessions",
+        "broadcast",
+        "channel_post",
+        "resume_session",
+        "read",
+        "ask_questions",
+        "ask_architect",
+        "",
+        "__proto__",
+        "SPAWN_AGENT",
+        "spawn_agent\0",
+        "spawn_agent ",
+        "不存在",
+    ];
+    let standalone = STANDALONE_DISABLED_TOOL_NAMES.iter().copied().collect::<Vec<_>>();
+    let membership = queries
+        .iter()
+        .map(|name| json!({"name":name,"disabled":STANDALONE_DISABLED_TOOL_NAMES.contains(*name)}))
+        .collect::<Vec<_>>();
+    let mut oracle = Oracle::spawn();
+    let expected = oracle.call("core/tool-capabilities.ts", "toolCapabilities", json!(queries));
+    assert_eq!(
+        json!({"child":CHILD_DISABLED_AGENT_TOOL_NAMES,"supervisor":SUPERVISOR_ONLY_TOOL_NAMES,"standalone":standalone,"queries":membership}),
+        expected
     );
 }
 
