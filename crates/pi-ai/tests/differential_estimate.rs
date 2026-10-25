@@ -75,6 +75,19 @@ fn requests() -> Vec<Value> {
         ]}),
         json!({"id": 7, "context": {"systemPrompt": "", "messages": [], "tools": []}}),
         json!({"id": 8, "messages": []}),
+        json!({"id": 10, "context": {"messages": [], "tools": [{
+            "name": "counter", "description": "Count",
+            "parameters": {"type": "object", "properties": {"limit": {
+                "type": "number", "minimum": 1.0, "maximum": 5.0,
+                "default": 2.0, "multipleOf": 1.0
+            }}}
+        }]}}),
+        json!({"id": 11, "context": {"messages": [], "tools": [{
+            "name": "ratio", "description": "Scale",
+            "parameters": {"type": "object", "properties": {"threshold": {
+                "type": "number", "minimum": 1e-6, "maximum": 1e6, "default": 0.000001
+            }}}
+        }]}}),
         json!({"id": 9, "messages": [
             {"role": "user", "content": "a".repeat(4_001), "timestamp": 1}
         ]}),
