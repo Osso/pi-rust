@@ -88,10 +88,7 @@ pub fn defer_native_error(slot: PendingNativeError, runtime: &tokio::runtime::Ha
     });
 }
 
-/// A callback rejection reaches an uncaught process/callback boundary.
-pub fn throw_callback_uncaught(error: pi_ai::request::CallbackError) -> ! {
-    std::panic::panic_any(error)
-}
+pub use pi_js_compat::callback_error::throw_callback_uncaught;
 
 /// `try { step } catch {}`: runs `step` and discards a panic from it. The
 /// hook runs before unwinding, so it must know the panic is expected.
