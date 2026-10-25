@@ -6,6 +6,7 @@ import type * as Source from "@pi-oracle-source/coding-agent/src/core/session-ma
 type Api = typeof Source;
 type Manager = InstanceType<Api["SessionManager"]>;
 const api = (await import(pathToFileURL(process.argv[2]).href)) as Api;
+const control = (await import(new URL("./session-control-db.ts", pathToFileURL(process.argv[2])).href)) as typeof import("@pi-oracle-source/coding-agent/src/core/session-control-db.ts");
 
 type Request = {
  id: number;
@@ -52,9 +53,33 @@ function apply(manager: Manager, command: Command) {
   case "branch": return manager.branch(target);
   case "summary": return manager.branchWithSummary(command.target ?? null, text, { source: "repin" }, false);
   case "reset": return manager.resetLeaf();
+  case "legacy": {
+   const header = manager.getHeader();
+   if (!header) throw new Error("missing legacy header");
+   header.version = Number(text);
+   for (const entry of manager.getEntries()) {
+    const raw = entry as unknown as Record<string, unknown>;
+    if (header.version === 1) { delete raw.id; delete raw.parentId; }
+   }
+   return manager.persistForRecovery();
+  }
   case "persist": return manager.persistForRecovery();
+  case "relocate": return manager.relocate(text, command.path);
   case "sandbox": return manager.setSessionSandboxProfile(undefined);
   case "db": return manager.setMetadataControlDbPath(command.path);
+  case "archiveGoal": {
+   const db = manager.getMetadataControlDbPath();
+   const path = manager.getSessionFile();
+   if (!db || !path) throw new Error("archiveGoal requires an attached persisted session");
+   const metadata = control.readSessionMetadata(db, path);
+   if (!metadata) throw new Error("missing session metadata");
+   const archive = `${path}.zst`;
+   control.writeSessionMetadata(db, {...metadata, sessionPath: archive});
+   control.writeSessionGoal(db, archive, text);
+   writeFileSync(archive, "archive path probe");
+   rmSync(path);
+   return manager.getSessionGoalJsonForSession(path);
+  }
   case "goal": return manager.getSessionGoalJsonForSession(command.path ?? "");
   case "setGoal": return manager.setSessionGoalJson(text);
   case "name": return manager.setSessionName(command.text);

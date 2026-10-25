@@ -184,6 +184,27 @@ fn filesystem_error(cause: std::io::Error, syscall: &str, path: &JsString) -> Se
     Box::new(pi_js_compat::node_error::NativeNodeError::from(record)).into()
 }
 
+fn copy_session_file_exclusive(source: &JsString, destination: &JsString) -> Result<(), SessionManagerError> {
+    let copy_error = |cause: std::io::Error| {
+        let record = pi_js_compat::node_fs::node_fs_error_record(&cause, "copyfile", source);
+        let mut native = pi_js_compat::node_error::NativeNodeError::from(record);
+        native.message = pi_js_compat::node_fs::node_fs_dest_error(&cause, "copyfile", source, destination);
+        let dest = JsValue::String(encode_node_utf8(destination).into());
+        SessionManagerError::from(Box::new(native.with_property("dest", dest)))
+    };
+    let permissions = fs::metadata(encode_node_utf8(source))
+        .map_err(copy_error)?
+        .permissions();
+    let content = fs::read(encode_node_utf8(source)).map_err(copy_error)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(encode_node_utf8(destination))
+        .map_err(copy_error)?;
+    file.write_all(&content).map_err(copy_error)?;
+    file.set_permissions(permissions).map_err(copy_error)
+}
+
 fn format_session_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
 }
@@ -3273,9 +3294,9 @@ impl SessionManager {
         self.write_metadata_snapshot()?;
         match profile {
             Some(profile) => write_session_sandbox_profile(&control_db_path, &session_file, &self.session_id, profile)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+                .map_err(control_db_error)?,
             None => clear_session_sandbox_profile(&control_db_path, &session_file, &self.session_id)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?,
+                .map_err(control_db_error)?,
         }
         Ok(true)
     }
@@ -3437,21 +3458,13 @@ impl SessionManager {
             && let (Some(old), Some(destination)) = (old_session_file.as_ref(), destination.as_ref())
             && Path::new(&encode_node_utf8(old)).exists()
         {
-            let content =
-                fs::read(encode_node_utf8(old)).map_err(|error| SessionManagerError::new(error.to_string()))?;
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(encode_node_utf8(destination))
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
-            file.write_all(&content)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+            copy_session_file_exclusive(old, destination)?;
         }
         if let Some(control_db_path) = self.metadata_control_db_path.as_ref().filter(|path| !path.is_empty())
             && let (Some(old), Some(destination)) = (old_session_file.as_ref(), destination.as_ref())
         {
             crate::core::session_control_db::relocate_session_control_data(control_db_path, old, destination)
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+                .map_err(control_db_error)?;
         }
 
         self.cwd = resolved_target_cwd;
@@ -3463,7 +3476,7 @@ impl SessionManager {
             && let Some(old) = old_session_file.as_ref()
             && Path::new(&encode_node_utf8(old)).exists()
         {
-            fs::remove_file(encode_node_utf8(&old)).map_err(|error| SessionManagerError::new(error.to_string()))?;
+            fs::remove_file(encode_node_utf8(old)).map_err(|cause| filesystem_error(cause, "unlink", old))?;
         }
         self.write_metadata_snapshot()
     }
