@@ -16,7 +16,7 @@ use pi_js_compat::abort::{AbortReason, AbortSignal};
 use serde_json::{Map, Value, json};
 use url::Url;
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::simple_options::{build_base_options, model_thinking_level};
 use crate::api::transform_messages::transform_messages_with;
 use crate::models::{calculate_cost, clamp_thinking_level};
@@ -1710,8 +1710,7 @@ impl RequestSignal {
 /// `mistralConversationsApi()`: the lazy module wrapper from
 /// `mistral-conversations.lazy.ts`.
 pub fn mistral_conversations_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| Box::pin(async { Ok(Arc::new(MistralConversationsApi) as Arc<dyn ProviderStreams>) })),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(MistralConversationsApi) as Arc<dyn ProviderStreams>) })
+    }))
 }

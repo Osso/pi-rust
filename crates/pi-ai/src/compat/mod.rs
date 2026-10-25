@@ -16,11 +16,8 @@ use crate::providers::all::{builtin_models, get_builtin_model, get_builtin_model
 use crate::providers::faux::{
     FauxCore, FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions, create_faux_core,
 };
-use crate::request::{
-    BoxFuture, CallbackError, DeferredCancelOptions, DeferredFetchOptions, ProviderStreams, SimpleStreamOptions,
-    StreamOptions, error_stream,
-};
-use crate::types::{AssistantMessage, Context, DeferredHandle, Model};
+use crate::request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions};
+use crate::types::{AssistantMessage, Context, Model};
 use crate::utils::event_stream::AssistantMessageEventStream;
 
 pub use crate::api::anthropic_messages_lazy::anthropic_messages_api;
@@ -140,28 +137,6 @@ impl ProviderStreams for ApiProvider {
         options: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, CallbackError> {
         (self.stream_simple)(model, context, options)
-    }
-
-    fn fetch_deferred(
-        &self,
-        model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredFetchOptions,
-    ) -> AssistantMessageEventStream {
-        error_stream(&model, "API does not support deferred responses")
-    }
-
-    fn cancel_deferred(
-        &self,
-        _model: Model,
-        _handle: DeferredHandle,
-        _options: DeferredCancelOptions,
-    ) -> BoxFuture<'_, Result<(), crate::request::CallbackError>> {
-        Box::pin(async {
-            Err(crate::request::CallbackError::new(
-                "API cannot cancel deferred responses",
-            ))
-        })
     }
 }
 
