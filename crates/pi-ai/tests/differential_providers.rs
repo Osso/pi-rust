@@ -415,7 +415,7 @@ fn cloudflare_model_resolution_matches_ts() {
     workers_model["provider"] = json!("cloudflare-workers-ai");
     workers_model["baseUrl"] =
         json!("https://api.cloudflare.com/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_ACCOUNT_ID}/{CLOUDFLARE_GATEWAY_ID}");
-    let cases = vec![
+    let mut cases = vec![
         json!({"model": model, "env": {}}),
         json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key"}}),
         json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"account"}}),
@@ -427,6 +427,18 @@ fn cloudflare_model_resolution_matches_ts() {
         json!({"model": model, "env": {"CLOUDFLARE_API_KEY":"cf-key", "CLOUDFLARE_ACCOUNT_ID":"account", "CLOUDFLARE_GATEWAY_ID":""}}),
         json!({"model": workers_model, "env":configured}),
     ];
+    let vertex_model = json!(provider_by_id("google-vertex").get_models().unwrap().remove(0));
+    for credential in [
+        json!({"type":"api_key", "key":"stored"}),
+        json!({"type":"api_key", "key":""}),
+        json!({"type":"api_key"}),
+    ] {
+        cases.push(json!({
+            "model": vertex_model,
+            "env": {"GOOGLE_CLOUD_API_KEY":"ambient"},
+            "credential": credential,
+        }));
+    }
     let mut ts = oracle::TsOracle::spawn("providers-oracle.ts", SOURCE_MODULE);
     let response = ts.request(&json!({"id": 1, "op": "cloudflare", "cases": cases}));
     assert_eq!(response["ok"], true, "{response}");
@@ -435,7 +447,7 @@ fn cloudflare_model_resolution_matches_ts() {
     for (case, ts_result) in cases.iter().zip(ts_results) {
         let model: Model = serde_json::from_value(case["model"].clone()).expect("model");
         let provider = provider_by_id(&model.provider);
-        let auth = provider.auth().api_key.clone().expect("Cloudflare auth");
+        let auth = provider.auth().api_key.clone().expect("model-aware provider auth");
         let input = ApiKeyResolveInput {
             model: AuthModel::Chat(model),
             ctx: auth_context(&string_map(&case["env"]), &[]),
@@ -447,7 +459,7 @@ fn cloudflare_model_resolution_matches_ts() {
             .expect("runtime")
             .block_on(auth.resolve(input))
             .expect("auth");
-        assert_eq!(json!(resolved), ts_result, "cloudflare {case}");
+        assert_eq!(json!(resolved), ts_result, "model-aware provider {case}");
     }
 }
 
