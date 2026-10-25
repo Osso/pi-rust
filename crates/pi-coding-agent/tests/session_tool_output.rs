@@ -208,8 +208,9 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
     fs::write(&non_session_path, "{\"type\":\"event\"}\n").unwrap();
 
     let first = migrate_tool_result_session_files(&agent_dir.to_str().expect("utf-8 test path").into(), || {
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
     assert_eq!(first.changed_files, 1);
     assert_eq!(first.truncated_messages, 1);
     assert_eq!(first.skipped_malformed_files, 1);
@@ -233,8 +234,9 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
     }
 
     let second = migrate_tool_result_session_files(&agent_dir.to_str().expect("utf-8 test path").into(), || {
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
     assert_eq!(second.changed_files, 0);
     assert_eq!(second.truncated_messages, 0);
     let backups_after: Vec<String> = fs::read_dir(&session_dir)
@@ -262,8 +264,9 @@ fn skips_a_session_that_changes_during_migration() {
         let mut content = fs::read_to_string(&session_path).unwrap();
         content.push('\n');
         fs::write(&session_path, content).unwrap();
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
 
     assert_eq!(report.changed_files, 0);
     assert_eq!(report.skipped_error_files, 1);

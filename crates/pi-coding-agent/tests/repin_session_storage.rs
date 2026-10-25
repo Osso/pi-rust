@@ -1114,7 +1114,7 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
     assert_eq!(expected["changedFiles"], 1);
     assert_eq!(expected["skippedMalformedFiles"], 1);
     assert_eq!(expected["skippedNonSessionFiles"], 1);
-    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000);
+    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || Ok(1792584000000.0)).unwrap();
     assert_eq!(report.changed_files, 1, "{report:?}");
     assert_eq!(report.truncated_messages, 1);
     assert_eq!(report.scanned_files, 3);
@@ -1137,7 +1137,9 @@ fn source_lossless_tool_migration_preserves_receipt_summary_and_classifications(
         "frozen source must read semantically identical entries including raw UTF16 fields"
     );
     assert_eq!(
-        migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000).changed_files,
+        migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || Ok(1792584000000.0))
+            .unwrap()
+            .changed_files,
         0
     );
 }
@@ -1165,7 +1167,7 @@ fn tool_migration_classifies_empty_ids_js_blank_lines_and_read_errors_like_sourc
     }
     let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
     let expected = call(&mut ts, json!({"op":"migrateTools","dir":source_dir}));
-    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || 1792584000000);
+    let report = migrate_tool_result_session_files(&rust_dir.to_str().unwrap().into(), || Ok(1792584000000.0)).unwrap();
     let source_prefix = source_dir.to_str().unwrap();
     let rust_prefix = rust_dir.to_str().unwrap();
     let rust_errors: Vec<String> = report

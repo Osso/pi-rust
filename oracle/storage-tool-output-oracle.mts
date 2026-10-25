@@ -7,12 +7,14 @@ const root = process.argv[2];
 const tools = await import(pathToFileURL(join(root, "session-tool-output.ts")).href);
 const manager = await import(pathToFileURL(join(root, "session-manager.ts")).href);
 
-type Request = { id: number; op: string; dir: string; text?: string; path?: string; advanceMtime?: number; entry?: unknown };
+type Request = { id: number; op: string; dir: string; text?: string; path?: string; advanceMtime?: number; entry?: unknown; throwValue?: unknown; throwError?: boolean; invalidDate?: boolean };
 function runRequest(request: Request): unknown {
-    if (request.op === "truncate" || request.op === "serialize") {
+    if (request.op === "truncate" || request.op === "truncateWire" || request.op === "serialize") {
         try {
             if (request.op === "serialize") return { ok: true, line: tools.serializeSessionEntryForPersistence(request.entry) };
-            return { ok: true, entry: tools.truncateToolResultForPersistence(request.entry) };
+            const entry = tools.truncateToolResultForPersistence(request.entry);
+            if (request.op === "truncateWire") return { ok: true, wire: JSON.stringify(entry), changed: entry !== request.entry };
+            return { ok: true, entry };
         } catch (error) {
             if (!(error instanceof Error)) throw error;
             return { ok: false, error: { name: error.name, message: error.message,
@@ -30,6 +32,9 @@ function runRequest(request: Request): unknown {
         return { path: session.getSessionFile() };
     }
     return tools.migrateToolResultSessionFiles(request.dir, () => {
+        if (request.throwError) throw new TypeError("clock callback failed");
+        if ("throwValue" in request) throw request.throwValue;
+        if (request.invalidDate) return new Date(Number.NaN);
         if (request.path !== undefined && request.advanceMtime !== undefined) {
             utimesSync(request.path, request.advanceMtime, request.advanceMtime);
         }

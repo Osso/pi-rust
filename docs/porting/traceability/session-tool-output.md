@@ -1,6 +1,6 @@
 # coding-agent session-tool-output traceability
 
-Frozen source: `packages/coding-agent/src/core/session-tool-output.ts` at `4f9e6f8a4`; earlier whole-module proof is not renewed by this bounded delta.
+Frozen source: `packages/coding-agent/src/core/session-tool-output.ts` at `4f9e6f8a4`; whole-module renewal2026-10-25 is bounded by the explicit approved gap and platform exclusions below.
 
 Rust module: `crates/pi-coding-agent-storage/src/core/session_tool_output.rs`.
 Focused tests: `crates/pi-coding-agent/tests/session_tool_output.rs` (6).
@@ -25,7 +25,7 @@ Entry sizing directly serializes the lossless KnownSessionEntry; impossible seri
 
 ## Storage migration ordering and timestamp fixes (2026-10-25)
 
-Actual frozen module RED/GREEN: `repin_storage_tool_output` compares the complete migration report for four malformed filenames created out of order and for a source-created oversized session changed from mtime -2 seconds to -1 second inside the scanner callback. Native previously emitted filesystem iteration order and silently projected both negative timestamps to0, then overwrote the changed file; frozen reports one error and leaves its bytes unchanged. Native now sorts entries by their OS filename before the source stack traversal and computes POSIX Node mtimeMs from seconds plus nanoseconds. No timestamp fallback remains; the non-POSIX metadata query propagates failure. Logs: `/tmp/pi-rust-repin-storage/tool-migration-order-time-{red,green}.log`. Whole-module row remains open.
+Actual frozen module RED/GREEN: `repin_storage_tool_output` compares the complete migration report for four malformed filenames created out of order and for a source-created oversized session changed from mtime -2 seconds to -1 second inside the scanner callback. Native previously emitted filesystem iteration order and silently projected both negative timestamps to0, then overwrote the changed file; frozen reports one error and leaves its bytes unchanged. Native now sorts entries by their OS filename before the source stack traversal and computes POSIX Node mtimeMs from seconds plus nanoseconds. No timestamp fallback remains; the non-POSIX metadata query propagates failure. Logs: `/tmp/pi-rust-repin-storage/tool-migration-order-time-{red,green}.log`. The complete module matrix is recorded below.
 
 ## Raw persisted input errors and approved gap (2026-10-25)
 
@@ -34,6 +34,22 @@ Truncation and persistence serialization now return `Result<_, Box<NativeNodeErr
 | Boundary | Classification | Proof |
 |---|---|---|
 | Non-string Buffer-like array/array-like/object `toolCallId`/`toolName` at minimal fallback | **GAP approved by parent2026-10-25**: no single String conversion; reject explicitly rather than omit/coerce. This does not reject small/untruncated raw records. | `buffer_like_tool_identity_is_explicit_approved_gap_not_silent_omission`: actual frozen returns array[65,66] intact, native returns explicit error |
+
+## Whole-module frozen matrix (2026-10-25)
+
+| Export/branch | Proof |
+|---|---|
+| Constants and no-op/changed truncation, non-tool entries | current `session_tool_output`7; actual-source candidate matrix includes unchanged identity detection |
+| Text-byte cap, serialized-byte cap, nontext retention/replacement, details removal, minimal128-byte UTF-8 identities | `truncation_candidates_match_frozen_wire_and_changed_detection` compares exact source wire and changed flag for7 concrete small/oversized fixtures, including escaped JSON inflation and multiblock/nontext cases |
+| Null/missing message and primitive tool identity errors; raw null entry | actual-source error matrices above; serializer/migration guard preserves caught error before backup |
+| Header/entry/unknown/raw UTF-16 serialization | `differential_session_manager` exact byte serializer and reciprocal file append9; `lossless_session_persistence`6 retains source order and unknown unpaired keys/values; migration fixtures use actual frozen source-created records |
+| Recursive directory traversal, malformed/non-session/read errors, blank lines, empty id | existing `repin_session_storage` migration cases plus four-name ordering fixture |
+| Exclusive temp rewrite/backup/mode/idempotence, same-size timestamp races | current tool tests and exact source migration/backup fixtures; signed mtime RED/GREEN above |
+| User clock callback throws Error/non-Error; invalid Date | compile-RED against missing fallible API followed by actual-source GREEN on two real oversized files per case; `throwing_clock_and_invalid_date_are_caught_for_each_migration_file` compares full reports and unchanged originals |
+
+Clock callbacks now return `Result<f64, CallbackError>`; per-file catches apply frozen Error.message/otherwise String(value), not message-only coercion. Callback rejection is never silently replaced; invalid Date yields RangeError/`Invalid time value`. The migration API is fallible when the catch's own String conversion throws, matching frozen; CLI callers propagate at their existing error boundary. Logs: `/tmp/pi-rust-repin-storage/tool-{clock,candidate,null-record}*.log`. Final current-revision gates are recorded in the storage proof ledger before checkpoint.
+
+No old-only implementation remains. The explicit Buffer-like fallback gap above and approved Windows-only exclusion remain; this does not promote session-manager, spool or history.
 
 ## Remaining platform boundary
 - Atomic rewrite compares `mtimeMs` as `f64` using the same POSIX seconds/nanoseconds arithmetic as Node. Windows-only behavior remains under the approved platform gap.

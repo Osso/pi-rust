@@ -84,8 +84,8 @@ pub trait SessionsCommandDependencies {
         Ok(get_agent_dir()?)
     }
 
-    fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {
-        migrate_tool_result_session_files(agent_dir, now_millis)
+    fn truncate_tool_output(&self, agent_dir: &JsString) -> Result<ToolResultSessionMigrationReport, CallbackError> {
+        migrate_tool_result_session_files(agent_dir, || Ok(now_millis() as f64))
     }
 }
 
@@ -149,7 +149,7 @@ fn handle_truncate(
         return Ok(SessionsCommandOutcome::failed());
     }
 
-    let report = dependencies.truncate_tool_output(&dependencies.agent_dir()?);
+    let report = dependencies.truncate_tool_output(&dependencies.agent_dir()?)?;
     dependencies.stdout(&format_truncate_tool_output_report(&report));
     if report.errors.is_empty() {
         return Ok(SessionsCommandOutcome::handled());
