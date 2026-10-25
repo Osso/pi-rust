@@ -393,6 +393,6 @@ Core image-presence GREEN at11b31b220: both actual-frozen input/ before-agent-st
 
 RPC input-presence process differential passes1 at488941fa0 (`/tmp/repin-agent-session-images-rpc-green.log`). The before-agent-start differential is extended with a populated image that continues into user-message content, alongside omitted/empty and transformed-empty cases; it now compares exact user content as well as extension-visible values. This guards against accidentally preserving metadata while dropping image content. Workspace all-targets compilation passes for that extension before commit.
 
-## Audit ownership split
+## Remaining audit scope
 
-The second-half audit (frozen :5807–6444: bash, naming, summary materialization, navigateTree, fork extraction, stats and export) is recorded in [agent-session-b proof](../agent-session-b-proof.md). Constructor/hooks, prompt/queues, runtime coordination, events/continuations, model/thinking, compaction/retry and binding/build/reload remain with the first half. Keep the whole-file coverage row partial until both halves close.
+The whole-file coverage row remains partial. Constructor/hooks, prompt/queues, runtime coordination, events/continuations, model/thinking, compaction/retry and binding/build/reload require closure, as do frozen :5807–6444 (bash, naming, summary materialization, navigateTree, fork extraction, stats and export).
