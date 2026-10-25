@@ -180,7 +180,7 @@ fn response_step(value: &JsValue) -> FauxResponseStep {
         _ => panic!("unsupported stop reason"),
     });
     let content = if blocks.is_empty() {
-        pi_ai::providers::faux::FauxContent::Text(String::new())
+        pi_ai::providers::faux::FauxContent::Text(Default::default())
     } else {
         pi_ai::providers::faux::FauxContent::Blocks(blocks)
     };

@@ -26,7 +26,6 @@ fn model(provider: &str, api: &str, id: &str, supports_images: bool) -> Model {
         context_window: 128_000.0,
         auto_compaction_threshold: None,
         max_tokens: 16_000.0,
-        sampling_params: None,
         headers: None,
         compat: None::<ModelCompat>,
     }

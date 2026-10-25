@@ -1,5 +1,5 @@
 import { runOracle } from "./coding-agent-utils-oracle-support.ts";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OracleRequest } from "./coding-agent-utils-oracle-support.ts";
@@ -22,6 +22,7 @@ async function processRequest(api: Record<string, unknown>, request: OracleReque
     const calls: unknown[] = [];
     const feedback: unknown[] = [];
     const reviewed: string[] = [];
+    let releasePrompt: (() => void) | undefined;
     const session = {
         sessionId: "resident-fixture",
         sessionManager: { getBranch: () => branch, getLeafId: () => branch.length ? "reply" : null },
@@ -29,9 +30,20 @@ async function processRequest(api: Record<string, unknown>, request: OracleReque
         compact: async (content: string) => { calls.push({ kind: "compact", content }); },
         prompt: async (content: string) => {
             calls.push({ kind: "prompt", content });
+            if (request.cancelPrompt) {
+                db.cancelSupervisorRequest(database, id, "main", "fixture cancelled");
+                await new Promise<void>((resolve) => { releasePrompt = resolve; });
+                calls.push({ kind: "prompt_cleanup" });
+            }
             branch.push(request.entry);
         },
-        abort: async () => { calls.push({ kind: "abort" }); },
+        abort: async () => {
+            calls.push({ kind: "abort" });
+            if (releasePrompt) {
+                await new Promise((resolve) => setTimeout(resolve, 1));
+                releasePrompt();
+            }
+        },
         sendCustomMessage: async (message: unknown) => {
             feedback.push({ message, status: db.readSupervisorRequest(database, id).status });
             if (request.feedbackError) throw new Error("feedback failed");
@@ -119,6 +131,44 @@ async function waitForServiceState(predicate: () => boolean) {
     }
 }
 
+async function startCompactionHttpAndSeedTranscript(moduleUrl: URL) {
+    const http = await import("node:http");
+    const config = await import(new URL("../config.ts", moduleUrl).href);
+    const sessions = await import(new URL("../core/session-manager.ts", moduleUrl).href);
+    let remoteRequests = 0;
+    const server = http.createServer((incoming, response) => {
+        remoteRequests++;
+        incoming.on("end", () => { response.writeHead(500).end('{"error":{"message":"unexpected remote compaction"}}'); });
+        incoming.resume();
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("expected HTTP fixture address");
+    const modelPath = join(config.getAgentDir(), "models.json");
+    const models = JSON.parse(readFileSync(modelPath, "utf8"));
+    for (const provider of Object.values(models.providers) as Record<string, unknown>[]) {
+        provider.api = "openai-codex-responses";
+        provider.baseUrl = `http://127.0.0.1:${address.port}`;
+    }
+    writeFileSync(modelPath, JSON.stringify(models));
+    const authPath = join(config.getAgentDir(), "auth.json");
+    const auth = JSON.parse(readFileSync(authPath, "utf8"));
+    for (const record of Object.values(auth) as Record<string, unknown>[]) {
+        record.key = "x.eyJodHRwczovL2FwaS5vcGVuYWkuY29tL2F1dGgiOnsiY2hhdGdwdF9hY2NvdW50X2lkIjoiZml4dHVyZSJ9fQ.x";
+    }
+    writeFileSync(authPath, JSON.stringify(auth));
+    const manager = sessions.SessionManager.create(process.env.PI_KB_DIR, join(config.getAgentDir(), "supervisor-sessions"), { id: "supervisor" });
+    const text = "history ".repeat(10000);
+    for (let turn = 0; turn < 2; turn++) {
+        manager.appendMessage({ role: "user", content: text, timestamp: 0 });
+        manager.appendMessage({ role: "assistant", api: "openai-codex-responses", provider: "openai-codex", model: "gpt-6.1-sol",
+            content: [{ type: "text", text }], stopReason: "stop", timestamp: 0,
+            usage: { input: 180000, output: 20000, cacheRead: 0, cacheWrite: 0, totalTokens: 200000,
+                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } } });
+    }
+    return { remoteRequests: () => remoteRequests, close: () => new Promise<void>((resolve) => server.close(() => resolve())) };
+}
+
 async function serviceLifecycle(api: Record<string, unknown>, request: OracleRequest) {
     const moduleUrl = pathToFileURL(process.argv[2]);
     const compat = await import(new URL("../../../ai/src/compat.ts", moduleUrl).href);
@@ -128,16 +178,18 @@ async function serviceLifecycle(api: Record<string, unknown>, request: OracleReq
     const database = db.getControlDbPath();
     const calls: string[] = [];
     const response = { kind: "continue", instructions: "Evidence is available.", reason: "bounded" };
-    compat.registerApiProvider({
-        api: "supervisor-review-fixture",
+    const compactionFixture = request.compaction ? await startCompactionHttpAndSeedTranscript(moduleUrl) : undefined;
+    const provider = {
+        api: request.compaction ? "openai-codex-responses" : "supervisor-review-fixture",
         stream: () => { throw new Error("unexpected raw stream"); },
-        streamSimple: (model: { api: string; provider: string; id: string }, context: { systemPrompt?: string }) => {
+        streamSimple: (model: { api: string; provider: string; id: string }, context: { systemPrompt?: string; tools?: unknown[] }) => {
             const review = context.systemPrompt?.startsWith("You are Pi's stateless Supervisor instruction veto gate.");
-            calls.push(review ? "review" : "request");
+            const compaction = !review && context.tools === undefined;
+            calls.push(review ? "review" : compaction ? "compaction" : "request");
             const message = {
                 role: "assistant", api: model.api, provider: model.provider, model: model.id, timestamp: 0,
-                content: review ? [{ type: "text", text: "ACCEPT" }] : [{ type: "toolCall", id: "decision", name: "supervisor_response", arguments: response }],
-                stopReason: review ? "stop" : "toolUse",
+                content: review || compaction ? [{ type: "text", text: review ? "ACCEPT" : "Frozen local compaction summary." }] : [{ type: "toolCall", id: "decision", name: "supervisor_response", arguments: response }],
+                stopReason: review || compaction ? "stop" : "toolUse",
                 usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
                     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
             };
@@ -147,7 +199,7 @@ async function serviceLifecycle(api: Record<string, unknown>, request: OracleReq
             stream.end();
             return stream;
         },
-    }, "supervisor-service-test");
+    };
     let finished = false;
     let error: string | null = null;
     const run = api.runSupervisorService as () => Promise<void>;
@@ -156,6 +208,7 @@ async function serviceLifecycle(api: Record<string, unknown>, request: OracleReq
         await waitForServiceState(() => finished || existsSync(`${database}.supervisor-console.sock`));
         if (finished) throw new Error(`service startup failed: ${error}`);
         if (!existsSync(`${database}.supervisor.sock`)) throw new Error("wake socket did not start");
+        compat.registerApiProvider(provider, "supervisor-service-test");
         const id = db.postSupervisorRequest(database, { senderSessionId: "main", projectId: "fixture", kind: "goal_idle_review",
             payload: { objective: "Verify the fixture." }, deadlineAt: "2099-01-01T00:00:00.000Z" });
         if (request.blockCompletion) {
@@ -169,17 +222,28 @@ async function serviceLifecycle(api: Record<string, unknown>, request: OracleReq
         if (!finished) process.kill(process.pid, "SIGTERM");
         await running;
         const stored = db.readSupervisorRequest(database, id);
+        const config = await import(new URL("../config.ts", moduleUrl).href);
+        const sessionDir = join(config.getAgentDir(), "supervisor-sessions");
+        const compactions = readdirSync(sessionDir).filter((file) => file.endsWith(".jsonl")).flatMap((file) =>
+            readFileSync(join(sessionDir, file), "utf8").trim().split("\n").map((line) => JSON.parse(line))
+                .filter((entry) => entry.type === "compaction").map((entry) => ({ summary: entry.summary, fromHook: entry.fromHook ?? null })));
         return { error, calls, status: stored.status, response: stored.response ?? null,
             consoleClosed: !existsSync(`${database}.supervisor-console.sock`),
-            wakeClosed: !existsSync(`${database}.supervisor.sock`) };
+            wakeClosed: !existsSync(`${database}.supervisor.sock`), compactions,
+            remoteCompactions: compactionFixture?.remoteRequests() ?? 0 };
     } finally {
         if (!finished) { process.kill(process.pid, "SIGTERM"); await running; }
         compat.unregisterApiProviders("supervisor-service-test");
+        await compactionFixture?.close();
     }
 }
 
 void runOracle(async (api, request) => {
     if (request.operation === "serviceLifecycle") return serviceLifecycle(api, request);
+    if (request.operation === "fileGate") {
+        const block = api.blockSupervisorFileAccess as (kbDir: string, event: unknown) => unknown;
+        return block(request.kbDir as string, { toolName: request.toolName, input: request.input }) ?? null;
+    }
     if (request.operation === "evaluateInstructions") return evaluateInstructions(api, request);
     if (request.operation === "consoleSnapshot") {
         const create = api.createSupervisorConsoleSnapshot as (input: unknown) => {

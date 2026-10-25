@@ -514,3 +514,53 @@ fn pyrun_empty_optional_text_renders_like_frozen() {
     assert_eq!(expected["ok"], json!(true), "{expected:?}");
     assert_eq!(json!({"call":call,"result":output}), expected["output"]);
 }
+
+#[test]
+fn pyrun_resolved_runner_options_persist_without_unset_properties_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::PyrunRunnerOptions;
+    let options = PyrunRunnerOptions {
+        args: Some(Vec::new()),
+        command: Some("pyrun-jsonl".into()),
+        env: Some(Default::default()),
+        ..Default::default()
+    };
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-runner-queue-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"operation":"resolved-options"}));
+    assert_eq!(expected["ok"], json!(true));
+    assert_eq!(json::to_value(&options).unwrap(), expected["output"]);
+}
+
+#[tokio::test]
+async fn pyrun_runner_inherits_the_current_environment_overlay_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::{
+        CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerOptions,
+    };
+    let _environment = ENVIRONMENT.lock().await;
+    process_env::set("PI_PYRUN_FIXTURE_OVERLAY", "from-overlay");
+    process_env::set("PI_PYRUN_RUNNER_ARGS", "[]");
+    let script = "import json,sys,os\nsys.stdin.readline()\nprint(json.dumps({'type':'completed','value':[os.environ.get('PI_PYRUN_FIXTURE_OVERLAY'),os.environ.get('PI_PYRUN_FIXTURE_CUSTOM')]}),flush=True)";
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-runner-queue-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    for inherit in [true, false] {
+        let options = PyrunRunnerOptions {
+            command: Some("/usr/bin/python3".into()),
+            args: Some(vec!["-c".into(), script.into()]),
+            inherit_env: Some(inherit),
+            env: Some([("PI_PYRUN_FIXTURE_CUSTOM".into(), "explicit".into())].into()),
+            ..Default::default()
+        };
+        let expected = oracle.request(&json!({"id":1,"operation":"inherit-environment","options":options}));
+        assert_eq!(expected["ok"], json!(true), "{expected:?}");
+        let runner = PyrunRunnerClient::new(options);
+        let params: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"environment"})).unwrap();
+        let actual = runner.evaluate(params, None, None, None).await.unwrap();
+        runner.dispose();
+        assert_eq!(json::to_value(&actual).unwrap(), expected["output"]);
+    }
+    process_env::clear();
+}

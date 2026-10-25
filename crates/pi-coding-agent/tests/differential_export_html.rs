@@ -134,6 +134,41 @@ async fn differential_export_probe() {
         let actual_html = fs::read_to_string(&&encode_node_utf8(&actual_path)).expect("read rust html");
         assert_same_html(&actual_html, expected_html, theme);
     }
+    // This standalone target runs the process-global cwd mutation only in its child probe.
+    let old_cwd = std::env::current_dir().unwrap();
+    std::env::set_current_dir(dir.path()).unwrap();
+    for live in [false, true] {
+        for output in [None, Some(""), Some("explicit.html"), Some("missing/output.html")] {
+            let expected = oracle.request(
+                "exportPaths",
+                json!({
+                    "inputPath": input, "cwd": dir.path(), "live": live,
+                    "outputPath": output, "shorthand": output == Some("explicit.html"),
+                }),
+            );
+            let options = output.map(ExportOptions::from_output_path);
+            let actual = if live {
+                let manager =
+                    pi_coding_agent::core::session_manager::SessionManager::open_read_only(&input.clone().into(), None)
+                        .unwrap();
+                pi_coding_agent::core::export_html::export_session_to_html(&manager, None, options).await
+            } else {
+                export_from_file(&input.clone().into(), options).await
+            };
+            match actual {
+                Ok(path) => {
+                    assert_eq!(json!(path), expected["path"]);
+                    assert_same_html(
+                        &fs::read_to_string(encode_node_utf8(&path)).unwrap(),
+                        expected["html"].as_str().unwrap(),
+                        "default path",
+                    );
+                }
+                Err(error) => assert_eq!(json!(error.message()), expected["error"]["message"]),
+            }
+        }
+    }
+    std::env::set_current_dir(old_cwd).unwrap();
 }
 
 #[test]

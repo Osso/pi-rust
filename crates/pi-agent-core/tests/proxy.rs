@@ -77,7 +77,6 @@ fn model() -> Model {
         context_window: 400000.0,
         auto_compaction_threshold: None,
         max_tokens: 128000.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }
@@ -228,7 +227,10 @@ async fn reconstructs_tool_call_from_deltas_without_trusting_end_payload() {
     });
 
     let mut opts = options(fetch, None);
-    opts.stream_options.stream.sampling_params = Some(json!({"top_p": 0.5}).as_object().unwrap().clone());
+    opts.stream_options
+        .stream
+        .extra
+        .insert("samplingParams".into(), json!({"top_p":0.5}));
     let stream = stream_proxy(
         model(),
         Context {

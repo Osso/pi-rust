@@ -24,4 +24,4 @@ Contract: [version-check](../../specs/version-check.md).
 
 ## Proof state
 
-Implementation committed after observed source differential RED; focused GREEN and warning-mode clippy pending. Existing semver assertion cases are retained unchanged. The standalone release target uses a child process per environment case; only its invoked child helper is ignored.
+At `0824ba3e5`: actual frozen release matrix GREEN (30 cases), retained semver/newer matrix GREEN (676 pairs each), native lossless version2, shared boundary11 and branded catalog-cause1 GREEN. `cargo check -j3 --workspace --all-targets` passes without warnings; targeted warning-mode clippy and strict oracle typecheck pass, with no changed-line warnings. Manual Rust/TS changed-line readability passes (metrics executable unavailable). The standalone release target uses a child process per environment case; only its invoked child helper is ignored. Logs: `/tmp/settings-models-version-{release,semver,lossless-version,request-identity,catalog-error}-green.log`, `/tmp/settings-models-request-identity-workspace-check.log`.

@@ -136,7 +136,6 @@ async fn export_session_probe() {
         context_window: 200_000.0,
         auto_compaction_threshold: None,
         max_tokens: 8192.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     };
@@ -229,7 +228,7 @@ async fn export_agent_session_probe() {
         provider: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
-            name: Some("Faux Model".to_owned()),
+            name: Some("Faux Model".into()),
             reasoning: Some(true),
             input: None,
             cost: None,

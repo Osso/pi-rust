@@ -3,6 +3,7 @@
 use pi_js_compat::js_json::JsString;
 #[path = "support/oracle.rs"]
 mod oracle;
+pub(crate) use oracle::TsOracle;
 
 use pi_coding_agent::core::session_control_db::{
     SupervisorRequest, SupervisorRequestKind, SupervisorRequestStatus, SupervisorResponse,

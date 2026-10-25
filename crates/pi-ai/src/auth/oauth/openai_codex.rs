@@ -8,7 +8,7 @@ use serde_json::{Value, json};
 use tokio::sync::oneshot;
 
 use crate::auth::oauth::device_code::{
-    OAuthDeviceCodeError, OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
+    OAuthDeviceCodePollOptions, OAuthDeviceCodePollResult, poll_oauth_device_code_flow,
 };
 use crate::auth::oauth::oauth_page::{oauth_error_html, oauth_success_html};
 use crate::auth::oauth::pkce::generate_pkce_with;
@@ -347,12 +347,12 @@ async fn poll_device_auth(
             let response = match fetch_with_login_cancellation(&runtime, request, signal).await {
                 Ok(response) => response,
                 Err(_error) if signal_for_error.aborted() => {
-                    return OAuthDeviceCodePollResult::Failed {
+                    return Ok(OAuthDeviceCodePollResult::Failed {
                         message: "Login cancelled".to_owned().into(),
-                    };
+                    });
                 }
                 Err(error) => {
-                    return OAuthDeviceCodePollResult::Failed { message: error.message };
+                    return Ok(OAuthDeviceCodePollResult::Failed { message: error.message });
                 }
             };
             if response.ok() {
@@ -360,21 +360,21 @@ async fn poll_device_auth(
                 let authorization_code = json.get("authorization_code").and_then(Value::as_str);
                 let code_verifier = json.get("code_verifier").and_then(Value::as_str);
                 let (Some(authorization_code), Some(code_verifier)) = (authorization_code, code_verifier) else {
-                    return OAuthDeviceCodePollResult::Failed {
+                    return Ok(OAuthDeviceCodePollResult::Failed {
                         message: format!(
                             "Invalid OpenAI Codex device auth token response: {}",
                             pi_js_compat::js_json::stringify(&json)
                         )
                         .into(),
-                    };
+                    });
                 };
-                return OAuthDeviceCodePollResult::Complete(DeviceTokenSuccess {
+                return Ok(OAuthDeviceCodePollResult::Complete(DeviceTokenSuccess {
                     authorization_code: authorization_code.to_owned(),
                     code_verifier: code_verifier.to_owned(),
-                });
+                }));
             }
             if response.status == 403 || response.status == 404 {
-                return OAuthDeviceCodePollResult::Pending;
+                return Ok(OAuthDeviceCodePollResult::Pending);
             }
             let error_code = response
                 .json
@@ -385,7 +385,7 @@ async fn poll_device_auth(
                     Value::String(code) => Some(code.as_str()),
                     _ => None,
                 });
-            match error_code {
+            Ok(match error_code {
                 Some("deviceauth_authorization_pending") => OAuthDeviceCodePollResult::Pending,
                 Some("slow_down") => OAuthDeviceCodePollResult::SlowDown { interval_seconds: None },
                 _ => {
@@ -402,14 +402,10 @@ async fn poll_device_auth(
                         .into(),
                     }
                 }
-            }
+            })
         }
     })
     .await
-    .map_err(|error| match error {
-        OAuthDeviceCodeError::Cancelled => CallbackError::new("Login cancelled"),
-        other => CallbackError::new(other.to_string()),
-    })
 }
 
 async fn login_device_code(

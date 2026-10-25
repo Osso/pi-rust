@@ -33,7 +33,6 @@ fn model() -> Model {
         context_window: 10_000.0,
         auto_compaction_threshold: None,
         max_tokens: 1_000.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }

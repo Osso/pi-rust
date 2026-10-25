@@ -1,7 +1,7 @@
 //! Wait tool runtime (`extensions/agents-core/src/wait-runtime.ts`).
 
+use indexmap::IndexSet;
 use pi_js_compat::js_format;
-use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -13,10 +13,10 @@ use crate::core::lifecycle_coordinator::LifecycleCoordinator;
 use crate::core::multi_agent_store::{AgentMailboxMessage, AgentSnapshot, MultiAgentStore, is_active_lifecycle};
 use crate::core::runtime_coordination_format::{format_runtime_mailbox_prompt, format_shared_channel_prompt};
 use crate::core::session_control_db::{
-    RuntimeMailboxAddress, RuntimeMailboxMessage, SharedChannelMessage, advance_shared_channel_cursor,
+    RuntimeMailboxAddress, SharedChannelMessage, advance_shared_channel_cursor,
     has_pending_runtime_coordination_message, is_runtime_coordination_mailbox_message,
     list_shared_channel_messages_after, read_multi_agent_agents, read_multi_agent_state, read_shared_channel_cursor,
-    read_shared_channel_tail, resolve_own_main_runtime_coordination_recipient,
+    read_shared_channel_tail, release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
     take_runtime_mailbox_messages_for_delivery,
 };
 use crate::core::terminal_outbox_delivery::{DeliverTerminalOutboxOptions, deliver_terminal_outbox_projections};
@@ -41,7 +41,7 @@ fn now_ms() -> i64 {
 pub enum WaitNotificationsWake {
     Agent { agent: Box<AgentSnapshot> },
     Cancelled,
-    Coordination,
+    Coordination { prompt: Option<JsString> },
     Error { message: JsString },
     None,
     Timeout,
@@ -73,7 +73,7 @@ struct WaitAgentsWakeWatcher {
     session_path: JsString,
     signal: Option<pi_js_compat::abort::AbortSignal>,
     store: Arc<MultiAgentStore>,
-    tracked_agent_ids: HashSet<JsString>,
+    tracked_agent_ids: IndexSet<JsString>,
     wait_wake_listeners: WaitWakeListeners,
 }
 
@@ -175,6 +175,11 @@ impl WaitAgentsWakeWatcher {
             {
                 return None;
             }
+            if wake_up.kind == super::shared::WaitAgentsWakeKind::Coordination {
+                return Some(WaitNotificationsWake::Coordination {
+                    prompt: wake_up.coordination_prompt,
+                });
+            }
             return Some(WaitNotificationsWake::WakeUp { wake_up });
         }
         self.check_coordination()
@@ -249,45 +254,11 @@ impl WaitAgentsWakeWatcher {
     fn check_coordination(&self) -> Option<WaitNotificationsWake> {
         let recipient = self.recipient.as_ref()?;
         match has_pending_runtime_coordination_message(&recipient.control_db_path, &recipient.address) {
-            Ok(true) => Some(WaitNotificationsWake::Coordination),
+            Ok(true) => Some(WaitNotificationsWake::Coordination { prompt: None }),
             Ok(false) => None,
             Err(error) => Some(WaitNotificationsWake::Error {
                 message: error.message().clone(),
             }),
-        }
-    }
-}
-
-#[cfg(test)]
-mod tracked_read_failure_tests {
-    use super::*;
-    use crate::core::multi_agent_store::MultiAgentStoreOptions;
-
-    #[test]
-    fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
-        let directory = tempfile::tempdir().unwrap();
-        let blocked_db: JsString = directory.path().to_str().unwrap().into();
-        let session_path: JsString = "/fixture/session".into();
-        let agent_ids = vec![JsString::from("agent_1")];
-        let expected = read_multi_agent_agents(&blocked_db, &session_path, &agent_ids).unwrap_err();
-        let watcher = WaitAgentsWakeWatcher {
-            deadline: None,
-            control_db_path: blocked_db,
-            recipient: None,
-            session_path,
-            signal: None,
-            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
-            tracked_agent_ids: agent_ids.into_iter().collect(),
-            wait_wake_listeners: WaitWakeListeners::default(),
-        };
-        for wake in [
-            watcher.settle_for_terminal_agent_or_check_coordination(),
-            watcher.on_notified(&Mutex::new(None)),
-        ] {
-            let Some(WaitNotificationsWake::Error { message }) = wake else {
-                panic!("tracked DB failure must become an error wake, not an absent agent");
-            };
-            assert_eq!(&message, expected.message());
         }
     }
 }
@@ -372,10 +343,19 @@ fn consume_non_agent_wake(
     match wake {
         WaitNotificationsWake::Agent { .. } => unreachable!("agent wakes are handled separately"),
         WaitNotificationsWake::Cancelled => Ok(tool_result("Wait cancelled.", json!({}))),
-        WaitNotificationsWake::Coordination => {
-            let coordination = take_pending_wait_coordination(store, runtime_coordination_recipient(ctx)?)?;
+        WaitNotificationsWake::Coordination { prompt } => {
+            if let Some(prompt) = prompt.as_ref().filter(|prompt| !prompt.is_empty()) {
+                return Ok(tool_result(prompt.clone(), json!({})));
+            }
+            let coordination = take_pending_wait_coordination(runtime_coordination_recipient(ctx)?)?;
             Ok(match coordination {
-                Some(coordination) => tool_result(coordination, json!({})),
+                Some((prompt, delivery)) => tool_result(
+                    prompt,
+                    match delivery {
+                        Some(delivery) => json!({"runtimeMailboxDelivery": delivery}),
+                        None => json!({}),
+                    },
+                ),
                 None => tool_result("Coordination input changed before delivery.", json!({})),
             })
         }
@@ -435,9 +415,8 @@ fn runtime_coordination_recipient(
 }
 
 fn take_pending_wait_coordination(
-    store: &Arc<MultiAgentStore>,
     recipient: Option<RuntimeCoordinationRecipient>,
-) -> Result<Option<JsString>, HandlerError> {
+) -> Result<Option<(JsString, Option<pi_js_compat::js_json::JsValue>)>, HandlerError> {
     let Some(recipient) = recipient else {
         return Ok(None);
     };
@@ -448,39 +427,32 @@ fn take_pending_wait_coordination(
         usize::MAX,
     )
     .map_err(|error| HandlerError::new(error.message()))?;
-    for message in &mailbox_messages {
-        mark_wait_mailbox_store_message_delivered(store, message)?;
+    let result = (|| {
+        let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
+        let mut sections: Vec<JsString> = mailbox_messages
+            .iter()
+            .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(HandlerError::new)?;
+        if !channel_messages.is_empty() {
+            sections.push(format_shared_channel_prompt(
+                &channel_messages,
+                &recipient.address.session_id,
+            ));
+        }
+        let delivery = (!mailbox_messages.is_empty()).then(|| json!({
+            "controlDbPath": recipient.control_db_path,
+            "messages": mailbox_messages.iter().map(|message| json!({"id":message.id, "storeRef":message.store_ref})).collect::<Vec<_>>(),
+        }));
+        Ok((!sections.is_empty()).then(|| (JsString::join(sections, "\n\n"), delivery)))
+    })();
+    if result.is_err() {
+        for message in &mailbox_messages {
+            release_runtime_mailbox_message_claim(&recipient.control_db_path, message.id)
+                .map_err(|error| HandlerError::new(error.message()))?;
+        }
     }
-    let channel_messages = take_pending_wait_shared_channel_messages(&recipient)?;
-    let mut sections: Vec<JsString> = mailbox_messages
-        .iter()
-        .map(|message| format_runtime_mailbox_prompt(message, &recipient.address.session_id))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(HandlerError::new)?;
-    if !channel_messages.is_empty() {
-        sections.push(format_shared_channel_prompt(
-            &channel_messages,
-            &recipient.address.session_id,
-        ));
-    }
-    Ok((!sections.is_empty()).then(|| JsString::join(sections, "\n\n")))
-}
-
-fn mark_wait_mailbox_store_message_delivered(
-    store: &MultiAgentStore,
-    message: &RuntimeMailboxMessage,
-) -> Result<(), HandlerError> {
-    if store
-        .get_persistence_target()
-        .map(|persistence| persistence.session_path)
-        != Some(message.store_ref.session_path.clone())
-    {
-        return Ok(());
-    }
-    store
-        .mark_mailbox_message_delivered(&message.store_ref.message_id)
-        .map_err(|error| HandlerError::new(error.message))?;
-    Ok(())
+    result
 }
 
 fn take_pending_wait_shared_channel_messages(
@@ -502,7 +474,8 @@ fn take_pending_wait_shared_channel_messages(
     Ok(messages
         .into_iter()
         .filter(|message| {
-            message.sender.agent_id.is_none() && message.sender.session_id != recipient.address.session_id
+            message.sender.agent_id.is_none()
+                && (message.origin_host.is_some() || message.sender.session_id != recipient.address.session_id)
         })
         .collect())
 }
@@ -615,4 +588,80 @@ fn consume_pending_terminal_notifications(
             "messages": messages,
         }),
     )))
+}
+
+#[cfg(test)]
+mod tracked_read_failure_tests {
+    use super::*;
+    use crate::core::multi_agent_store::MultiAgentStoreOptions;
+
+    #[test]
+    fn tracked_terminal_wake_preserves_captured_agent_order() {
+        let directory = tempfile::tempdir().unwrap();
+        let db_path: JsString = directory.path().join("control.db").to_str().unwrap().into();
+        let session_path: JsString = "/fixture/session".into();
+        read_multi_agent_state(&db_path, &session_path).unwrap();
+        let db = crate::core::sqlite::create_sqlite_database(&db_path.to_utf8().unwrap()).unwrap();
+        let mut agents = (0..32)
+            .map(|id| super::super::shared::empty_agent(format!("agent_{id}")))
+            .collect::<Vec<_>>();
+        for agent in &agents {
+            db.execute(
+                "INSERT INTO multi_agent_agents(session_path, agent_id, data, updated_at) VALUES (?, ?, ?, ?)",
+                [
+                    session_path.to_utf8().unwrap(),
+                    agent.id.to_utf8().unwrap(),
+                    pi_js_compat::js_json::stringify_lossless(&json!(agent)),
+                    "1970-01-01T00:00:00.000Z".to_owned(),
+                ],
+            )
+            .unwrap();
+        }
+        drop(db);
+        for _ in 0..16 {
+            agents.reverse();
+            let watcher = WaitAgentsWakeWatcher::new(WaitAgentsWakeWatcherOptions {
+                deadline: None,
+                active_agents: agents.clone(),
+                control_db_path: db_path.clone(),
+                recipient: None,
+                session_path: session_path.clone(),
+                signal: None,
+                store: Arc::new(MultiAgentStore::new(Default::default())),
+                wait_wake_listeners: Default::default(),
+            });
+            let Some(WaitNotificationsWake::Agent { agent }) = watcher.read_tracked_terminal_wake() else {
+                panic!("terminal wake required")
+            };
+            assert_eq!(agent.id, agents[0].id);
+        }
+    }
+
+    #[test]
+    fn tracked_agent_read_failure_wakes_with_error_instead_of_disappearing() {
+        let directory = tempfile::tempdir().unwrap();
+        let blocked_db: JsString = directory.path().to_str().unwrap().into();
+        let session_path: JsString = "/fixture/session".into();
+        let agent_ids = vec![JsString::from("agent_1")];
+        let expected = read_multi_agent_agents(&blocked_db, &session_path, &agent_ids).unwrap_err();
+        let watcher = WaitAgentsWakeWatcher {
+            deadline: None,
+            control_db_path: blocked_db,
+            recipient: None,
+            session_path,
+            signal: None,
+            store: Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default())),
+            tracked_agent_ids: agent_ids.into_iter().collect(),
+            wait_wake_listeners: WaitWakeListeners::default(),
+        };
+        for wake in [
+            watcher.settle_for_terminal_agent_or_check_coordination(),
+            watcher.on_notified(&Mutex::new(None)),
+        ] {
+            let Some(WaitNotificationsWake::Error { message }) = wake else {
+                panic!("tracked DB failure must become an error wake, not an absent agent");
+            };
+            assert_eq!(&message, expected.message());
+        }
+    }
 }

@@ -722,7 +722,7 @@ async fn console_server_exposes_the_architect_snapshot_and_prompt_queue() {
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "gpt-5.6-sol".to_owned(),
-            name: Some("Sol".to_owned()),
+            name: Some("Sol".into()),
             reasoning: Some(true),
             input: None,
             cost: None,

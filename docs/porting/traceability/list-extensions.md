@@ -3,7 +3,7 @@
 Source: `packages/coding-agent/src/cli/list-extensions.ts` (113 lines, pinned revision in
 `docs/porting/source-lock.json`).
 
-Rust: `crates/pi-coding-agent/src/cli/list_extensions.rs`.
+Rust: `crates/pi-coding-agent-tools/src/cli/list_extensions.rs`; frozen facade path re-exports it. Main-approved2026-10-25 relocation keeps the implementation byte-identical, providing one authority for CLI and interactive consumers. Historical proof below is unchanged.
 
 No TypeScript test file covers this module. Coverage is a byte-level differential against the
 pinned source: `crates/pi-coding-agent/tests/differential_list_extensions.rs` (4 inventory cases +

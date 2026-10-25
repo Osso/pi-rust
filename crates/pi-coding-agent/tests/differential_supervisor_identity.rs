@@ -1,5 +1,4 @@
-#[path = "support/oracle.rs"]
-mod oracle;
+use super::oracle;
 use pi_coding_agent::core::resident_console_transport::ResidentConsoleManagedBy;
 use pi_coding_agent::supervisor::main::create_supervisor_console_snapshot;
 use pi_js_compat::{js_json as json, js_json::JsString};

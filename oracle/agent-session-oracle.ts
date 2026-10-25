@@ -175,6 +175,7 @@ async function run(request) {
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
+	sessionManager.setMetadataControlDbPath(join(dir, "control.db"));
 	const settingsManager = [
 		"preflight-compaction",
 		"compaction-lock",

@@ -1,11 +1,12 @@
 # extensions/runner.ts → `core::extensions::runner`
 
-Source: `packages/coding-agent/src/core/extensions/runner.ts` (1552 lines).
+Source: `packages/coding-agent/src/core/extensions/runner.ts` (1539 lines, frozen `4f9e6f8a4`).
+Whole-module audit closed 2026-10-25. All dispatch, query, relocation, command/default-action and context branches are mapped below. Current proof: [extension API closure](../ext-api-repin-proof.md); it supersedes historical pending labels.
 Rust: `crates/pi-coding-agent-tools/src/core/extensions/runner.rs`.
 
 Differential: `tests/extensions.rs::extensions_match_the_pinned_typescript_runner`
-drives the real TypeScript runner through 13 scripted scenarios (`dispatch`,
-`errors`, `shortcuts`, `commands`, `flags`, `input`, `project_trust`,
+drives the real TypeScript runner through 14 scripted scenarios (`dispatch`,
+`errors`, `shortcuts`, `commands`, `flags`, `input`, `input_images`, `project_trust`,
 `providers`, `mailbox`, `session_events`, `mutations`, `context_live`,
 `provider_request`).
 
@@ -98,7 +99,7 @@ RED: extension-facing direct snapshot/goal methods did not compile because the g
   returning, while the native fixture returns `Some(payload)`. Its final
   `null` replacement means the scenario proves chaining and null replacement,
   not no-return mutation.
-- `emitInput` compares images by value, not reference.
+- `emitInput` uses InputImages identity. Every supplied transform image array is detached before the final identity check, matching frozen structuredClone; omitted images retain the previous array. The current `input_images` differential proves both cases.
 
 ## Sandbox setter audit (2026-10-25)
 
@@ -110,7 +111,7 @@ Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/
 
 Actual frozen/native boundary tests found two mismatches. `createContext` captures the current `getModel` callback (frozen :822), unlike its other live callback-backed properties; native now captures that callback while still reading its current model value and asserting stale state. The earlier native-only pre-bind model assertions contradicted frozen and are replaced with exact frozen before-bind/after-bind/rebind behavior; mutable values behind a captured callback remain tested. This is literal frozen behavior, not an approved semantic fix.
 
-Runner diagnostics, mailbox error reports, project-trust reports and factory-load diagnostics now use Error.message/String(rejection) through one HandlerError helper, preserving original rejections for propagation. Plain strings, objects, numbers, null and native UTF-16 strings previously emitted empty diagnostics. RED `/tmp/ext-api2-runner-boundary-red2.log`; GREEN pending. Exotic String-coercion failure routes to the existing shared uncaught authority (pathological-input gap); no new carrier or catch/panic mechanism added.
+Runner diagnostics, mailbox error reports, project-trust reports and factory-load diagnostics now use Error.message/String(rejection) through one HandlerError helper, preserving original rejections for propagation. Plain strings, objects, numbers, null and native UTF-16 strings previously emitted empty diagnostics. RED `/tmp/ext-api2-runner-boundary-red2.log`; GREEN in current `extension_session_read_view` boundary tests. Exotic String-coercion failure routes to the existing shared uncaught authority (pathological-input gap); no new carrier or catch/panic mechanism added.
 
 ## Representation
 
@@ -143,4 +144,4 @@ ResourcesDiscoverResult path arrays and DiscoveredPath path/extension_path use
 JsString. The producer passes original callback values and native extension
 identity to AgentSession; source labels/baseDir are composed with native path
 operations. Keybinding/shortcut runner methods are untouched by this slice.
-Runtime proof remains library-blocked.
+Current runtime proof is GREEN in the runner differential and native contract cases; see [closure proof](../ext-api-repin-proof.md).

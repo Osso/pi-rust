@@ -17,6 +17,7 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
     let config = parse_lossless(encoded).unwrap();
     let mode = config.get("status").and_then(JsValue::as_string).cloned();
     let bash_hook = config.get("bashHook").and_then(JsValue::as_bool) == Some(true);
+    let images_probe = config.get("imagesProbe").and_then(JsValue::as_bool) == Some(true);
     let stdout_probe = config.get("stdoutProbe").and_then(JsValue::as_bool) == Some(true);
     let pending_shutdown = config.get("pendingShutdown").and_then(JsValue::as_bool) == Some(true);
     let shutdown_flood = config.get("shutdownFlood").and_then(JsValue::as_bool) == Some(true);
@@ -34,6 +35,26 @@ pub async fn resource_loader(cwd: &JsString) -> Arc<dyn ResourceLoader> {
         });
     let root = PathBuf::from(std::env::var_os("PI_HARNESS_RPC_ROOT").unwrap());
     let factory: ExtensionFactory = Arc::new(move |api| {
+        if images_probe {
+            use pi_coding_agent::core::extensions::types::{InputEvent, InputEventResult};
+            let root = root.clone();
+            api.on_input(move |event: InputEvent, _context| {
+                let root = root.clone();
+                Box::pin(async move {
+                    let images = event.images.map_or(serde_json::json!("absent"), |images| {
+                        serde_json::to_value(images).unwrap()
+                    });
+                    let mut file = std::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(root.join("images-report.jsonl"))
+                        .unwrap();
+                    writeln!(file, "{images}").unwrap();
+                    Ok(Some(InputEventResult::Handled))
+                }) as BoxFuture<'static, Result<Option<InputEventResult>, HandlerError>>
+            })
+            .unwrap();
+        }
         if shutdown_flood {
             let signal = early_signal.expect("flood fixture requires signal");
             api.register_command(

@@ -382,7 +382,7 @@ pub type UnregisterProviderAction = Arc<dyn Fn(&str) -> Result<(), CallbackError
 #[derive(Default, Clone)]
 pub struct PromptOptions {
     pub expand_prompt_templates: Option<bool>,
-    pub images: Vec<ImageContent>,
+    pub images: Option<Vec<ImageContent>>,
     pub streaming_behavior: Option<StreamingBehavior>,
     pub source: Option<InputSource>,
     pub preflight_result: Option<PromptPreflightCallback>,
@@ -4613,19 +4613,19 @@ impl AgentSession {
             return Ok(None);
         };
         if self
-            .queue_prompt_if_streaming(&text, &images, options, mailbox_messages)
+            .queue_prompt_if_streaming(&text, images.as_deref(), options, mailbox_messages)
             .await?
         {
             return Ok(None);
         }
         self.prepare_prompt_turn().await?;
         if self
-            .queue_prompt_if_streaming(&text, &images, options, mailbox_messages)
+            .queue_prompt_if_streaming(&text, images.as_deref(), options, mailbox_messages)
             .await?
         {
             return Ok(None);
         }
-        let messages = self.build_prompt_messages(&text, &images, options).await;
+        let messages = self.build_prompt_messages(&text, images.as_deref(), options).await;
         Ok(Some(messages))
     }
 
@@ -4633,13 +4633,13 @@ impl AgentSession {
         &self,
         text: &JsString,
         options: &PromptOptions,
-    ) -> Result<Option<(JsString, Vec<ImageContent>)>, AgentSessionError> {
+    ) -> Result<Option<(JsString, Option<Vec<ImageContent>>)>, AgentSessionError> {
         let mut current_text = text.to_owned();
         let mut current_images = options.images.clone();
         match self
             .emit_extension_input(
                 &current_text,
-                &current_images,
+                current_images.as_deref(),
                 options.source,
                 if self.is_streaming() {
                     options.streaming_behavior
@@ -4653,7 +4653,7 @@ impl AgentSession {
             InputEventResult::Transform { text, images } => {
                 current_text = text;
                 if let Some(images) = images {
-                    current_images = images.into_vec();
+                    current_images = Some(images.into_vec());
                 }
             }
             InputEventResult::Continue => {}
@@ -4686,13 +4686,14 @@ impl AgentSession {
     async fn queue_prompt_if_streaming(
         &self,
         text: &JsString,
-        images: &[ImageContent],
+        images: Option<&[ImageContent]>,
         options: &PromptOptions,
         mailbox_messages: Option<&[RuntimeMailboxMessage]>,
     ) -> Result<bool, AgentSessionError> {
         if !self.is_streaming() {
             return Ok(false);
         }
+        let images = images.unwrap_or_default();
         if let Some(batch) = mailbox_messages {
             let message = runtime_mailbox_user_message(text, images, options.source.or(Some(InputSource::Extension)));
             self.steer_agent(message.clone());
@@ -4727,11 +4728,17 @@ impl AgentSession {
     async fn build_prompt_messages(
         &self,
         text: &JsString,
-        images: &[ImageContent],
+        images: Option<&[ImageContent]>,
         options: &PromptOptions,
     ) -> Vec<AgentMessage> {
         let mut content = vec![TextOrImageContent::Text(TextContent::new(text))];
-        content.extend(images.iter().cloned().map(TextOrImageContent::Image));
+        content.extend(
+            images
+                .unwrap_or_default()
+                .iter()
+                .cloned()
+                .map(TextOrImageContent::Image),
+        );
         let user_message = AgentMessage::User(UserMessage {
             role: UserRole::Tag,
             content: UserContent::Blocks(content),
@@ -5033,7 +5040,7 @@ impl AgentSession {
             &text,
             PromptOptions {
                 expand_prompt_templates: Some(expand_prompt_templates),
-                images,
+                images: (!images.is_empty()).then_some(images),
                 streaming_behavior: deliver_as,
                 source: Some(InputSource::Extension),
                 preflight_result: None,
@@ -5110,7 +5117,7 @@ impl AgentSession {
                 trimmed,
                 PromptOptions {
                     expand_prompt_templates: None,
-                    images: Vec::new(),
+                    images: None,
                     streaming_behavior: Some(StreamingBehavior::Steer),
                     source: Some(source),
                     preflight_result: Some(Arc::new(move |accepted| {
@@ -8148,7 +8155,7 @@ impl AgentSession {
     async fn emit_extension_input(
         &self,
         text: &JsString,
-        images: &[ImageContent],
+        images: Option<&[ImageContent]>,
         source: Option<InputSource>,
         streaming_behavior: Option<StreamingBehavior>,
     ) -> InputEventResult {
@@ -8159,7 +8166,7 @@ impl AgentSession {
         runner
             .emit_input(
                 text,
-                (!images.is_empty()).then(|| crate::core::extensions::types::InputImages::new(images.to_vec())),
+                images.map(|images| crate::core::extensions::types::InputImages::new(images.to_vec())),
                 match source.unwrap_or(InputSource::Interactive) {
                     InputSource::Interactive => ExtensionInputSource::Interactive,
                     InputSource::Rpc => ExtensionInputSource::Rpc,
@@ -8176,7 +8183,7 @@ impl AgentSession {
     async fn emit_before_agent_start(
         &self,
         text: &JsString,
-        images: &[ImageContent],
+        images: Option<&[ImageContent]>,
         options: &BuildSystemPromptOptions,
     ) -> Option<BeforeAgentStartCombinedResult> {
         let runner = self.runner();
@@ -8184,7 +8191,7 @@ impl AgentSession {
         runner
             .emit_before_agent_start(
                 text,
-                (!images.is_empty()).then(|| images.to_vec()),
+                images.map(|images| images.to_vec()),
                 &base_prompt,
                 options.clone(),
             )
@@ -8337,10 +8344,11 @@ fn extension_actions(weak: Weak<Inner>) -> ExtensionActions {
             Ok(())
         });
     let resume_weak = weak.clone();
-    let request_resume_continuation: Arc<dyn Fn() + Send + Sync> = Arc::new(move || {
+    let request_resume_continuation: Arc<dyn Fn() -> Result<(), String> + Send + Sync> = Arc::new(move || {
         if let Some(inner) = resume_weak.upgrade() {
             AgentSession { inner }.request_resume_continuation();
         }
+        Ok(())
     });
     let name_weak = weak.clone();
     let set_session_name: crate::core::extensions::types::SetSessionNameHandler = Arc::new(move |name: &JsString| {
