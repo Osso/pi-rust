@@ -164,7 +164,10 @@ async function main(): Promise<void> {
 				});
 				if (request.stage !== "register") {
 					storage.set(provider, credential);
-					if (request.stage === "refresh") registry.refresh();
+					if (request.stage === "unregister") {
+						registry.registerProvider("modifier-side", { name: "Side" });
+						registry.unregisterProvider("modifier-side");
+					} else if (request.stage === "refresh") registry.refresh();
 					else if (request.stage === "create")
 						ModelRegistry.create(storage, "");
 					else ModelRegistry.inMemory(storage);
@@ -191,6 +194,7 @@ async function main(): Promise<void> {
 					.filter((model: { provider: string }) => model.provider === provider)
 					.map((model: { id: string }) => model.id),
 				display: registry.getProviderDisplayName(provider),
+				sideDisplay: registry.getProviderDisplayName("modifier-side"),
 			};
 		}
 		if (request.operation === "registration_reentry") {

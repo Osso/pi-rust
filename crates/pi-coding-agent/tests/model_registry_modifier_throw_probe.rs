@@ -70,7 +70,16 @@ fn native_snapshot(stage: &str, rejection: CallbackError) -> JsValue {
     } else {
         result.and_then(|_| {
             storage.set(PROVIDER, credential).unwrap();
-            if stage == "refresh" {
+            if stage == "unregister" {
+                registry.register_provider(
+                    "modifier-side",
+                    ProviderConfigInput {
+                        name: Some("Side".into()),
+                        ..Default::default()
+                    },
+                )?;
+                registry.unregister_provider("modifier-side")
+            } else if stage == "refresh" {
                 registry.refresh()
             } else if stage == "create" {
                 ModelRegistry::create(storage, Some("".into())).map(|_| ())
@@ -86,7 +95,7 @@ fn native_snapshot(stage: &str, rejection: CallbackError) -> JsValue {
         .filter(|model| model.provider == PROVIDER)
         .map(|model| model.id)
         .collect::<Vec<_>>();
-    let actual = js_json!({"rejection":rejection,"ids":ids,"display":registry.get_provider_display_name(PROVIDER)});
+    let actual = js_json!({"rejection":rejection,"ids":ids,"display":registry.get_provider_display_name(PROVIDER),"sideDisplay":registry.get_provider_display_name("modifier-side")});
     registry.unregister_provider(PROVIDER).unwrap();
     pi_ai::oauth::reset_oauth_providers();
     actual
@@ -99,7 +108,7 @@ async fn modifier_rejections_match_frozen_at_all_registry_entrypoints() {
         "packages/coding-agent/src/core/model-registry.ts",
     );
     let raw = JsString::from("modifier-") + JsString::from_utf16(vec![0xd800]);
-    for stage in ["register", "refresh", "constructor", "create"] {
+    for stage in ["register", "refresh", "constructor", "create", "unregister"] {
         for kind in ["error", "value"] {
             let result = source.request(
                 &js_json!({"operation":"modifier_throw","stage":stage,"throwKind":kind,"value":raw,"config":config()}),
@@ -117,7 +126,7 @@ async fn modifier_rejections_match_frozen_at_all_registry_entrypoints() {
             };
             assert_eq!(
                 result["output"],
-                js_json!({"rejection":rejection,"ids":["one"],"display":display}),
+                js_json!({"rejection":rejection,"ids":["one"],"display":display,"sideDisplay":"modifier-side"}),
                 "{stage}/{kind}"
             );
             assert_eq!(
