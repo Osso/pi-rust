@@ -125,6 +125,18 @@ fn seed_compactable_session(manager: &mut SessionManager) {
         .expect("older assistant message");
 }
 
+fn append_usage_anchor(session: &AgentSession, tokens: f64) -> pi_ai::AssistantMessage {
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = tokens;
+    anchor.usage.total_tokens = tokens;
+    let message = pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(anchor.clone()));
+    let identity = session.agent().append_message(message.clone());
+    let mut manager = session.session_manager();
+    let id = manager.append_message(message).expect("anchor");
+    manager.bind_message_identity(&id, identity).expect("anchor identity");
+    anchor
+}
+
 type BeforeHook = Arc<dyn Fn(&SessionBeforeCompactEvent) -> Option<SessionBeforeCompactResult> + Send + Sync>;
 type CompactionHook = Arc<dyn Fn(&CompactionEvent) -> Option<CompactionEventResult> + Send + Sync>;
 
@@ -1026,18 +1038,24 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     .await;
 
     env.faux.set_responses(vec![
-        faux_assistant_message("first", FauxAssistantMessageOptions::default()).into(),
-    ]);
-    env.session
-        .prompt(
-            &"x".repeat(320_000),
-            pi_coding_agent::core::agent_session::PromptOptions::default(),
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
         )
+        .into(),
+    ]);
+    append_usage_anchor(&env.session, 80000.0);
+    env.session
+        .prompt("first", pi_coding_agent::core::agent_session::PromptOptions::default())
         .await
         .expect("first prompt");
 
     for _ in 0..100 {
-        if env.captured.lock().expect("captured").compaction.len() == 1 {
+        if env.captured.lock().expect("captured").background.last() == Some(&"background_compaction_end") {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -1045,18 +1063,27 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     assert_eq!(env.captured.lock().expect("captured").compaction.len(), 1);
 
     env.faux.set_responses(vec![
-        faux_assistant_message("second", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
     ]);
     env.session
-        .prompt(
-            &"y".repeat(160_000),
-            pi_coding_agent::core::agent_session::PromptOptions::default(),
-        )
+        .prompt("second", pi_coding_agent::core::agent_session::PromptOptions::default())
         .await
         .expect("second prompt");
 
     let captured = env.captured.lock().expect("captured");
     assert_eq!(captured.compaction.len(), 1, "the cache must not regenerate");
+    assert!(
+        captured.before.is_empty(),
+        "background generation must skip foreground preflight"
+    );
     assert_eq!(
         captured.background,
         ["background_compaction_start", "background_compaction_end"]
@@ -1083,12 +1110,19 @@ async fn cancelled_background_compaction_still_emits_the_final_end_event() {
         })),
     )
     .await;
-    env.faux
-        .set_responses(vec![faux_assistant_message("answer", Default::default()).into()]);
-    env.session
-        .prompt(&"x".repeat(320000), Default::default())
-        .await
-        .expect("prompt");
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
     for _ in 0..100 {
         if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
             break;
@@ -1096,10 +1130,17 @@ async fn cancelled_background_compaction_still_emits_the_final_end_event() {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     let captured = env.captured.lock().unwrap();
-    assert_eq!(captured.compaction.len(), 1, "one background preflight");
+    assert_eq!(captured.compaction.len(), 1, "one background compaction handler");
+    assert!(
+        captured.before.is_empty(),
+        "background generation must skip foreground preflight"
+    );
     assert_eq!(
         captured.background,
-        ["background_compaction_start", "background_compaction_end"]
+        ["background_compaction_start", "background_compaction_end"],
+        "preflight count={}, reasons={:?}",
+        captured.before.len(),
+        captured.compaction.iter().map(|event| event.reason).collect::<Vec<_>>()
     );
     assert!(
         !env.session
