@@ -41,7 +41,7 @@ use super::eval_tool::{
     PyrunEvalParams, PyrunPiRequestDispatcher, PyrunProgressUpdateCallback, create_canonical_pyrun_eval_params,
     create_pyrun_progress_reporter, eval_context, format_canonical_pyrun_eval_result,
 };
-use super::runner::{CanonicalPyrunEvalResult, CanonicalPyrunProgressUpdate, PyrunRunnerOptions};
+use super::runner::{CanonicalPyrunEvalResult, PyrunRunnerOptions};
 
 const ARTIFACT_POLL_MS: u64 = 25;
 const ARTIFACT_READ_BYTE_LIMIT: usize = 1_048_576;
