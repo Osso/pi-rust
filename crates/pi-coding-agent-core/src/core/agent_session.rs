@@ -8945,6 +8945,8 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 
 #[cfg(test)]
 mod supervisor_project_failure_tests {
+    use crate::core::settings_manager::SettingsScope;
+
     mod scripted_registry {
         use crate as pi_coding_agent;
         include!(concat!(
