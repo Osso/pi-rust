@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Public mailbox reference normalization (2026-10-25)
+
+Actual-source complete-wire RED `/tmp/storage3-control-file-refs-red.log` returns path/label references while native leaked original label/path order and unknown reference properties. The existing parse_file_refs/AgentFileReference serializer now supplies only the public projection; RuntimeMailboxMessage retains its existing lossless JsValue carrier. GREEN `/tmp/storage3-control-file-refs-green.log` compares the entire actual-source/native JSON string, including CJK filenames, and proves canonical SQLite bytes remain unchanged. This normalization follows frozen parseFileRefs; raw persistence still preserves its original fields/order.
+
 ## Retention-free reads under writer contention (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-read-contention-valid-red.log` holds an owned SQLite BEGIN IMMEDIATE writer across both real-source and native reads. Frozen returns an empty mailbox; native's unconditional cleanup DELETE waits five seconds then fails database-locked. Mailbox/channel cleanup now performs the frozen due-row read before each conditional delete. GREEN `/tmp/storage3-control-read-contention-green.log` reads successfully while the writer remains held. Existing exact-age/invalid-birth differential remains GREEN in `/tmp/storage3-control-read-contention-clock.log`. This is ordinary WAL contention, not an injected OS fault or scheduling-race waiver. The first probe had a fixture-only JsString Display compile error and is not production evidence.

@@ -1135,10 +1135,10 @@ pub(crate) fn runtime_mailbox_message_from_canonical_row(
         sender_host: optional_text("senderHost"),
         kind: to_runtime_mailbox_message_kind(&require_native_string_field(message, "kind", &context)?),
         body: text("body")?,
-        file_refs: message
-            .get(&JsString::from("fileRefs"))
-            .filter(|value| !value.is_null())
-            .cloned(),
+        file_refs: parse_file_refs(message.get("fileRefs"), &context)?
+            .map(|refs| js_json::to_value(&refs))
+            .transpose()
+            .map_err(|error| ControlDbError::new(error.to_string()))?,
         target_checkpoint: parse_steering_checkpoint(message.get("targetCheckpoint"), &context)?,
         store_ref: RuntimeMailboxStoreRef {
             message_id: row.message_id.clone().into(),

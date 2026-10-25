@@ -82,6 +82,8 @@ pub mod repin_storage_control_callbacks;
 pub mod repin_storage_control_cancellation;
 #[path = "repin_storage_control_eligibility.rs"]
 pub mod repin_storage_control_eligibility;
+#[path = "repin_storage_control_file_refs.rs"]
+pub mod repin_storage_control_file_refs;
 #[path = "repin_storage_control_finalization.rs"]
 pub mod repin_storage_control_finalization;
 #[path = "repin_storage_control_history.rs"]
