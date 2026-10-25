@@ -1745,7 +1745,6 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {}}),
-        constrained_sampling: None,
         render_shell: Some(shell),
         prepare_arguments: None,
         prepare_execution: None,

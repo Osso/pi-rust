@@ -144,7 +144,6 @@ pub fn architect_project_spec_tool_definition() -> ToolDefinition {
             },
             "required": ["project_cwd", "spec_path"]
         }),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

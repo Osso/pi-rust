@@ -315,7 +315,6 @@ pub(super) fn tool_definition(
         approval_required: Some(false),
         approval_kind: None,
         parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

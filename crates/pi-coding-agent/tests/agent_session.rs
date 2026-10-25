@@ -2571,7 +2571,6 @@ fn custom_grep_definition(
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {"pattern": {"type": "string"}}}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

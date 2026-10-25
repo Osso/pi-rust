@@ -142,3 +142,11 @@ Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary
 TextOrImageContent/AssistantContent/Message select their discriminators from JsValue and decode records directly; UserContent takes native text directly and decodes block arrays natively. No stringify/from_str bridge remains in these unions. [Shared numeric correction/proof](js-json.md#typed-union-and-checked-adapter-follow-up) covers nonfinite numbers, signed zero and unpaired human text without changing serialized wire semantics.
 
 2026-10-25: deleted the source-absent DeferredHandle, DeferredRequest/Window, DeferredFetch/CancelOptions, SimpleStreamOptions.deferred and ProviderStreams deferred methods. No native provider consumed them; only old-capability fixtures did. Constrained-sampling carrier removal waits for parent integration of coding-agent consumer cleanup.
+
+## Constrained-sampling carrier retirement (2026-10-25)
+
+Frozen types.ts:478–482 Tool has only name/description/parameters. After parent4eff32510 removed the coding-agent algorithms, deleted GrammarFormat/Variants, JsonSchemaStrictness, ConstrainedSamplingConfig/ConstrainedSampling, Tool.constrained_sampling, the AgentTool getter/loop forwarding and ToolDefinition field. Required declarations, constructor literals and fixtures were changed mechanically across lanes; real label/execution-mode/prepare metadata remains unchanged.
+
+Retired source-absent metadata-only fixtures: `old_strict_metadata_does_not_rewrite_frozen_tool_parameters`, `grammar_metadata_does_not_change_frozen_function_tools`, `ignores_old_strict_tool_metadata_and_keeps_plain_parameters`, and `frozen_wrappers_do_not_copy_old_constrained_sampling_metadata`. Existing complete payload/stream/provider tests stay enabled; the Codex fixture keeps its real parameter schema and assertions without the removed flag. Experimental gate proof now compares the actual frozen experimental.ts export directly, not invented null tool-metadata fields.
+
+Remaining known old-only carrier: ToolResultMessage.added_tool_names. Whole types.ts stays partial until its removal and the remaining public-type audit.

@@ -655,7 +655,6 @@ fn tool_definition(name: &str, description: &str) -> ToolDefinition {
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object"}),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

@@ -656,7 +656,6 @@ pub fn register_agent_viewer_tools(
         approval_required: Some(false),
         approval_kind: None,
         parameters: agent_viewer_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

@@ -25,7 +25,6 @@ fn describe(name: ToolName, cwd: &str) -> Value {
             pi_coding_agent::core::extensions::types::ApprovalKind::ReadOnly => "read-only",
         }),
         "parameters": definition.parameters,
-        "constrainedSampling": definition.constrained_sampling,
         "executionMode": definition.execution_mode.map(|mode| mode.as_str()),
         "renderShell": definition.render_shell.map(|shell| match shell {
             RenderShell::Default => "default",

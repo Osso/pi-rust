@@ -531,16 +531,11 @@ async fn frozen_auto_tool_choice_and_null_strict_tools_ignore_the_old_hint() {
             json!({"type": "object", "properties": {"value": {"type": "string"}}}),
         ),
         {
-            let mut tool = Tool::new(
+            let tool = Tool::new(
                 "strict",
                 "Strict",
                 json!({"type": "object", "properties": {"value": {"type": "string"}}, "additionalProperties": false}),
             );
-            tool.constrained_sampling = Some(pi_ai::types::ConstrainedSampling::Config(
-                pi_ai::types::ConstrainedSamplingConfig::JsonSchema {
-                    strict: pi_ai::types::JsonSchemaStrictness::Prefer,
-                },
-            ));
             tool
         },
     ]);

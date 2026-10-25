@@ -838,7 +838,6 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
         approval_required: Some(true),
         approval_kind: None,
         parameters: pyrun_parameters(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: Some(prepare_execution),

@@ -85,7 +85,6 @@ pub fn create_ask_secret_tool_definition(options: AskSecretToolOptions) -> ToolD
         approval_required: Some(true),
         approval_kind: None,
         parameters: ask_secret_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

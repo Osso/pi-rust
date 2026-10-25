@@ -746,58 +746,6 @@ pub struct AssistantImages {
     pub timestamp: i64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GrammarFormat {
-    OpenaiLark,
-    OpenaiRegex,
-}
-
-pub type GrammarVariants = IndexMap<GrammarFormat, String>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum JsonSchemaStrictness {
-    Prefer,
-    Require,
-}
-
-/// Provider-side constrained sampling for a tool.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ConstrainedSamplingConfig {
-    JsonSchema { strict: JsonSchemaStrictness },
-    Grammar { variants: GrammarVariants },
-}
-
-/// `false | ConstrainedSamplingConfig`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstrainedSampling {
-    Disabled,
-    Config(ConstrainedSamplingConfig),
-}
-
-impl Serialize for ConstrainedSampling {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Disabled => serializer.serialize_bool(false),
-            Self::Config(config) => config.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for ConstrainedSampling {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        match value {
-            Value::Bool(false) => Ok(Self::Disabled),
-            other => serde_json::from_value(other)
-                .map(Self::Config)
-                .map_err(D::Error::custom),
-        }
-    }
-}
-
 /// A JSON Schema built with the TypeBox-equivalent builder (`Type.*` /
 /// [`crate::utils::typebox_helpers::string_enum`]).
 ///
@@ -835,8 +783,6 @@ pub struct Tool {
     /// Enumerable AgentTool override; AI adapters do not interpret it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_mode: Option<JsString>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub constrained_sampling: Option<ConstrainedSampling>,
     /// Whether `parameters` was built with TypeBox. TypeScript's
     /// `Value.Convert` only converts schemas carrying the hidden `~kind`
     /// marker; plain JSON schemas (MCP/extension tools) skip that pass.
@@ -853,7 +799,6 @@ impl Tool {
             description: description.into(),
             parameters,
             execution_mode: None,
-            constrained_sampling: None,
             typebox_kind: false,
         }
     }
@@ -866,7 +811,6 @@ impl Tool {
             description: description.into(),
             parameters: parameters.into_value(),
             execution_mode: None,
-            constrained_sampling: None,
             typebox_kind: true,
         }
     }
