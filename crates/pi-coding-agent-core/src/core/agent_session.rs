@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use futures_util::FutureExt;
 use pi_agent_core::agent::types::{
     AfterToolCallContext, AfterToolCallResult, AgentError, AgentEvent, AgentMessage, AgentState, AgentTool,
     AgentToolCall, BeforeToolCallContext, PrepareNextTurnContext, ShouldStopAfterTurnContext,
@@ -1128,6 +1129,7 @@ struct BackgroundCompactionCache {
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
     generation_duration_ms: Option<i64>,
+    generation: futures_util::future::Shared<BoxFuture<'static, ()>>,
 }
 
 const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
@@ -3823,6 +3825,15 @@ impl AgentSession {
         };
         static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
+        let weak = Arc::downgrade(&self.inner);
+        let generation = async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            AgentSession { inner }.generate_background_compaction(token).await;
+        }
+        .boxed()
+        .shared();
         let cache = BackgroundCompactionCache {
             token,
             state: BackgroundCompactionState::Pending,
@@ -3841,15 +3852,10 @@ impl AgentSession {
             compaction: None,
             from_extension: false,
             generation_duration_ms: None,
+            generation: generation.clone(),
         };
         *lock(&self.inner.background_compaction_cache) = Some(cache);
-        let weak = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
-            let Some(inner) = weak.upgrade() else {
-                return;
-            };
-            AgentSession { inner }.generate_background_compaction(token).await;
-        });
+        tokio::spawn(generation);
         Ok(())
     }
 
@@ -4048,27 +4054,30 @@ impl AgentSession {
     }
 
     async fn cancel_background_compaction(&self) {
-        let abort = lock(&self.inner.background_compaction_cache)
+        let pending = lock(&self.inner.background_compaction_cache)
             .as_ref()
-            .map(|cache| cache.abort.clone());
-        let Some(abort) = abort else {
+            .map(|cache| (cache.token, cache.abort.clone(), cache.generation.clone()));
+        let Some((token, abort, generation)) = pending else {
             return;
         };
         abort.abort(None);
-        *lock(&self.inner.background_compaction_cache) = None;
+        generation.await;
+        let mut cache = lock(&self.inner.background_compaction_cache);
+        if cache.as_ref().is_some_and(|cache| cache.token == token) {
+            *cache = None;
+        }
     }
 
     async fn take_background_compaction(&self) -> Result<Option<BackgroundCompactionCache>, AgentSessionError> {
-        let (token, state, abort) = {
+        let (token, state) = {
             let guard = lock(&self.inner.background_compaction_cache);
             let Some(cache) = guard.as_ref() else {
                 return Ok(None);
             };
-            (cache.token, cache.state, cache.abort.clone())
+            (cache.token, cache.state)
         };
         if state == BackgroundCompactionState::Pending {
-            abort.abort(None);
-            *lock(&self.inner.background_compaction_cache) = None;
+            self.cancel_background_compaction().await;
             return Ok(None);
         }
         if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token)? {

@@ -360,3 +360,7 @@ Background live-fixture correction: the inherited320000-character prompt doubled
 ## Re-pin disabled built-in background generation (2026-10-25)
 
 Frozen :4622–4627 does not call a local provider when built-in compaction is disabled and the extension supplies no summary. Native now returns from the inner generation path in that case, still emitting the final end event. Actual-frozen `disabled_background_generation_without_extension_result_never_calls_provider_like_frozen` compares background-only provider calls and event order after a real native foreground turn; RED `/tmp/repin-agent-session-background-disabled-red.log` observed one unwanted provider call versus frozen zero.
+
+## Re-pin pending background settlement (2026-10-25)
+
+Frozen :4584–4599 aborts and awaits the cache's generation promise before clearing that same cache; taking a pending cache uses that cancellation path. Native cache now stores the shared generation future using the existing futures-util dependency, and cancellation awaits it through final extension-end handler settlement before clearing a matching token. `cancelling_background_compaction_waits_for_final_handler_settlement_like_frozen` gates the real native end callback, starts manual compaction, and compares actual frozen cancellation with the same end gate. RED `/tmp/repin-agent-session-background-wait-red.log` observed manual work completing before end settlement (true) versus frozen false. Both paths release the gate and settle all tasks before asserting.

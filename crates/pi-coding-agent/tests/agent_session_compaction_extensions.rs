@@ -62,6 +62,7 @@ struct Captured {
     before: Vec<SessionBeforeCompactEvent>,
     compaction: Vec<CompactionEvent>,
     background: Vec<&'static str>,
+    background_end_gate: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Captured {
@@ -70,6 +71,7 @@ impl Captured {
             before: Vec::new(),
             compaction: Vec::new(),
             background: Vec::new(),
+            background_end_gate: None,
         }))
     }
 }
@@ -212,7 +214,14 @@ async fn env_with(
             api.on_background_compaction_end(move |_event, _ctx| {
                 let captured = Arc::clone(&background_end_capture);
                 Box::pin(async move {
-                    captured.lock().unwrap().background.push("background_compaction_end");
+                    let gate = {
+                        let mut captured = captured.lock().unwrap();
+                        captured.background.push("background_compaction_end");
+                        captured.background_end_gate.clone()
+                    };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
                     Ok(None)
                 }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
@@ -1186,6 +1195,67 @@ async fn disabled_background_generation_without_extension_result_never_calls_pro
         json!({"ok": true, "value": {"events": ["background_compaction_start", "background_compaction_end"], "providerCalls": 0}})
     );
     assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn cancelling_background_compaction_waits_for_final_handler_settlement_like_frozen() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|_| {
+            Some(CompactionEventResult {
+                cancel: Some(true),
+                compaction: None,
+            })
+        })),
+    )
+    .await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    env.captured.lock().unwrap().background_end_gate = Some(Arc::clone(&gate));
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background.last(),
+        Some(&"background_compaction_end")
+    );
+    let session = env.session.clone();
+    let mut compact = tokio::spawn(async move { session.compact(None).await });
+    let early = tokio::time::timeout(std::time::Duration::from_millis(100), &mut compact).await;
+    let completed_before_end = early.is_ok();
+    gate.notify_one();
+    let settled = match early {
+        Ok(result) => result,
+        Err(_) => tokio::time::timeout(std::time::Duration::from_secs(5), compact)
+            .await
+            .expect("compaction settled after background release"),
+    }
+    .expect("manual compaction task")
+    .expect_err("extension cancels manual compaction");
+    assert_eq!(settled.message(), "Compaction cancelled");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-cancel-wait", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(expected, json!({"ok": true, "value": {"completedBeforeEnd": false}}));
+    assert_eq!(json!({"completedBeforeEnd": completed_before_end}), expected["value"]);
 }
 
 #[path = "support/scripted_registry.rs"]
