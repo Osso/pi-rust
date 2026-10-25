@@ -4552,7 +4552,8 @@ impl InteractiveMode {
     }
 
     fn output_pad(&self) -> usize {
-        self.settings(|settings| settings.get_output_pad()) as usize
+        // Frozen mode omits the component argument; the stored setting has no live effect.
+        1
     }
 
     fn rebuild_root_compositor(&self) {
@@ -7638,17 +7639,13 @@ impl InteractiveMode {
             if self.is_extension_command(&text) {
                 self.add_submitted_text_to_history(&text)
                     .unwrap_or_else(|error| throw_uncaught(ERROR, error.message));
-                self.clear_editor()?;
-                if let Err(error) = session.prompt(&text, PromptOptions::default()).await {
-                    self.show_error(error.message());
-                }
+                self.editor().borrow_mut().set_text(&JsString::default())?;
+                session
+                    .prompt(&text, PromptOptions::default())
+                    .await
+                    .map_err(CallbackError::from)?;
             } else {
-                self.compaction_queued_messages
-                    .borrow_mut()
-                    .push(CompactionQueuedMessage {
-                        text: text.into(),
-                        mode: "steer",
-                    });
+                self.queue_compaction_message(text, "steer")?;
             }
             return Ok(());
         }
@@ -8059,29 +8056,6 @@ impl InteractiveMode {
             }),
             on_output_pad_change: callback!(|mode: Rc<InteractiveMode>, padding: u8| {
                 mode.settings_mut(|settings| settings.set_output_pad(padding));
-                let streaming = mode.streaming_component.borrow().is_some() || mode.session().is_streaming();
-                if streaming {
-                    for child in mode.chat_container.borrow().children().to_vec() {
-                        if let Some(component) = child
-                            .borrow_mut()
-                            .as_any_mut()
-                            .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
-                        {
-                            component.set_output_pad(padding as usize);
-                            continue;
-                        }
-                        if let Some(component) = child
-                            .borrow_mut()
-                            .as_any_mut()
-                            .and_then(|any| any.downcast_mut::<UserMessageComponent>())
-                        {
-                            component.set_output_pad(padding as usize);
-                        }
-                    }
-                    mode.ui.request_render();
-                    return;
-                }
-                mode.rebuild_chat_from_messages();
             }),
             on_autocomplete_max_visible_change: callback!(|mode: Rc<InteractiveMode>, max_visible: f64| {
                 mode.settings_mut(|settings| settings.set_autocomplete_max_visible(max_visible));

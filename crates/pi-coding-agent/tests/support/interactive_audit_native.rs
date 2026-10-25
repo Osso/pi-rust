@@ -1,4 +1,99 @@
 #[tokio::test(flavor = "current_thread")]
+async fn native_audit_mode_keeps_frozen_default_output_padding() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let (mode, _, _, _temp) = build_mode().await;
+            mode.settings_mut(|settings| settings.set_output_pad(0));
+            let message: AgentMessage = pi_js_compat::js_json::from_value(
+                &pi_js_compat::js_json!({"role":"user","content":"Padding contract","timestamp":0}),
+            )
+            .unwrap();
+            mode.add_message_to_chat(&message, false);
+            let line = mode
+                .chat_container
+                .borrow_mut()
+                .render(60)
+                .into_iter()
+                .find(|line| line.contains("Padding contract"))
+                .unwrap();
+            let plain = pi_tui::utils::strip_terminal_sequences(&line);
+            assert!(plain.starts_with(" Padding contract"), "{plain:?}");
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn native_audit_submit_during_compaction_updates_editor_and_pending_preview() {
+    tokio::task::LocalSet::new()
+        .run_until(async {
+            let entered = Arc::new(tokio::sync::Notify::new());
+            let release = Arc::new(tokio::sync::Notify::new());
+            let runtime = crate::core::extensions::create_extension_runtime();
+            let factory: crate::core::extensions::ExtensionFactory = Arc::new({
+                let entered = Arc::clone(&entered);
+                let release = Arc::clone(&release);
+                move |api| {
+                    let entered = Arc::clone(&entered);
+                    let release = Arc::clone(&release);
+                    api.on_session_compaction_source(
+                        move |_: crate::core::extensions::SessionCompactionSourceEvent,
+                              _: crate::core::extensions::ExtensionContext|
+                              -> crate::core::extensions::BoxFuture<
+                            'static,
+                            Result<Option<crate::core::extensions::SessionCompactionSourceResult>, HandlerError>,
+                        > {
+                            let entered = Arc::clone(&entered);
+                            let release = Arc::clone(&release);
+                            Box::pin(async move {
+                                entered.notify_one();
+                                release.notified().await;
+                                Ok(None)
+                            })
+                        },
+                    )
+                    .unwrap();
+                    Box::pin(async { Ok(()) })
+                }
+            });
+            let extension = crate::core::extensions::load_extension_from_factory(
+                factory,
+                &"/tmp".into(),
+                Arc::new(crate::core::event_bus::EventBusController::new()),
+                runtime.clone(),
+                &"/tmp/audit-compaction".into(),
+            )
+            .await
+            .unwrap();
+            let loader = Arc::new(StaticResourceLoader {
+                extensions: Some(crate::core::extensions::LoadExtensionsResult {
+                    extensions: vec![extension],
+                    errors: Vec::new(),
+                    runtime,
+                }),
+                ..Default::default()
+            });
+            let (mode, _, _, _temp) = build_mode_with_loader(loader, None).await;
+            let compact = tokio::task::spawn_local({
+                let session = mode.session();
+                async move { session.compact(None).await }
+            });
+            entered.notified().await;
+            mode.editor()
+                .borrow_mut()
+                .set_text(&"Queued while compacting".into())
+                .unwrap();
+            mode.submit("Queued while compacting".into()).await.unwrap();
+            let text = mode.editor().borrow().get_text().unwrap();
+            let pending = JsString::join(mode.pending_messages_container.borrow_mut().render(100), "\n");
+            release.notify_one();
+            let _result = compact.await.unwrap();
+            assert!(text.is_empty());
+            assert!(pending.contains("Steering: Queued while compacting"), "{pending:?}");
+        })
+        .await;
+}
+
+#[tokio::test(flavor = "current_thread")]
 async fn native_audit_bash_renders_output_and_honors_interception() {
     tokio::task::LocalSet::new().run_until(async {
         use crate::core::extensions::types::{UserBashEvent,UserBashEventResult};
