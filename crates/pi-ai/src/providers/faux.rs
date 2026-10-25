@@ -248,7 +248,6 @@ pub fn create_faux_core(options: RegisterFauxProviderOptions) -> FauxCore {
             cost: crate::types::ModelCost {
                 properties: Default::default(),
                 rates: definition.cost.unwrap_or_default(),
-                tiers: None,
             },
             context_window: definition.context_window.unwrap_or(128_000.0),
             auto_compaction_threshold: None,
