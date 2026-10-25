@@ -544,7 +544,7 @@ impl RpcClient {
         {
             let callback = match error {
                 RpcClientError::Native(error) => pi_ai::request::CallbackError::from(*error),
-                error => pi_ai::request::CallbackError::from_error(error.to_string(), error),
+                error => pi_ai::request::CallbackError::from_error(error.to_string().into(), error),
             };
             crate::utils::uncaught::throw_callback_uncaught(callback);
         }
