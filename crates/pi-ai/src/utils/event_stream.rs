@@ -8,35 +8,46 @@ use std::collections::VecDeque;
 use std::fmt;
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use pi_js_compat::callback_error::CallbackError;
 use tokio::sync::Notify;
 
 use crate::types::{AssistantMessage, AssistantMessageEvent};
 
 /// Failure passed to [`EventSender::fail`]; maps the TypeScript `unknown` error value.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct StreamFailure {
-    message: pi_js_compat::js_json::JsString,
+    error: CallbackError,
 }
 
 impl StreamFailure {
     pub fn new(message: impl Into<pi_js_compat::js_json::JsString>) -> Self {
         Self {
-            message: message.into(),
+            error: CallbackError::new(message),
         }
     }
 
     pub fn message(&self) -> &pi_js_compat::js_json::JsString {
-        &self.message
+        &self.error.message
+    }
+}
+
+impl From<CallbackError> for StreamFailure {
+    fn from(error: CallbackError) -> Self {
+        Self { error }
     }
 }
 
 impl fmt::Display for StreamFailure {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(&self.message))
+        formatter.write_str(&pi_js_compat::js_json::encode_node_utf8(self.message()))
     }
 }
 
-impl std::error::Error for StreamFailure {}
+impl std::error::Error for StreamFailure {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        Some(&self.error)
+    }
+}
 
 /// Optional async iterator `return()` boundary supplied by a native stream adapter.
 /// Invocation can fail synchronously; a returned future can settle independently.

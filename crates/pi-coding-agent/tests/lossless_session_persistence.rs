@@ -52,7 +52,7 @@ fn pinned_parse_migrate_and_persistence_match_raw_record_lines() {
             .iter()
             .map(|entry| {
                 if *operation == "serialize" {
-                    serialize_session_entry_for_persistence(entry)
+                    serialize_session_entry_for_persistence(entry).unwrap()
                 } else {
                     serde_json::to_string(entry).unwrap()
                 }
@@ -106,7 +106,8 @@ fn old_pending_deferred_and_end_turn_fields_load_and_save_as_frozen_raw_records(
     let lines: Vec<String> = parse_session_entries(loaded)
         .iter()
         .map(serialize_session_entry_for_persistence)
-        .collect();
+        .collect::<Result<_, _>>()
+        .unwrap();
     assert_eq!(serde_json::json!(lines), expected["output"]);
     std::fs::write(&path, lines.join("\n") + "\n").unwrap();
     assert_eq!(std::fs::read_to_string(&path).unwrap(), content);
@@ -117,7 +118,7 @@ fn persistence_serializer_keeps_raw_header() {
     use pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence;
     let line = r#"{"type":"session","id":"\ud800","timestamp":"\udfff","cwd":null,"\ud800":{"extra":"\udfff"}}"#;
     let entry = parse_session_entries(line).remove(0);
-    assert_eq!(serialize_session_entry_for_persistence(&entry), line);
+    assert_eq!(serialize_session_entry_for_persistence(&entry).unwrap(), line);
 }
 
 #[test]
@@ -131,7 +132,7 @@ fn truncating_imported_tool_result_preserves_unknown_entry_and_message_fields() 
     line.push_str(&"x".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES + 100));
     line.push_str(r#""}],"isError":false,"timestamp":0}}"#);
     let entry = parse_session_entries(&line).remove(0);
-    let written = serialize_session_entry_for_persistence(&entry);
+    let written = serialize_session_entry_for_persistence(&entry).unwrap();
     assert!(written.len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
     let raw = parse_lossless(&written).unwrap();
     assert_eq!(

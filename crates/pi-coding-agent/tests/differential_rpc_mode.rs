@@ -384,10 +384,6 @@ fn rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping() {
             "switch_session.sessionPath",
         ),
         (json!({"type":"fork","entryId":false}), "fork.entryId"),
-        (
-            json!({"type":"prompt","message":"x","images":[{"type":"image","data":"YQ==","mimeType":"image/png","extra":1}]}),
-            "prompt.images[0]",
-        ),
     ];
     for (index, (mut command, field)) in cases.into_iter().enumerate() {
         let id = format!("boundary-{index}");
@@ -401,6 +397,24 @@ fn rpc_external_core_boundaries_reject_instead_of_coercing_or_dropping() {
             "{error}"
         );
     }
+    let (source, native) = session.command(json!({"id":"image-extra","type":"prompt","message":"x","images":[{"type":"image","data":"YQ==","mimeType":"image/png","extra":1}]}));
+    session.assert_same(&source, &native);
+    assert_eq!(serde_json::from_str::<Value>(&native).unwrap()["success"], true);
+    session.ts.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    session.rust.wait_for(|line| line.contains("\"type\":\"agent_end\""));
+    let (source, native) = session.command(json!({"id":"image-extra-messages","type":"get_messages"}));
+    session.assert_same(&source, &native);
+    let response: Value = serde_json::from_str(&native).unwrap();
+    let image = response["data"]["messages"][0]["content"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|block| block["type"] == "image")
+        .unwrap();
+    assert_eq!(
+        image,
+        &json!({"type":"image","data":"YQ==","mimeType":"image/png","extra":1})
+    );
     for (index, field) in ["data", "mimeType"].into_iter().enumerate() {
         let id = format!("image-scalar-{index}");
         let image = if field == "data" {
@@ -1100,7 +1114,8 @@ fn thinking_timeout_recovery_matches_frozen_rpc() {
     // The actual TS-written record still has byte-exact native raw persistence semantics.
     let parsed = pi_coding_agent::core::session_manager::parse_session_entries(source_record.as_str());
     assert_eq!(parsed.len(), 1);
-    let serialized = pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence(&parsed[0]);
+    let serialized =
+        pi_coding_agent::core::session_tool_output::serialize_session_entry_for_persistence(&parsed[0]).unwrap();
     assert_eq!(serialized, source_record);
     let round_trip = root.path().join("ts-aborted-native-roundtrip.jsonl");
     std::fs::write(&round_trip, serialized + "\n").unwrap();

@@ -167,8 +167,7 @@ async fn create_agent_session_internal(
     let model_registry = options
         .model_registry
         .map(Ok)
-        .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path))
-        .map_err(pi_ai::request::CallbackError::from)?;
+        .unwrap_or_else(|| ModelRegistry::create(auth_storage, models_path))?;
 
     let settings_manager = match options.settings_manager {
         Some(manager) => manager,

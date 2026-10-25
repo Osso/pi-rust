@@ -161,7 +161,7 @@ fn options(fixture: &Fixture) -> DeliverTerminalOutboxOptions {
         ),
         claim_id: "claim-1".to_owned().into(),
         control_db_path: fixture.control_db_path.clone().into(),
-        now: Arc::new(|| NOW.to_owned()),
+        now: Arc::new(|| Ok(NOW.into())),
         store: Arc::clone(&fixture.store),
     }
 }
@@ -171,7 +171,7 @@ fn delivers_a_terminal_projection_and_acknowledges_the_outbox_row() {
     let fixture = fixture();
     terminal_job(&fixture, "agent_1");
     let delivered = deliver_terminal_outbox_projections(&options(&fixture)).expect("deliver");
-    assert_eq!(delivered, 1);
+    assert_eq!(delivered, 1.0);
     let agent = fixture
         .store
         .get_agent(&JsString::from("agent_1"))
@@ -180,7 +180,7 @@ fn delivers_a_terminal_projection_and_acknowledges_the_outbox_row() {
     assert_eq!(agent.revision, 2);
     assert_eq!(
         deliver_terminal_outbox_projections(&options(&fixture)).expect("second deliver"),
-        0
+        0.0
     );
 }
 
@@ -192,11 +192,11 @@ fn skips_delivery_without_a_persistence_target() {
         artifact_root: None,
         claim_id: "claim-1".to_owned().into(),
         control_db_path: fixture.control_db_path.clone().into(),
-        now: Arc::new(|| NOW.to_owned()),
+        now: Arc::new(|| Ok(NOW.into())),
         store,
     })
     .expect("deliver");
-    assert_eq!(delivered, 0);
+    assert_eq!(delivered, 0.0);
 }
 
 #[test]
@@ -218,7 +218,7 @@ fn fails_a_projection_that_does_not_match_the_persisted_agent() {
 
     let error = deliver_terminal_outbox_projections(&options(&fixture)).expect_err("mismatch");
     assert_eq!(
-        error.message(),
+        error.message,
         "Terminal outbox projection does not match agent missing revision 2"
     );
     let connection =
@@ -240,19 +240,22 @@ fn fails_a_projection_that_does_not_match_the_persisted_agent() {
 
 #[test]
 fn cleanup_is_due_at_the_hourly_interval() {
-    assert!(is_terminal_outbox_cleanup_due(None, 1_000));
+    assert!(is_terminal_outbox_cleanup_due(None, 1_000.0));
     assert!(!is_terminal_outbox_cleanup_due(
-        Some(1_000),
-        1_000 + TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS - 1
+        Some(1_000.0),
+        (1_000 + TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS - 1) as f64
     ));
     assert!(is_terminal_outbox_cleanup_due(
-        Some(1_000),
-        1_000 + TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS
+        Some(1_000.0),
+        (1_000 + TERMINAL_OUTBOX_CLEANUP_INTERVAL_MS) as f64
     ));
 }
 
 #[test]
 fn retention_threshold_is_seven_days_before_now() {
     let now = pi_js_compat::date::date_parse_millis("2026-07-11T22:00:00.000Z").expect("now");
-    assert_eq!(terminal_outbox_retention_threshold(now), "2026-07-04T22:00:00.000Z");
+    assert_eq!(
+        terminal_outbox_retention_threshold(now as f64).unwrap(),
+        "2026-07-04T22:00:00.000Z"
+    );
 }

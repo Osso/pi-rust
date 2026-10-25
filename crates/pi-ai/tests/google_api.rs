@@ -170,7 +170,12 @@ async fn vertex_stream_simple_without_project_or_env_reports_the_typescript_mess
 #[tokio::test]
 async fn lazy_api_wrappers_expose_the_provider_streams_contract() {
     let gemini = google_generative_ai_api();
-    let message = collect(gemini.stream(gemini_model("gemini-2.5-flash"), context(), StreamOptions::default())).await;
+    let message = collect(
+        gemini
+            .stream(gemini_model("gemini-2.5-flash"), context(), StreamOptions::default())
+            .expect("acquisition"),
+    )
+    .await;
     assert_eq!(
         message.error_message.as_ref(),
         Some(&pi_js_compat::js_json::JsString::from(
@@ -179,11 +184,15 @@ async fn lazy_api_wrappers_expose_the_provider_streams_contract() {
     );
 
     let vertex = google_vertex_api();
-    let message = collect(vertex.stream(
-        vertex_model("gemini-3-flash-preview"),
-        context(),
-        StreamOptions::default(),
-    ))
+    let message = collect(
+        vertex
+            .stream(
+                vertex_model("gemini-3-flash-preview"),
+                context(),
+                StreamOptions::default(),
+            )
+            .expect("acquisition"),
+    )
     .await;
     assert_eq!(
         message.error_message.as_ref(),

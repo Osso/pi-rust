@@ -9,7 +9,10 @@ use pi_ai::{
     },
     oauth::{OAuthAuthInfo, OAuthLoginCallbacks, OAuthPrompt},
     request::{BoxFuture, CallbackError, HttpRequest, ProviderStreams, SimpleStreamOptions, read_body_text},
-    types::{AnthropicMessagesCompat, AssistantMessageEvent, Context, Model, ModelCompat},
+    types::{
+        AnthropicMessagesCompat, AssistantMessage, AssistantMessageEvent, Context, ErrorReason, Model, ModelCompat,
+        StopReason,
+    },
     utils::event_stream::{AssistantMessageEventStream, create_assistant_message_event_stream},
 };
 use pi_coding_agent::core::{
@@ -19,7 +22,6 @@ use pi_coding_agent::core::{
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::JsString;
-use serde_json::json;
 use std::sync::{Arc, Mutex};
 const CLIENT_ID: &str = "da4edff2e6ebd2bc3208611e2768bc1c1dd7be791dc5ff26ca34ca9ee44f7d4b";
 const REDIRECT: &str = "http://127.0.0.1:8080/callback";
@@ -142,8 +144,8 @@ impl GitlabOAuth {
     ) -> BoxFuture<'static, Result<OAuthCredential, AuthError>> {
         let state = self.0.clone();
         Box::pin(async move {
-            let pkce = generate_pkce_with(|b| state.runtime.random.fill(b));
-            let uuid = state.runtime.random.uuid();
+            let pkce = generate_pkce_with(|b| state.runtime.random.fill(b))?;
+            let uuid = state.runtime.random.uuid()?;
             let url = url_with_query(
                 "https://gitlab.com/oauth/authorize",
                 &[
@@ -246,7 +248,7 @@ pub fn gitlab_duo_extension_with_backends(
             api: Some("gitlab-duo-api".into()),
             models: Some(catalog()),
             stream_simple: Some(Arc::new(move |model, context, options| {
-                stream.stream_simple(model, context, options.unwrap_or_default())
+                Ok(stream.stream_simple(model, context, options.unwrap_or_default()))
             })),
             oauth: Some(ExtensionOAuthConfig {
                 name: "GitLab Duo".into(),
@@ -322,7 +324,7 @@ impl GitlabDuo {
                     backends.anthropic.stream_simple(inner_model, context, options)
                 } else {
                     backends.openai.stream_simple(inner_model, context, options)
-                };
+                }?;
                 while let Some(event) = stream.next().await {
                     tx.push(event.map_err(|e| CallbackError::new(e.to_string()))?);
                 }
@@ -330,8 +332,17 @@ impl GitlabDuo {
             }
             .await;
             if let Err(error) = run {
-                let event:AssistantMessageEvent=serde_json::from_value(json!({"type":"error","reason":"error","error":{"role":"assistant","content":[],"api":model.api,"provider":model.provider,"model":model.id,"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"error","errorMessage":error.to_string(),"timestamp":state.runtime.now()}})).expect("error event");
-                tx.push(event);
+                let error_message = match error.error_or_string_message() {
+                    Ok(message) => message,
+                    Err(rejection) => pi_js_compat::callback_error::throw_callback_uncaught(rejection),
+                };
+                let mut message = AssistantMessage::empty(&model.api, &model.provider, &model.id, state.runtime.now());
+                message.stop_reason = StopReason::Error;
+                message.error_message = Some(error_message);
+                tx.push(AssistantMessageEvent::Error {
+                    reason: ErrorReason::Error,
+                    error: message,
+                });
             }
             tx.end(None);
         });

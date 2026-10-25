@@ -10,8 +10,8 @@ publish = false
 [dependencies]
 # Abort notification, timeout tasks and non-blocking Node realpath on the existing runtime.
 tokio = { version = "=1.53.3", features = ["sync", "time", "rt", "fs"] }
-# Shared platform errno names for Node filesystem/spawn errors.
-rustix = "=1.1.5"
+# Shared platform errno names and OS entropy for Node private temp directories.
+rustix = { version = "=1.1.5", features = ["rand"] }
 # Safe effective-UID passwd lookup for Node os.homedir when HOME is absent.
 nix = { version = "=0.30.1", features = ["user"] }
 # Lossless UTF-16 JSON keys retain first insertion slots on duplicate replacement.

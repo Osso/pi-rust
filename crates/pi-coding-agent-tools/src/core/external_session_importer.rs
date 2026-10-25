@@ -446,7 +446,10 @@ fn write_imported_session(
         parent_id = Some(id);
     }
 
-    let lines: Vec<String> = entries.iter().map(serialize_session_entry_for_persistence).collect();
+    let lines: Vec<String> = entries
+        .iter()
+        .map(serialize_session_entry_for_persistence)
+        .collect::<Result<_, _>>()?;
     let encoded_path = encode_node_utf8(path);
     fs::write(&encoded_path, format!("{}\n", lines.join("\n")))
         .map_err(|error| SessionManagerError::new(node_fs_error(&error, "open", path)))

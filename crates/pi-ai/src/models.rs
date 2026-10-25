@@ -28,13 +28,18 @@ pub trait Provider: Send + Sync {
     fn auth(&self) -> &ProviderAuth;
     fn get_models(&self) -> Result<Vec<Model>, CallbackError>;
     fn refresh_models(&self) -> Option<RefreshModelsFn>;
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream;
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError>;
     fn stream_simple(
         &self,
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream;
+    ) -> Result<AssistantMessageEventStream, CallbackError>;
 }
 
 pub trait Models: Send + Sync {
@@ -250,7 +255,7 @@ impl Models for ModelsCollection {
                     .await
                     .map_err(ModelsError::into_callback)?;
                 options.request = request;
-                Ok(provider.stream(model, context, options))
+                provider.stream(model, context, options)
             })
         })
     }
@@ -281,7 +286,7 @@ impl Models for ModelsCollection {
                     .await
                     .map_err(ModelsError::into_callback)?;
                 options.stream.request = request;
-                Ok(provider.stream_simple(model, context, options))
+                provider.stream_simple(model, context, options)
             })
         })
     }
@@ -345,8 +350,8 @@ impl ConfiguredProvider {
     fn dispatch(
         &self,
         model: Model,
-        run: impl FnOnce(&Arc<dyn ProviderStreams>) -> AssistantMessageEventStream,
-    ) -> AssistantMessageEventStream {
+        run: impl FnOnce(&Arc<dyn ProviderStreams>) -> Result<AssistantMessageEventStream, CallbackError>,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         let streams = match &self.api {
             ProviderApi::Single(api) => Some(api),
             ProviderApi::Map(apis) => apis.get(&model.api),
@@ -359,7 +364,7 @@ impl ConfiguredProvider {
                     format!("Provider {} has no API implementation for \"{}\"", self.id, model.api),
                 )
                 .into_callback();
-                lazy_stream(model, move || Box::pin(async move { Err(error) }))
+                Ok(lazy_stream(model, move || Box::pin(async move { Err(error) })))
             }
         }
     }
@@ -386,7 +391,12 @@ impl Provider for ConfiguredProvider {
     fn refresh_models(&self) -> Option<RefreshModelsFn> {
         self.refresh.clone()
     }
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.dispatch(model.clone(), move |streams| streams.stream(model, context, options))
     }
     fn stream_simple(
@@ -394,7 +404,7 @@ impl Provider for ConfiguredProvider {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.dispatch(model.clone(), move |streams| {
             streams.stream_simple(model, context, options)
         })

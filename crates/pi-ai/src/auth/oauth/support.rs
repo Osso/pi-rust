@@ -18,19 +18,19 @@ pub type Clock = Arc<dyn Fn() -> f64 + Send + Sync>;
 
 /// Random source for PKCE verifiers, hex state, and UUIDs.
 pub trait RandomSource: Send + Sync {
-    fn fill(&self, bytes: &mut [u8]);
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CallbackError>;
 
-    fn uuid(&self) -> String;
+    fn uuid(&self) -> Result<String, CallbackError>;
 }
 
 pub struct OsRandom;
 
 impl RandomSource for OsRandom {
-    fn fill(&self, bytes: &mut [u8]) {
-        getrandom::fill(bytes).expect("OS random source must be available for OAuth");
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CallbackError> {
+        crate::utils::crypto_random::fill_random(bytes).map_err(CallbackError::from)
     }
 
-    fn uuid(&self) -> String {
+    fn uuid(&self) -> Result<String, CallbackError> {
         uuid_v4(self)
     }
 }
@@ -75,12 +75,12 @@ impl Default for OAuthRuntime {
     }
 }
 
-pub fn uuid_v4(random: &dyn RandomSource) -> String {
+pub fn uuid_v4(random: &dyn RandomSource) -> Result<String, CallbackError> {
     let mut bytes = [0_u8; 16];
-    random.fill(&mut bytes);
+    random.fill(&mut bytes)?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    format_uuid(&bytes)
+    Ok(format_uuid(&bytes))
 }
 
 fn format_uuid(bytes: &[u8; 16]) -> String {
@@ -95,10 +95,10 @@ fn format_uuid(bytes: &[u8; 16]) -> String {
 }
 
 /// `randomBytes(length).toString("hex")`.
-pub fn random_hex(random: &dyn RandomSource, length: usize) -> String {
+pub fn random_hex(random: &dyn RandomSource, length: usize) -> Result<String, CallbackError> {
     let mut bytes = vec![0_u8; length];
-    random.fill(&mut bytes);
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
+    random.fill(&mut bytes)?;
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
 }
 
 /// `URLSearchParams` / `application/x-www-form-urlencoded` encoding in pair order.

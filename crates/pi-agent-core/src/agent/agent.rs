@@ -3,7 +3,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
-use pi_ai::request::{BoxFuture, OnPayload, OnResponse, OnRetry, SimpleStreamOptions};
+use pi_ai::request::{BoxFuture, CallbackError, OnPayload, OnResponse, OnRetry, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantMessage, ImageContent, Message, Model, ModelCost, ModelCostRates, StopReason, TextContent,
     TextOrImageContent, ThinkingBudgets, Transport, UserContent, UserMessage, UserRole,
@@ -930,47 +930,53 @@ impl Agent {
         result: Result<Vec<AgentMessage>, AgentError>,
         signal: &AbortSignal,
     ) -> Result<(), AgentError> {
-        let mut listener_error = None;
-        if let Err(error) = result {
-            let partial = self
-                .state_lock()
-                .streaming_message
-                .clone()
-                .filter(|message| message.as_assistant().is_some());
-            let failure = self.build_failure_message(&error, signal.aborted(), partial.as_ref());
-            let mut events = Vec::new();
-            if partial.is_none() {
-                events.push(AgentEvent::MessageStart {
-                    message: failure.clone(),
-                });
-            }
-            events.extend([
-                AgentEvent::MessageEnd {
-                    message: failure.clone(),
-                },
-                AgentEvent::TurnEnd {
-                    message: failure.clone(),
-                    tool_results: Vec::new(),
-                },
-                AgentEvent::AgentEnd {
-                    messages: vec![failure],
-                },
-            ]);
-            for event in events {
-                if let Err(error) = self.process_events(event).await {
-                    listener_error = Some(error);
-                    break;
-                }
-            }
-        }
+        let failure_result = match result {
+            Ok(_) => Ok(()),
+            Err(error) => self.emit_run_failure(error, signal.aborted()).await,
+        };
         self.finish_run();
-        match listener_error {
-            Some(error) => Err(error),
-            None => Ok(()),
-        }
+        failure_result
     }
 
-    fn build_failure_message(&self, error: &AgentError, aborted: bool, partial: Option<&AgentMessage>) -> AgentMessage {
+    async fn emit_run_failure(&self, error: AgentError, aborted: bool) -> Result<(), AgentError> {
+        let error_message = CallbackError::from_error(error.message().clone(), error)
+            .error_or_string_message()
+            .map_err(AgentError::from)?;
+        let partial = self
+            .state_lock()
+            .streaming_message
+            .clone()
+            .filter(|message| message.as_assistant().is_some());
+        let failure = self.build_failure_message(error_message, aborted, partial.as_ref());
+        if partial.is_none() {
+            self.process_events(AgentEvent::MessageStart {
+                message: failure.clone(),
+            })
+            .await?;
+        }
+        for event in [
+            AgentEvent::MessageEnd {
+                message: failure.clone(),
+            },
+            AgentEvent::TurnEnd {
+                message: failure.clone(),
+                tool_results: Vec::new(),
+            },
+            AgentEvent::AgentEnd {
+                messages: vec![failure],
+            },
+        ] {
+            self.process_events(event).await?;
+        }
+        Ok(())
+    }
+
+    fn build_failure_message(
+        &self,
+        error_message: JsString,
+        aborted: bool,
+        partial: Option<&AgentMessage>,
+    ) -> AgentMessage {
         let state = self.state_lock();
         let mut message = AssistantMessage::empty(
             state.model.api.clone(),
@@ -987,7 +993,7 @@ impl Agent {
         } else {
             StopReason::Error
         };
-        message.error_message = Some(error.message().clone());
+        message.error_message = Some(error_message);
         AgentMessage::Assistant(Box::new(message))
     }
 

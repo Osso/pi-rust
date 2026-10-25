@@ -1133,12 +1133,10 @@ async fn simple_lazy_setup_catches_missing_keys_and_both_exports_stream_valid_re
             ..Default::default()
         };
         let result = if lazy {
-            Ok(
-                pi_ai::api::openai_codex_responses::openai_codex_responses_api().stream_simple(
-                    model("https://chatgpt.com/backend-api"),
-                    context(),
-                    simple,
-                ),
+            pi_ai::api::openai_codex_responses::openai_codex_responses_api().stream_simple(
+                model("https://chatgpt.com/backend-api"),
+                context(),
+                simple,
             )
         } else {
             pi_ai::api::openai_codex_responses::stream_simple(

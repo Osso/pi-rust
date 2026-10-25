@@ -1,0 +1,32 @@
+{
+  "nodeVersion": "v26.11.1",
+  "verified": "2026-10-25",
+  "license": "vendor/Node-LICENSE",
+  "sources": [
+    {
+      "path": "src/node_file.cc",
+      "url": "https://raw.githubusercontent.com/nodejs/node/v26.11.1/src/node_file.cc",
+      "sha256": "33e4be5acc25b44ba4f532564220a721b645416da4e9fa26d58e14011c66a450",
+      "lines": [
+        1684,
+        1803
+      ]
+    },
+    {
+      "path": "src/api/exceptions.cc",
+      "sharedLock": "node-execve-source-lock.json",
+      "lines": [
+        53,
+        99
+      ]
+    },
+    {
+      "path": "src/node_errors.cc",
+      "sharedLock": "node-execve-source-lock.json",
+      "lines": [
+        689,
+        1005
+      ]
+    }
+  ]
+}

@@ -1,10 +1,14 @@
 //! Frozen seekable transcript spool. Native subprocess replaces TS Worker so
 //! synchronous callers retain bounded decoding, hard timeout and termination.
-use super::session_manager::SessionManagerError;
-use super::session_transcript::{create_session_transcript_read_stream, read_session_transcript_path};
-use pi_js_compat::js_json::{JsString, encode_node_utf8};
+use super::session_transcript::{
+    create_session_transcript_read_stream, read_session_transcript_path, session_transcript_read_error,
+};
+use pi_js_compat::callback_error::CallbackError;
+use pi_js_compat::js_json::{JsString, JsValue, encode_node_utf8, parse_lossless, stringify_lossless};
+use pi_js_compat::node_error::NativeNodeError;
+use pi_js_compat::node_fs::{node_file_write_error_record, node_fs_error_record, node_rm_recursive_error_record};
 use std::fs::{self, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -19,21 +23,25 @@ pub fn run_internal_session_transcript_worker(args: &[String]) -> Option<i32> {
     }
     let result = match args.get(1..3) {
         Some(paths) if args.len() == 3 => spool_worker(&paths[0], &paths[1]),
-        _ => Err(pi_js_compat::callback_error::CallbackError::from(
+        _ => Err(Box::new(NativeNodeError::new(
+            "Error",
             "Transcript worker requires source and target",
-        )),
+        ))),
     };
     Some(match result {
         Ok(()) => 0,
         Err(cause) => {
-            eprintln!("{cause}");
+            // A lossless string on the private process boundary, like port.postMessage(String(error)).
+            let error = cause.string_value();
+            eprintln!("{}", stringify_lossless(&JsValue::String(error)));
             1
         }
     })
 }
-fn spool_worker(source: &str, target: &str) -> Result<(), pi_js_compat::callback_error::CallbackError> {
-    let mut input = create_session_transcript_read_stream(source)
-        .map_err(|error| pi_js_compat::callback_error::CallbackError::from(*error))?;
+fn spool_worker(source: &str, target: &str) -> Result<(), Box<NativeNodeError>> {
+    let source = JsString::from(source);
+    let target = JsString::from(target);
+    let mut input = create_session_transcript_read_stream(&source)?;
     let mut options = OpenOptions::new();
     options.write(true).create_new(true);
     #[cfg(unix)]
@@ -41,10 +49,28 @@ fn spool_worker(source: &str, target: &str) -> Result<(), pi_js_compat::callback
         use std::os::unix::fs::OpenOptionsExt;
         options.mode(0o600);
     }
-    let mut output = options.open(target)?;
-    io::copy(&mut input, &mut output)?;
-    output.flush()?;
-    Ok(())
+    let mut output = options
+        .open(encode_node_utf8(&target))
+        .map_err(|error| Box::new(NativeNodeError::from(node_fs_error_record(&error, "open", &target))))?;
+    copy_spool_bytes(&source, &mut input, &mut output)
+}
+fn copy_spool_bytes(
+    source: &JsString,
+    input: &mut dyn Read,
+    output: &mut impl Write,
+) -> Result<(), Box<NativeNodeError>> {
+    let mut bytes = [0; 64 * 1024];
+    loop {
+        let size = input
+            .read(&mut bytes)
+            .map_err(|error| session_transcript_read_error(source, error))?;
+        if size == 0 {
+            return Ok(());
+        }
+        output
+            .write_all(&bytes[..size])
+            .map_err(|error| Box::new(NativeNodeError::from(node_file_write_error_record(&error))))?;
+    }
 }
 
 struct Worker(Child);
@@ -80,16 +106,12 @@ fn wait_worker(child: &mut Child, timeout: Duration) -> io::Result<bool> {
         std::thread::sleep(Duration::from_millis(5));
     }
 }
-fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) -> Result<(), SessionManagerError> {
+fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) -> Result<(), CallbackError> {
     let executable = crate::utils::paths::node_join(
         crate::config::get_package_dir()?,
         if cfg!(windows) { "pi.exe" } else { "pi" },
     );
-    let stderr = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(errors)
-        .map_err(|e| SessionManagerError::new(e.to_string()))?;
+    let stderr = OpenOptions::new().write(true).create_new(true).open(errors)?;
     let child = Command::new(encode_node_utf8(&executable))
         .arg(SESSION_TRANSCRIPT_WORKER_MODE)
         .arg(encode_node_utf8(source))
@@ -98,11 +120,11 @@ fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) ->
         .stdout(Stdio::null())
         .stderr(stderr)
         .spawn()
-        .map_err(|e| {
-            SessionManagerError::new(pi_js_compat::js_format!(
+        .map_err(|error| {
+            CallbackError::new(pi_js_compat::js_format!(
                 "Cannot start transcript worker {}: {}",
                 executable,
-                e.to_string()
+                error.to_string()
             ))
         })?;
     let mut worker = Worker(child);
@@ -110,32 +132,57 @@ fn spool_archived_transcript(source: &JsString, target: &Path, errors: &Path) ->
     match wait_worker(&mut worker.0, SPOOL_TIMEOUT) {
         Ok(true) => Ok(()),
         Ok(false) => {
-            let worker_error = fs::read_to_string(errors).map_err(|e| SessionManagerError::new(e.to_string()))?;
-            Err(SessionManagerError::new(failure_prefix + worker_error))
+            let wire = fs::read_to_string(errors)?;
+            let error = parse_lossless(wire.trim())
+                .map_err(|error| CallbackError::new(format!("Invalid transcript worker error: {error}")))?;
+            let JsValue::String(error) = error else {
+                return Err(CallbackError::new("Invalid transcript worker error: expected a string"));
+            };
+            Err(CallbackError::new(failure_prefix + error))
         }
-        Err(cause) if cause.kind() == io::ErrorKind::TimedOut => Err(SessionManagerError::new(
+        Err(cause) if cause.kind() == io::ErrorKind::TimedOut => Err(CallbackError::new(
             JsString::from("Timed out decompressing session transcript: ") + source,
         )),
-        Err(cause) => Err(SessionManagerError::new(failure_prefix + cause.to_string())),
+        Err(cause) => Err(CallbackError::new(failure_prefix + cause.to_string())),
     }
 }
 
 pub fn with_seekable_session_transcript<T>(
     path: &JsString,
-    read: impl FnOnce(&JsString) -> Result<T, SessionManagerError>,
-) -> Result<T, SessionManagerError> {
+    read: impl FnOnce(&JsString) -> Result<T, CallbackError>,
+) -> Result<T, CallbackError> {
     let source = read_session_transcript_path(path);
     if !source.ends_with(".jsonl.zst") {
         return read(&source);
     }
-    let directory = tempfile::Builder::new()
-        .prefix("pi-transcript-")
-        .tempdir()
-        .map_err(|e| SessionManagerError::new(e.to_string()))?;
-    let plain = directory.path().join("transcript.jsonl");
-    let result = spool_archived_transcript(&source, &plain, &directory.path().join("worker-error"))
-        .and_then(|()| read(&JsString::from(plain.to_string_lossy().as_ref())));
-    // Unlike TempDir's silent Drop, surface cleanup failure just as TS finally.
-    directory.close().map_err(|e| SessionManagerError::new(e.to_string()))?;
+    let prefix = crate::utils::paths::node_join(pi_js_compat::node_os::tmpdir(), "pi-transcript-");
+    let directory = pi_js_compat::node_fs::mkdtemp(&prefix).map_err(|error| CallbackError::from(*error))?;
+    let plain = crate::utils::paths::node_join(directory.clone(), "transcript.jsonl");
+    let errors = crate::utils::paths::node_join(directory.clone(), "worker-error");
+    let result = spool_archived_transcript(
+        &source,
+        Path::new(&encode_node_utf8(&plain)),
+        Path::new(&encode_node_utf8(&errors)),
+    )
+    .and_then(|()| read(&plain));
+    remove_spool_directory(&directory)?;
     result
+}
+
+fn remove_spool_directory(directory: &JsString) -> Result<(), CallbackError> {
+    let encoded = encode_node_utf8(directory);
+    let result = fs::symlink_metadata(&encoded).and_then(|metadata| {
+        if metadata.is_dir() {
+            fs::remove_dir_all(&encoded)
+        } else {
+            fs::remove_file(&encoded)
+        }
+    });
+    match result {
+        Ok(()) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(CallbackError::from(NativeNodeError::from(
+            node_rm_recursive_error_record(&error, directory),
+        ))),
+    }
 }

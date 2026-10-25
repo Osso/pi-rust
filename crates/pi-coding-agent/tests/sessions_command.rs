@@ -48,9 +48,12 @@ impl SessionsCommandDependencies for Harness {
         Ok("/tmp/pi-agent".into())
     }
 
-    fn truncate_tool_output(&self, agent_dir: &JsString) -> ToolResultSessionMigrationReport {
+    fn truncate_tool_output(
+        &self,
+        agent_dir: &JsString,
+    ) -> Result<ToolResultSessionMigrationReport, pi_ai::request::CallbackError> {
         assert_eq!(agent_dir.to_utf8().unwrap(), "/tmp/pi-agent");
-        self.truncate.lock().unwrap().take().unwrap_or_default()
+        Ok(self.truncate.lock().unwrap().take().unwrap_or_default())
     }
 }
 

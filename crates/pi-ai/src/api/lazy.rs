@@ -22,7 +22,15 @@ pub fn lazy_stream(
     tokio::spawn(async move {
         match setup().await {
             Ok(mut inner) => forward_stream(&sender, &model, &mut inner).await,
-            Err(error) => fail_stream(&sender, &model, &error.message),
+            Err(error) => {
+                // Frozen lazy.ts:49–53 catches acquisition; its Error.message/
+                // String(error) conversion can itself reject without an event.
+                let message = match error.error_or_string_message() {
+                    Ok(message) => message,
+                    Err(rejection) => pi_js_compat::callback_error::throw_callback_uncaught(rejection),
+                };
+                fail_stream(&sender, &model, message);
+            }
         }
     });
     stream
@@ -83,14 +91,21 @@ pub fn lazy_api(load: ApiLoader, capabilities: LazyApiCapabilities) -> LazyApi {
 }
 
 impl ProviderStreams for LazyApi {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         let load = Arc::clone(&self.load);
-        lazy_stream(model.clone(), move || {
+        // Frozen lazy.ts:68–71 returns the outer stream now; inner synchronous
+        // rejection belongs to the async setup catch, not this acquisition.
+        Ok(lazy_stream(model.clone(), move || {
             Box::pin(async move {
                 let implementation = load().await?;
-                Ok(implementation.stream(model, context, options))
+                implementation.stream(model, context, options)
             })
-        })
+        }))
     }
 
     fn stream_simple(
@@ -98,14 +113,14 @@ impl ProviderStreams for LazyApi {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
+    ) -> Result<AssistantMessageEventStream, CallbackError> {
         let load = Arc::clone(&self.load);
-        lazy_stream(model.clone(), move || {
+        Ok(lazy_stream(model.clone(), move || {
             Box::pin(async move {
                 let implementation = load().await?;
-                Ok(implementation.stream_simple(model, context, options))
+                implementation.stream_simple(model, context, options)
             })
-        })
+        }))
     }
 
     fn supports_fetch_deferred(&self) -> bool {

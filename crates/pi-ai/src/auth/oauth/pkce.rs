@@ -1,3 +1,4 @@
+use crate::request::CallbackError;
 use sha2::{Digest, Sha256};
 
 const VERIFIER_BYTES: usize = 32;
@@ -8,23 +9,21 @@ pub struct Pkce {
     pub challenge: String,
 }
 
-pub fn generate_pkce() -> Pkce {
-    generate_pkce_with(|bytes| {
-        getrandom::fill(bytes).expect("OS random source must be available for PKCE");
-    })
+pub fn generate_pkce() -> Result<Pkce, CallbackError> {
+    generate_pkce_with(|bytes| crate::utils::crypto_random::fill_random(bytes).map_err(CallbackError::from))
 }
 
 /// PKCE generation with an injected random byte source.
-pub fn generate_pkce_with(mut fill: impl FnMut(&mut [u8])) -> Pkce {
+pub fn generate_pkce_with(mut fill: impl FnMut(&mut [u8]) -> Result<(), CallbackError>) -> Result<Pkce, CallbackError> {
     let mut verifier_bytes = [0_u8; VERIFIER_BYTES];
-    fill(&mut verifier_bytes);
+    fill(&mut verifier_bytes)?;
     let verifier = base64url_encode(&verifier_bytes);
     let challenge = challenge_for(&verifier);
 
-    Pkce { verifier, challenge }
+    Ok(Pkce { verifier, challenge })
 }
 
-pub fn challenge_for(verifier: &str) -> String {
+fn challenge_for(verifier: &str) -> String {
     let digest = Sha256::digest(verifier.as_bytes());
     base64url_encode(&digest)
 }

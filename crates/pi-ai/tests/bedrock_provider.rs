@@ -11,8 +11,13 @@ use pi_ai::utils::event_stream::AssistantMessageEventStream;
 struct MarkerProvider;
 
 impl ProviderStreams for MarkerProvider {
-    fn stream(&self, model: Model, _context: Context, _options: StreamOptions) -> AssistantMessageEventStream {
-        error_stream(&model, "marker provider")
+    fn stream(
+        &self,
+        model: Model,
+        _context: Context,
+        _options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
+        Ok(error_stream(&model, "marker provider"))
     }
 
     fn stream_simple(
@@ -20,8 +25,8 @@ impl ProviderStreams for MarkerProvider {
         model: Model,
         _context: Context,
         _options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        error_stream(&model, "marker provider")
+    ) -> Result<AssistantMessageEventStream, pi_ai::request::CallbackError> {
+        Ok(error_stream(&model, "marker provider"))
     }
 }
 
@@ -54,7 +59,9 @@ fn options(fetch: Arc<ScriptedFetch>) -> StreamOptions {
 async fn provider_module_and_lazy_override_match_the_typescript_exports() {
     let body = [message_start(), text_delta(0, "Hello"), message_stop("end_turn")].concat();
     let fetch = ScriptedFetch::new(vec![ScriptedResponse::ok(body, &[])]);
-    let mut stream = bedrock_provider_module().stream(model(), context(), options(fetch));
+    let mut stream = bedrock_provider_module()
+        .stream(model(), context(), options(fetch))
+        .expect("acquisition");
     let mut text = pi_js_compat::js_json::JsString::default();
     while let Some(event) = stream.next().await {
         if let pi_ai::types::AssistantMessageEvent::TextDelta { delta, .. } = event.expect("event") {
@@ -70,6 +77,7 @@ async fn provider_module_and_lazy_override_match_the_typescript_exports() {
     let fetch = ScriptedFetch::new(vec![]);
     let message = api
         .stream(model(), context(), options(fetch))
+        .expect("acquisition")
         .result()
         .await
         .expect("marker result");

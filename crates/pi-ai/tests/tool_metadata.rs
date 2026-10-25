@@ -70,11 +70,13 @@ async fn agent_tool_metadata_matches_frozen_whole_object_consumers() {
             )
             .into(),
         ]);
-        let stream = core.stream_simple(
-            core.get_model(Some("")).unwrap(),
-            context.clone(),
-            SimpleStreamOptions::default(),
-        );
+        let stream = core
+            .stream_simple(
+                core.get_model(Some("")).unwrap(),
+                context.clone(),
+                SimpleStreamOptions::default(),
+            )
+            .expect("acquisition");
         let result = stream.result().await.unwrap();
         if index == 0 {
             assert_eq!(expected["input"].as_f64(), Some(53.0), "shared harness fixture");

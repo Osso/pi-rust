@@ -4,12 +4,12 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use pi_ai::request::SimpleStreamOptions;
+use pi_ai::request::{CallbackError, SimpleStreamOptions};
 use pi_ai::types::{
     AssistantContent, AssistantMessage, AssistantMessageEvent, Context, Message, StopReason, TextContent,
     TextOrImageContent, Tool, ToolCall, ToolResultMessage, UserMessage, UserRole,
 };
-use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, StreamFailure, event_stream};
+use pi_ai::utils::event_stream::{AssistantMessageEventStream, EventStream, event_stream};
 use pi_ai::utils::validation::validate_tool_arguments;
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
@@ -44,7 +44,7 @@ pub fn agent_loop(
         let result = run_agent_loop(prompts, context, config, event_sink(sender.clone()), signal, stream_fn).await;
         match result {
             Ok(messages) => sender.end(Some(messages)),
-            Err(error) => sender.fail(StreamFailure::new(error.message().clone())),
+            Err(error) => sender.fail(CallbackError::from_error(error.message().clone(), error).into()),
         }
     });
     stream
@@ -65,7 +65,7 @@ pub fn agent_loop_continue(
         let result = run_agent_loop_continue(context, config, event_sink(sender.clone()), signal, stream_fn).await;
         match result {
             Ok(messages) => sender.end(Some(messages)),
-            Err(error) => sender.fail(StreamFailure::new(error.message().clone())),
+            Err(error) => sender.fail(CallbackError::from_error(error.message().clone(), error).into()),
         }
     });
     Ok(stream)

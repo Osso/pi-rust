@@ -290,10 +290,9 @@ async fn run_async() {
 
     let manual_code = format!("http://localhost:53692/callback?code=manual-code&state={}", {
         let random = oauth_support::TestRandom::new();
-        pi_ai::auth::oauth::pkce::generate_pkce_with(|bytes| {
-            RandomSource::fill(random.as_ref(), bytes);
-        })
-        .verifier
+        pi_ai::auth::oauth::pkce::generate_pkce_with(|bytes| RandomSource::fill(random.as_ref(), bytes))
+            .unwrap()
+            .verifier
     });
 
     let scenarios: Vec<(Flow, Scenario)> = vec![

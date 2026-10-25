@@ -230,16 +230,22 @@ pub struct ImagesOptions {
 
 /// `ProviderStreams`: the uniform stream contract of an API implementation module.
 ///
-/// Stream methods return synchronously; failures are encoded in the stream.
+/// Stream methods return synchronously and preserve throws before a stream
+/// exists. Lazy modules catch these rejections inside their forwarding task.
 pub trait ProviderStreams: Send + Sync {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream;
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, CallbackError>;
 
     fn stream_simple(
         &self,
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream;
+    ) -> Result<AssistantMessageEventStream, CallbackError>;
 
     /// Whether `fetch_deferred` exists (method presence in TS).
     fn supports_fetch_deferred(&self) -> bool {

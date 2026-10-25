@@ -68,7 +68,7 @@ fn stream_fn(faux: &FauxProviderHandle) -> pi_agent_core::agent::types::StreamFn
     let provider = Arc::clone(&faux.provider);
     Arc::new(move |model: Model, context: Context, options: SimpleStreamOptions| {
         let stream = provider.stream_simple(model, context, options);
-        Box::pin(async move { Ok(stream) })
+        Box::pin(async move { stream.map_err(pi_agent_core::agent::AgentError::from) })
     })
 }
 
@@ -3264,6 +3264,174 @@ async fn detach_running_tool_and_detach_bash_tool_delegate_to_the_tool_detach_re
     drop(subscription);
     assert!(!fixture.session.has_detachable_tool());
     assert!(!fixture.session.has_detachable_bash_tool());
+}
+
+#[tokio::test]
+async fn registered_commands_precede_terminal_outbox_drain_and_normal_prompt_coordinates_afterward() {
+    use pi_coding_agent::core::event_bus::{EventBus, EventBusController};
+    use pi_coding_agent::core::extensions::{
+        ExtensionCommandContext, ExtensionFactory, HandlerError, create_extension_runtime, load_extension_from_factory,
+    };
+    use pi_coding_agent::core::multi_agent_store::{MultiAgentStore, MultiAgentStoreOptions};
+    let temp = tempfile::tempdir().unwrap();
+    let cwd = temp.path().to_str().unwrap();
+    let db_path = temp.path().join("control.sqlite");
+    let db_name = db_path.to_str().unwrap();
+    let events = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let command_events = Arc::clone(&events);
+    let runtime = create_extension_runtime();
+    let factory: ExtensionFactory = Arc::new(move |api| {
+        let command_events = Arc::clone(&command_events);
+        api.register_command(
+            "ordercmd",
+            None,
+            None,
+            Arc::new(move |_args: JsString, _ctx: ExtensionCommandContext| {
+                let command_events = Arc::clone(&command_events);
+                Box::pin(async move {
+                    command_events.lock().unwrap().push("command".to_owned());
+                    Ok(())
+                }) as pi_coding_agent::core::extensions::BoxFuture<'static, Result<(), HandlerError>>
+            }),
+        )
+        .unwrap();
+        Box::pin(async { Ok(()) })
+    });
+    let bus: Arc<dyn EventBus> = Arc::new(EventBusController::new());
+    let extension = load_extension_from_factory(
+        factory,
+        &cwd.into(),
+        bus,
+        runtime.clone(),
+        &"private-order-fixture".into(),
+    )
+    .await
+    .unwrap();
+    let faux = faux_provider(RegisterFauxProviderOptions {
+        provider: Some("faux".to_owned()),
+        models: Some(vec![faux_model()]),
+        ..Default::default()
+    });
+    faux.set_responses(vec![faux_assistant_message("done", Default::default()).into()]);
+    let registry = model_registry(&faux).await;
+    let agent = Agent::new(AgentOptions {
+        initial_state: Some(AgentInitialState {
+            model: Some(faux.get_model(None).unwrap()),
+            system_prompt: Some("".into()),
+            thinking_level: Some(ThinkingLevel::Off),
+            tools: Some(Vec::new()),
+            messages: None,
+        }),
+        stream_fn: Some(stream_fn(&faux)),
+        ..Default::default()
+    })
+    .unwrap();
+    let mut manager = SessionManager::create(
+        &cwd.into(),
+        Some(&temp.path().join("sessions").to_str().unwrap().into()),
+        None,
+    )
+    .unwrap();
+    manager
+        .set_metadata_control_db_path(Some(&db_name.into()), Default::default())
+        .unwrap();
+    manager.persist_for_recovery().unwrap();
+    let session_path = manager.get_session_file().unwrap().clone();
+    let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+    store.set_persistence_session_manager(Some(&manager));
+    let session = AgentSession::new(AgentSessionConfig {
+        agent,
+        session_manager: Arc::new(std::sync::Mutex::new(manager)),
+        settings_manager: Arc::new(std::sync::Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            Default::default(),
+        ))),
+        cwd: cwd.into(),
+        scoped_models: Vec::new(),
+        resource_loader: Arc::new(pi_coding_agent::core::resource_loader::StaticResourceLoader {
+            extensions: Some(pi_coding_agent::core::extensions::types::LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime,
+            }),
+            ..Default::default()
+        }),
+        model_registry: registry,
+        initial_active_tool_names: Some(Vec::new()),
+        allowed_tool_names: Some(Vec::new()),
+        excluded_tool_names: None,
+        permission_prompt_tool: None,
+        agent_dir: Some(cwd.into()),
+        control_db_path: Some(db_name.into()),
+        base_tools: Vec::new(),
+        custom_tool_definitions: Vec::new(),
+        custom_tools: Vec::new(),
+        multi_agent_runtime_role: None,
+        multi_agent_execution_capability: None,
+        thinking_phase_timeout_ms: None,
+        no_supervisor: None,
+        supervisor_decision_requester: None,
+        multi_agent_store: Some(store),
+        multi_agent_agent_id: None,
+        multi_agent_parent_session_id: None,
+        multi_agent_requires_agent_id: false,
+        disable_runtime_coordination_inbound: false,
+        on_shared_channel_message_delivered: None,
+        extension_runner_ref: None,
+        session_start_event: None,
+    })
+    .unwrap();
+    let db = pi_coding_agent::core::sqlite::create_sqlite_database(db_name).unwrap();
+    db.execute("INSERT INTO multi_agent_terminal_outbox(session_path,agent_id,terminal_revision,event_kind,status,attempt_count,updated_at) VALUES (?,'missing',2,'completed','pending',0,?)",
+        rusqlite::params![session_path, pi_coding_agent::utils::iso_time::now_iso_string()]).unwrap();
+    let at_start = Arc::new(std::sync::Mutex::new(None));
+    let observed_start = Arc::clone(&at_start);
+    let event_sink = Arc::clone(&events);
+    let event_db = db_name.to_owned();
+    session.subscribe(Arc::new(move |event| {
+        if matches!(
+            event,
+            AgentSessionEvent::Agent(pi_agent_core::agent::types::AgentEvent::AgentStart)
+        ) {
+            event_sink.lock().unwrap().push("prompt".to_owned());
+            let db = pi_coding_agent::core::sqlite::create_sqlite_database(&event_db).unwrap();
+            *observed_start.lock().unwrap() = Some(
+                db.query_row(
+                    "SELECT attempt_count FROM multi_agent_terminal_outbox WHERE agent_id='missing'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap(),
+            );
+        }
+    }));
+    session.prompt("/ordercmd", Default::default()).await.unwrap();
+    let after_command: i64 = db
+        .query_row(
+            "SELECT attempt_count FROM multi_agent_terminal_outbox WHERE agent_id='missing'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    session.prompt("hello", Default::default()).await.unwrap();
+    let after_prompt: i64 = db
+        .query_row(
+            "SELECT attempt_count FROM multi_agent_terminal_outbox WHERE agent_id='missing'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    session.dispose();
+    let source_dir = temp.path().join("frozen");
+    std::fs::create_dir(&source_dir).unwrap();
+    let mut source = tools_oracle::TsOracle::spawn("storage-prompt-order-oracle.mts", "packages/coding-agent/src/core");
+    let expected = source.request(&json!({"id":1,"dir":source_dir}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let actual = json!({"afterCommand":after_command,"atStart":*at_start.lock().unwrap(),"afterPrompt":after_prompt,"events":events.lock().unwrap().clone()});
+    assert_eq!(actual, expected["output"]);
+    assert_eq!(after_command, 0);
+    assert_eq!(*at_start.lock().unwrap(), Some(0));
+    assert!(after_prompt > 0);
 }
 
 async fn fixture_with_test_command() -> Fixture {

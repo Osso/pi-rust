@@ -110,8 +110,13 @@ fn parse_tool_choice(value: &Value) -> Option<MistralToolChoice> {
 pub struct MistralConversationsApi;
 
 impl ProviderStreams for MistralConversationsApi {
-    fn stream(&self, model: Model, context: Context, options: StreamOptions) -> AssistantMessageEventStream {
-        stream(model, context, MistralOptions::from_stream_options(options))
+    fn stream(
+        &self,
+        model: Model,
+        context: Context,
+        options: StreamOptions,
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream(model, context, MistralOptions::from_stream_options(options)))
     }
 
     fn stream_simple(
@@ -119,8 +124,8 @@ impl ProviderStreams for MistralConversationsApi {
         model: Model,
         context: Context,
         options: SimpleStreamOptions,
-    ) -> AssistantMessageEventStream {
-        stream_simple(model, context, options)
+    ) -> Result<AssistantMessageEventStream, crate::request::CallbackError> {
+        Ok(stream_simple(model, context, options))
     }
 }
 

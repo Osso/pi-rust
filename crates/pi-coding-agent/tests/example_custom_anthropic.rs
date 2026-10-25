@@ -27,12 +27,13 @@ use std::sync::{Arc, Mutex};
 
 struct Random;
 impl RandomSource for Random {
-    fn fill(&self, bytes: &mut [u8]) {
+    fn fill(&self, bytes: &mut [u8]) -> Result<(), CallbackError> {
         for (i, b) in bytes.iter_mut().enumerate() {
             *b = i as u8;
         }
+        Ok(())
     }
-    fn uuid(&self) -> String {
+    fn uuid(&self) -> Result<String, CallbackError> {
         panic!("not a UUID flow")
     }
 }
@@ -181,7 +182,7 @@ fn stream_fixture(
         )
         .unwrap();
     let model = registry.find("custom-anthropic", id).unwrap();
-    (config.stream_simple.as_ref().unwrap())(model, context, Some(options))
+    (config.stream_simple.as_ref().unwrap())(model, context, Some(options)).expect("acquisition")
 }
 async fn provider(
     input: &Value,

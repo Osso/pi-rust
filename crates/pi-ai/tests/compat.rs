@@ -94,14 +94,14 @@ fn fake_provider(api: &str, captured: Arc<Mutex<Vec<Option<pi_js_compat::js_json
         api,
         move |model, _context, options| {
             stream_captured.lock().unwrap().push(options.request.api_key.clone());
-            fake_stream(&model)
+            Ok(fake_stream(&model))
         },
         move |model, _context, options| {
             simple_captured
                 .lock()
                 .unwrap()
                 .push(options.stream.request.api_key.clone());
-            fake_stream(&model)
+            Ok(fake_stream(&model))
         },
     )
 }
@@ -237,14 +237,14 @@ fn stream_simple_injects_the_env_key_and_keeps_reasoning_options() {
                 let captured = Arc::clone(&captured);
                 move |model, _context, options| {
                     captured.lock().unwrap().push(options.request.api_key.clone());
-                    fake_stream(&model)
+                    Ok(fake_stream(&model))
                 }
             },
             move |model, _context, options| {
                 seen.lock()
                     .unwrap()
                     .push((options.stream.request.api_key.clone(), options.reasoning));
-                fake_stream(&model)
+                Ok(fake_stream(&model))
             },
         ),
         None,
@@ -320,21 +320,12 @@ fn api_mismatch_is_reported_as_the_typescript_error_message() {
     register_api_provider(fake_provider("openai-responses", captured), None);
     let provider = get_api_provider("openai-responses").expect("registered");
     let model = model("other-api", "custom", "m");
-    let mut stream = provider.stream(model, context(), stream_options());
-    let event = tokio::runtime::Runtime::new()
-        .unwrap()
-        .block_on(stream.next())
-        .expect("error event")
-        .expect("event");
-    let AssistantMessageEvent::Error { error, .. } = event else {
-        panic!("expected error event, got {event:?}");
-    };
-    assert_eq!(
-        error.error_message.as_ref(),
-        Some(&pi_js_compat::js_json::JsString::from(
-            "Mismatched api: other-api expected openai-responses"
-        ))
-    );
+    let error = provider
+        .stream(model, context(), stream_options())
+        .err()
+        .expect("synchronous mismatch rejection");
+    assert_eq!(error.name, "Error");
+    assert_eq!(error.message, "Mismatched api: other-api expected openai-responses");
 }
 
 #[test]

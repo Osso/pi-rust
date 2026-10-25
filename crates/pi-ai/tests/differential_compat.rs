@@ -102,14 +102,14 @@ fn fake_provider(api: &str, seen: Seen) -> ApiProvider {
                 .lock()
                 .unwrap()
                 .push((options.request.api_key.clone(), None));
-            fake_stream(&model)
+            Ok(fake_stream(&model))
         },
         move |model, _context, options| {
             simple_seen
                 .lock()
                 .unwrap()
                 .push((options.stream.request.api_key.clone(), options.reasoning));
-            fake_stream(&model)
+            Ok(fake_stream(&model))
         },
     )
 }
@@ -273,10 +273,10 @@ fn mismatch_and_missing_provider_errors_match_the_pinned_typescript_module() {
         context(),
         StreamOptions::default(),
     );
-    let message = runtime().block_on(mismatch.result()).expect("mismatch result");
+    let error = mismatch.err().expect("mismatch rejects before a stream exists");
     assert_eq!(
-        expected_mismatch["output"]["error"]["message"],
-        json!(message.error_message.expect("mismatch error message"))
+        expected_mismatch["output"]["error"],
+        json!({"name":error.name,"message":error.message})
     );
 
     let expected_missing = oracle.request(&json!({"id": 2, "op": "missing"}));
@@ -401,7 +401,14 @@ mod nss {
         };
         let value = match result {
             Ok(_) => json!({"threw":false}),
-            Err(error) => json!({"threw":true,"message":error.message,"error":error.string_value()}),
+            Err(error) => {
+                let native = match error.thrown_value() {
+                    pi_js_compat::abort::AbortReason::Error(native)
+                    | pi_js_compat::abort::AbortReason::DomException(native) => native,
+                    _ => panic!("NSS fixture must throw a native Error"),
+                };
+                json!({"threw":true,"message":native.message,"error":native.string_value()})
+            }
         };
         println!("RESULT:{value}");
     }

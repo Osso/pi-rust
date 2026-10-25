@@ -58,7 +58,9 @@ async fn faux_stream_matches_frozen_utf16_chunks_and_zero_timestamp() {
         )
         .into(),
     ]);
-    let mut stream = core.stream_simple(core.get_model(Some("")).unwrap(), context(), simple_options());
+    let mut stream = core
+        .stream_simple(core.get_model(Some("")).unwrap(), context(), simple_options())
+        .expect("acquisition");
     let events = collect(&mut stream).await;
     let result = stream.result().await.unwrap();
     let mut actual = pi_js_compat::js_json::JsObject::new();
@@ -750,20 +752,23 @@ async fn faux_provider_aborts_before_the_first_chunk() {
     let signal_controller = pi_js_compat::abort::AbortController::new();
     let signal = signal_controller.signal();
     signal_controller.abort(None);
-    let mut stream = faux.provider.stream_simple(
-        faux.get_model(None).unwrap(),
-        context(),
-        SimpleStreamOptions {
-            stream: StreamOptions {
-                request: pi_ai::request::ProviderRequestOptions {
-                    signal: Some(signal),
+    let mut stream = faux
+        .provider
+        .stream_simple(
+            faux.get_model(None).unwrap(),
+            context(),
+            SimpleStreamOptions {
+                stream: StreamOptions {
+                    request: pi_ai::request::ProviderRequestOptions {
+                        signal: Some(signal),
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
                 ..Default::default()
             },
-            ..Default::default()
-        },
-    );
+        )
+        .expect("acquisition");
     let events = collect(&mut stream).await;
     assert_eq!(events.len(), 1);
     match &events[0] {

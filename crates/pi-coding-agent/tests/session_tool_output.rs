@@ -156,14 +156,14 @@ fn persisted_details_use_javascript_key_order_and_numbers() {
         timestamp: "2025-01-01T00:00:00.000Z".into(),
         message: Box::new(message),
     }));
-    let line = pi_coding_agent::core::session_tool_output::serialize_session_entry(&entry);
+    let line = pi_coding_agent::core::session_tool_output::serialize_session_entry(&entry).unwrap();
     assert!(line.contains(r#""details":{"1":1,"2":2,"x":3}"#), "{line}");
 }
 
 #[test]
 fn truncates_multibyte_utf8_at_a_valid_boundary() {
     let entry = tool_result_entry(&"😀漢字".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
-    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry).unwrap();
     assert!(changed);
     let text = text_from_tool_result(&persisted);
     assert!(encode_node_utf8(&text).len() <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES);
@@ -174,7 +174,7 @@ fn truncates_multibyte_utf8_at_a_valid_boundary() {
 #[test]
 fn does_not_emit_replacement_character_at_multibyte_boundary() {
     let entry = tool_result_entry(&"😀".repeat(MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES));
-    let (persisted, _) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, _) = truncate_tool_result_for_persistence(&entry).unwrap();
     let text = text_from_tool_result(&persisted);
     assert!(!text.contains('\u{fffd}'));
 }
@@ -182,7 +182,7 @@ fn does_not_emit_replacement_character_at_multibyte_boundary() {
 #[test]
 fn returns_unchanged_small_tool_results() {
     let entry = tool_result_entry("small output");
-    let (persisted, changed) = truncate_tool_result_for_persistence(&entry);
+    let (persisted, changed) = truncate_tool_result_for_persistence(&entry).unwrap();
     assert!(!changed);
     assert_eq!(persisted, entry);
 }
@@ -208,8 +208,9 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
     fs::write(&non_session_path, "{\"type\":\"event\"}\n").unwrap();
 
     let first = migrate_tool_result_session_files(&agent_dir.to_str().expect("utf-8 test path").into(), || {
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
     assert_eq!(first.changed_files, 1);
     assert_eq!(first.truncated_messages, 1);
     assert_eq!(first.skipped_malformed_files, 1);
@@ -233,8 +234,9 @@ fn migrates_oversized_sessions_atomically_and_idempotently() {
     }
 
     let second = migrate_tool_result_session_files(&agent_dir.to_str().expect("utf-8 test path").into(), || {
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
     assert_eq!(second.changed_files, 0);
     assert_eq!(second.truncated_messages, 0);
     let backups_after: Vec<String> = fs::read_dir(&session_dir)
@@ -262,8 +264,9 @@ fn skips_a_session_that_changes_during_migration() {
         let mut content = fs::read_to_string(&session_path).unwrap();
         content.push('\n');
         fs::write(&session_path, content).unwrap();
-        1_700_000_000_000
-    });
+        Ok(1_700_000_000_000.0)
+    })
+    .unwrap();
 
     assert_eq!(report.changed_files, 0);
     assert_eq!(report.skipped_error_files, 1);

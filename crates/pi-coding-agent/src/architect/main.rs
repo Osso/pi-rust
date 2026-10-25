@@ -470,8 +470,7 @@ pub async fn run_architect_service() -> Result<(), pi_ai::request::CallbackError
         crate::core::auth_storage::AuthStorage::create(Some(&crate::utils::paths::node_join(&agent_dir, "auth.json")))
             .map_err(pi_ai::request::CallbackError::from)?,
         Some(crate::utils::paths::node_join(&agent_dir, "models.json")),
-    )
-    .map_err(pi_ai::request::CallbackError::from)?;
+    )?;
     let model = model_registry
         .find("openai-codex", "gpt-5.6-sol")
         .ok_or_else(|| JsString::from("Pi Architect requires openai-codex/gpt-5.6-sol"))?;

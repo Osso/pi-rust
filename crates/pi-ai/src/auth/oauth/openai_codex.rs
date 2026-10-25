@@ -122,7 +122,7 @@ struct DeviceTokenSuccess {
     code_verifier: String,
 }
 
-fn create_state(runtime: &OAuthRuntime) -> String {
+fn create_state(runtime: &OAuthRuntime) -> Result<String, CallbackError> {
     random_hex(runtime.random.as_ref(), 16)
 }
 
@@ -472,8 +472,8 @@ async fn login_browser(
     callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
-    let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
-    let state = create_state(runtime);
+    let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes))?;
+    let state = create_state(runtime)?;
     let url = crate::auth::oauth::support::url_append_query(
         AUTHORIZE_URL,
         &[

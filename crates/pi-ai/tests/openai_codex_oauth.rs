@@ -54,7 +54,7 @@ fn access_token(account_id: &str) -> String {
 fn state() -> String {
     let random = TestRandom::new();
     let mut bytes = [0_u8; 16];
-    pi_ai::auth::oauth::support::RandomSource::fill(random.as_ref(), &mut bytes);
+    pi_ai::auth::oauth::support::RandomSource::fill(random.as_ref(), &mut bytes).unwrap();
     bytes.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 

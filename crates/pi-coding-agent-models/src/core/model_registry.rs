@@ -1,6 +1,8 @@
 //! Frozen `core/model-registry.ts`: synchronous catalog and live AuthStorage queries.
 
+mod registered_providers;
 mod schema;
+use registered_providers::RegisteredProviders;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
@@ -28,8 +30,11 @@ use crate::core::config_value::{
 
 pub use crate::core::config_value::clear_config_value_cache as clear_api_key_cache;
 
-pub type StreamSimpleFn =
-    Arc<dyn Fn(Model, Context, Option<SimpleStreamOptions>) -> AssistantMessageEventStream + Send + Sync>;
+pub type StreamSimpleFn = Arc<
+    dyn Fn(Model, Context, Option<SimpleStreamOptions>) -> Result<AssistantMessageEventStream, CallbackError>
+        + Send
+        + Sync,
+>;
 pub type ExtensionOAuthLoginFn = Arc<
     dyn Fn(Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredentials, pi_ai::auth::AuthError>>
         + Send
@@ -149,7 +154,7 @@ struct RegistryState {
     models: Vec<Model>,
     provider_requests: IndexMap<String, ProviderRequestConfig>,
     model_headers: IndexMap<String, IndexMap<String, JsString>>,
-    registered: IndexMap<String, ProviderConfigInput>,
+    registered: RegisteredProviders,
     error: Option<JsString>,
 }
 
@@ -202,8 +207,14 @@ impl ModelRegistry {
         compat::reset_api_providers();
         pi_ai::oauth::reset_oauth_providers();
         self.load_models()?;
-        let registered = lock(&self.state).registered.clone();
-        for (provider, config) in registered {
+        // Frozen393 walks live Map entries; modifiers can insert/delete slots.
+        let mut cursor = None;
+        loop {
+            let next = lock(&self.state).registered.next_after(cursor);
+            let Some((slot, provider, config)) = next else {
+                break;
+            };
+            cursor = Some(slot);
             self.apply_provider_config(&provider, &config)?;
         }
         Ok(())
@@ -585,16 +596,11 @@ impl ModelRegistry {
     pub fn register_provider(&self, provider: &str, config: ProviderConfigInput) -> Result<(), CallbackError> {
         validate_provider_config(provider, &config)?;
         self.apply_provider_config(provider, &config)?;
-        let mut state = lock(&self.state);
-        if let Some(existing) = state.registered.get_mut(provider) {
-            upsert_provider_config(existing, config);
-        } else {
-            state.registered.insert(provider.into(), config);
-        }
+        lock(&self.state).registered.upsert(provider, config);
         Ok(())
     }
     pub fn unregister_provider(&self, provider: &str) -> Result<(), CallbackError> {
-        if lock(&self.state).registered.shift_remove(provider).is_some() {
+        if lock(&self.state).registered.remove(provider) {
             self.refresh()?;
         }
         Ok(())

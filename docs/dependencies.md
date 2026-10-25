@@ -22,7 +22,7 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 - `node_ignore` ports frozen npm `ignore@7.0.5` defaults over shared `JsString`/`JsRegex`; no additional dependency. Coding-agent package discovery uses this instead of Rust `ignore = 0.4.23` (removed).
 
-- `rustix = 1.1.5` — runtime `io::Errno` names for the centralized Node filesystem/spawn error map, moved unchanged from coding-agent; existing exact dev pin promoted without a new package/version. The `process` feature remains development-only for oracle teardown.
+- `rustix = 1.1.5` — runtime `io::Errno` names for the centralized Node filesystem/spawn error map, moved unchanged from coding-agent; existing exact dev pin promoted without a new package/version. Runtime `rand` supplies OS entropy for the shared Node `mkdtemp` six-character suffix; no new package or version. The `process` feature remains development-only for oracle teardown.
 
 - `rusqlite = 0.37.0` (optional feature `rusqlite`, enabled by `pi-coding-agent`; `bundled` dev dependency for its test) — `impl ToSql for JsString` binds TEXT exactly like `node:sqlite` (UTF-8, unpaired surrogates become U+FFFD), so control-store SQL encodes raw strings only at the bind boundary. Reuses the coding-agent's existing exact pin.
 - `indexmap = 2.14.2` — lossless JSON objects retain UTF-16 key identity, first insertion slots, and last-value-wins duplicate replacement; reuses the already-locked ordered map rather than custom bookkeeping.

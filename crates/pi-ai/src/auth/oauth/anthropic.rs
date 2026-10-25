@@ -276,7 +276,7 @@ async fn login_anthropic(
     callback_host: &JsString,
     interaction: Arc<dyn AuthInteraction>,
 ) -> Result<OAuthCredential, AuthError> {
-    let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes));
+    let pkce = generate_pkce_with(|bytes| runtime.random.fill(bytes))?;
     let (server, wait) = start_anthropic_callback_server(callback_host, pkce.verifier.clone())
         .await
         .map_err(AuthError::from)?;

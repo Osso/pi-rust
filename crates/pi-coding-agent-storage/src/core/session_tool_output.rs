@@ -5,8 +5,10 @@ use std::io::Write;
 use std::path::Path;
 
 use pi_ai::utils::random_uuid::random_uuid;
+use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value, encode_node_utf8, stringify_lossless};
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use pi_js_compat::node_fs::{
     node_file_write_error_record, node_fs_dest_error, node_fs_error, node_read_error, node_rm_error,
 };
@@ -14,7 +16,6 @@ use pi_js_compat::node_fs::{
 use crate::core::session_manager::{
     FileEntry, SessionEntry, SessionHeader, UnknownSessionEntry, parse_session_file_entry,
 };
-use crate::utils::iso_time;
 use crate::utils::paths::node_join;
 
 /// Maximum UTF-8 byte length persisted for a tool result's content.
@@ -168,26 +169,51 @@ fn fit_tool_result_candidate(entry: &JsObject, message: &JsObject, content: &[Va
     best
 }
 
-fn cap_tool_result_entry(entry: &JsObject, message: &JsObject, content: &[Value]) -> JsObject {
+fn minimal_tool_identity(value: Option<&Value>) -> Result<JsString, Box<NativeNodeError>> {
+    let received = match value {
+        Some(Value::String(text)) => return Ok(utf8_prefix(text, 128)),
+        None => "undefined".to_owned(),
+        Some(Value::Null) => "null".to_owned(),
+        Some(Value::Bool(value)) => format!("type boolean ({value})"),
+        Some(Value::Number(value)) => format!("type number ({})", pi_js_compat::number::js_number_to_string(*value)),
+        Some(Value::Array(_) | Value::Object(_)) => {
+            return Err(Box::new(NativeNodeError::new(
+                "Error",
+                "Non-string Buffer-like tool identity is not supported at the persistence fallback",
+            )));
+        }
+    };
+    Err(Box::new(NativeNodeError::from_node_constructor(
+        NativeErrorClass::TypeError,
+        "ERR_INVALID_ARG_TYPE",
+        format!(
+            "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received {received}"
+        ),
+    )))
+}
+
+fn cap_tool_result_entry(
+    entry: &JsObject,
+    message: &JsObject,
+    content: &[Value],
+) -> Result<JsObject, Box<NativeNodeError>> {
     let capped_content = cap_serialized_content(&cap_text_content(content));
     let initial = build_tool_result_candidate(entry, message, capped_content);
     if entry_bytes(&initial) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-        return initial;
+        return Ok(initial);
     }
     let mut without_details = message.clone();
     without_details.shift_remove("details");
     for variant in [message, &without_details] {
         let candidate = fit_tool_result_candidate(entry, variant, content);
         if entry_bytes(&candidate) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES {
-            return candidate;
+            return Ok(candidate);
         }
     }
     let mut minimal = JsObject::new();
     minimal.insert("role".into(), Value::String("toolResult".into()));
     for key in ["toolCallId", "toolName"] {
-        if let Some(text) = message.get(key).and_then(Value::as_string) {
-            minimal.insert(key.into(), Value::String(utf8_prefix(text, 128)));
-        }
+        minimal.insert(key.into(), Value::String(minimal_tool_identity(message.get(key))?));
     }
     let blocks = vec![text_value(TOOL_RESULT_TRUNCATION_MARKER.into())];
     minimal.insert("content".into(), Value::Array(blocks.clone()));
@@ -196,45 +222,66 @@ fn cap_tool_result_entry(entry: &JsObject, message: &JsObject, content: &[Value]
             minimal.insert(key.into(), value.clone());
         }
     }
-    build_tool_result_candidate(entry, &minimal, blocks)
+    Ok(build_tool_result_candidate(entry, &minimal, blocks))
 }
 
 /// Return a persistence-only copy; arbitrary raw entry/message fields remain authoritative.
-pub fn truncate_tool_result_for_persistence(entry: &SessionEntry) -> (SessionEntry, bool) {
+pub fn truncate_tool_result_for_persistence(
+    entry: &SessionEntry,
+) -> Result<(SessionEntry, bool), Box<NativeNodeError>> {
     if entry.entry_type() != "message" {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     }
     let value = pi_js_compat::js_json::to_value(entry).expect("session entry serializes losslessly");
     let object = value.as_object().expect("session entry is an object");
-    let Some(message) = object.get("message").and_then(Value::as_object) else {
-        return (entry.clone(), false);
+    let raw_message = object.get("message");
+    if matches!(raw_message, None | Some(Value::Null)) {
+        let value = if raw_message.is_none() { "undefined" } else { "null" };
+        return Err(Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            format!("Cannot read properties of {value} (reading 'role')"),
+        )));
+    }
+    let Some(message) = raw_message.and_then(Value::as_object) else {
+        return Ok((entry.clone(), false));
     };
     let Some(content) = message.get("content").and_then(Value::as_array) else {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     };
     if message.get("role").and_then(Value::as_string) != Some(&JsString::from("toolResult"))
         || entry_bytes(object) <= MAX_PERSISTED_TOOL_RESULT_CONTENT_BYTES
     {
-        return (entry.clone(), false);
+        return Ok((entry.clone(), false));
     }
-    (
-        SessionEntry::Unknown(UnknownSessionEntry(cap_tool_result_entry(object, message, content))),
+    Ok((
+        SessionEntry::Unknown(UnknownSessionEntry(cap_tool_result_entry(object, message, content)?)),
         true,
-    )
+    ))
 }
 
 /// Serialize one session entry while applying persistence-only tool-result truncation.
-pub fn serialize_session_entry(entry: &SessionEntry) -> String {
-    let (persisted, _) = truncate_tool_result_for_persistence(entry);
-    serde_json::to_string(&persisted).expect("session entry serializes losslessly")
+pub fn serialize_session_entry(entry: &SessionEntry) -> Result<String, Box<NativeNodeError>> {
+    let (persisted, _) = truncate_tool_result_for_persistence(entry)?;
+    Ok(serde_json::to_string(&persisted).expect("session entry serializes losslessly"))
 }
 
 /// Serialize a header or entry without projecting through scalar JSON.
-pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> String {
+fn assert_non_null_record(entry: &FileEntry) -> Result<(), Box<NativeNodeError>> {
+    if matches!(entry, FileEntry::Json(value) if value.is_null()) {
+        return Err(Box::new(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            "Cannot read properties of null (reading 'type')",
+        )));
+    }
+    Ok(())
+}
+
+pub fn serialize_session_entry_for_persistence(entry: &FileEntry) -> Result<String, Box<NativeNodeError>> {
+    assert_non_null_record(entry)?;
     match entry {
-        FileEntry::Header(header) => serde_json::to_string(header).expect("header serializes losslessly"),
+        FileEntry::Header(header) => Ok(serde_json::to_string(header).expect("header serializes losslessly")),
         FileEntry::Entry(entry) => serialize_session_entry(entry),
-        FileEntry::Json(value) => serde_json::to_string(value).expect("JSON value serializes losslessly"),
+        FileEntry::Json(value) => Ok(serde_json::to_string(value).expect("JSON value serializes losslessly")),
     }
 }
 
@@ -265,7 +312,9 @@ fn list_jsonl_files(root: &JsString) -> Vec<JsString> {
 }
 
 fn read_dir_entries(directory: &JsString) -> std::io::Result<Vec<fs::DirEntry>> {
-    fs::read_dir(encode_node_utf8(directory))?.collect()
+    let mut entries: Vec<_> = fs::read_dir(encode_node_utf8(directory))?.collect::<Result<_, _>>()?;
+    entries.sort_by_key(|entry| entry.file_name());
+    Ok(entries)
 }
 
 struct ParsedSessionFile {
@@ -282,13 +331,20 @@ enum SessionFileParseResult {
     NonSession,
 }
 
-fn metadata_mtime_ms(metadata: &fs::Metadata) -> f64 {
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|elapsed| elapsed.as_secs_f64() * 1000.0)
-        .unwrap_or(0.0)
+fn metadata_mtime_ms(metadata: &fs::Metadata) -> Result<f64, JsString> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        Ok(metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0)
+    }
+    #[cfg(not(unix))]
+    {
+        let modified = metadata.modified().map_err(|error| JsString::from(error.to_string()))?;
+        Ok(match modified.duration_since(std::time::UNIX_EPOCH) {
+            Ok(duration) => duration.as_secs_f64() * 1000.0,
+            Err(error) => -error.duration().as_secs_f64() * 1000.0,
+        })
+    }
 }
 
 fn metadata_mode(metadata: &fs::Metadata) -> u32 {
@@ -338,7 +394,7 @@ fn read_session_file_for_migration(file_path: &JsString) -> Result<SessionFilePa
         lines,
         entries,
         size: metadata.len(),
-        mtime_ms: metadata_mtime_ms(&metadata),
+        mtime_ms: metadata_mtime_ms(&metadata)?,
         mode: metadata_mode(&metadata),
     }))
 }
@@ -360,7 +416,11 @@ fn build_rewritten_session_content(
             return Err(js_format!("Missing parsed entry for {}:{}", file_path, line_index + 1));
         };
         if changed_indexes.contains(&entry_index) {
-            rewritten_lines.push(serialize_session_entry_for_persistence(entry).into());
+            rewritten_lines.push(
+                serialize_session_entry_for_persistence(entry)
+                    .map_err(|error| error.message)?
+                    .into(),
+            );
         } else {
             rewritten_lines.push(line.clone());
         }
@@ -369,10 +429,17 @@ fn build_rewritten_session_content(
     Ok(JsString::join(rewritten_lines, "\n"))
 }
 
-fn backup_path_for(file_path: &JsString, now_ms: i64) -> JsString {
-    let timestamp = iso_time::format_iso_millis(now_ms).replace([':', '.'], "-");
+fn backup_path_for(file_path: &JsString, now_ms: f64) -> Result<JsString, CallbackError> {
+    let timestamp = pi_js_compat::date::to_iso_string_value(now_ms)
+        .map_err(|error| {
+            CallbackError::from(NativeNodeError::from_constructor(
+                NativeErrorClass::RangeError,
+                error.to_string(),
+            ))
+        })?
+        .replace([':', '.'], "-");
     let suffix: String = random_uuid().chars().take(8).collect();
-    js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix)
+    Ok(js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix))
 }
 
 /// `writeFileSync(tempPath, content, { flag: "wx", mode })`, `chmodSync`, then `renameSync`.
@@ -416,14 +483,16 @@ fn write_session_file_atomically(
     file_path: &JsString,
     content: &JsString,
     parsed: &ParsedSessionFile,
-    now_ms: i64,
-) -> Result<JsString, JsString> {
+    now_ms: f64,
+) -> Result<JsString, CallbackError> {
     let current = stat_file(file_path)?;
-    if current.len() != parsed.size || metadata_mtime_ms(&current) != parsed.mtime_ms {
-        return Err("session changed while scanning; rerun after it is idle".into());
+    if current.len() != parsed.size || metadata_mtime_ms(&current)? != parsed.mtime_ms {
+        return Err(CallbackError::new(
+            "session changed while scanning; rerun after it is idle",
+        ));
     }
 
-    let backup_path = backup_path_for(file_path, now_ms);
+    let backup_path = backup_path_for(file_path, now_ms)?;
     let temp_path = js_format!("{}.tool-output-temp-{}", file_path, random_uuid());
     fs::copy(encode_node_utf8(file_path), encode_node_utf8(&backup_path))
         .map_err(|error| node_fs_dest_error(&error, "copyfile", file_path, &backup_path))?;
@@ -438,19 +507,21 @@ fn rewrite_session_file(
     parsed: &ParsedSessionFile,
     entries: &[FileEntry],
     changed_indexes: &[usize],
-    now_ms: i64,
-) -> Result<JsString, JsString> {
+    now_ms: f64,
+) -> Result<JsString, CallbackError> {
     let content = build_rewritten_session_content(file_path, &parsed.lines, entries, changed_indexes)?;
     write_session_file_atomically(file_path, &content, parsed, now_ms)
 }
 
-fn cap_session_entries(entries: &[FileEntry]) -> (Vec<FileEntry>, Vec<usize>) {
+fn cap_session_entries(entries: &[FileEntry]) -> Result<(Vec<FileEntry>, Vec<usize>), JsString> {
     let mut capped_entries = Vec::with_capacity(entries.len());
     let mut changed_indexes = Vec::new();
     for (index, entry) in entries.iter().enumerate() {
+        assert_non_null_record(entry).map_err(|error| error.message)?;
         let capped = match entry {
             FileEntry::Entry(entry) => {
-                let (truncated, changed) = truncate_tool_result_for_persistence(entry);
+                let (truncated, changed) =
+                    truncate_tool_result_for_persistence(entry).map_err(|error| error.message)?;
                 if changed {
                     changed_indexes.push(index);
                 }
@@ -460,15 +531,15 @@ fn cap_session_entries(entries: &[FileEntry]) -> (Vec<FileEntry>, Vec<usize>) {
         };
         capped_entries.push(capped);
     }
-    (capped_entries, changed_indexes)
+    Ok((capped_entries, changed_indexes))
 }
 
-/// One file of `migrateToolResultSessionFiles`; `Err` is the caught error message.
+/// One file of `migrateToolResultSessionFiles`; the caller applies the frozen catch.
 fn migrate_session_file(
     file_path: &JsString,
     report: &mut ToolResultSessionMigrationReport,
-    now: &impl Fn() -> i64,
-) -> Result<(), JsString> {
+    now: &impl Fn() -> Result<f64, CallbackError>,
+) -> Result<(), CallbackError> {
     let parsed = match read_session_file_for_migration(file_path)? {
         SessionFileParseResult::Session(parsed) => parsed,
         SessionFileParseResult::Malformed => {
@@ -482,12 +553,12 @@ fn migrate_session_file(
         }
     };
 
-    let (capped_entries, changed_indexes) = cap_session_entries(&parsed.entries);
+    let (capped_entries, changed_indexes) = cap_session_entries(&parsed.entries)?;
     if changed_indexes.is_empty() {
         return Ok(());
     }
 
-    let backup_path = rewrite_session_file(file_path, &parsed, &capped_entries, &changed_indexes, now())?;
+    let backup_path = rewrite_session_file(file_path, &parsed, &capped_entries, &changed_indexes, now()?)?;
     report.changed_files += 1;
     report.truncated_messages += changed_indexes.len();
     report.backup_paths.push(backup_path);
@@ -497,15 +568,17 @@ fn migrate_session_file(
 /// Scan and atomically rewrite oversized tool-result content under an agent directory.
 pub fn migrate_tool_result_session_files(
     agent_dir: &JsString,
-    now: impl Fn() -> i64,
-) -> ToolResultSessionMigrationReport {
+    now: impl Fn() -> Result<f64, CallbackError>,
+) -> Result<ToolResultSessionMigrationReport, CallbackError> {
     let mut report = ToolResultSessionMigrationReport::default();
     for file_path in list_jsonl_files(agent_dir) {
         report.scanned_files += 1;
-        if let Err(message) = migrate_session_file(&file_path, &mut report, &now) {
+        if let Err(error) = migrate_session_file(&file_path, &mut report, &now) {
             report.skipped_error_files += 1;
-            report.errors.push(js_format!("{}: {}", file_path, message));
+            report
+                .errors
+                .push(js_format!("{}: {}", file_path, error.error_or_string_message()?));
         }
     }
-    report
+    Ok(report)
 }

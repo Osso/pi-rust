@@ -97,23 +97,36 @@ fn cli_startup_loads_fresh_catalog_before_the_registry_and_list_models() {
     let model = json!({"id":id,"name":"Startup cache probe","provider":"openrouter","api":"openai-completions","baseUrl":"https://openrouter.ai/api/v1","reasoning":false,"input":["text"],"cost":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4},"contextWindow":4096.75,"maxTokens":128.25,"cacheMarker":{"kept":true}});
     let bytes = serde_json::to_vec(&json!({"fetchedAt":"2099-01-01T00:00:00.000Z","models":[model]})).unwrap();
     std::fs::write(&cache_path, &bytes).unwrap();
+    let environment = [
+        ("PI_CODING_AGENT_DIR", agent.clone().into_os_string()),
+        ("XDG_CACHE_HOME", cache.clone().into_os_string()),
+        ("NO_COLOR", "1".into()),
+        ("PI_CODING_AGENT_STATE_DIR", state.clone().into_os_string()),
+        ("HOME", temp.path().join("home").into_os_string()),
+        ("XDG_CONFIG_HOME", temp.path().join("config").into_os_string()),
+    ];
     let mut source = oracle::TsOracle::spawn_with_environment(
         "catalog-startup-oracle.mts",
         "packages/coding-agent/src",
-        &[
-            ("PI_CODING_AGENT_DIR", agent.clone().into_os_string()),
-            ("XDG_CACHE_HOME", cache.clone().into_os_string()),
-            ("NO_COLOR", "1".into()),
-            ("PI_CODING_AGENT_STATE_DIR", state.clone().into_os_string()),
-            ("HOME", temp.path().join("home").into_os_string()),
-            ("XDG_CONFIG_HOME", temp.path().join("config").into_os_string()),
-        ],
+        &environment,
     );
     let expected =
         source.request(&json!({"id":1,"operation":"startup","authPath":auth,"modelsPath":models,"modelId":id}));
     assert_eq!(expected["ok"], true, "{expected}");
     assert_eq!(expected["output"]["source"], "cache");
     assert_eq!(expected["output"]["model"], model);
+    // A fresh source process must exercise main's startup call, not inherit the manually loaded memo above.
+    let mut source_cli = oracle::TsOracle::spawn_with_environment(
+        "catalog-startup-oracle.mts",
+        "packages/coding-agent/src",
+        &environment,
+    );
+    let actual_cli = source_cli.request(&json!({"operation":"main_list_models","cwd":project,"args":["--offline","--no-supervisor","--no-session","-ne","--list-models",id]}));
+    assert_eq!(actual_cli["ok"], true, "{actual_cli}");
+    assert_eq!(actual_cli["output"]["code"], 0, "{actual_cli}");
+    assert!(actual_cli["output"]["stdout"].as_str().unwrap().contains(id));
+    assert_eq!(actual_cli["output"]["stdout"], expected["output"]["stdout"]);
+    assert_eq!(actual_cli["output"]["stderr"], expected["output"]["stderr"]);
     let run = |args: &[&str]| {
         Command::new(env!("CARGO_BIN_EXE_pi"))
             .args(args)

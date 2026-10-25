@@ -581,6 +581,7 @@ fn provider_dispatch_matches_ts_requests() {
                     },
                     options,
                 )
+                .expect("acquisition")
                 .result()
                 .await
         });
