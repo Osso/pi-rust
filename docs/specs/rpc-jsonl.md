@@ -24,6 +24,10 @@ RPC JSONL framing ports `packages/coding-agent/src/modes/rpc/jsonl.ts` from the 
 - [x] Emit consecutive empty records, but do not invent an additional record after a terminal LF.
 - [x] Emit one non-empty final unterminated record on end and emit nothing for an empty final buffer.
 
+### Listener lifetime
+
+- [ ] Detach disables callback delivery without destroying the underlying live pipe. Continue draining/discarding until EOF, matching a flowing Node stream after data/end listener removal. Already-entered data-listener delivery retains its current chunk semantics.
+
 ### Asynchronous errors
 
 - [ ] Unhandled read failures reach the shared uncaught authority with exact Node stream error name/message/code/errno/syscall fields.

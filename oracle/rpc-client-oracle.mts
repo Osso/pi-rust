@@ -19,6 +19,7 @@ type Client = {
 	getAvailableModels(): Promise<unknown>;
 	newSession(): Promise<unknown>;
 	getLastAssistantText(): Promise<unknown>;
+	getStderr(): string;
 	getEntries(): Promise<unknown>;
 	getTree(): Promise<unknown>;
 	getForkMessages(): Promise<unknown>;
@@ -41,7 +42,8 @@ type Request = {
 		| "collector_skip"
 		| "timeout"
 		| "spawn_error"
-		| "stop_fail";
+		| "stop_fail"
+		| "stop_writing";
 	reply: unknown;
 	executable?: string;
 	cliPath?: string;
@@ -52,6 +54,7 @@ type Request = {
 	delay?: number | "NaN" | "Infinity" | "-Infinity";
 	idleTimeout?: boolean;
 	listenerFault?: boolean;
+	keepWriting?: boolean;
 	listenerRemovesItself?: boolean;
 	method?:
 		| "model"
@@ -108,6 +111,7 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 		env: {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
+			PI_RPC_WRITING: request.keepWriting ? "1" : "0",
 			...request.envOverrides,
 		},
 	});
@@ -126,6 +130,11 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 			return { ok: true, value: [first, second, await startOutcome(client)] };
 		}
 		await client.start();
+		if (request.operation === "stop_writing") {
+			await client.stop();
+			await new Promise((resolve) => setTimeout(resolve, 100));
+			return { ok: true, value: { stderr: client.getStderr() } };
+		}
 		if (request.operation === "stop_fail") {
 			const child = Reflect.get(client, "process") as {
 				kill(signal: string): boolean;

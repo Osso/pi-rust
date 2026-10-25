@@ -2,6 +2,10 @@
 
 Current whole-module checkpoint: [proof](../rpc-mode-proof.md). Actual frozen/native process29/29 and owned unit/surface/process-oracle9/9 GREEN; approved gaps are enumerated per field below. Earlier prerequisite/baseline notes are historical, not completion evidence.
 
+## Native stdin pause boundary (2026-10-24)
+
+Frozen :731–735 detaches input listeners and calls `process.stdin.pause()`. Shared native JSONL detach now disables delivery but preserves/drains the owned transport, matching Node's flowing helper. Tokio stdin has no equivalent cancellation/pause of an already-started blocking read, so OS backpressure while the RPC mode is paused is an explicitly approved Node/libuv runtime-oddity gap (main2026-10-24). Observable records remain exact: detached input never reaches dispatch. No generic pause/backend or new test exclusion was added.
+
 ## SIGHUP detach/flush correction (2026-10-24)
 
 After parent4c28cdf4, the requested process matrix passed28/29: the fire-fixture output was unchanged, but native startup SIGHUP occasionally exited0. Root: signal shutdown detached the line reader, which dropped the channel sender; the input loop misclassified that intentional detach as stdin EOF and called shutdown0 while the129 path awaited stdout flush. Frozen :731–738 removes `onInputEnd` before flushing. The native input loop now permits an EOF shutdown only while the input subscription remains attached, and otherwise retains the frozen pending lifetime.

@@ -1,5 +1,14 @@
 import { createInterface } from "node:readline";
 const reply = JSON.parse(process.env.PI_RPC_CLIENT_REPLY);
+if (process.env.PI_RPC_WRITING === "1") {
+	process.on("SIGTERM", () => {});
+	process.stdout.on("error", (error) => {
+		process.stderr.write(`stdout-error:${error.code}\n`, () =>
+			process.exit(42),
+		);
+	});
+	setInterval(() => process.stdout.write('{"type":"pulse"}\n'), 10);
+}
 createInterface({ input: process.stdin }).on("line", (line) => {
 	const command = JSON.parse(line);
 	for (const event of JSON.parse(process.env.PI_RPC_EXTRA_EVENTS ?? "[]"))

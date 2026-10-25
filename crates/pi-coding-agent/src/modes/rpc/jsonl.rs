@@ -124,10 +124,9 @@ pub struct JsonlLineReader {
 }
 
 impl JsonlLineReader {
-    /// Stops reading; lines from chunks read after this call and the final unterminated line are not delivered.
+    /// Removes delivery like Node's data/end listeners without destroying the live pipe.
     pub fn detach(&self) {
         self.detached.store(true, Ordering::SeqCst);
-        self.task.abort();
     }
 
     /// Waits until the stream ends, a read fails, or the reader is detached.
@@ -167,7 +166,10 @@ where
             )
         });
         if detached.load(Ordering::SeqCst) {
-            return Ok(());
+            if length == 0 {
+                return Ok(());
+            }
+            continue;
         }
         let lines = if length == 0 {
             mem::take(&mut decoder).end()

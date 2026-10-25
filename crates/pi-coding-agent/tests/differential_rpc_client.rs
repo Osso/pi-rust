@@ -40,6 +40,14 @@ async fn native(request: &JsValue) -> JsValue {
                 .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone())),
         );
     }
+    options.env.insert(
+        "PI_RPC_WRITING".into(),
+        if request.get("keepWriting").and_then(JsValue::as_bool) == Some(true) {
+            "1".into()
+        } else {
+            "0".into()
+        },
+    );
     let client = RpcClient::new(options);
     let removal = std::sync::Arc::new(std::sync::Mutex::new(None));
     if request.get("listenerRemovesItself").and_then(JsValue::as_bool) == Some(true) {
@@ -69,7 +77,11 @@ async fn native(request: &JsValue) -> JsValue {
         return pi_js_compat::js_json!({"ok":true,"value":[first,second,third]});
     }
     client.start().await.unwrap();
-    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"timeout".into()) {
+    let result = if request.get("operation").and_then(JsValue::as_string) == Some(&"stop_writing".into()) {
+        client.stop().await.unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        Ok(pi_js_compat::js_json!({"ok":true,"value":{"stderr":client.stderr()}}))
+    } else if request.get("operation").and_then(JsValue::as_string) == Some(&"timeout".into()) {
         let delay = match request.get("delay").unwrap() {
             JsValue::Number(value) => *value,
             JsValue::String(value) if value == "NaN" => f64::NAN,
@@ -172,6 +184,15 @@ async fn start_outcome(client: &RpcClient) -> JsValue {
         Err(RpcClientError::Native(error)) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
     }
+}
+
+#[tokio::test]
+async fn rpc_client_stop_detaches_listeners_without_closing_the_live_stdout_pipe() {
+    // Frozen :177-180 removes callbacks; it does not destroy child stdout before termination.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    let request = pi_js_compat::js_json!({"operation":"stop_writing","keepWriting":true,"reply":{}});
+    let expected = source.request(&request);
+    assert_eq!(native(&request).await, expected);
 }
 
 #[tokio::test]
