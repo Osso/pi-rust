@@ -206,7 +206,7 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
     let expected = call(&mut ts, json!({"id":1,"mode":"recent","dir":dir,"cwd":dir}));
     assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
     assert_eq!(
-        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into())).unwrap()),
         expected
     );
     // Node Stats rounds, rather than truncates, before creating Date objects.
@@ -221,7 +221,7 @@ fn recent_session_uses_frozen_millisecond_ties_and_filename_order() {
     let expected = call(&mut ts, json!({"id":2,"mode":"recent","dir":dir,"cwd":dir}));
     assert_eq!(expected, json!(format!("{dir}/a.jsonl")));
     assert_eq!(
-        json!(find_most_recent_session(&dir.into(), Some(&dir.into()))),
+        json!(find_most_recent_session(&dir.into(), Some(&dir.into())).unwrap()),
         expected
     );
 }
@@ -414,6 +414,40 @@ fn reciprocal_session_info_listing_progress_and_continue_use_persisted_records()
     let expected = call(&mut ts, json!({"id":3,"mode":"continue","cwd":dir,"dir":dir}));
     let resumed = SessionManager::continue_recent(&dir.into(), Some(&dir.into())).unwrap();
     assert_eq!(snapshot(&resumed), expected["state"]);
+}
+
+#[test]
+fn path_conversion_preserves_frozen_native_error_identity() {
+    let mut ts = source();
+    for path in ["file:///tmp/encoded%2Fseparator", "file://remote/tmp/session"] {
+        let expected = ts.request(&json!({"id":1,"mode":"create","cwd":"/tmp","dir":path}));
+        assert_eq!(expected["ok"], false);
+        let actual = SessionManager::create(&"/tmp".into(), Some(&path.into()), None)
+            .err()
+            .unwrap();
+        assert_eq!(native_error(actual), expected["error"]);
+        let expected = ts.request(&json!({"id":2,"mode":"recent","cwd":"/tmp","dir":path}));
+        let actual = pi_coding_agent::core::session_manager::find_most_recent_session(&path.into(), None).unwrap_err();
+        assert_eq!(native_error(actual), expected["error"]);
+    }
+}
+
+#[test]
+fn default_directory_helper_skips_existing_paths_like_frozen() {
+    use pi_coding_agent::core::session_manager::{get_default_session_dir, get_default_session_dir_path};
+    let tmp = tempfile::tempdir().unwrap();
+    let agent = tmp.path().to_str().unwrap();
+    let path = get_default_session_dir_path(&"/project".into(), &agent.into()).unwrap();
+    let path_text = path.to_utf8().unwrap();
+    fs::create_dir_all(std::path::Path::new(&path_text).parent().unwrap()).unwrap();
+    fs::write(&path_text, "existing file").unwrap();
+    let mut ts = source();
+    let expected = call(&mut ts, json!({"id":1,"mode":"default","cwd":"/project","dir":agent}));
+    assert_eq!(
+        json!(get_default_session_dir(&"/project".into(), Some(&agent.into())).unwrap()),
+        expected
+    );
+    assert_eq!(fs::read_to_string(&path_text).unwrap(), "existing file");
 }
 
 fn assistant(text: &str) -> AgentMessage {

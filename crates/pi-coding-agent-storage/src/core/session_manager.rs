@@ -252,11 +252,15 @@ fn current_cwd() -> Result<JsString, SessionManagerError> {
 }
 
 fn resolve(input: impl Into<JsString>) -> Result<JsString, SessionManagerError> {
-    resolve_path(input, current_cwd()?, &path_options()).map_err(|cause| error(cause.message().clone()))
+    resolve_path(input, current_cwd()?, &path_options())
+        .map_err(crate::config::ConfigError::from)
+        .map_err(SessionManagerError::from)
 }
 
 fn normalize(input: impl Into<JsString>) -> Result<JsString, SessionManagerError> {
-    normalize_path(input, &path_options()).map_err(|cause| error(cause.message().clone()))
+    normalize_path(input, &path_options())
+        .map_err(crate::config::ConfigError::from)
+        .map_err(SessionManagerError::from)
 }
 
 // =============================================================================
@@ -1745,7 +1749,10 @@ pub fn get_default_session_dir(cwd: &JsString, agent_dir: Option<&JsString>) -> 
         None => get_agent_dir()?,
     };
     let session_dir = get_default_session_dir_path(cwd, &agent_dir)?;
-    fs::create_dir_all(encode_node_utf8(&session_dir)).map_err(format_session_error)?;
+    if !Path::new(&encode_node_utf8(&session_dir)).exists() {
+        fs::create_dir_all(encode_node_utf8(&session_dir))
+            .map_err(|cause| filesystem_error(cause, "mkdir", &session_dir))?;
+    }
     Ok(session_dir)
 }
 
@@ -1867,13 +1874,17 @@ fn session_cwd_matches(cwd: Option<&JsString>, resolved_cwd: &JsString) -> bool 
 }
 
 /// Find the most recently modified valid session in a directory.
-pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) -> Option<JsString> {
-    let resolved_session_dir = normalize(session_dir).ok()?;
-    let resolved_cwd = match cwd.filter(|cwd| !cwd.is_empty()) {
-        Some(cwd) => Some(resolve(cwd).ok()?),
-        None => None,
-    };
-    let mut entries = fs::read_dir(encode_node_utf8(&resolved_session_dir))
+pub fn find_most_recent_session(
+    session_dir: &JsString,
+    cwd: Option<&JsString>,
+) -> Result<Option<JsString>, SessionManagerError> {
+    let resolved_session_dir = normalize(session_dir)?;
+    let resolved_cwd = cwd.filter(|cwd| !cwd.is_empty()).map(resolve).transpose()?;
+    Ok(scan_most_recent_session(&resolved_session_dir, resolved_cwd.as_ref()))
+}
+
+fn scan_most_recent_session(resolved_session_dir: &JsString, resolved_cwd: Option<&JsString>) -> Option<JsString> {
+    let mut entries = fs::read_dir(encode_node_utf8(resolved_session_dir))
         .ok()?
         .collect::<Result<Vec<_>, _>>()
         .ok()?;
@@ -1884,11 +1895,11 @@ pub fn find_most_recent_session(session_dir: &JsString, cwd: Option<&JsString>) 
         if !file_name.ends_with(".jsonl") {
             continue;
         }
-        let path = node_join(&resolved_session_dir, file_name.as_str());
+        let path = node_join(resolved_session_dir, file_name.as_str());
         let Some(header) = read_session_header(&path) else {
             continue;
         };
-        if let Some(resolved_cwd) = resolved_cwd.as_ref()
+        if let Some(resolved_cwd) = resolved_cwd
             && !session_cwd_matches(header.cwd(), resolved_cwd)
         {
             continue;
@@ -2844,7 +2855,7 @@ impl SessionManager {
             None => get_default_session_dir(cwd, None)?,
         };
         let filter_cwd = session_dir.is_some() && !uses_default_session_dir_for(cwd, &dir)?;
-        let most_recent = find_most_recent_session(&dir, filter_cwd.then_some(cwd));
+        let most_recent = find_most_recent_session(&dir, filter_cwd.then_some(cwd))?;
         match most_recent {
             Some(path) => Self::new(cwd, &dir, Some(&path), true, None),
             None => Self::new(cwd, &dir, None, true, None),
