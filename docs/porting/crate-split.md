@@ -1,5 +1,7 @@
 # Coding-agent crate split
 
+This is the round-1 checkpoint. [Round 2](crate-split-2.md) splits core further under the same compatibility contract.
+
 Contract: [coding-agent crate layers](../specs/coding-agent-crate-layers.md).
 
 ## Dependency graph

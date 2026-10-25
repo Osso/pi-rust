@@ -1,6 +1,6 @@
 # `core/permissions/presets.ts`
 
-Authority: complete 66-line module at the [common pin](../source-lock.json). Rust: `crates/pi-coding-agent-core/src/core/permissions/presets.rs`. [Contract](../../specs/sandbox-selector.md).
+Authority: complete 66-line module at the [common pin](../source-lock.json). Rust: `crates/pi-coding-agent-data/src/core/permissions/presets.rs`. [Contract](../../specs/sandbox-selector.md).
 
 | Export | Native mapping | Proof |
 |---|---|---|

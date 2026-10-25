@@ -1,7 +1,7 @@
 # extensions/loader.ts → `core::extensions::loader`
 
 Source: `packages/coding-agent/src/core/extensions/loader.ts` (790 lines).
-Rust: `crates/pi-coding-agent-core/src/core/extensions/loader.rs`.
+Rust: `crates/pi-coding-agent-tools/src/core/extensions/loader.rs`.
 
 Approved deviation: TypeScript module loading (`jiti`, virtual modules,
 workspace aliases, factory cache) is not ported. Rust extensions are static

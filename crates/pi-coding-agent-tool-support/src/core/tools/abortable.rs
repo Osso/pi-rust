@@ -7,10 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 type Completion = Arc<Mutex<Option<tokio::sync::oneshot::Sender<Result<AgentToolResult, ToolError>>>>>;
 
-pub(super) async fn observe_tool_producer<F>(
-    producer: F,
-    signal: Option<AbortSignal>,
-) -> Result<AgentToolResult, ToolError>
+pub async fn observe_tool_producer<F>(producer: F, signal: Option<AbortSignal>) -> Result<AgentToolResult, ToolError>
 where
     F: Future<Output = Result<AgentToolResult, ToolError>> + Send + 'static,
 {

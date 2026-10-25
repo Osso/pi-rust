@@ -1,5 +1,7 @@
 # Crate split content audit
 
+This is the round-1 audit. [Round-2 audit](crate-split-2-audit.md).
+
 Compared with merged parent `95b94269`; implementation snapshot `1f00a821`. [Graph, proof ledger, and timings](crate-split.md).
 
 The pure-move commits contain only R100 renames: 356 in `753f8441`, one in `d302947e`. Of the 357 moved files, 330 remain byte-identical to the parent. The complete list of 27 moved files with content edits follows. Paths below are relative to each new crate's `src/` directory.

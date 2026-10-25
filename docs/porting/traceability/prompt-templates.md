@@ -1,7 +1,7 @@
 # prompt-templates.ts traceability
 
 Source: `packages/coding-agent/src/core/prompt-templates.ts` (285 lines, pinned revision in
-`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-core/src/core/prompt_templates.rs`.
+`docs/porting/source-lock.json`). Rust: `crates/pi-coding-agent-tools/src/core/prompt_templates.rs`.
 
 ## Exported symbols
 

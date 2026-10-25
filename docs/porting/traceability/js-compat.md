@@ -187,14 +187,14 @@ same two-match assertion. Final target 5/5. Ledger and full logs:
 | `crates/pi-agent-core/src/harness/{skills,prompt_templates}.rs` (ASCII approximation) | `pi_js_compat::locale_compare` |
 | `crates/pi-tui/src/{js_number,js_compat,base64}.rs` | `pi_js_compat::{number, string, base64}` |
 | `crates/pi-tui/src/autocomplete.rs` (ASCII approximation) | `pi_js_compat::locale_compare` |
-| `crates/pi-coding-agent-core/src/core/detached_job_retention.rs` (`compare_paths`) | `pi_js_compat::locale_compare` |
+| `crates/pi-coding-agent-storage/src/core/detached_job_retention.rs` (`compare_paths`) | `pi_js_compat::locale_compare` |
 | `crates/pi-coding-agent-base/src/utils/iso_time.rs` (`parse_javascript_date`) | `pi_js_compat::date::date_parse` |
 | `crates/pi-coding-agent-base/src/utils/footer_status.rs` (byte-order sort) | `pi_js_compat::locale_compare` |
 | `crates/pi-ai/src/api/{pi_messages,mistral_conversations,openai_codex_responses,anthropic_messages,bedrock_converse_stream,openai_responses,openai_completions,azure_openai_responses}.rs`, `utils/validation.rs`, `auth/types.rs` (`js_number`/`number_value`/`json_number`) | `pi_js_compat::number::js_number_value` |
 | `crates/pi-agent-core/src/harness/messages.rs`, `harness/frontmatter.rs` | `pi_js_compat::number::js_number_value` |
 | `crates/pi-coding-agent/src/{utils/js_json.rs,utils/frontmatter.rs,core/settings_manager.rs,core/models_store.rs}` | `pi_js_compat::number::js_number_value` |
-| `crates/pi-coding-agent-core/src/core/tools/{read,ls,find,grep,bash}.rs`, `bundled_extensions/pyrun/eval_tool.rs`, `core/settings_manager.rs` (`format_js_number`) | `pi_js_compat::number::js_number_to_string` |
-| `crates/pi-coding-agent-core/src/core/export_html/{index,ansi_to_html}.rs` (`js_number`, `js_number_to_string`) | `pi_js_compat::number::js_number_to_string` |
+| `crates/pi-coding-agent-tools/src/core/tools/{read,ls,find,grep,bash}.rs`, `bundled_extensions/pyrun/eval_tool.rs`, `core/settings_manager.rs` (`format_js_number`) | `pi_js_compat::number::js_number_to_string` |
+| `crates/pi-coding-agent-tools/src/core/export_html/{index,ansi_to_html}.rs` (`js_number`, `js_number_to_string`) | `pi_js_compat::number::js_number_to_string` |
 
 ## `minimatch` 10.2.5 (`src/minimatch/`)
 

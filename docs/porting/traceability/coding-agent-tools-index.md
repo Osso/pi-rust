@@ -1,7 +1,7 @@
 # Built-in tools index
 
 Frozen: `packages/coding-agent/src/core/tools/index.ts` at `4f9e6f8a4`.
-Rust: `crates/pi-coding-agent-core/src/core/tools/mod.rs` and its public tool submodules.
+Rust: `crates/pi-coding-agent-tools/src/core/tools/mod.rs` and its public tool submodules.
 
 | Frozen lines | Symbols/branches | Proof |
 |---|---|---|

@@ -17,7 +17,7 @@ TypeScript declares a caller-side narrowing predicate, `level is ThinkingLevel`.
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/cli/args.rs` — private eight-value table and direct-module predicate.
+- `crates/pi-coding-agent-data/src/cli/args.rs` — private eight-value table and direct-module predicate.
 - `crates/pi-coding-agent/tests/thinking_level_validator.rs` — focused behavioral proof.
 - `crates/pi-coding-agent/tests/differential_thinking_level_validator.rs` and `crates/pi-coding-agent/tests/differential_thinking_level_validator/mod.rs` — request `13177` proof.
 - `oracle/thinking-level-validator-oracle.ts` — direct-module runtime oracle.

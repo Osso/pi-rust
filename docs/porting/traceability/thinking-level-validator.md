@@ -4,7 +4,7 @@ Pinned source: `packages/coding-agent/src/cli/args.ts:67-70` at commit `532f7d12
 
 | TypeScript source | Observable contract | Rust mapping and proof |
 |---|---|---|
-| Private `VALID_THINKING_LEVELS` table | The validator recognizes exactly the eight agent-harness literals in source order and does not expose the table. | `crates/pi-coding-agent-core/src/cli/args.rs` stores a private `[ThinkingLevel; 8]` table and compares each value through `as_str`; focused tests cover valid and invalid strings. |
+| Private `VALID_THINKING_LEVELS` table | The validator recognizes exactly the eight agent-harness literals in source order and does not expose the table. | `crates/pi-coding-agent-data/src/cli/args.rs` stores a private `[ThinkingLevel; 8]` table and compares each value through `as_str`; focused tests cover valid and invalid strings. |
 | `isValidThinkingLevel(level: string)` | Exact string membership predicate over the typed string boundary. | `pi_coding_agent::cli::args::is_valid_thinking_level(level: &str) -> bool`; no parser, enum conversion, or public table. |
 | `level is ThinkingLevel` return predicate | TypeScript narrows the caller's variable after a true result. | Rust records the approved boundary as `bool`. The standalone proof imports `ThinkingLevel` from pinned `packages/agent/src/types.ts`, checks the exact predicate type and an `if`-branch narrowing assignment, and does not substitute `Option<ThinkingLevel>` or parser behavior. |
 | `packages/coding-agent/src/index.ts:3` | The package index exports only `Args` and `parseArgs`; the validator is not package-exported. | No `cli` or crate-root re-export; only the direct module path is claimed. |

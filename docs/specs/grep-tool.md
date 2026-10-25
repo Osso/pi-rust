@@ -23,7 +23,7 @@ Match `coding-agent/src/core/tools/grep.ts` at immutable4f9e6f8a4. [Module trace
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-core/src/core/tools/grep.rs`: input/process handling, cached contextual formatting and render callbacks.
+- `crates/pi-coding-agent-tools/src/core/tools/grep.rs`: input/process handling, cached contextual formatting and render callbacks.
 
 ## Tests asserting this spec
 
