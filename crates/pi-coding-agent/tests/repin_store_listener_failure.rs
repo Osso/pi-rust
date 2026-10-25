@@ -68,7 +68,7 @@ fn listener_failure_child() {
     let kind = std::env::var("PI_STORAGE_LISTENER_KIND").unwrap();
     let failure: Value = serde_json::from_str(&std::env::var("PI_STORAGE_LISTENER_FAILURE").unwrap()).unwrap();
     let store = MultiAgentStore::new(MultiAgentStoreOptions {
-        now: Some(Arc::new(|| "2026-10-25T00:00:00.000Z".into())),
+        now: Some(Arc::new(|| Ok("2026-10-25T00:00:00.000Z".into()))),
     });
     let running: AgentNode = serde_json::from_value(snapshot(1, "running")).unwrap();
     let updated: AgentNode = serde_json::from_value(snapshot(2, updated_lifecycle(&kind))).unwrap();

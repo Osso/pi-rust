@@ -16934,7 +16934,7 @@ mod ui_tests {
     fn test_store() -> Arc<MultiAgentStore> {
         Arc::new(MultiAgentStore::new(
             crate::core::multi_agent_store::MultiAgentStoreOptions {
-                now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+                now: Some(Arc::new(|| Ok("2026-06-27T00:00:00.000Z".into()))),
             },
         ))
     }

@@ -904,15 +904,17 @@ impl Serialize for MailboxMessageCommandResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MultiAgentStoreError {
     pub message: JsString,
+    callback: Option<Box<CallbackError>>,
 }
 
 impl MultiAgentStoreError {
     pub fn new(message: impl Into<JsString>) -> Self {
         Self {
             message: message.into(),
+            callback: None,
         }
     }
 
@@ -927,11 +929,27 @@ impl std::fmt::Display for MultiAgentStoreError {
     }
 }
 
-impl std::error::Error for MultiAgentStoreError {}
+impl std::error::Error for MultiAgentStoreError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        self.callback.as_deref().map(|error| error as &dyn std::error::Error)
+    }
+}
+
+impl From<CallbackError> for MultiAgentStoreError {
+    fn from(error: CallbackError) -> Self {
+        let message = error
+            .error_or_string_message()
+            .unwrap_or_else(|error| pi_js_compat::callback_error::throw_callback_uncaught(error));
+        Self {
+            message,
+            callback: Some(Box::new(error)),
+        }
+    }
+}
 
 impl From<crate::core::sqlite::ControlDbError> for MultiAgentStoreError {
     fn from(error: crate::core::sqlite::ControlDbError) -> Self {
-        Self::new(error.message())
+        Self::from(CallbackError::from(error))
     }
 }
 
@@ -947,9 +965,11 @@ pub struct PersistenceTarget {
     pub session_path: JsString,
 }
 
+type StoreClock = Arc<dyn Fn() -> Result<JsString, CallbackError> + Send + Sync>;
+
 #[derive(Clone, Default)]
 pub struct MultiAgentStoreOptions {
-    pub now: Option<Arc<dyn Fn() -> String + Send + Sync>>,
+    pub now: Option<StoreClock>,
 }
 
 type AgentTransitionListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) -> Result<(), CallbackError> + Send + Sync>;
@@ -957,7 +977,7 @@ type AgentUpdateListener = Arc<dyn Fn(&AgentSnapshot, &AgentSnapshot) -> Result<
 type LifecycleNotificationListener = Arc<dyn Fn(&AgentMailboxMessage) -> Result<(), CallbackError> + Send + Sync>;
 struct AbortHandler {
     token: Arc<()>,
-    handler: Box<dyn Fn() + Send + Sync>,
+    handler: Box<dyn Fn() -> Result<(), CallbackError> + Send + Sync>,
 }
 
 struct ListenerList<T> {
@@ -1056,7 +1076,7 @@ struct StoreState {
 
 pub struct MultiAgentStore {
     state: Arc<Mutex<StoreState>>,
-    now: Arc<dyn Fn() -> String + Send + Sync>,
+    now: StoreClock,
     lifecycle_notifications: Arc<ListenerList<LifecycleNotificationListener>>,
     transitions: Arc<ListenerList<AgentTransitionListener>>,
     updates: Arc<ListenerList<AgentUpdateListener>>,
@@ -1072,7 +1092,7 @@ impl MultiAgentStore {
             })),
             now: options
                 .now
-                .unwrap_or_else(|| Arc::new(crate::utils::iso_time::now_iso_string)),
+                .unwrap_or_else(|| Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into()))),
             lifecycle_notifications: Arc::new(ListenerList::default()),
             transitions: Arc::new(ListenerList::default()),
             updates: Arc::new(ListenerList::default()),
@@ -1083,8 +1103,8 @@ impl MultiAgentStore {
         self.state.lock().expect("multi-agent store mutex")
     }
 
-    fn now(&self) -> String {
-        (self.now)()
+    fn now(&self) -> Result<JsString, MultiAgentStoreError> {
+        (self.now)().map_err(MultiAgentStoreError::from)
     }
 
     pub fn subscribe_lifecycle_notifications(
@@ -1117,7 +1137,7 @@ impl MultiAgentStore {
     pub fn register_agent_abort_handler(
         &self,
         agent_id: &JsString,
-        handler: impl Fn() + Send + Sync + 'static,
+        handler: impl Fn() -> Result<(), CallbackError> + Send + Sync + 'static,
     ) -> AbortRegistration {
         let token = Arc::new(());
         self.lock().abort_handlers.insert(
@@ -1134,15 +1154,13 @@ impl MultiAgentStore {
         }
     }
 
-    pub fn abort_agent_handle(&self, agent_id: &JsString) -> bool {
+    pub fn abort_agent_handle(&self, agent_id: &JsString) -> Result<bool, CallbackError> {
         let handler = self.lock().abort_handlers.remove(agent_id);
-        match handler {
-            Some(handler) => {
-                (handler.handler)();
-                true
-            }
-            None => false,
-        }
+        let Some(handler) = handler else {
+            return Ok(false);
+        };
+        (handler.handler)()?;
+        Ok(true)
     }
 
     pub fn allocate_agent_id_for_lifecycle_coordinator(&self, prefix: &str) -> Result<JsString, MultiAgentStoreError> {
@@ -1154,11 +1172,11 @@ impl MultiAgentStore {
         agent_id: &JsString,
         input: &SendSteeringInput,
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         Ok(AgentMailboxMessage {
             extra: JsObject::new(),
             body: Some(input.body.clone()),
-            created_at: timestamp.clone().into(),
+            created_at: timestamp.clone(),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "steer_agent")?,
             from_agent_id: input.from_agent_id.clone().into(),
             id: self.create_message_id()?.into(),
@@ -1167,13 +1185,9 @@ impl MultiAgentStore {
             target_checkpoint: input.target_checkpoint,
             thread_id: input.thread_id.clone(),
             to_agent_id: agent_id.to_owned().into(),
-            updated_at: Some(timestamp.into()),
+            updated_at: Some(timestamp),
             error: None,
         })
-    }
-
-    pub fn publish_lifecycle_coordinator_steering(&self, agent: &AgentSnapshot, message: &AgentMailboxMessage) {
-        self.publish_steering(agent, message);
     }
 
     pub fn publish_lifecycle_coordinator_steering_delivery(
@@ -1185,13 +1199,20 @@ impl MultiAgentStore {
         self.publish_lifecycle_coordinator_snapshot(agent)
     }
 
-    fn publish_steering(&self, agent: &AgentSnapshot, message: &AgentMailboxMessage) {
-        let mut state = self.lock();
-        let previous = state.agents.get(&agent.id).cloned();
+    pub fn publish_lifecycle_coordinator_steering(
+        &self,
+        agent: &AgentSnapshot,
+        message: &AgentMailboxMessage,
+    ) -> Result<(), MultiAgentStoreError> {
+        let previous = self.lock().agents.get(&agent.id).cloned();
         let current = copy_agent(agent);
-        state.mailbox_messages.insert(message.id.clone(), copy_message(message));
-        if !state.mailbox_order.contains(&message.id) {
-            state.mailbox_order.push(message.id.clone());
+        let expired = self.mailbox_message_is_expired(message)?;
+        let mut state = self.lock();
+        if !expired {
+            state.mailbox_messages.insert(message.id.clone(), copy_message(message));
+            if !state.mailbox_order.contains(&message.id) {
+                state.mailbox_order.push(message.id.clone());
+            }
         }
         state.agents.insert(agent.id.clone(), current.clone());
         if !state.agent_order.contains(&agent.id) {
@@ -1202,6 +1223,7 @@ impl MultiAgentStore {
             self.notify_agent_update_listeners(&previous, &current);
             self.notify_transition_listeners_if_lifecycle_changed(&previous, &current);
         }
+        Ok(())
     }
 
     pub fn publish_lifecycle_coordinator_snapshot(&self, agent: &AgentSnapshot) -> Result<(), MultiAgentStoreError> {
@@ -1426,14 +1448,16 @@ impl MultiAgentStore {
         state.mailbox_messages.remove(id);
         state.mailbox_order.retain(|existing| existing != id);
     }
-    fn mailbox_message_is_expired(&self, message: &AgentMailboxMessage) -> bool {
-        crate::core::session_control_db::is_mailbox_message_expired(
+    fn mailbox_message_is_expired(&self, message: &AgentMailboxMessage) -> Result<bool, MultiAgentStoreError> {
+        let now = self.now()?;
+        Ok(crate::core::session_control_db::is_mailbox_message_expired(
             Some(&message.created_at),
-            pi_js_compat::date::date_parse(&self.now()),
-        )
+            pi_js_compat::date::date_parse_utf16(now.units()),
+        ))
     }
     pub fn list_mailbox_messages(&self) -> Result<Vec<AgentMailboxMessage>, MultiAgentStoreError> {
-        self.expire_mailbox_messages(pi_js_compat::date::date_parse(&self.now()))?;
+        let now = self.now()?;
+        self.expire_mailbox_messages(pi_js_compat::date::date_parse_utf16(now.units()))?;
         let state = self.lock();
         Ok(state
             .mailbox_order
@@ -1460,7 +1484,7 @@ impl MultiAgentStore {
         let Some(message) = self.lock().mailbox_messages.get(&message_id).cloned() else {
             return Ok(None);
         };
-        if self.mailbox_message_is_expired(&message) {
+        if self.mailbox_message_is_expired(&message)? {
             return Ok(None);
         }
         if let Some(target) = self.get_persistence_target() {
@@ -1485,7 +1509,7 @@ impl MultiAgentStore {
         let Some(message) = self.lock().mailbox_messages.get(&message_id).cloned() else {
             return Ok(None);
         };
-        if message.status != MailboxMessageStatusValue::Pending || self.mailbox_message_is_expired(&message) {
+        if message.status != MailboxMessageStatusValue::Pending || self.mailbox_message_is_expired(&message)? {
             return Ok(None);
         }
         if let Some(target) = self.get_persistence_target()
@@ -1502,7 +1526,7 @@ impl MultiAgentStore {
         let updated = AgentMailboxMessage {
             error: Some(error.clone()),
             status: MailboxMessageStatusValue::Failed,
-            updated_at: Some(self.now().into()),
+            updated_at: Some(self.now()?),
             ..message
         };
         self.lock()
@@ -1737,7 +1761,7 @@ impl MultiAgentStore {
                 current: Box::new(copy_agent(&current)),
             });
         };
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             id: self.create_message_id()?.into(),
@@ -1746,8 +1770,8 @@ impl MultiAgentStore {
             to_agent_id: parent_id.into(),
             kind: MailboxMessageKindValue::ParentRequest,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone().into(),
-            updated_at: Some(timestamp.into()),
+            created_at: timestamp.clone(),
+            updated_at: Some(timestamp),
             body: Some(input.body.clone()),
             file_refs: file_refs
                 .as_ref()
@@ -1780,7 +1804,7 @@ impl MultiAgentStore {
         input: &SendMailboxMessageInput,
     ) -> Result<MailboxMessageCommandResult, MultiAgentStoreError> {
         let target = self.lock().agents.get(&input.to_agent_id).cloned();
-        let main_thread = self.create_main_thread_snapshot();
+        let main_thread = self.create_main_thread_snapshot()?;
         let Some(target) = target else {
             return Ok(MailboxMessageCommandResult::TargetNotFound {
                 current: Box::new(main_thread),
@@ -1793,7 +1817,7 @@ impl MultiAgentStore {
                 target: Box::new(copy_agent(&target)),
             });
         }
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             id: self.create_message_id()?.into(),
@@ -1802,8 +1826,8 @@ impl MultiAgentStore {
             to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone().into(),
-            updated_at: Some(timestamp.into()),
+            created_at: timestamp.clone(),
+            updated_at: Some(timestamp),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1855,7 +1879,7 @@ impl MultiAgentStore {
                 target: Box::new(copy_agent(&target)),
             });
         }
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             id: self.create_message_id()?.into(),
@@ -1864,8 +1888,8 @@ impl MultiAgentStore {
             to_agent_id: target.id.clone().into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
-            created_at: timestamp.clone().into(),
-            updated_at: Some(timestamp.into()),
+            created_at: timestamp.clone(),
+            updated_at: Some(timestamp),
             body: Some(input.body.clone()),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "send_agent_message")?,
             target_checkpoint: None,
@@ -1894,19 +1918,19 @@ impl MultiAgentStore {
         &self,
         input: &RecordOutboundSessionMessageInput,
     ) -> Result<AgentMailboxMessage, MultiAgentStoreError> {
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             file_refs: validate_mailbox_file_refs(input.file_refs.as_ref(), "record_outbound_session_message")?,
             body: Some(input.body.clone()),
-            created_at: timestamp.clone().into(),
+            created_at: timestamp.clone(),
             from_agent_id: input.from_agent_id.clone().into(),
             id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::Message,
             status: MailboxMessageStatusValue::Pending,
             thread_id: input.thread_id.clone(),
             to_agent_id: input.to_agent_id.clone(),
-            updated_at: Some(timestamp.into()),
+            updated_at: Some(timestamp),
             target_checkpoint: None,
             error: None,
         };
@@ -1928,8 +1952,8 @@ impl MultiAgentStore {
 
     pub fn set_persistence_session_manager(&self, session: Option<&dyn SessionPersistence>) {
         let target = session.and_then(|session| {
-            let control_db_path = session.metadata_control_db_path()?;
-            let session_path = session.session_file()?;
+            let control_db_path = session.metadata_control_db_path().filter(|path| !path.is_empty())?;
+            let session_path = session.session_file().filter(|path| !path.is_empty())?;
             Some(PersistenceTarget {
                 control_db_path,
                 session_path,
@@ -1979,11 +2003,15 @@ impl MultiAgentStore {
                 current.agents.insert(restored.id.clone(), restored);
             }
         }
+        drop(current);
+        let now = self.now()?;
+        let now = pi_js_compat::date::date_parse_utf16(now.units());
         for message in state.mailbox_messages {
             if let Ok(message) = js_json::from_value::<AgentMailboxMessage>(&message) {
-                if self.mailbox_message_is_expired(&message) {
+                if crate::core::session_control_db::is_mailbox_message_expired(Some(&message.created_at), now) {
                     continue;
                 }
+                let mut current = self.lock();
                 current.mailbox_order.push(message.id.clone());
                 current
                     .mailbox_messages
@@ -1994,7 +2022,7 @@ impl MultiAgentStore {
     }
 
     fn put_mailbox_message(&self, message: AgentMailboxMessage, fields: &[&str]) -> Result<(), MultiAgentStoreError> {
-        if self.mailbox_message_is_expired(&message) {
+        if self.mailbox_message_is_expired(&message)? {
             return Ok(());
         }
         let persistence = {
@@ -2029,9 +2057,9 @@ impl MultiAgentStore {
             })
             .collect();
         slots.sort_by(|left, right| {
-            left.index
-                .cmp(&right.index)
-                .then_with(|| left.agent_id.cmp(&right.agent_id))
+            left.index.cmp(&right.index).then_with(|| {
+                pi_js_compat::collator::locale_compare_utf16(left.agent_id.units(), right.agent_id.units())
+            })
         });
         slots
     }
@@ -2059,8 +2087,9 @@ impl MultiAgentStore {
     fn find_slot_occupant(&self, slot_index: i64, excluded_agent_id: &JsString) -> Option<AgentSnapshot> {
         let state = self.lock();
         state
-            .agents
-            .values()
+            .agent_order
+            .iter()
+            .filter_map(|id| state.agents.get(id))
             .find(|agent| {
                 agent.id != *excluded_agent_id && agent.slot.as_ref().is_some_and(|slot| slot.index == slot_index)
             })
@@ -2075,11 +2104,11 @@ impl MultiAgentStore {
             || recipient.and_then(|agent| agent.parent_id.as_ref()) == Some(from_agent_id)
     }
 
-    fn create_main_thread_snapshot(&self) -> AgentSnapshot {
-        let timestamp = self.now();
-        AgentSnapshot {
+    fn create_main_thread_snapshot(&self) -> Result<AgentSnapshot, MultiAgentStoreError> {
+        let timestamp = self.now()?;
+        Ok(AgentSnapshot {
             agent_type: "main".into(),
-            created_at: timestamp.clone().into(),
+            created_at: timestamp.clone(),
             cwd: JsString::default(),
             display_name: "Main thread".into(),
             id: MAIN_THREAD_AGENT_ID.into(),
@@ -2091,7 +2120,7 @@ impl MultiAgentStore {
                 inherited_from: None,
             },
             revision: 0,
-            updated_at: timestamp.into(),
+            updated_at: timestamp,
             origin: None,
             worktree: None,
             model: None,
@@ -2106,14 +2135,14 @@ impl MultiAgentStore {
             result: None,
             error: None,
             extra: JsObject::new(),
-        }
+        })
     }
 
     fn persist_agent_metadata(
         &self,
         current: &AgentNode,
         updates: &MetadataUpdate,
-        updated_at: &str,
+        updated_at: &JsString,
         activity_ownership: Option<&AgentCurrentActivityOwner>,
     ) -> Result<Option<AgentNode>, MultiAgentStoreError> {
         let Some(target) = self.get_persistence_target() else {
@@ -2198,7 +2227,7 @@ impl MultiAgentStore {
         updates: MetadataUpdate,
         activity_ownership: Option<&AgentCurrentActivityOwner>,
     ) -> Result<AgentNode, MultiAgentStoreError> {
-        let updated_at = self.now();
+        let updated_at = self.now()?;
         let persisted = self.persist_agent_metadata(current, &updates, &updated_at, activity_ownership)?;
         let persistence = self.lock().persistence.is_some();
         if persistence && persisted.is_none() {
@@ -2278,24 +2307,24 @@ impl MultiAgentStore {
         file_refs: Option<Vec<AgentFileReference>>,
         thread_id: JsString,
     ) -> Result<(), MultiAgentStoreError> {
-        let timestamp = self.now();
+        let timestamp = self.now()?;
         if crate::core::session_control_db::is_mailbox_message_expired(
             Some(&agent.updated_at),
-            pi_js_compat::date::date_parse(&timestamp),
+            pi_js_compat::date::date_parse_utf16(timestamp.units()),
         ) {
             return Ok(());
         }
         let message = AgentMailboxMessage {
             extra: JsObject::new(),
             body: Some(body.into()),
-            created_at: timestamp.clone().into(),
+            created_at: timestamp.clone(),
             from_agent_id: agent.id.clone().into(),
             id: self.create_message_id()?.into(),
             kind: MailboxMessageKindValue::System,
             status: MailboxMessageStatusValue::Pending,
             thread_id: Some(thread_id.into()),
             to_agent_id: agent.parent_id.clone().unwrap_or_else(|| MAIN_THREAD_AGENT_ID.into()),
-            updated_at: Some(timestamp.into()),
+            updated_at: Some(timestamp),
             file_refs: file_refs
                 .as_ref()
                 .map(js_json::to_value)
@@ -2457,9 +2486,9 @@ struct MetadataUpdate {
 }
 
 impl MetadataUpdate {
-    fn apply(&self, current: &AgentNode, updated_at: &str) -> AgentNode {
+    fn apply(&self, current: &AgentNode, updated_at: &JsString) -> AgentNode {
         let mut updated = current.clone();
-        updated.updated_at = updated_at.into();
+        updated.updated_at = updated_at.clone();
         if let Some(model) = &self.model {
             updated.model = Some(model.clone());
         }
