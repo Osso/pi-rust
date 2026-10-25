@@ -22,18 +22,15 @@ pub(crate) fn fixture_package_dir() -> TempDir {
         .expect("copy built-in theme");
         fs::copy(manifest.join("theme").join(name), ts_theme_dir.join(name)).expect("copy ts built-in theme");
     }
+    let templates = manifest.join("../pi-coding-agent-tools/src/core/export_html/templates");
     let ts_export_dir = directory.path().join("src/core/export-html");
     fs::create_dir_all(ts_export_dir.join("vendor")).expect("ts export dir");
     for name in ["template.html", "template.css", "template.js"] {
-        fs::copy(
-            manifest.join("src/core/export_html/templates").join(name),
-            ts_export_dir.join(name),
-        )
-        .expect("copy export template");
+        fs::copy(templates.join(name), ts_export_dir.join(name)).expect("copy export template");
     }
     for name in ["marked.min.js", "highlight.min.js"] {
         fs::copy(
-            manifest.join("src/core/export_html/templates/vendor").join(name),
+            templates.join("vendor").join(name),
             ts_export_dir.join("vendor").join(name),
         )
         .expect("copy export vendor asset");
