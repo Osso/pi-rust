@@ -3,13 +3,17 @@ mod oracle;
 use pi_ai::request::BoxFuture;
 use pi_coding_agent::{
     core::{
+        extensions::types::CustomMessagePayload,
         session_control_db::{
-            PostSupervisorRequestInput, SupervisorRequestKind, claim_next_supervisor_request, post_supervisor_request,
-            read_supervisor_request,
+            PostSupervisorRequestInput, SupervisorRequestKind, cancel_supervisor_request,
+            claim_next_supervisor_request, post_supervisor_request, read_supervisor_request, with_control_db,
         },
         session_manager::SessionEntry,
     },
-    supervisor::main::{SupervisorSession, process_supervisor_request},
+    supervisor::main::{
+        SupervisorInstructionReviewer, SupervisorSession, create_supervisor_instruction_reviewer,
+        process_supervisor_request,
+    },
 };
 use pi_js_compat::{
     js_json as json,
@@ -28,10 +32,7 @@ struct PolicySession {
     feedback_error: bool,
 }
 impl SupervisorSession for PolicySession {
-    fn send_custom_message(
-        &self,
-        message: pi_coding_agent::core::extensions::types::CustomMessagePayload,
-    ) -> Option<BoxFuture<'static, Result<(), JsString>>> {
+    fn send_custom_message(&self, message: CustomMessagePayload) -> Option<BoxFuture<'static, Result<(), JsString>>> {
         let status = read_supervisor_request(&self.database, self.request_id)
             .unwrap()
             .unwrap()
@@ -45,7 +46,6 @@ impl SupervisorSession for PolicySession {
             if fail { Err("feedback failed".into()) } else { Ok(()) }
         }))
     }
-
     fn abort(&self) -> BoxFuture<'static, Result<(), JsString>> {
         self.calls.lock().unwrap().push(json!({"kind":"abort"}));
         Box::pin(async { Ok(()) })
@@ -78,6 +78,30 @@ impl SupervisorSession for PolicySession {
         self.branch.lock().unwrap().last().and_then(SessionEntry::id).cloned()
     }
 }
+struct PolicyCase {
+    kind: SupervisorRequestKind,
+    response: JsValue,
+    end_turn: bool,
+    percent: f64,
+    decision: Option<Result<JsValue, JsString>>,
+    feedback_error: bool,
+    block_completion: bool,
+    cancel_review: bool,
+}
+impl Default for PolicyCase {
+    fn default() -> Self {
+        Self {
+            kind: SupervisorRequestKind::GoalIdleReview,
+            response: json!({"kind":"continue","instructions":"Inspect evidence.","reason":"bounded"}),
+            end_turn: false,
+            percent: 0.0,
+            decision: None,
+            feedback_error: false,
+            block_completion: false,
+            cancel_review: false,
+        }
+    }
+}
 fn entry(response: &JsValue, end_turn: bool) -> JsValue {
     let content = if end_turn {
         json!([{"type":"toolCall","id":"finish","name":"end_turn","arguments":{}}])
@@ -90,24 +114,47 @@ fn entry(response: &JsValue, end_turn: bool) -> JsValue {
         "stopReason":if end_turn {"toolUse"} else {"stop"},"timestamp":0,
     }})
 }
-async fn compare_default_case(end_turn: bool) {
+fn create_fixture_reviewer(
+    case: &PolicyCase,
+    database: &JsString,
+    request_id: i64,
+    reviewed: Arc<Mutex<Vec<JsString>>>,
+) -> Option<SupervisorInstructionReviewer> {
+    let decision = case.decision.clone()?;
+    let database = database.clone();
+    let cancel = case.cancel_review;
+    Some(create_supervisor_instruction_reviewer(Arc::new(
+        move |instructions, signal| {
+            reviewed.lock().unwrap().push(instructions);
+            let database = database.clone();
+            let decision = decision.clone();
+            Box::pin(async move {
+                if cancel {
+                    assert!(
+                        cancel_supervisor_request(&database, request_id, &"main".into(), "fixture cancelled").unwrap()
+                    );
+                    signal.wait().await;
+                    return Err("review cancelled".into());
+                }
+                decision
+            })
+        },
+    )))
+}
+async fn compare_case(case: PolicyCase) {
     let directory = tempfile::tempdir().unwrap();
-    let response = json!({"kind":"continue","instructions":"Inspect evidence.","reason":"bounded"});
-    let message = entry(&response, end_turn);
-    let kind = if end_turn {
-        SupervisorRequestKind::ApprovalReview
-    } else {
-        SupervisorRequestKind::GoalIdleReview
-    };
+    let message = entry(&case.response, case.end_turn);
     let mut source = oracle::TsOracle::spawn(
         "coding-agent-supervisor-main-oracle.ts",
         "packages/coding-agent/src/supervisor/main.ts",
     );
-    let expected = source.request(
-        &json!({"id":1,"operation":"processRequest","database":directory.path().join("source.sqlite"),
-            "kind":kind,"entry":message,"percent":0,"defaultReviewer":true,
-        }),
-    );
+    let decision = case.decision.as_ref().and_then(|value| value.as_ref().ok());
+    let expected = source.request(&json!({"id":1,"operation":"processRequest",
+        "database":directory.path().join("source.sqlite"),"kind":case.kind,"entry":message,
+        "percent":case.percent,"defaultReviewer":case.decision.is_none(),"decision":decision,
+        "reviewError":case.decision.as_ref().is_some_and(Result::is_err),
+        "feedbackError":case.feedback_error,"blockCompletion":case.block_completion,"cancelReview":case.cancel_review,
+    }));
     assert_eq!(expected["ok"], json!(true), "{expected:?}");
     let database = JsString::from(directory.path().join("native.sqlite").to_str().unwrap());
     let id = post_supervisor_request(
@@ -115,7 +162,7 @@ async fn compare_default_case(end_turn: bool) {
         &PostSupervisorRequestInput {
             sender_session_id: "main".into(),
             project_id: "pi".into(),
-            kind,
+            kind: case.kind,
             payload: Default::default(),
             deadline_at: "2099-01-01T00:00:00.000Z".into(),
         },
@@ -124,31 +171,101 @@ async fn compare_default_case(end_turn: bool) {
     let request = claim_next_supervisor_request(&database, &"runtime".into())
         .unwrap()
         .unwrap();
+    if case.block_completion {
+        with_control_db(&database, |connection| {
+            connection.execute_batch("CREATE TRIGGER block_complete BEFORE UPDATE OF status ON supervisor_requests WHEN NEW.status = 'completed' BEGIN SELECT RAISE(ABORT, 'blocked completion'); END")?;
+            Ok(())
+        }).unwrap();
+    }
     let session = Arc::new(PolicySession {
         branch: Mutex::new(Vec::new()),
         entry: pi_js_compat::js_json::from_value(&message).unwrap(),
         calls: Arc::new(Mutex::new(Vec::new())),
         feedback: Arc::new(Mutex::new(Vec::new())),
-        percent: 0.0,
+        percent: case.percent,
         database: database.clone(),
         request_id: id,
-        feedback_error: false,
+        feedback_error: case.feedback_error,
     });
-    process_supervisor_request(&database, request, session.clone(), None)
+    let reviewed = Arc::new(Mutex::new(Vec::new()));
+    let reviewer = create_fixture_reviewer(&case, &database, id, reviewed.clone());
+    let error = process_supervisor_request(&database, request, session.clone(), reviewer)
         .await
-        .unwrap();
+        .err()
+        .map(|error| error.message().clone());
     let stored = read_supervisor_request(&database, id).unwrap().unwrap();
     let actual = json!({"status":stored.status,"response":stored.response,"feedback":*session.feedback.lock().unwrap(),
-        "calls":*session.calls.lock().unwrap(),"reviewed":[],"processError":null,
+        "calls":*session.calls.lock().unwrap(),"reviewed":*reviewed.lock().unwrap(),"processError":error,
     });
     assert_eq!(actual["response"], expected["output"]["response"]);
     assert_eq!(actual, expected["output"]);
 }
 #[tokio::test(start_paused = true)]
 async fn default_veto_suppresses_non_generic_goal_instructions() {
-    compare_default_case(false).await;
+    compare_case(PolicyCase::default()).await;
 }
 #[tokio::test(start_paused = true)]
 async fn end_turn_without_a_stopped_response_uses_frozen_error() {
-    compare_default_case(true).await;
+    compare_case(PolicyCase {
+        kind: SupervisorRequestKind::ApprovalReview,
+        end_turn: true,
+        ..Default::default()
+    })
+    .await;
+}
+#[tokio::test(start_paused = true)]
+async fn goal_review_decisions_and_feedback_match_frozen() {
+    for decision in [
+        "ACCEPT",
+        "REJECT_TASK_ASSIGNMENT",
+        "REJECT_IMPLEMENTATION_PRESCRIPTION",
+        "REJECT_SEQUENCING_INSTRUCTION",
+        "REJECT_AGENT_OR_TOOL_DIRECTION",
+        "REJECT_PLAN_OVERRIDE",
+        " ACCEPT",
+    ] {
+        compare_case(PolicyCase {
+            decision: Some(Ok(json!(decision))),
+            ..Default::default()
+        })
+        .await;
+    }
+    compare_case(PolicyCase {
+        decision: Some(Err("review failed".into())),
+        ..Default::default()
+    })
+    .await;
+    compare_case(PolicyCase {
+        feedback_error: true,
+        ..Default::default()
+    })
+    .await;
+}
+#[tokio::test(start_paused = true)]
+async fn generic_goal_and_compaction_threshold_match_frozen() {
+    for percent in [74.0, 75.0] {
+        compare_case(PolicyCase {percent,decision:Some(Ok(json!("ACCEPT"))),
+            kind:SupervisorRequestKind::GoalCompletionReview,
+            response:json!({"kind":"continue","instructions":"Continue working toward the active goal.","reason":"bounded"}),
+            ..Default::default()
+        }).await;
+    }
+}
+#[tokio::test(start_paused = true)]
+async fn completion_errors_propagate_like_frozen() {
+    compare_case(PolicyCase {
+        block_completion: true,
+        decision: Some(Ok(json!("ACCEPT"))),
+        ..Default::default()
+    })
+    .await;
+}
+#[tokio::test(start_paused = true)]
+async fn cancellation_during_instruction_review_matches_frozen() {
+    compare_case(PolicyCase {
+        cancel_review: true,
+        decision: Some(Ok(json!("ACCEPT"))),
+        ..Default::default()
+    })
+    .await;
 }

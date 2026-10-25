@@ -493,15 +493,14 @@ async fn evaluate_supervisor_prompt(
             }
         }));
     });
-    let result = evaluate_supervisor_prompt_inner(session, &request, review, prompt, signal.clone()).await;
+    let response = evaluate_supervisor_prompt_inner(&session, prompt, signal.clone()).await;
+    // Frozen returns the veto promise without awaiting it inside the listener's try/finally.
     signal.remove_listener(&listener);
-    result
+    apply_supervisor_instruction_veto(&request, response?, session, review, signal).await
 }
 
 async fn evaluate_supervisor_prompt_inner(
-    session: Arc<dyn SupervisorSession>,
-    request: &SupervisorRequest,
-    review: SupervisorInstructionReviewer,
+    session: &Arc<dyn SupervisorSession>,
     prompt: JsString,
     signal: AbortSignal,
 ) -> Result<JsValue, JsString> {
@@ -524,8 +523,7 @@ async fn evaluate_supervisor_prompt_inner(
     }
     let previous_leaf_id = session.get_leaf_id();
     session.prompt(prompt).await?;
-    let response = read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_ref())?;
-    apply_supervisor_instruction_veto(request, response, session, review, signal).await
+    read_current_supervisor_response(&session.get_branch(), previous_leaf_id.as_ref())
 }
 
 fn reviewable_goal_instructions(request: &SupervisorRequest, raw: &JsValue) -> Option<(JsString, JsString)> {
