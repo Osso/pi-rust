@@ -75,8 +75,8 @@ fn snapshot(component: &mut dyn pi_tui::EditorComponent, widths: &[Value]) -> Va
     json!({"text":text,"focused":focused,"lines": widths.iter().map(|w| component.render(w.as_u64().unwrap() as usize)).collect::<Vec<_>>()})
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
     fn set_editor_component(&self, factory: Option<ExtensionEditorFactory>) {
         *self.editor.lock().unwrap() = factory;

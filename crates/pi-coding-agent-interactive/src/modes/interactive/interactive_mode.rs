@@ -2329,8 +2329,9 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetToolsExpanded(expanded));
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        crate::modes::interactive::theme::current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
@@ -7123,14 +7124,6 @@ impl InteractiveMode {
                 Arc::new(move || {
                     let _ = sender.send(UiRequest::ShowSandboxSelector);
                     Ok(())
-                })
-            },
-            set_sandbox_profile: {
-                let session = session.clone();
-                Arc::new(move |profile, scope| {
-                    session
-                        .set_sandbox_profile(profile, scope)
-                        .map_err(|error| HandlerError::new(error.to_string()))
                 })
             },
             wait_for_idle: {

@@ -61,7 +61,7 @@ fn apply_indicator(mode: Mode, ui: &dyn ExtensionUiContext) -> Result<(), Handle
     ui.set_status(
         &JsString::from("working-indicator"),
         Some(ExtensionStatus::Text(
-            ui.theme()
+            ui.theme()?
                 .fg(ThemeColor::Dim, &format!("Indicator: {}", mode.description())),
         )),
     )

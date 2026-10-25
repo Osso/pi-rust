@@ -85,7 +85,12 @@ impl EditorBehavior for BorderStatus {
         if lines.len() < 2 {
             return lines;
         }
-        let theme = self.ctx.ui().expect("live UI").theme();
+        let theme = self
+            .ctx
+            .ui()
+            .expect("live UI")
+            .theme()
+            .unwrap_or_else(|error| pi_js_compat::callback_error::throw_callback_uncaught(error));
         let model = self
             .ctx
             .model()
