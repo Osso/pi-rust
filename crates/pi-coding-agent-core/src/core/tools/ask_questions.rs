@@ -392,8 +392,12 @@ fn execute_questions(
 ) -> BoxFuture<'static, Result<AgentToolResult, CallbackError>> {
     Box::pin(async move {
         let parsed = parse_params(&params).map_err(|error| CallbackError::new(error.message))?;
-        let context =
-            context.ok_or_else(|| CallbackError::new("Cannot read properties of undefined (reading 'hasUI')"))?;
+        let context = context.ok_or_else(|| {
+            CallbackError::from(pi_js_compat::node_error::NativeNodeError::from_constructor(
+                pi_js_compat::node_error::NativeErrorClass::TypeError,
+                "Cannot read properties of undefined (reading 'hasUI')",
+            ))
+        })?;
         let has_ui = context.has_ui().map_err(|error| CallbackError::new(error.message))?;
         if !has_ui || context.mode().map_err(|error| CallbackError::new(error.message))? != ExtensionMode::Tui {
             let result = question_result(

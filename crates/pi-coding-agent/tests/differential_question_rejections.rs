@@ -55,8 +55,11 @@ fn fixture_rejection(input: &JsValue) -> CallbackError {
     };
     CallbackError::from_rejection(reason)
 }
-async fn runtime_result(definition: ToolDefinition, context: ExtensionContext, params: JsValue) -> JsValue {
-    let tool = wrap_definition(definition, Some(Arc::new(move || context.clone())));
+async fn runtime_result(definition: ToolDefinition, context: Option<ExtensionContext>, params: JsValue) -> JsValue {
+    let factory = context.map(|context| {
+        Arc::new(move || context.clone()) as pi_coding_agent::core::tools::tool_definition_wrapper::ToolContextFactory
+    });
+    let tool = wrap_definition(definition, factory);
     let stream = pi_agent_core::agent::agent_loop(
         vec![agent_support::user("Ask").into()],
         pi_agent_core::agent::AgentContext {
@@ -92,14 +95,15 @@ async fn native_history(input: &JsValue) -> JsValue {
         .build()
         .await
         .1;
+    let context = (input["missingContext"] != json!(true)).then_some(context);
     let params = json!({"blocking":true,"questions":[{"question":"Question"}]});
     let definition = create_ask_questions_tool_definition();
-    let error = (definition.execute)("call".into(), params.clone(), None, None, Some(context.clone()))
+    let error = (definition.execute)("call".into(), params.clone(), None, None, context.clone())
         .await
         .unwrap_err();
     let direct = snapshot(error.into());
     let adapter = AskQuestionsTool::new()
-        .execute("call".into(), params.clone(), None, None, Some(context.clone()), None)
+        .execute("call".into(), params.clone(), None, None, context.clone(), None)
         .await
         .unwrap_err();
     let runtime = runtime_result(definition, context, params).await;
@@ -108,7 +112,7 @@ async fn native_history(input: &JsValue) -> JsValue {
 #[tokio::test]
 async fn custom_rejection_preserves_the_exported_factory_throw_and_agent_loop_result() {
     let raw = JsString::from_utf16(vec![0xd800]);
-    let cases = json!([{"kind":"value","value":raw},{"kind":"error","value":raw},{"kind":"value","value":null},{"kind":"value","value":false},{"kind":"value","value":42},{"kind":"value","value":{"message":raw}}]);
+    let cases = json!([{"kind":"value","value":raw},{"kind":"error","value":raw},{"kind":"value","value":null},{"kind":"value","value":false},{"kind":"value","value":42},{"kind":"value","value":{"message":raw}},{"kind":"value","value":raw,"missingContext":true}]);
     let mut oracle = oracle::TsOracle::spawn(
         "question-custom-rejection-oracle.ts",
         "packages/coding-agent/src/core/tools/ask-questions.ts",

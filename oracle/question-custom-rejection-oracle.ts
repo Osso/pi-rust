@@ -5,7 +5,11 @@ import {
 	runOracle,
 } from "./coding-agent-utils-oracle-support.ts";
 
-type Case = { kind: "error" | "value"; value: unknown };
+type Case = {
+	kind: "error" | "value";
+	value: unknown;
+	missingContext?: boolean;
+};
 type Execute = (...args: unknown[]) => Promise<unknown>;
 type Tool = { execute: Execute };
 type Message = { role: string; content: unknown; errorMessage?: string };
@@ -141,16 +145,19 @@ void runOracle(async (module, request) => {
 	)) as Loop;
 	const outputs = [];
 	for (const item of requireCases(request)) {
-		const reason = rejection(item as Case);
-		const context = {
-			hasUI: true,
-			mode: "tui",
-			ui: {
-				custom: async () => {
-					throw reason;
-				},
-			},
-		};
+		const input = item as Case;
+		const reason = rejection(input);
+		const context = input.missingContext
+			? undefined
+			: {
+					hasUI: true,
+					mode: "tui",
+					ui: {
+						custom: async () => {
+							throw reason;
+						},
+					},
+				};
 		const definition = (
 			module as { createAskQuestionsToolDefinition(): Tool }
 		).createAskQuestionsToolDefinition();
