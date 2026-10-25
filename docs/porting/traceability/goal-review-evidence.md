@@ -19,3 +19,5 @@ Proof: `suite_extensions::goal_review_evidence::goal_review_evidence_matches_fro
 RED: `/tmp/bundled-goal-evidence-red.log` reproduces missing user-request/answer context and absent blocking-answer evidence. No scalar projection is used for request, answer, reason or payload text.
 
 Gap: adversarial input shapes and independent async scheduling races follow the shared parity exclusions; returned values use approved owned snapshots.
+
+GREEN at `e1784f81e`: all 30 state-transition snapshots pass (`/tmp/bundled-goal-evidence-green.log`). Payload assembly is a separate pure function; state loading and durable writes remain explicit.

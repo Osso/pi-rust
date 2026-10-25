@@ -1,6 +1,6 @@
 //! Port of `packages/coding-agent/extensions/goal/src/goal-review-evidence.ts`.
 
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{JsObject, JsString, JsValue};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -125,6 +125,29 @@ fn consume_evidence(ctx: &ExtensionContext, reviewed_goal: &Goal, evidence_count
     )
 }
 
+fn assemble_review_payload(
+    mut payload: JsObject,
+    user: UserEvidence,
+    events: &[GoalReviewEvidenceEvent],
+) -> Result<JsObject, HandlerError> {
+    if let Some(request) = user.request {
+        payload.insert("userRequest".into(), JsValue::String(request));
+    }
+    if !user.answers.is_empty() {
+        payload.insert(
+            "userAnswers".into(),
+            JsValue::Array(user.answers.into_iter().map(JsValue::String).collect()),
+        );
+    }
+    if !events.is_empty() {
+        payload.insert(
+            "conversationEvents".into(),
+            pi_js_compat::js_json::to_value(events).map_err(|error| HandlerError::new(error.to_string()))?,
+        );
+    }
+    Ok(payload)
+}
+
 fn create_evidence_review(review_goal: GoalSupervisorReview, sessions: SharedUserEvidence) -> GoalEvidenceReview {
     Arc::new(move |input: GoalReviewInput| {
         let review_goal = Arc::clone(&review_goal);
@@ -141,23 +164,7 @@ fn create_evidence_review(review_goal: GoalSupervisorReview, sessions: SharedUse
                 .get(&session.get_session_id())
                 .cloned()
                 .unwrap_or_default();
-            let mut payload = input.payload.clone();
-            if let Some(request) = user.request {
-                payload.insert("userRequest".into(), JsValue::String(request));
-            }
-            if !user.answers.is_empty() {
-                payload.insert(
-                    "userAnswers".into(),
-                    JsValue::Array(user.answers.into_iter().map(JsValue::String).collect()),
-                );
-            }
-            if !conversation_events.is_empty() {
-                payload.insert(
-                    "conversationEvents".into(),
-                    pi_js_compat::js_json::to_value(&conversation_events)
-                        .map_err(|error| HandlerError::new(error.to_string()))?,
-                );
-            }
+            let payload = assemble_review_payload(input.payload, user, &conversation_events)?;
             let decision = review_goal(GoalReviewInput {
                 kind: input.kind,
                 payload,

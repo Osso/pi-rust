@@ -4,10 +4,10 @@ Goal review inputs follow the [frozen module](../porting/source-lock.json), mapp
 
 ## What it must do
 
-- [ ] Retain nonempty non-extension input as durable evidence and latest per-session userRequest; a new request clears prior userAnswers.
-- [ ] Retain successful nonblank end_turn reasons untrimmed and blocking ask_questions text answers, excluding errors, queued and cancelled results.
-- [ ] Merge request/answer context and nonempty conversationEvents into review payloads with frozen overwrite behavior and exact UTF-16.
-- [ ] Return the reviewed evidence count; consume only that prefix of the same goal, preserving late evidence and clearing the field when empty.
+- [x] Retain nonempty non-extension input as durable evidence and latest per-session userRequest; a new request clears prior userAnswers.
+- [x] Retain successful nonblank end_turn reasons untrimmed and blocking ask_questions text answers, excluding errors, queued and cancelled results.
+- [x] Merge request/answer context and nonempty conversationEvents into review payloads with frozen overwrite behavior and exact UTF-16.
+- [x] Return the reviewed evidence count; consume only that prefix of the same goal, preserving late evidence and clearing the field when empty.
 
 ## How it works
 
@@ -24,7 +24,7 @@ Goal review inputs follow the [frozen module](../porting/source-lock.json), mapp
 
 ## Known gaps (current cycle)
 
-- [ ] Execute focused GREEN after the implementation commit.
+No current behavioral gap in the mapped module.
 
 ## Out of scope
 
