@@ -526,39 +526,38 @@ Keep each section concise. Preserve exact file paths, function names, and error 
 const UPDATE_SUMMARIZATION_PROMPT: &str = "The messages above are NEW conversation messages to incorporate into the existing summary provided in <previous-summary> tags.
 
 Update the existing structured summary with new information. RULES:
-- PRESERVE all existing information from the previous summary
-- ADD new progress, decisions, and context from the new messages
-- UPDATE the Progress section: move items from \"In Progress\" to \"Done\" when completed
-- UPDATE \"Next Steps\" based on what was accomplished
-- PRESERVE exact file paths, function names, and error messages
-- If something is no longer relevant, you may remove it
+- Retain still-current goals, constraints, decisions, and context from the previous summary
+- Add new progress, decisions, and context from the new messages
+- Move completed work from \"In Progress\" to \"Done\"
+- Remove resolved blockers and superseded state unless needed to explain the current state
+- Update \"Next Steps\" based on what remains
 
 Use this EXACT format:
 
 ## Goal
-[Preserve existing goals, add new ones if the task expanded]
+[Retain current goals and add new ones if the task expanded]
 
 ## Constraints & Preferences
-- [Preserve existing, add new ones discovered]
+- [Retain current constraints and add newly discovered ones]
 
 ## Progress
 ### Done
-- [x] [Include previously done items AND newly completed items]
+- [x] [Previously and newly completed items]
 
 ### In Progress
-- [ ] [Current work - update based on progress]
+- [ ] [Current work only]
 
 ### Blocked
-- [Current blockers - remove if resolved]
+- [Current blockers only]
 
 ## Key Decisions
-- **[Decision]**: [Brief rationale] (preserve all previous, add new)
+- **[Decision]**: [Brief rationale for each still-relevant decision]
 
 ## Next Steps
 1. [Update based on current state]
 
 ## Critical Context
-- [Preserve important context, add new if needed]
+- [Retain context still needed to continue]
 
 Keep each section concise. Preserve exact file paths, function names, and error messages.";
 
