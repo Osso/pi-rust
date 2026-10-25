@@ -1002,6 +1002,71 @@ fn steering_commands_require_registered_sender_and_recipient_listeners() {
 }
 
 #[test]
+fn contention_retry_recovers_after_the_writer_releases_lock_like_frozen() {
+    for frozen in [false, true] {
+        let (_directory, db) = temp_db();
+        let coordinator = create_coordinator(&db, SESSION_PATH);
+        let identity = test_process_identity("automatic-retry");
+        let mut dead = coordinator
+            .prepare_child(&PrepareChildCommandInput {
+                spawn: child_input(None),
+                agent_id: Some("dead".into()),
+                detached: Some(true),
+                result: None,
+            })
+            .unwrap();
+        dead.worker = Some(pi_coding_agent::core::multi_agent_store::AgentWorkerAdapter {
+            adapter: pi_coding_agent::core::multi_agent_store::AgentWorkerAdapterKind::Runtime,
+            handle_id: identity.pid.to_string().into(),
+            cwd: None,
+            tool_call_id: None,
+        });
+        expect_created(
+            coordinator
+                .commit_running_child(&dead, &"supervisor-session".into(), &identity, None)
+                .unwrap(),
+        );
+        let writer = rusqlite::Connection::open(&db).unwrap();
+        writer.execute_batch("BEGIN IMMEDIATE").unwrap();
+        let mut source =
+            frozen.then(|| oracle::TsOracle::spawn("coding-agent-core-leaves-oracle.ts", "packages/coding-agent/src"));
+        let now = pi_coding_agent::utils::iso_time::now_iso_string();
+        if let Some(source) = source.as_mut() {
+            let response = source.request(&pi_js_compat::js_json!({
+                "id":28304,"module":"core/lifecycle-coordinator.ts","operation":"lifecycleReconcile","db":db,"now":now,
+            }));
+            assert_eq!(response["ok"], js_json::JsValue::Bool(true));
+            assert_eq!(response["output"], js_json::JsValue::Number(0.0));
+        } else {
+            assert_eq!(
+                LifecycleCoordinator::reconcile_dead_detached_runtimes(&db.clone().into(), &now, None).unwrap(),
+                0
+            );
+        }
+        writer.execute_batch("ROLLBACK").unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let agent = read_multi_agent_agent(&db, SESSION_PATH, &dead.id).unwrap().unwrap();
+            if agent.lifecycle == AgentLifecycle::Failed {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "retry did not terminalize dead runtime, frozen={frozen}"
+            );
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        assert!(
+            read_multi_agent_runtime_ownership(&db, SESSION_PATH, &dead.id)
+                .unwrap()
+                .unwrap()
+                .process_identity
+                .is_none()
+        );
+    }
+}
+
+#[test]
 fn successful_reconciliation_cancels_the_pending_retry_like_frozen() {
     for frozen in [false, true] {
         let (_directory, db) = temp_db();
