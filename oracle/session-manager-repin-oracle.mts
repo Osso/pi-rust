@@ -32,7 +32,7 @@ function snapshot(manager: Manager) {
   try { bytes = readFileSync(path, "utf8"); } catch { /* An unflushed session has no file. */ }
  }
  return {
-  header: manager.getHeader(), entries: manager.getEntries(), tree: manager.getTree(),
+  path, header: manager.getHeader(), entries: manager.getEntries(), tree: manager.getTree(),
   context: manager.buildSessionContext(), contextEntries: manager.buildContextEntries(),
   cwd: manager.getCwd(), leaf: manager.getLeafId(), name: manager.getSessionName() ?? null,
   nameState: manager.hasSessionNameState(), persisted: manager.isPersisted(), bytes,
@@ -44,6 +44,7 @@ function apply(manager: Manager, command: Command) {
  const target = command.target ?? "";
  switch (command.op) {
   case "user": return manager.appendMessage({ role: "user", content: text, timestamp: 1 });
+  case "assistant": return manager.appendMessage({ role: "assistant", content: [{type:"text",text}], api:"anthropic-messages", provider:"anthropic", model:"fixture", usage:{input:0,output:0,cacheRead:0,cacheWrite:0,totalTokens:0,cost:{input:0,output:0,cacheRead:0,cacheWrite:0,total:0}},stopReason:"stop",timestamp:2 });
   case "custom": return manager.appendCustomEntry("state", { text, nested: { n: 2 } });
   case "thinking": return manager.appendThinkingLevelChange(text);
   case "model": return manager.appendModelChange("anthropic", text);
@@ -85,7 +86,10 @@ for await (const line of createInterface({ input: process.stdin })) {
    : request.mode === "fork" ? api.SessionManager.forkFrom(request.path, request.cwd, request.dir, options, request.from)
    : api.SessionManager.open(request.path, request.dir);
   const results = [];
-  for (const command of request.commands ?? []) results.push(apply(manager, command) ?? null);
+  for (const command of request.commands ?? []) {
+   const target = command.target?.startsWith("$") ? results[Number(command.target.slice(1))] : command.target;
+   results.push(apply(manager, {...command, target: typeof target === "string" ? target : undefined}) ?? null);
+  }
   process.stdout.write(`${JSON.stringify({ id: request.id, ok: true, output: { results, state: snapshot(manager) } })}\n`);
  } catch (error) {
   if (!(error instanceof Error)) throw error;

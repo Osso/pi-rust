@@ -2451,7 +2451,7 @@ fn write_new_session_header(path: &JsString, header: &SessionHeader) -> Result<(
         .write(true)
         .create_new(true)
         .open(encode_node_utf8(path))
-        .map_err(|error| SessionManagerError::new(error.to_string()))?;
+        .map_err(|cause| filesystem_error(cause, "open", path))?;
     let line = serde_json::to_string(header).map_err(|error| SessionManagerError::new(error.to_string()))?;
     writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))
 }
@@ -2857,7 +2857,9 @@ impl SessionManager {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(&resolved_target_cwd, None)?,
         };
-        fs::create_dir_all(encode_node_utf8(&dir)).map_err(|error| SessionManagerError::new(error.to_string()))?;
+        if !Path::new(&encode_node_utf8(&dir)).exists() {
+            fs::create_dir_all(encode_node_utf8(&dir)).map_err(|cause| filesystem_error(cause, "mkdir", &dir))?;
+        }
 
         let options = options.unwrap_or_default();
         if let Some(id) = options.id.as_ref() {
@@ -3060,7 +3062,7 @@ impl SessionManager {
         }
         let mut file = options
             .open(encode_node_utf8(file_path))
-            .map_err(|error| SessionManagerError::new(error.to_string()))?;
+            .map_err(|cause| filesystem_error(cause, "open", file_path))?;
         for entry in &self.file_entries {
             let line = serialize_session_entry_for_persistence(entry)?;
             writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
