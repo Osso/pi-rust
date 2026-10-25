@@ -98,11 +98,11 @@ fn tool_call_ids_are_normalized_for_pipe_ids() {
     let messages = convert_messages(&model, &context, &compat);
     assert_eq!(
         messages[1]["tool_calls"][0]["id"],
-        pi_js_compat::js_json::JsValue::String(("call_1_item_1").into())
+        pi_js_compat::js_json::JsValue::String(("call_1").into())
     );
     assert_eq!(
         messages[2]["tool_call_id"],
-        pi_js_compat::js_json::JsValue::String(("call_1_item_1").into())
+        pi_js_compat::js_json::JsValue::String(("call_1").into())
     );
 }
 
