@@ -755,7 +755,7 @@ pub async fn run_supervisor_service() -> Result<(), pi_ai::request::CallbackErro
     let signal = controller.signal();
     install_stop_signals(&controller);
     let loop_result = run_supervisor_request_loop(RunSupervisorRequestLoopInput {
-        claim_token: pi_ai::utils::random_uuid::random_uuid().into(),
+        claim_token: pi_ai::utils::random_uuid::random_uuid()?.into(),
         console_prompts,
         control_db_path,
         session: Arc::new(session.clone()),

@@ -129,7 +129,10 @@ fn remove_if_exists(path: &str) -> io::Result<()> {
 
 fn replace_session_file(source: &str, target: &str, content: &[u8]) -> io::Result<()> {
     let metadata = fs::metadata(source)?;
-    let temporary = format!("{target}.archive-temp-{}", pi_ai::utils::random_uuid::random_uuid());
+    let temporary = format!(
+        "{target}.archive-temp-{}",
+        pi_ai::utils::random_uuid::random_uuid().map_err(io::Error::other)?
+    );
     let result = (|| {
         let mut options = OpenOptions::new();
         options.write(true).create_new(true);

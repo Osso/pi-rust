@@ -86,7 +86,7 @@ impl AgentSession {
         self.cancel_codex_restriction_validation();
         let context = CodexRestrictionContext {
             user_request: text.clone(),
-            request_id: pi_ai::utils::random_uuid::random_uuid().into(),
+            request_id: pi_ai::utils::random_uuid::random_uuid()?.into(),
         };
         let session_id = self.session_id();
         {

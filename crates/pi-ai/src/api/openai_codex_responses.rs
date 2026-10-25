@@ -431,7 +431,12 @@ async fn execute_stream(
     {
         body = next_body;
     }
-    let websocket_request_id = cache_session_id.cloned().unwrap_or_else(|| random_uuid().into());
+    let websocket_request_id = match cache_session_id {
+        Some(id) => id.clone(),
+        None => random_uuid()
+            .map_err(|error| format_codex_callback_error(error.into()))?
+            .into(),
+    };
     let sse_headers = build_sse_headers(
         model.headers.as_ref(),
         options.stream.request.headers.as_ref(),

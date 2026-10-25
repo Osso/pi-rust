@@ -438,7 +438,7 @@ fn backup_path_for(file_path: &JsString, now_ms: f64) -> Result<JsString, Callba
             ))
         })?
         .replace([':', '.'], "-");
-    let suffix: String = random_uuid().chars().take(8).collect();
+    let suffix: String = random_uuid()?.chars().take(8).collect();
     Ok(js_format!("{}.tool-output-backup-{}-{}", file_path, timestamp, suffix))
 }
 
@@ -493,7 +493,7 @@ fn write_session_file_atomically(
     }
 
     let backup_path = backup_path_for(file_path, now_ms)?;
-    let temp_path = js_format!("{}.tool-output-temp-{}", file_path, random_uuid());
+    let temp_path = js_format!("{}.tool-output-temp-{}", file_path, random_uuid()?);
     fs::copy(encode_node_utf8(file_path), encode_node_utf8(&backup_path))
         .map_err(|error| node_fs_dest_error(&error, "copyfile", file_path, &backup_path))?;
     let result = replace_with_temp_file(file_path, &temp_path, content, parsed.mode);

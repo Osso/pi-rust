@@ -5,7 +5,7 @@ use pi_ai::utils::random_uuid::random_uuid;
 #[test]
 fn generates_rfc9562_version_4_uuids_like_node_random_uuid() {
     for _ in 0..200 {
-        let uuid = random_uuid();
+        let uuid = random_uuid().unwrap();
         let bytes = uuid.as_bytes();
         assert_eq!(uuid.len(), 36, "{uuid}");
         for (index, byte) in bytes.iter().enumerate() {
@@ -22,6 +22,6 @@ fn generates_rfc9562_version_4_uuids_like_node_random_uuid() {
 
 #[test]
 fn generates_distinct_uuids() {
-    let ids: HashSet<String> = (0..1000).map(|_| random_uuid()).collect();
+    let ids: HashSet<String> = (0..1000).map(|_| random_uuid().unwrap()).collect();
     assert_eq!(ids.len(), 1000);
 }

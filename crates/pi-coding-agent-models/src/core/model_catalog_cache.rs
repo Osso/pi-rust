@@ -580,7 +580,7 @@ async fn write_cached_catalog(path: &Path, now: f64, models: &[JsValue]) -> Resu
     let temporary = parent.join(format!(
         ".openrouter-{}-{}.tmp",
         std::process::id(),
-        pi_ai::utils::random_uuid::random_uuid()
+        pi_ai::utils::random_uuid::random_uuid()?
     ));
     let mut catalog = pi_js_compat::js_json::JsObject::new();
     catalog.insert("fetchedAt".into(), JsValue::String(fetched_at.into()));

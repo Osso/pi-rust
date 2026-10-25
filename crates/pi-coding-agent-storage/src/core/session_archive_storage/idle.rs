@@ -249,7 +249,7 @@ fn archive_transcript(db: &JsString, path: &JsString, cutoff: f64) -> Result<boo
     if mtime_ms(&before) >= cutoff {
         return Ok(false);
     }
-    let temp = path.clone() + ".archive-temp-" + &pi_ai::utils::random_uuid::random_uuid();
+    let temp = path.clone() + ".archive-temp-" + &pi_ai::utils::random_uuid::random_uuid()?;
     let outcome = (|| {
         compress_transcript(path, &temp, before.mode() & 0o777)?;
         if !archive_matches_original(path, &temp)? {
