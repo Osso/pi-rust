@@ -36,7 +36,7 @@ fn faux() -> FauxProviderHandle {
         provider: Some("faux".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "faux-1".to_owned(),
-            name: Some("Faux Model".to_owned()),
+            name: Some("Faux Model".into()),
             reasoning: Some(true),
             input: None,
             cost: None,
