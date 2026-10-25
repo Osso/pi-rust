@@ -18,8 +18,8 @@ mod oracle;
 const EXPIRED_AT: &str = "2026-07-19T18:00:00.000Z";
 const RECENT_AT: &str = "2026-07-23T17:00:00.000Z";
 
-fn now_millis() -> i64 {
-    pi_js_compat::date::date_parse_millis("2026-07-23T18:00:00.000Z").expect("now")
+fn now_millis() -> f64 {
+    pi_js_compat::date::date_parse("2026-07-23T18:00:00.000Z")
 }
 
 struct Fixture {

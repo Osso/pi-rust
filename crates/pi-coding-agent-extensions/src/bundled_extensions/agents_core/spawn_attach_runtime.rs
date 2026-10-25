@@ -1017,7 +1017,7 @@ fn recover_and_publish_dead_agent(input: &RecoverAgentsInput, agent: &AgentSnaps
         })
         .map_err(|error| HandlerError::new(error.message()))?;
     if let crate::core::lifecycle_coordinator::RecoverDeadChildCommandResult::Ok { agent } = recovered {
-        publish_coordinator_snapshot(&input.store, &agent).map_err(|error| HandlerError::new(error.message()))?;
+        publish_coordinator_snapshot(&input.store, &agent).map_err(HandlerError::from)?;
     }
     Ok(())
 }
