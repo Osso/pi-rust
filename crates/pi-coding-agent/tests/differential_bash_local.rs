@@ -16,11 +16,16 @@ async fn local_bash_process_output_error_and_lifetime_boundaries_match_frozen() 
     let cwd = JsString::from(temp.path().to_str().unwrap());
     let file = temp.path().join("file");
     std::fs::write(&file, "file").unwrap();
+    let descendant_ready = temp.path().join("descendant-ready");
+    let descendant_command = format!(
+        "ready='{}'; rm -f \"$ready\"; printf early; (for i in 1 2 3 4 5 6; do printf x; done; : > \"$ready\") & while [ ! -f \"$ready\" ]; do sleep .01; done",
+        descendant_ready.display()
+    );
     let cases = vec![
         json!({"command":"printf plain"}),
         json!({"command":"printf '%s' \"$CUSTOM\"","env":{"CUSTOM":"set"}}),
         json!({"command":"exit 7"}),
-        json!({"command":"printf early; (for i in 1 2 3 4 5 6; do sleep .06; printf x; done) &"}),
+        json!({"command":descendant_command}),
         json!({"command":"printf durable; sleep .15","artifacts":true}),
         json!({"command":"printf durable; sleep 1.2","artifacts":true}),
         json!({"command":"true","artifacts":true,"missingArtifacts":true}),
