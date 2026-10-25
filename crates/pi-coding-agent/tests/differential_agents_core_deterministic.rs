@@ -179,6 +179,7 @@ fn cases() -> Vec<Value> {
         json!({"name": "tool-results", "op": "toolResults"}),
         json!({"name": "list-all", "op": "listAgents", "agents": agents, "activeCount": 2}),
         json!({"name": "list-descendants", "op": "listAgents", "agents": agents, "parentId": "a"}),
+        json!({"name": "list-empty-parent", "op": "listAgents", "agents": agents, "parentId": ""}),
         json!({"name": "view-running", "op": "agentViewer", "agents": [transcript_agent.clone()], "agentId": "a", "sessionId": "session-a"}),
         json!({"name": "view-missing", "op": "agentViewer", "agents": agents.clone(), "agentId": "nope"}),
         json!({"name":"view-empty-transcript-selector","op":"agentViewer","agents":[transcript_agent.clone()],"agentId":"a","sessionId":""}),
