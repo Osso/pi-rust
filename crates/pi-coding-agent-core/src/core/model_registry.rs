@@ -352,20 +352,11 @@ impl ModelRegistry {
         }
     }
     async fn resolve_request_auth(&self, model: &Model) -> Result<ResolvedRequestAuth, CallbackError> {
-        let (config, model_headers) = {
-            let state = lock(&self.state);
-            (
-                state
-                    .provider_requests
-                    .get(&model.provider)
-                    .cloned()
-                    .unwrap_or_default(),
-                state
-                    .model_headers
-                    .get(&format!("{}:{}", model.provider, model.id))
-                    .cloned(),
-            )
-        };
+        let config = lock(&self.state)
+            .provider_requests
+            .get(&model.provider)
+            .cloned()
+            .unwrap_or_default();
         let env = self
             .provider_env(&model.provider)
             .map_err(StorageError::into_callback)?;
@@ -397,6 +388,12 @@ impl ModelRegistry {
                 .transpose()
                 .map_err(|error| CallbackError::new(error.message().clone()))?,
         };
+        // Frozen712 awaits the key before732 reads model headers. A key
+        // callback can replace the model headers without replacing this config.
+        let model_headers = lock(&self.state)
+            .model_headers
+            .get(&format!("{}:{}", model.provider, model.id))
+            .cloned();
         let mut headers: ProviderHeaders = model
             .headers
             .clone()

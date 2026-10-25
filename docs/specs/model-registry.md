@@ -17,6 +17,8 @@ Model definitions have optional api/baseUrl, not full output-Model requirements.
 
 OAuth model callbacks run without the registry lock. During registration and reapplication, callbacks can read the newly installed model list and register other providers. The returned model list replaces the current list after the callback returns; registered metadata is upserted after application, matching frozen ordering.
 
+Request auth captures provider configuration and environment before awaiting the storage key. Model request headers are read after that key resolution, so reentrant key callbacks can replace model headers for the current request while provider settings remain the pre-await snapshot.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).
