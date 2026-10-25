@@ -1,5 +1,7 @@
 # Extension examples F
 
+Qna re-pin audit (2026-10-25, 4f9e6f8a4): mode/model gates, reverse branch scan, incomplete stop reason, text-only join, loader cancellation, registry auth, complete request and final editor/notification branches match the frozen whole module. The oracle registers its private faux transport through frozen ModelRegistry.registerProvider (the old getModelRuntime API is absent). Native auth/complete behavior already follows the frozen module. Exact branch/request/UI differential remains the proof.
+
 Q15 correction (2026-10-23): custom-compaction.ts is absent from the common pin. Its Rust example and two tests are removed old-only, per parent confirmation. Historical notes below are not common-pin parity evidence. No standalone oracle or spec exists; the deleted tests used the shared batch oracle.
 
 Opt-in embeddable sources, explicitly registered factories; never default-loaded.

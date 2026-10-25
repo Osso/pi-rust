@@ -1,6 +1,6 @@
 # extensions/loader.ts → `core::extensions::loader`
 
-Source: `packages/coding-agent/src/core/extensions/loader.ts` (790 lines).
+Source: `packages/coding-agent/src/core/extensions/loader.ts` (753 lines at frozen `4f9e6f8a4`).
 Rust: `crates/pi-coding-agent-tools/src/core/extensions/loader.rs`.
 
 Approved deviation: TypeScript module loading (`jiti`, virtual modules,
@@ -32,9 +32,15 @@ Diagnostics text preserved:
 - `Extension does not export a valid factory function: {path}`
 - `Failed to load extension: {message}`
 
+## Relative-path audit (2026-10-25)
+
+Whole frozen loader inspection found three ordinary path defects: configured paths and registry lookup used the process cwd instead of the supplied cwd; filesystem-loaded extensions kept the unresolved path as `resolvedPath`; absolute manifest entries were joined below the package instead of replacing it. These now follow frozen resolution and source metadata. Public discovery/loading returns `Result` and propagates path errors rather than panicking or using the unresolved input. Resource-loader and fixture callers propagate or unwrap this mechanically.
+
+RED: actual frozen relative `entry.ts` loads successfully while native reports an invalid factory (`/tmp/ext-api2-loader-red.log`). New differential covers relative loading, source metadata, configured directory and absolute manifest resolution, plus invalid file-URL errors. Post-commit GREEN pending.
+
 ## Remaining work
 
-None. The Rust-native discovery surface is complete; `core::resource_loader::DefaultResourceLoader`
+Finish current focused proof and API/runtime audit. The Rust-native discovery surface is implemented; `core::resource_loader::DefaultResourceLoader`
 resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
 
 ## Gaps
@@ -65,7 +71,6 @@ observe the same state. Mutex guards must not span callbacks or awaits.
 | flags | `registerFlag` mutates flags; default only if absent | runner `get_flags`, runtime flag values; runtime registration test |
 | shortcuts | `registerShortcut` mutates shortcuts | runner `get_shortcuts`; runtime registration test |
 | message / entry renderers | register methods mutate corresponding maps | runner renderer lookups; runtime registration test |
-| markdown transformer | replaces `extension.markdownTransformer` | runner `get_markdown_transformers`; runtime registration test |
 | event handlers | `on` appends to the same event list | all runner dispatch paths read callbacks from shared state without holding a guard during callbacks |
 | approval reviewers / tool gates | registration appends to corresponding arrays | runner presence checks and dispatch read shared lists; existing gate/reviewer behavior tests |
 | providers / native providers / unregister | delegates directly to shared runtime | no extension snapshot involved; queued/immediate provider tests unchanged |

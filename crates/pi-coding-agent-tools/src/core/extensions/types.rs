@@ -37,7 +37,7 @@ use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
-    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
+    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
 pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -86,7 +86,7 @@ pub type CompactErrorCallback = Arc<dyn Fn(&CallbackError) -> Result<(), Callbac
 pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type JsStringCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
@@ -846,6 +846,13 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 pub type SetSandboxProfileCallback =
     Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
 
+pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
+pub type RegisterSupervisorReviewCancellation = Arc<
+    dyn Fn(SupervisorReviewCancellationHandler) -> Result<SupervisorReviewCancellationHandler, CallbackError>
+        + Send
+        + Sync,
+>;
+
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
@@ -866,6 +873,7 @@ pub struct ExtensionContextState {
     pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_signal_fn: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
+    pub(super) register_supervisor_review_cancellation_fn: RegisterSupervisorReviewCancellation,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
     pub(super) restart_fn: RestartHandler,
@@ -924,6 +932,7 @@ impl ExtensionContextState {
             is_project_trusted_fn: Arc::new(|| true),
             get_signal_fn: Arc::new(|| None),
             abort_fn: Arc::new(|| {}),
+            register_supervisor_review_cancellation_fn: Arc::new(|_| Ok(Arc::new(|| {}))),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
             restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
@@ -1118,6 +1127,14 @@ impl ExtensionContext {
 
     pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
+    }
+
+    pub fn register_supervisor_review_cancellation(
+        &self,
+        handler: SupervisorReviewCancellationHandler,
+    ) -> Result<SupervisorReviewCancellationHandler, HandlerError> {
+        let register = self.read(|state| state.register_supervisor_review_cancellation_fn.clone())?;
+        register(handler).map_err(HandlerError::from)
     }
 
     pub fn no_supervisor(&self) -> Result<bool, HandlerError> {
@@ -2650,23 +2667,6 @@ pub struct MessageRenderOptions {
     pub expanded: bool,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MarkdownTransformContext {
-    pub message_type: MarkdownMessageType,
-    pub is_streaming: bool,
-    #[serde(serialize_with = "pi_js_compat::number::serialize")]
-    pub available_width: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub enum MarkdownMessageType {
-    User,
-    Assistant,
-    AssistantThinking,
-}
-
 #[derive(Clone)]
 pub struct EntryRenderOptions {
     pub expanded: bool,
@@ -2674,8 +2674,6 @@ pub struct EntryRenderOptions {
     pub request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
     pub register_cleanup: Rc<dyn Fn(Rc<dyn Fn()>)>,
 }
-
-pub type MarkdownTransformer = Arc<dyn Fn(&str, &MarkdownTransformContext) -> String + Send + Sync>;
 
 pub type MessageRenderer =
     Arc<dyn Fn(&CustomMessageValue, &MessageRenderOptions, &Theme) -> Option<ComponentRef> + Send + Sync>;
@@ -2914,7 +2912,6 @@ pub struct ExtensionState {
     pub tool_gates: Vec<ToolGateHandle>,
     pub tools: IndexMap<String, RegisteredTool>,
     pub message_renderers: IndexMap<JsString, MessageRenderer>,
-    pub markdown_transformer: Option<MarkdownTransformer>,
     pub entry_renderers: Option<IndexMap<JsString, EntryRenderer>>,
     pub commands: IndexMap<JsString, RegisteredCommand>,
     pub flags: IndexMap<String, ExtensionFlag>,
@@ -3035,6 +3032,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_no_supervisor: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub register_supervisor_review_cancellation: Option<RegisterSupervisorReviewCancellation>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
@@ -3481,12 +3479,6 @@ impl ExtensionApi {
         self.extension_lock()
             .message_renderers
             .insert(custom_type.into(), renderer);
-        Ok(())
-    }
-
-    pub fn register_markdown_transformer(&self, transformer: MarkdownTransformer) -> Result<(), String> {
-        self.runtime.assert_active()?;
-        self.extension_lock().markdown_transformer = Some(transformer);
         Ok(())
     }
 

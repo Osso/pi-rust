@@ -311,6 +311,9 @@ impl ExtensionRunner {
             .get_multi_agent_parent_session_id
             .unwrap_or_else(|| Arc::new(|| None));
         state.get_no_supervisor_fn = actions.get_no_supervisor.unwrap_or_else(|| Arc::new(|| false));
+        state.register_supervisor_review_cancellation_fn = actions
+            .register_supervisor_review_cancellation
+            .unwrap_or_else(|| Arc::new(|_| Ok(Arc::new(|| {}))));
         state.get_multi_agent_requires_agent_id_fn = actions
             .get_multi_agent_requires_agent_id
             .unwrap_or_else(|| Arc::new(|| false));
@@ -744,13 +747,6 @@ impl ExtensionRunner {
             }
         }
         None
-    }
-
-    pub fn get_markdown_transformers(&self) -> Vec<MarkdownTransformer> {
-        self.extensions
-            .iter()
-            .filter_map(|extension| extension.read().markdown_transformer.clone())
-            .collect()
     }
 
     pub fn get_entry_renderer(&self, custom_type: impl Into<JsString>) -> Option<EntryRenderer> {

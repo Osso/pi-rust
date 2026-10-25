@@ -72,6 +72,8 @@ pub mod repin_storage_history;
 pub mod repin_storage_mailbox_acceptance;
 #[path = "repin_storage_retention.rs"]
 pub mod repin_storage_retention;
+#[path = "repin_storage_store_wire.rs"]
+pub mod repin_storage_store_wire;
 #[path = "repin_storage_terminal_matrix.rs"]
 pub mod repin_storage_terminal_matrix;
 #[path = "repin_storage_terminal_outbox.rs"]

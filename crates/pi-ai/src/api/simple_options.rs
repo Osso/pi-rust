@@ -27,6 +27,7 @@ pub fn build_base_options(
     let stream = options.map(|options| &options.stream).cloned().unwrap_or_default();
     let sampling_params = merge_sampling_params(model, &stream);
     StreamOptions {
+        cwd: stream.cwd.clone(),
         request: crate::request::ProviderRequestOptions {
             signal: stream.request.signal.clone(),
             api_key: api_key

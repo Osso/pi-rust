@@ -733,8 +733,9 @@ pub struct AssistantImages {
     pub stop_reason: ImagesStopReason,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<pi_js_compat::js_json::JsString>,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
+    /// Unix timestamp in milliseconds, retaining JavaScript fractional numbers.
+    #[serde(serialize_with = "serialize_message_timestamp")]
+    pub timestamp: f64,
 }
 
 /// A JSON Schema built with the TypeBox-equivalent builder (`Type.*` /

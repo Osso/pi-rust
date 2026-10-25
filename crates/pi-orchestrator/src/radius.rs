@@ -31,7 +31,7 @@ pub fn radius_orchestrator_base_url(env: &BTreeMap<String, JsString>) -> Result<
     url::Url::parse(&encode_node_utf8(&radius_url(env)))
         .and_then(|url| url.join("/v1/"))
         .map(|v| JsString::from(v.to_string()))
-        .map_err(|e| JsString::from(e.to_string()))
+        .map_err(|_| JsString::from("Invalid URL"))
 }
 fn oauth(credential: Option<&Value>) -> Option<&Value> {
     credential.filter(|v| v["type"] == json!("oauth"))
@@ -167,7 +167,7 @@ impl RadiusPresence {
         let base = radius_orchestrator_base_url(&env)?;
         let url = url::Url::parse(&encode_node_utf8(&base))
             .and_then(|url| url.join(&encode_node_utf8(path)))
-            .map_err(|e| JsString::from(e.to_string()))?;
+            .map_err(|_| JsString::from("Invalid URL"))?;
         let token = radius_access_token((self.options.credential)().as_ref(), &env)?;
         let request = HttpRequest {
             method: "POST".into(),
@@ -239,19 +239,21 @@ impl RadiusPresence {
             Err(e) => Err(e.message),
         }
     }
-    pub async fn register_pi(self: &Arc<Self>, mut instance: Value) -> Result<Value, JsString> {
+    pub async fn register_pi(self: &Arc<Self>, instance: Value) -> Result<Value, JsString> {
+        self.register_pi_with_status(instance)
+            .await
+            .map_err(|error| error.message)
+    }
+
+    async fn register_pi_with_status(self: &Arc<Self>, mut instance: Value) -> Result<Value, RadiusError> {
         if !self.enabled() {
             return Ok(instance);
         }
         let machine = self
             .load_machine_identity()?
             .ok_or_else(|| JsString::from("No registered machine available for Pi registration"))?;
-        let mut body = json!({"machineId":machine["id"],"cwd":instance["cwd"],"hostname":self.options.hostname,"pid":self.options.pid,"transport":"local-rpc","capabilities":{"rpc":true,"relay":false,"iroh":false}});
-        copy_optional(&instance, &mut body, &["label", "sessionId"]);
-        let registered = self
-            .post(&JsString::from("pis/register"), body, true)
-            .await
-            .map_err(|e| e.message)?;
+        let body = build_pi_registration_body(&machine, &instance, &self.options);
+        let registered = self.post(&JsString::from("pis/register"), body, true).await?;
         instance["radiusPiId"] = registered["id"].clone();
         let id = instance["id"]
             .as_string()
@@ -301,13 +303,7 @@ impl RadiusPresence {
     }
     async fn register_machine(&self, label: Option<JsString>) -> Result<Value, RadiusError> {
         let existing = self.load_machine_identity()?;
-        let mut body = json!({"hostname":self.options.hostname,"platform":self.options.platform,"arch":self.options.arch,"version":VERSION,"capabilities":{"spawn":true,"relay":false,"iroh":false}});
-        if let Some(machine) = &existing {
-            body["machineId"] = machine["id"].clone();
-        }
-        if let Some(label) = &label {
-            body["label"] = json!(label);
-        }
+        let body = build_machine_registration_body(existing.as_ref(), label.as_ref(), &self.options);
         let registered = self.post(&JsString::from("machines/register"), body, true).await?;
         let timestamp = (self.options.now)();
         let created = existing
@@ -393,7 +389,9 @@ impl RadiusPresence {
     async fn retry_machine(self: &Arc<Self>, error: RadiusError) {
         let (recover, delay, count) = {
             let mut state = self.state.lock().unwrap();
-            retry_decision(&mut state.machine_heartbeat, error.not_found(), (self.options.random)())
+            retry_decision(&mut state.machine_heartbeat, error.not_found(), || {
+                (self.options.random)()
+            })
         };
         if !recover {
             if !error.not_found() {
@@ -451,7 +449,7 @@ impl RadiusPresence {
             let Some(heartbeat) = state.pis.get_mut(id) else {
                 return;
             };
-            retry_decision(heartbeat, error.not_found(), (self.options.random)())
+            retry_decision(heartbeat, error.not_found(), || (self.options.random)())
         };
         if !recover {
             if !error.not_found() {
@@ -517,7 +515,7 @@ impl RadiusPresence {
                         encode_node_utf8(&js_format!(
                             "Radius Pi {} re-registration failed: {}",
                             id,
-                            error.message
+                            format_radius_error(&error)
                         ))
                     );
                 }
@@ -539,7 +537,7 @@ impl RadiusPresence {
                 self.re_register_machine_and_pis().await?;
                 return Ok(true);
             }
-            let registered = self.register_pi(instance).await?;
+            let registered = self.register_pi_with_status(instance).await?;
             if let Some(coordinator) = coordinator {
                 coordinator.update_instance(registered)?;
             }
@@ -547,12 +545,44 @@ impl RadiusPresence {
         })
     }
 }
+fn build_machine_registration_body(
+    existing: Option<&Value>,
+    label: Option<&JsString>,
+    options: &RadiusOptions,
+) -> Value {
+    let mut body = json!({});
+    if let Some(machine) = existing {
+        body["machineId"] = machine["id"].clone();
+    }
+    if let Some(label) = label {
+        body["label"] = json!(label);
+    }
+    body["hostname"] = json!(options.hostname);
+    body["platform"] = json!(options.platform);
+    body["arch"] = json!(options.arch);
+    body["version"] = json!(VERSION);
+    body["capabilities"] = json!({"spawn":true,"relay":false,"iroh":false});
+    body
+}
+
+fn build_pi_registration_body(machine: &Value, instance: &Value, options: &RadiusOptions) -> Value {
+    let mut body = json!({"machineId":machine["id"]});
+    copy_optional(instance, &mut body, &["label"]);
+    body["cwd"] = instance["cwd"].clone();
+    body["hostname"] = json!(options.hostname);
+    body["pid"] = json!(options.pid);
+    body["transport"] = json!("local-rpc");
+    body["capabilities"] = json!({"rpc":true,"relay":false,"iroh":false});
+    copy_optional(instance, &mut body, &["sessionId"]);
+    body
+}
+
 fn abort_timer(heartbeat: &mut Heartbeat) {
     if let Some(timer) = heartbeat.timer.take() {
         timer.abort();
     }
 }
-fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (bool, u64, u32) {
+fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: impl FnOnce() -> f64) -> (bool, u64, u32) {
     if not_found {
         heartbeat.transient = 0;
         heartbeat.not_found += 1;
@@ -561,16 +591,19 @@ fn retry_decision(heartbeat: &mut Heartbeat, not_found: bool, random: f64) -> (b
     heartbeat.transient += 1;
     (
         false,
-        compute_backoff_delay_ms(heartbeat.transient, random),
+        compute_backoff_delay_ms(heartbeat.transient, random()),
         heartbeat.transient,
     )
 }
+fn format_radius_error(error: &RadiusError) -> JsString {
+    match error.status {
+        Some(status) => js_format!("HTTP {}: {}", status, error.message),
+        None => error.message.clone(),
+    }
+}
+
 fn log_retry(scope: impl Into<JsString>, action: &str, delay: u64, count: u32, error: &RadiusError) {
-    let error = if let Some(status) = error.status {
-        js_format!("HTTP {}: {}", status, error.message)
-    } else {
-        error.message.clone()
-    };
+    let error = format_radius_error(error);
     eprintln!(
         "{}",
         encode_node_utf8(&js_format!(

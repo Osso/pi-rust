@@ -98,6 +98,8 @@ pub mod differential_sqlite_open_errors;
 pub mod differential_standalone_worker;
 #[path = "differential_supervisor_response.rs"]
 pub mod differential_supervisor_response;
+#[path = "differential_supervisor_runtime.rs"]
+pub mod differential_supervisor_runtime;
 #[path = "differential_supervisor_service.rs"]
 pub mod differential_supervisor_service;
 #[path = "differential_terminal_current_directory.rs"]

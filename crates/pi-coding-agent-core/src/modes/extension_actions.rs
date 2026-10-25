@@ -16,7 +16,7 @@ use crate::core::extensions::types::{
     SessionTransitionResult, SwitchSessionOptions, WithSessionCallback,
 };
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
-use crate::core::session_manager::SessionManager;
+use crate::core::session_manager::SharedSessionManager;
 
 type SharedSession = Arc<Mutex<AgentSession>>;
 type SharedRuntime = AgentSessionRuntime;
@@ -141,7 +141,7 @@ pub fn command_context_actions(session: SharedSession, runtime: SharedRuntime) -
 }
 
 pub fn adapt_session_setup(setup: crate::core::extensions::types::SessionSetupCallback) -> RuntimeSessionSetupCallback {
-    Arc::new(move |manager: &mut SessionManager| {
+    Arc::new(move |manager: SharedSessionManager| {
         let future = setup(manager);
         Box::pin(async move { future.await.map_err(pi_ai::request::CallbackError::from) })
     })

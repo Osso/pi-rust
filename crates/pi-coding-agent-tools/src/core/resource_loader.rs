@@ -905,7 +905,7 @@ impl DefaultResourceLoader {
         let extension_paths = self.filter_disabled_extension_paths(primary_paths);
         let mut extensions_result = self
             .load_final_extension_set(&extension_paths, pre_trust_extensions)
-            .await;
+            .await?;
 
         for path in &self.additional_extension_paths {
             if !is_local_path(path) {
@@ -1116,7 +1116,7 @@ impl DefaultResourceLoader {
         } else {
             self.merge_paths(&cli_enabled_extensions, &enabled_extensions)
         });
-        let mut extensions_result = self.load_extensions_cached(&extension_paths, None).await;
+        let mut extensions_result = self.load_extensions_cached(&extension_paths, None).await?;
         if !include_inline_factories {
             return Ok(extensions_result);
         }
@@ -1131,25 +1131,26 @@ impl DefaultResourceLoader {
         &self,
         paths: &[JsString],
         runtime: Option<crate::core::extensions::extension_runtime::ExtensionRuntime>,
-    ) -> LoadExtensionsResult {
+    ) -> Result<LoadExtensionsResult, JsString> {
         self.extension_registry
             .load_extensions(paths, &self.cwd, Some(Arc::clone(&self.event_bus)), runtime)
             .await
+            .map_err(|error| error.message)
     }
 
     async fn load_final_extension_set(
         &self,
         extension_paths: &[JsString],
         pre_trust_extensions: Option<LoadExtensionsResult>,
-    ) -> LoadExtensionsResult {
+    ) -> Result<LoadExtensionsResult, JsString> {
         let Some(pre_trust) = pre_trust_extensions else {
-            let mut extensions_result = self.load_extensions_cached(extension_paths, None).await;
+            let mut extensions_result = self.load_extensions_cached(extension_paths, None).await?;
             let (inline_extensions, inline_errors) =
                 self.load_extension_factories(extensions_result.runtime.clone()).await;
             extensions_result.extensions.extend(inline_extensions);
             extensions_result.errors.extend(inline_errors);
             self.add_extension_conflict_diagnostics(&mut extensions_result);
-            return extensions_result;
+            return Ok(extensions_result);
         };
 
         let mut preloaded_by_path: IndexMap<JsString, crate::core::extensions::types::Extension> = IndexMap::new();
@@ -1175,7 +1176,7 @@ impl DefaultResourceLoader {
             .collect();
         let remaining_extensions = self
             .load_extensions_cached(&remaining_paths, Some(pre_trust.runtime.clone()))
-            .await;
+            .await?;
         let mut loaded_by_path = preloaded_by_path;
         for extension in &remaining_extensions.extensions {
             loaded_by_path.insert(extension.read().resolved_path.clone(), extension.clone());
@@ -1206,7 +1207,7 @@ impl DefaultResourceLoader {
             runtime: pre_trust.runtime.clone(),
         };
         self.add_extension_conflict_diagnostics(&mut extensions_result);
-        extensions_result
+        Ok(extensions_result)
     }
 
     fn add_extension_conflict_diagnostics(&self, extensions_result: &mut LoadExtensionsResult) {

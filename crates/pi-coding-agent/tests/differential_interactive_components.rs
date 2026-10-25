@@ -1777,13 +1777,18 @@ fn tool_execution_case(
     definition: Option<ToolDefinition>,
     definition_json: Value,
     args: Value,
-    events: Vec<Value>,
+    mut events: Vec<Value>,
     width: usize,
 ) -> (Value, Value) {
     use pi_coding_agent::modes::interactive::components::tool_execution::{
         ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
     };
 
+    for event in &mut events {
+        if event["type"] == "result" {
+            event["finishedAt"] = json!(1_767_225_600_000.0);
+        }
+    }
     let request = json!({
         "id": id,
         "module": "modes/interactive/components/tool-execution.ts",
@@ -1824,7 +1829,7 @@ fn tool_execution_case(
                         is_error: result.get("isError").and_then(Value::as_bool) == Some(true),
                     },
                     event.get("isPartial").and_then(Value::as_bool) == Some(true),
-                    None,
+                    event.get("finishedAt").and_then(Value::as_f64),
                 );
             }
             _ => {}
