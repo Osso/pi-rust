@@ -54,6 +54,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 			result,
 			samples,
 			agents: store.listAgents(),
+			agentsWire: JSON.stringify(store.listAgents()),
 			messages: store.listMailboxMessages(),
 		}),
 	);

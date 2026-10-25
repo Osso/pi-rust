@@ -213,6 +213,7 @@ fn atomically_creates_a_running_child_with_runtime_ownership() {
 fn acquires_attached_runtime_ownership_and_advances_revision() {
     let (_directory, db) = temp_db();
     let agent = pi_coding_agent::core::multi_agent_store::AgentSnapshot {
+        key_order: Vec::new(),
         id: "attached-1".into(),
         parent_id: None,
         display_name: "Attached".into(),

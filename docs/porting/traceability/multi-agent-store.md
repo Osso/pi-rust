@@ -1,5 +1,9 @@
 # `coding-agent/src/core/multi-agent-store.ts`
 
+## Storage-3 snapshot JSON ordering (2026-10-25)
+
+Actual-source RED `/tmp/storage3-store-agent-wire-red.log` shows root account position and nested copyAccount order loss. Main approved order-only metadata in the existing AgentNode and mechanical constructor initialization. `key_order` holds original root and spread-copied child key sequences, never duplicate JSON values. Snapshot copying appends the frozen optional-field copy order, even when a value is currently absent, so later metadata publication retains those positions. Fixed-copy account/result/worker/transcript/event-stream DTOs emit frozen constructor order; permission/model/activity/error/slot/worktree preserve input order. Main-thread snapshots retain their distinct constructor/permission order. Value equality ignores order metadata; wire tests assert exact JSON strings. Replacement metadata clears only the replaced child's prior order.
+
 ## Storage-3 parent guard (2026-10-25)
 
 Expanded actual-source operation script reproduces an empty parent ID incorrectly producing a mailbox message (`/tmp/storage3-store-parent-red.log`). `contactParent` now treats both missing and empty parent IDs as `parent_not_found`, after reference validation and before clock/counter/state mutation, matching frozen truthiness. The script retains all prior operation/value assertions; byte-order contracts have separate wire tests.

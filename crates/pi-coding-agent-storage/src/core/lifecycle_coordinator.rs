@@ -618,6 +618,7 @@ impl LifecycleCoordinator {
 
 fn snapshot_from_spawn(input: &SpawnAgent, now_iso: String, agent_id: JsString) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         account: input.account.clone(),
         agent_type: input.agent_type.clone(),
         created_at: now_iso.clone().into(),

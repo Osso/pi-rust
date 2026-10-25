@@ -40,7 +40,7 @@ fn compare(source: &mut oracle::TsOracle, op: &str, agent: Value, refs: Value) {
         Err(error) => json!({"ok":false,"error":{"name":"Error","message":error.message()}}),
     };
     let samples = calls.load(Ordering::SeqCst);
-    let actual = json!({"id":1,"result":result,"samples":samples,"agents":store.list_agents(),"messages":store.list_mailbox_messages().unwrap()});
+    let actual = json!({"id":1,"result":result,"samples":samples,"agents":store.list_agents(),"agentsWire":serde_json::to_string(&store.list_agents()).unwrap(),"messages":store.list_mailbox_messages().unwrap()});
     assert_eq!(JsValue::from(actual), JsValue::from(expected), "{op}");
 }
 
@@ -91,4 +91,49 @@ fn steering_copy_validates_and_canonicalizes_file_reference_objects() {
         agent["revision"] = json!(2);
         compare(&mut source, "steering", agent, refs);
     }
+}
+
+#[test]
+fn copied_snapshot_json_keeps_nested_constructor_field_order() {
+    let mut source = oracle::TsOracle::spawn(
+        "storage-store-copy-oracle.mts",
+        "packages/coding-agent/src/core/multi-agent-store.ts",
+    );
+    for (field, value) in [
+        (
+            "account",
+            json!({"id":"account","budgetId":"budget","concurrencyCap":2,"providerFallback":["p"],"rateLimit":{"perMinute":3},"tokenBudget":{"limit":10}}),
+        ),
+        (
+            "worker",
+            json!({"handleId":"handle","adapter":"runtime","cwd":"/worker"}),
+        ),
+        ("transcript", json!({"sessionId":"session","path":"/transcript"})),
+        (
+            "eventStream",
+            json!({"path":"/events","eventCount":2,"truncated":false,"byteLimit":10}),
+        ),
+        (
+            "result",
+            json!({"summary":"done","toolCallId":"tool","fileRefs":[{"label":"result","path":"/result"}],"durationMs":12}),
+        ),
+        ("permission", json!({"narrowed":true,"policy":"on-request"})),
+        ("worktree", json!({"base":"main","path":"/tree","branch":"feature"})),
+        ("model", json!({"modelId":"m","providerId":"p"})),
+        ("lastActivity", json!({"toolName":"read","description":"reading"})),
+        (
+            "currentActivity",
+            json!({"toolName":"read","toolCallId":"tool","detail":"/file","phase":"tool","startedAt":"2026-10-25T00:00:00.000Z"}),
+        ),
+        ("slot", json!({"pinned":true,"index":1})),
+        ("error", json!({"code":"FIXTURE","message":"failure"})),
+    ] {
+        let mut agent = snapshot();
+        agent[field] = value;
+        compare(&mut source, "snapshot", agent, json!([]));
+    }
+    let mut properties = serde_json::Map::new();
+    properties.insert("note".into(), json!({"second":2,"first":1}));
+    properties.extend(snapshot().as_object().unwrap().clone());
+    compare(&mut source, "snapshot", Value::Object(properties), json!([]));
 }

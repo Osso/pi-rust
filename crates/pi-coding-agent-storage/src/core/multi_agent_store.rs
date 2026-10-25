@@ -185,11 +185,11 @@ pub struct AgentFileReference {
 #[serde(rename_all = "camelCase")]
 pub struct AgentResult {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<pi_js_compat::js_json::JsString>,
+    pub duration_ms: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_refs: Option<Vec<AgentFileReference>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<i64>,
+    pub summary: Option<pi_js_compat::js_json::JsString>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<JsString>,
 }
@@ -198,9 +198,9 @@ pub struct AgentResult {
 #[serde(rename_all = "camelCase")]
 pub struct AgentWorkerAdapter {
     pub adapter: AgentWorkerAdapterKind,
-    pub handle_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cwd: Option<JsString>,
+    pub handle_id: JsString,
     /// Tool call in the owning agent that spawned this detached runtime worker, if any.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<JsString>,
@@ -217,19 +217,19 @@ pub enum AgentWorkerAdapterKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentTranscriptMetadata {
-    pub session_id: JsString,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub path: Option<JsString>,
+    pub session_id: JsString,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEventStreamMetadata {
-    pub path: JsString,
-    pub event_count: i64,
-    pub truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub byte_limit: Option<i64>,
+    pub event_count: i64,
+    pub path: JsString,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -254,17 +254,17 @@ pub struct AgentModel {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentAccount {
-    pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub concurrency_cap: Option<i64>,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_fallback: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub token_budget: Option<AgentTokenBudget>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub concurrency_cap: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub rate_limit: Option<AgentRateLimit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_budget: Option<AgentTokenBudget>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -303,8 +303,10 @@ pub struct AgentError {
     pub code: Option<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct AgentNode {
+    /// Original root (None) and spread-copied child (Some) key orders; no duplicate JSON values.
+    pub key_order: Vec<(Option<JsString>, Vec<JsString>)>,
     pub id: JsString,
     pub parent_id: Option<JsString>,
     pub display_name: JsString,
@@ -332,6 +334,41 @@ pub struct AgentNode {
     pub error: Option<AgentError>,
     /// Fields the TypeScript runtime preserves through `{...agent}` spreads.
     pub extra: JsObject,
+}
+
+impl PartialEq for AgentNode {
+    fn eq(&self, other: &Self) -> bool {
+        agent_node_json(self) == agent_node_json(other)
+    }
+}
+
+fn capture_agent_key_order(object: &JsObject) -> Vec<(Option<JsString>, Vec<JsString>)> {
+    let mut orders = vec![(None, object.keys().cloned().collect())];
+    for field in [
+        "error",
+        "currentActivity",
+        "lastActivity",
+        "model",
+        "permission",
+        "slot",
+        "worktree",
+    ] {
+        if let Some(JsValue::Object(child)) = object.get(field) {
+            orders.push((Some(field.into()), child.keys().cloned().collect()));
+        }
+    }
+    orders
+}
+
+fn reorder_properties(mut object: JsObject, order: &[JsString]) -> JsObject {
+    let mut reordered = JsObject::new();
+    for key in order {
+        if let Some(value) = object.shift_remove(key) {
+            reordered.insert(key.clone(), value);
+        }
+    }
+    reordered.extend(object);
+    reordered
 }
 
 fn agent_node_json(agent: &AgentNode) -> JsValue {
@@ -383,6 +420,17 @@ fn agent_node_json(agent: &AgentNode) -> JsValue {
         }
     }
     object.extend(agent.extra.clone());
+    for (field, order) in &agent.key_order {
+        let Some(field) = field else {
+            continue;
+        };
+        if let Some(JsValue::Object(child)) = object.get_mut(field) {
+            *child = reorder_properties(std::mem::take(child), order);
+        }
+    }
+    if let Some((_, order)) = agent.key_order.iter().find(|(field, _)| field.is_none()) {
+        object = reorder_properties(object, order);
+    }
     JsValue::Object(object)
 }
 
@@ -397,7 +445,9 @@ impl<'de> Deserialize<'de> for AgentNode {
         let JsValue::Object(mut object) = JsValue::deserialize(deserializer)? else {
             return Err(serde::de::Error::custom("expected agent object"));
         };
+        let key_order = capture_agent_key_order(&object);
         Ok(Self {
+            key_order,
             id: take_native_field(&mut object, "id")?,
             parent_id: take_native_field(&mut object, "parentId")?,
             display_name: take_native_field(&mut object, "displayName")?,
@@ -2114,6 +2164,27 @@ impl MultiAgentStore {
     fn create_main_thread_snapshot(&self) -> Result<AgentSnapshot, MultiAgentStoreError> {
         let timestamp = self.now()?;
         Ok(AgentSnapshot {
+            key_order: vec![
+                (
+                    None,
+                    [
+                        "agentType",
+                        "createdAt",
+                        "cwd",
+                        "displayName",
+                        "id",
+                        "lifecycle",
+                        "parentId",
+                        "permission",
+                        "revision",
+                        "updatedAt",
+                    ]
+                    .into_iter()
+                    .map(JsString::from)
+                    .collect(),
+                ),
+                (Some("permission".into()), vec!["narrowed".into(), "policy".into()]),
+            ],
             agent_type: "main".into(),
             created_at: timestamp.clone(),
             cwd: JsString::default(),
@@ -2502,6 +2573,17 @@ struct MetadataUpdate {
 impl MetadataUpdate {
     fn apply(&self, current: &AgentNode, updated_at: &JsString) -> AgentNode {
         let mut updated = current.clone();
+        for (field, replaced) in [
+            ("model", self.model.is_some()),
+            ("slot", self.slot.is_some()),
+            ("lastActivity", self.last_activity.is_some()),
+            ("currentActivity", self.current_activity.is_some()),
+        ] {
+            if replaced {
+                let field = JsString::from(field);
+                updated.key_order.retain(|(child, _)| child.as_ref() != Some(&field));
+            }
+        }
         updated.updated_at = updated_at.clone();
         if let Some(model) = &self.model {
             updated.model = Some(model.clone());
@@ -2698,7 +2780,38 @@ fn restore_agent_snapshot(agent: AgentNode) -> AgentNode {
 }
 
 pub fn copy_agent(agent: &AgentNode) -> AgentNode {
-    agent.clone()
+    let mut copied = agent.clone();
+    if !copied.key_order.iter().any(|(field, _)| field.is_none()) {
+        let value = agent_node_json(agent);
+        copied
+            .key_order
+            .push((None, value.as_object().expect("agent object").keys().cloned().collect()));
+    }
+    let (_, root) = copied
+        .key_order
+        .iter_mut()
+        .find(|(field, _)| field.is_none())
+        .expect("root order");
+    for field in [
+        "account",
+        "error",
+        "currentActivity",
+        "lastActivity",
+        "model",
+        "permission",
+        "result",
+        "slot",
+        "eventStream",
+        "transcript",
+        "worker",
+        "worktree",
+    ] {
+        let field = JsString::from(field);
+        if !root.contains(&field) {
+            root.push(field);
+        }
+    }
+    copied
 }
 
 pub fn copy_message(message: &AgentMailboxMessage) -> Result<AgentMailboxMessage, MultiAgentStoreError> {

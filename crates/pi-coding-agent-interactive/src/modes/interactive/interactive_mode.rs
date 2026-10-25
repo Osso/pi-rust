@@ -16690,6 +16690,7 @@ mod ui_tests {
         model: Option<crate::core::multi_agent_store::AgentModel>,
     ) -> JsString {
         let agent = AgentSnapshot {
+            key_order: Vec::new(),
             id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
             parent_id: None,
             display_name: JsString::from(name.to_owned()),

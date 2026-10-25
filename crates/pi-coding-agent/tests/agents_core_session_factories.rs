@@ -184,6 +184,7 @@ fn message_text(message: &AgentMessage) -> JsString {
 
 fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
     AgentSnapshot {
+        key_order: Vec::new(),
         id: id.to_owned().into(),
         parent_id: Some("main".to_owned().into()),
         display_name: display_name.to_owned().into(),
