@@ -1574,6 +1574,44 @@ impl AgentSession {
         )));
     }
 
+    fn percentage_compaction_threshold_reached(&self) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        if settings.threshold_percent.is_none() {
+            return Ok(false);
+        }
+        let Some(usage) = self.get_context_usage() else {
+            return Ok(false);
+        };
+        crate::core::compaction::should_compact(
+            usage.tokens,
+            usage.context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            self.model().auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))
+    }
+
+    async fn compact_for_next_turn(
+        &self,
+        mut turn: PrepareNextTurnContext,
+    ) -> Result<PrepareNextTurnContext, AgentSessionError> {
+        if self.percentage_compaction_threshold_reached()? {
+            let identity = self
+                .find_last_assistant_message_with_identity()
+                .map(|(_, identity)| identity);
+            self.check_compaction(&turn.message, identity.as_ref(), false).await?;
+        } else if self.has_ready_background_compaction()? {
+            self.run_auto_compaction("threshold", false, false).await?;
+        } else {
+            return Ok(turn);
+        }
+        turn.context.messages = self.messages();
+        Ok(turn)
+    }
+
     fn install_agent_next_turn_refresh(&self) {
         let previous_with_context = self.inner.agent.prepare_next_turn_with_context_hook();
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
@@ -1584,11 +1622,14 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
-                    if let Some(inner) = weak.upgrade() {
-                        lock(&inner.settings_manager)
-                            .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
-                    }
+                    let turn = if let Some(inner) = weak.upgrade() {
+                        AgentSession { inner }
+                            .compact_for_next_turn(turn)
+                            .await
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?
+                    } else {
+                        turn
+                    };
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
@@ -6570,8 +6611,7 @@ impl AgentSession {
         }
 
         let direct_context_tokens = crate::core::compaction::calculate_context_tokens(&assistant_message.usage);
-        let mut context_tokens = direct_context_tokens;
-        if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
+        let context_tokens = if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
             let messages = self.inner.agent.messages();
             let estimate = crate::core::compaction::estimate_context_tokens(&messages);
             let Some(last_usage_index) = estimate.last_usage_index else {
@@ -6585,8 +6625,10 @@ impl AgentSession {
             {
                 return Ok(false);
             }
-            context_tokens = estimate.tokens;
-        }
+            estimate.tokens
+        } else {
+            self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent)
+        };
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
@@ -6611,6 +6653,32 @@ impl AgentSession {
         }
         self.start_background_compaction(context_tokens, context_window)?;
         Ok(false)
+    }
+
+    fn estimate_threshold_context_tokens(
+        &self,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
+        direct_context_tokens: f64,
+        threshold_percent: Option<f64>,
+    ) -> f64 {
+        if threshold_percent.is_none() {
+            return direct_context_tokens;
+        }
+        let Some(identity) = identity else {
+            return direct_context_tokens;
+        };
+        let snapshot = self.inner.agent.identity_snapshot(|_| true);
+        let Some(index) = snapshot
+            .message_tokens()
+            .iter()
+            .position(|candidate| candidate == identity)
+        else {
+            return direct_context_tokens;
+        };
+        let messages = self.messages();
+        messages.get(index + 1..).map_or(direct_context_tokens, |trailing| {
+            direct_context_tokens + estimate_messages_tokens(trailing)
+        })
     }
 
     async fn run_auto_compaction(
@@ -8671,6 +8739,15 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
             move || {
                 weak.upgrade()
                     .and_then(|inner| inner.multi_agent_parent_session_id.clone())
+            }
+        })),
+        register_supervisor_review_cancellation: Some(Arc::new({
+            let weak = weak.clone();
+            move |handler| match weak.upgrade() {
+                Some(inner) => Ok(AgentSession { inner }.register_supervisor_review_cancellation(handler)),
+                None => Err(pi_js_compat::callback_error::CallbackError::new(
+                    "Agent session is no longer available",
+                )),
             }
         })),
         get_no_supervisor: Some(Arc::new({

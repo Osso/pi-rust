@@ -31,6 +31,7 @@ async fn status_command_and_expanded_level_rendering_match() {
             steps.push(json!({"op":"renderMessage","message":{"customType":"status-update","content":"A wrapping status 🚀𐀀 line","display":true,"details":details,"timestamp":0},"expanded":expanded,"width":32}));
         }
     }
+    steps.push(json!({"op":"renderMessage","message":{"customType":"status-update","content":[{"type":"text","text":"block content"},{"type":"image","mimeType":"image/png","data":"AA=="}],"display":true,"timestamp":0},"expanded":false,"width":48}));
     let actual = harness::compare(
         "message-renderer",
         harness::factory(example::message_renderer_extension),

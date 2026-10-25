@@ -93,7 +93,7 @@ pub fn agent_viewer(
             json!({"agentId":params.agent_id,"error":"trace_requires_store_session"}),
         ));
     }
-    if params.store_session_id.is_some() {
+    if params.store_session_id.as_ref().is_some_and(|id| !id.is_empty()) {
         return agent_viewer_from_persisted_session(params, ctx);
     }
 
@@ -103,20 +103,10 @@ pub fn agent_viewer(
             json!({"agentId": params.agent_id, "error": "not_found"}),
         ));
     };
-    if let Some(session_id) = params.session_id.as_ref()
-        && agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(session_id)
-    {
-        return Ok(tool_result(
-            js_format!("Agent {} is not attached to session {}.", params.agent_id, session_id),
-            json!({
-                "agentId": params.agent_id,
-                "error": "session_mismatch",
-                "sessionId": session_id,
-            }),
-        ));
+    if let Some(error) = validate_transcript_session(&agent, params) {
+        return Ok(error);
     }
-
-    Ok(agent_viewer_result(&agent, &store.list_agents(), None))
+    agent_viewer_result(&agent, &store.list_agents(), None)
 }
 
 fn agent_viewer_from_persisted_session(
@@ -142,17 +132,8 @@ fn agent_viewer_from_persisted_session(
             }),
         ));
     };
-    if let Some(session_id) = params.session_id.as_ref()
-        && agent.transcript.as_ref().map(|transcript| &transcript.session_id) != Some(session_id)
-    {
-        return Ok(tool_result(
-            js_format!("Agent {} is not attached to session {}.", params.agent_id, session_id),
-            json!({
-                "agentId": params.agent_id,
-                "error": "session_mismatch",
-                "sessionId": session_id,
-            }),
-        ));
+    if let Some(error) = validate_transcript_session(agent, params) {
+        return Ok(error);
     }
 
     let trace = if params.trace == Some(true) {
@@ -163,7 +144,18 @@ fn agent_viewer_from_persisted_session(
     } else {
         None
     };
-    Ok(agent_viewer_result(agent, &agents, trace.as_ref()))
+    agent_viewer_result(agent, &agents, trace.as_ref())
+}
+
+fn validate_transcript_session(agent: &AgentSnapshot, params: &AgentViewerParams) -> Option<AgentToolResult> {
+    let session_id = params.session_id.as_ref().filter(|id| !id.is_empty())?;
+    if agent.transcript.as_ref().map(|transcript| &transcript.session_id) == Some(session_id) {
+        return None;
+    }
+    Some(tool_result(
+        js_format!("Agent {} is not attached to session {}.", params.agent_id, session_id),
+        json!({"agentId":params.agent_id,"error":"session_mismatch","sessionId":session_id}),
+    ))
 }
 
 enum AgentPersistedLoad {
@@ -183,7 +175,7 @@ fn load_persisted_agents_for_viewer(
         Some(ctx) => ctx.control_db_path()?,
         None => None,
     };
-    let Some(control_db_path) = control_db_path else {
+    let Some(control_db_path) = control_db_path.filter(|path| !path.is_empty()) else {
         return Ok(AgentPersistedLoad::Error(Box::new(tool_result(
             "Cannot view a persisted agent without a control DB.",
             json!({
@@ -247,7 +239,7 @@ fn agent_viewer_result(
     agent: &AgentSnapshot,
     agents: &[AgentSnapshot],
     trace: Option<&AgentLifecycleTrace>,
-) -> AgentToolResult {
+) -> Result<AgentToolResult, HandlerError> {
     let children: Vec<JsString> = agents
         .iter()
         .filter(|candidate| candidate.parent_id.as_ref() == Some(&agent.id))
@@ -255,24 +247,29 @@ fn agent_viewer_result(
         .collect();
 
     let mut details = Map::new();
-    details.insert("agent".into(), js_json::to_value(agent).unwrap_or(Value::Null));
+    details.insert(
+        "agent".into(),
+        js_json::to_value(agent).map_err(|error| HandlerError::new(error.to_string()))?,
+    );
     details.insert("children".into(), json!(children));
     details.insert("commands".into(), json!(list_viewer_commands(agent)));
     if let Some(parent_id) = agent.parent_id.as_ref() {
         details.insert("parentId".into(), json!(parent_id));
     }
     details.insert("status".into(), view_status(agent));
-    if let Some(transcript) = view_transcript(agent) {
-        details.insert("transcript".into(), transcript);
-    }
-
     let mut content = format_agent_viewer_content(agent);
     if let Some(trace) = trace {
-        details.insert("trace".into(), js_json::to_value(trace).expect("trace JSON"));
+        details.insert(
+            "trace".into(),
+            js_json::to_value(trace).map_err(|error| HandlerError::new(error.to_string()))?,
+        );
         content.push_unit(10);
         content.push_str(format_agent_lifecycle_trace(trace));
     }
-    tool_result(content, Value::Object(details))
+    if let Some(transcript) = view_transcript(agent) {
+        details.insert("transcript".into(), transcript);
+    }
+    Ok(tool_result(content, Value::Object(details)))
 }
 
 fn format_agent_viewer_content(agent: &AgentSnapshot) -> JsString {

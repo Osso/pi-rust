@@ -1,5 +1,7 @@
 # Extension examples L
 
+Current plan-mode audit: [whole-module trace](example-plan-mode.md). Its exact raw UI/messages/JSONL proof supersedes the historical surrogate-projection exception and copied-session-helper path below.
+
 ## Q15 common-pin game oracle imports (2026-10-23)
 
 Both game oracles now import actual ModelRegistry.inMemory/AuthStorage rather than retired model-runtime-test-utils. No game production/assertion changes. Snake4 and invaders6 differentials GREEN (`q15b-example_{snake,space_invaders}-current-2.log`), covering full frames, saved state, timers/disposal, collision/error branches. Historical invaders-blocker diagnostic oracle imports are migrated but it has no current Rust caller; no independent proof is claimed for that unused artifact.

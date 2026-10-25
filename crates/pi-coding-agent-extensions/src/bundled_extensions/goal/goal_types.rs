@@ -7,7 +7,6 @@ use pi_js_compat::number as js_number;
 use serde::{Deserialize, Serialize};
 
 use crate::core::extensions::types::{BoxFuture, ExtensionContext, HandlerError};
-use crate::core::session_control_db::SupervisorResponse;
 
 /// A conversation event retained for the next Supervisor goal review.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,8 +43,67 @@ pub struct Goal {
     pub review_evidence: Option<Vec<GoalReviewEvidenceEvent>>,
 }
 
-/// Supervisor decisions a goal review can return.
-pub type GoalSupervisorResponse = SupervisorResponse;
+/// The frozen goal decision union, including its optional grouped display ID.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GoalSupervisorResponse {
+    Complete {
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+    Continue {
+        instructions: JsString,
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+    Pause {
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+    Wait {
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+    Set {
+        objective: JsString,
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+    Error {
+        reason: JsString,
+        #[serde(default, rename = "displayId", skip_serializing_if = "Option::is_none")]
+        display_id: Option<JsString>,
+    },
+}
+
+impl GoalSupervisorResponse {
+    pub fn display_id(&self) -> Option<&JsString> {
+        match self {
+            Self::Complete { display_id, .. }
+            | Self::Continue { display_id, .. }
+            | Self::Pause { display_id, .. }
+            | Self::Wait { display_id, .. }
+            | Self::Set { display_id, .. }
+            | Self::Error { display_id, .. } => display_id.as_ref(),
+        }
+    }
+
+    pub fn set_display_id(&mut self, id: JsString) {
+        match self {
+            Self::Complete { display_id, .. }
+            | Self::Continue { display_id, .. }
+            | Self::Pause { display_id, .. }
+            | Self::Wait { display_id, .. }
+            | Self::Set { display_id, .. }
+            | Self::Error { display_id, .. } => *display_id = Some(id),
+        }
+    }
+}
 
 /// Input passed to a goal review.
 #[derive(Clone)]

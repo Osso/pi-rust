@@ -37,7 +37,7 @@ use crate::core::multi_agent_store::MultiAgentStore;
 use crate::core::permissions::presets::{SandboxProfileName, SandboxProfileScope};
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{
-    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SessionManager, SharedSessionManager,
+    BranchSummaryEntry, CompactionEntry, CustomEntry, SessionEntry, SharedSessionManager,
 };
 use crate::core::settings_manager::SettingsManager;
 pub use crate::core::slash_commands::{SlashCommandInfo, SlashCommandSource};
@@ -86,7 +86,7 @@ pub type CompactErrorCallback = Arc<dyn Fn(&CallbackError) -> Result<(), Callbac
 pub type StrCallback = Arc<dyn Fn(&str) + Send + Sync>;
 pub type JsStringCallback = Arc<dyn Fn(&JsString) + Send + Sync>;
 pub type SessionSetupCallback =
-    Arc<dyn Fn(&mut SessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
+    Arc<dyn Fn(SharedSessionManager) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type WithSessionCallback =
     Arc<dyn Fn(ReplacedSessionContext) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
 pub type RelocateCallback = Arc<dyn Fn(&JsString) -> BoxFuture<'static, Result<(), HandlerError>> + Send + Sync>;
@@ -846,6 +846,13 @@ pub type ExtensionFooterDataProvider = FooterDataProvider;
 pub type SetSandboxProfileCallback =
     Arc<dyn Fn(Option<SandboxProfileName>, SandboxProfileScope) -> Result<(), HandlerError> + Send + Sync>;
 
+pub type SupervisorReviewCancellationHandler = Arc<dyn Fn() + Send + Sync>;
+pub type RegisterSupervisorReviewCancellation = Arc<
+    dyn Fn(SupervisorReviewCancellationHandler) -> Result<SupervisorReviewCancellationHandler, CallbackError>
+        + Send
+        + Sync,
+>;
+
 pub struct ExtensionContextState {
     pub(super) stale_message: Option<String>,
     pub(super) ui_context: Arc<dyn ExtensionUiContext>,
@@ -866,6 +873,7 @@ pub struct ExtensionContextState {
     pub(super) is_project_trusted_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) get_signal_fn: Arc<dyn Fn() -> Option<AbortSignal> + Send + Sync>,
     pub(super) abort_fn: Arc<dyn Fn() + Send + Sync>,
+    pub(super) register_supervisor_review_cancellation_fn: RegisterSupervisorReviewCancellation,
     pub(super) has_pending_messages_fn: Arc<dyn Fn() -> bool + Send + Sync>,
     pub(super) shutdown_handler: Arc<dyn Fn() + Send + Sync>,
     pub(super) restart_fn: RestartHandler,
@@ -924,6 +932,7 @@ impl ExtensionContextState {
             is_project_trusted_fn: Arc::new(|| true),
             get_signal_fn: Arc::new(|| None),
             abort_fn: Arc::new(|| {}),
+            register_supervisor_review_cancellation_fn: Arc::new(|_| Ok(Arc::new(|| {}))),
             has_pending_messages_fn: Arc::new(|| false),
             shutdown_handler: Arc::new(|| {}),
             restart_fn: Arc::new(|_| Box::pin(async { Ok(()) })),
@@ -1121,6 +1130,14 @@ impl ExtensionContext {
 
     pub fn multi_agent_parent_session_id(&self) -> Result<Option<JsString>, HandlerError> {
         self.callback(|state| Arc::clone(&state.get_multi_agent_parent_session_id_fn))
+    }
+
+    pub fn register_supervisor_review_cancellation(
+        &self,
+        handler: SupervisorReviewCancellationHandler,
+    ) -> Result<SupervisorReviewCancellationHandler, HandlerError> {
+        let register = self.read(|state| state.register_supervisor_review_cancellation_fn.clone())?;
+        register(handler).map_err(HandlerError::from)
     }
 
     pub fn no_supervisor(&self) -> Result<bool, HandlerError> {
@@ -1858,6 +1875,12 @@ pub struct CompactionEvent {
     pub signal: Option<AbortSignal>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionStartEvent {}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BackgroundCompactionEndEvent {}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionCompactionSourceEvent {
@@ -2327,6 +2350,8 @@ pub enum ExtensionEvent {
     SessionBeforeFork(SessionBeforeForkEvent),
     SessionBeforeCompact(SessionBeforeCompactEvent),
     Compaction(CompactionEvent),
+    BackgroundCompactionStart(BackgroundCompactionStartEvent),
+    BackgroundCompactionEnd(BackgroundCompactionEndEvent),
     SessionCompactionSource(SessionCompactionSourceEvent),
     SessionCompact(SessionCompactEvent),
     SessionShutdown(SessionShutdownEvent),
@@ -2369,6 +2394,8 @@ impl ExtensionEvent {
             Self::SessionBeforeFork(_) => "session_before_fork",
             Self::SessionBeforeCompact(_) => "session_before_compact",
             Self::Compaction(_) => "compaction",
+            Self::BackgroundCompactionStart(_) => "background_compaction_start",
+            Self::BackgroundCompactionEnd(_) => "background_compaction_end",
             Self::SessionCompactionSource(_) => "session_compaction_source",
             Self::SessionCompact(_) => "session_compact",
             Self::SessionShutdown(_) => "session_shutdown",
@@ -2793,6 +2820,8 @@ pub struct ExtensionHandlers {
     pub session_before_fork: Vec<HandlerHandle<SessionBeforeForkEvent, SessionBeforeForkResult>>,
     pub session_before_compact: Vec<HandlerHandle<SessionBeforeCompactEvent, SessionBeforeCompactResult>>,
     pub compaction: Vec<HandlerHandle<CompactionEvent, CompactionEventResult>>,
+    pub background_compaction_start: Vec<HandlerHandle<BackgroundCompactionStartEvent, ()>>,
+    pub background_compaction_end: Vec<HandlerHandle<BackgroundCompactionEndEvent, ()>>,
     pub session_compaction_source: Vec<HandlerHandle<SessionCompactionSourceEvent, SessionCompactionSourceResult>>,
     pub session_compact: Vec<HandlerHandle<SessionCompactEvent, ()>>,
     pub session_shutdown: Vec<HandlerHandle<SessionShutdownEvent, ()>>,
@@ -2834,7 +2863,7 @@ impl ExtensionHandlers {
         self.len() == 0
     }
 
-    fn event_lists_empty(&self) -> [bool; 34] {
+    fn event_lists_empty(&self) -> [bool; 36] {
         [
             self.project_trust.is_empty(),
             self.resources_discover.is_empty(),
@@ -2844,6 +2873,8 @@ impl ExtensionHandlers {
             self.session_before_fork.is_empty(),
             self.session_before_compact.is_empty(),
             self.compaction.is_empty(),
+            self.background_compaction_start.is_empty(),
+            self.background_compaction_end.is_empty(),
             self.session_compaction_source.is_empty(),
             self.session_compact.is_empty(),
             self.session_shutdown.is_empty(),
@@ -3019,6 +3050,7 @@ pub struct ExtensionContextActions {
     pub get_multi_agent_agent_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_multi_agent_parent_session_id: Option<Arc<dyn Fn() -> Option<JsString> + Send + Sync>>,
     pub get_no_supervisor: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    pub register_supervisor_review_cancellation: Option<RegisterSupervisorReviewCancellation>,
     pub get_multi_agent_requires_agent_id: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
     pub get_multi_agent_store: Option<Arc<dyn Fn() -> Option<Arc<MultiAgentStore>> + Send + Sync>>,
     pub get_tool_detach_registry: Option<Arc<dyn Fn() -> Option<Arc<ToolDetachRegistry>> + Send + Sync>>,
@@ -3195,6 +3227,20 @@ impl ExtensionApi {
         handler: impl Handler<CompactionEvent, CompactionEventResult> + 'static,
     ) -> Result<(), String> {
         self.push_handler(|handlers| &mut handlers.compaction, handler)
+    }
+
+    pub fn on_background_compaction_start(
+        &self,
+        handler: impl Handler<BackgroundCompactionStartEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_start, handler)
+    }
+
+    pub fn on_background_compaction_end(
+        &self,
+        handler: impl Handler<BackgroundCompactionEndEvent, ()> + 'static,
+    ) -> Result<(), String> {
+        self.push_handler(|handlers| &mut handlers.background_compaction_end, handler)
     }
 
     pub fn on_session_compaction_source(

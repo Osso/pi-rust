@@ -442,7 +442,7 @@ fn indicates_split_turn_when_cutting_at_assistant_message() {
 }
 
 #[test]
-fn budgets_context_visible_custom_message_entries() {
+fn protected_suffix_ignores_old_budget_for_context_visible_custom_message_entries() {
     let mut builder = EntryBuilder::new();
     let entries = vec![
         builder.message(&user("hi")),
@@ -452,14 +452,15 @@ fn budgets_context_visible_custom_message_entries() {
     ];
 
     let tiny = find_cut_point(&entries, 0, entries.len(), 1.0);
-    assert_eq!(tiny.first_kept_entry_index, 3);
+    assert_eq!(tiny.first_kept_entry_index, 1);
     assert!(tiny.is_split_turn);
-    assert_eq!(tiny.turn_start_index, 2);
+    assert_eq!(tiny.turn_start_index, 0);
 
     let fits = find_cut_point(&entries, 0, entries.len(), 2.0);
-    assert_eq!(fits.first_kept_entry_index, 2);
-    assert!(!fits.is_split_turn);
-    assert_eq!(fits.turn_start_index, -1);
+    assert_eq!(fits.first_kept_entry_index, 1);
+    assert!(fits.is_split_turn);
+    assert_eq!(fits.turn_start_index, 0);
+    assert_eq!(tiny, fits);
 }
 
 #[test]

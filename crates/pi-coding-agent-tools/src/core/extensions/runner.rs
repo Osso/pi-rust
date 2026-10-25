@@ -311,6 +311,9 @@ impl ExtensionRunner {
             .get_multi_agent_parent_session_id
             .unwrap_or_else(|| Arc::new(|| None));
         state.get_no_supervisor_fn = actions.get_no_supervisor.unwrap_or_else(|| Arc::new(|| false));
+        state.register_supervisor_review_cancellation_fn = actions
+            .register_supervisor_review_cancellation
+            .unwrap_or_else(|| Arc::new(|_| Ok(Arc::new(|| {}))));
         state.get_multi_agent_requires_agent_id_fn = actions
             .get_multi_agent_requires_agent_id
             .unwrap_or_else(|| Arc::new(|| false));
@@ -691,6 +694,8 @@ impl ExtensionRunner {
                 "session_before_fork" => !handlers.session_before_fork.is_empty(),
                 "session_before_compact" => !handlers.session_before_compact.is_empty(),
                 "compaction" => !handlers.compaction.is_empty(),
+                "background_compaction_start" => !handlers.background_compaction_start.is_empty(),
+                "background_compaction_end" => !handlers.background_compaction_end.is_empty(),
                 "session_compaction_source" => !handlers.session_compaction_source.is_empty(),
                 "session_compact" => !handlers.session_compact.is_empty(),
                 "session_shutdown" => !handlers.session_shutdown.is_empty(),
@@ -1109,6 +1114,12 @@ impl ExtensionRunner {
             ExtensionEvent::SessionStart(event) => dispatch!(event, session_start, "session_start"),
             ExtensionEvent::SessionInfoChanged(event) => {
                 dispatch!(event, session_info_changed, "session_info_changed")
+            }
+            ExtensionEvent::BackgroundCompactionStart(event) => {
+                dispatch!(event, background_compaction_start, "background_compaction_start")
+            }
+            ExtensionEvent::BackgroundCompactionEnd(event) => {
+                dispatch!(event, background_compaction_end, "background_compaction_end")
             }
             ExtensionEvent::SessionCompact(event) => dispatch!(event, session_compact, "session_compact"),
             ExtensionEvent::SessionShutdown(event) => dispatch!(event, session_shutdown, "session_shutdown"),

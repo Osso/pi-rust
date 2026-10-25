@@ -31,6 +31,7 @@ async fn run_case(steps: &Value) -> Value {
         recorded.lock().unwrap().push(Value::Object(input.payload));
         Box::pin(async {
             Ok(GoalSupervisorResponse::Error {
+                display_id: None,
                 reason: "fixture".into(),
             })
         })

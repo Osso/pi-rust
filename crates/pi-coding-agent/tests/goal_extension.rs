@@ -145,6 +145,7 @@ fn context_actions() -> ExtensionContextActions {
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: None,
         get_multi_agent_requires_agent_id: None,
         get_multi_agent_store: None,
@@ -536,6 +537,7 @@ async fn registers_manage_goal_and_goal_command_without_budget_fields() {
     let harness = harness(
         "register",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -561,6 +563,7 @@ async fn sets_goal_from_command_and_continues_when_idle() {
     let harness = harness(
         "command-set",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -594,6 +597,7 @@ async fn rejects_bare_and_reserved_objectives() {
     let harness = harness(
         "reject",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -619,6 +623,7 @@ async fn rejects_objectives_longer_than_ten_thousand_utf16_units() {
     let harness = harness(
         "long",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -644,6 +649,7 @@ async fn injects_the_running_objective_into_the_system_prompt() {
     let harness = harness(
         "inject",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -671,6 +677,7 @@ async fn continues_after_agent_end_with_supervisor_instructions() {
     let harness = harness(
         "agent-end",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "Continue working toward this objective until it is achieved: Ship it"
                 .to_owned()
                 .into(),
@@ -701,6 +708,7 @@ async fn pause_requires_reason_and_resume_clears_paused_state() {
     let harness = harness(
         "pause",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -730,6 +738,7 @@ async fn completion_requires_a_report_and_marks_the_goal_complete() {
     let harness = harness(
         "complete",
         GoalSupervisorResponse::Complete {
+            display_id: None,
             reason: "verified".to_owned().into(),
         },
     )
@@ -754,6 +763,7 @@ async fn review_evidence_accumulates_and_is_sent_to_completion_review() {
     let harness = harness(
         "evidence",
         GoalSupervisorResponse::Complete {
+            display_id: None,
             reason: "verified".to_owned().into(),
         },
     )
@@ -807,6 +817,7 @@ async fn status_and_clear_report_and_remove_the_goal() {
     let harness = harness(
         "status-clear",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -836,6 +847,7 @@ async fn session_start_restores_running_goal_and_requests_continuation() {
     let harness = harness(
         "session-start",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -859,6 +871,7 @@ async fn idle_review_with_wait_schedules_a_five_minute_review_status() {
     let harness = harness(
         "wait",
         GoalSupervisorResponse::Wait {
+            display_id: None,
             reason: "agents running".to_owned().into(),
         },
     )
@@ -888,6 +901,7 @@ async fn emits_abort_and_error_skips_without_reviewing() {
     let harness = harness(
         "abort",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -910,6 +924,7 @@ async fn does_not_continue_when_session_continuation_is_set() {
     let harness = harness(
         "continuation",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },

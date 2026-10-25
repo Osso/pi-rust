@@ -6,7 +6,6 @@ use std::sync::{Arc, Mutex};
 
 use futures_util::FutureExt;
 use pi_ai::request::BoxFuture;
-use pi_ai::types::AssistantContent;
 
 use crate::core::desktop_notification::{
     DesktopNotification, DesktopNotificationHandle, DesktopNotifier, PERSISTENT_DESKTOP_NOTIFICATION_EXPIRE_TIME_MS,
@@ -465,9 +464,12 @@ pub fn run_agent_session(
         }
         let abort_registration = register_store_abort_handler(&input);
         publish_active_session_identity(&input, &active_session);
+        let previous_messages = active_session.messages();
         let outcome = prompt_child_and_wait_for_descendants(&input, &active_session).await;
         let agent = match outcome {
-            Ok(()) => complete_prompted_child_session(&input, &active_session, restore_generation).await,
+            Ok(()) => {
+                complete_prompted_child_session(&input, &active_session, &previous_messages, restore_generation).await
+            }
             Err(error) => fail_child_session(&input, &error, restore_generation).await,
         };
         drop(abort_registration);
@@ -599,6 +601,7 @@ async fn prompt_child_and_wait_for_descendants(
 async fn complete_prompted_child_session(
     input: &RunAgentSessionInput,
     active_session: &Arc<dyn ChildAgentSession>,
+    previous_messages: &[Arc<pi_agent_core::AgentMessage>],
     restore_generation: u64,
 ) -> Result<AgentSnapshot, JsString> {
     if let Some(cancelled) = acknowledge_cancelled_runtime(
@@ -610,9 +613,15 @@ async fn complete_prompted_child_session(
         return Ok(cancelled);
     }
     loop {
-        let summary = last_assistant_text(&active_session.messages());
+        let summary = match super::child_response::read_current_child_assistant_text(
+            &active_session.messages(),
+            previous_messages,
+        ) {
+            Ok(summary) => summary,
+            Err(error) => return fail_child_session(input, &error, restore_generation).await,
+        };
         let completion_result = summary.map(|summary| AgentResult {
-            summary: Some(summary.into()),
+            summary: Some(summary),
             file_refs: None,
             duration_ms: None,
             tool_call_id: None,
@@ -886,27 +895,4 @@ fn is_waiting_for_input_notification(message: &AgentMailboxMessage) -> bool {
             .thread_id
             .as_ref()
             .is_some_and(|thread_id| thread_id.starts_with("agent-waiting-for-input:"))
-}
-
-fn last_assistant_text(messages: &[pi_agent_core::AgentMessage]) -> Option<pi_js_compat::js_json::JsString> {
-    for message in messages.iter().rev() {
-        let Some(assistant) = message.as_assistant() else {
-            continue;
-        };
-        let text = pi_js_compat::js_json::JsString::join(
-            assistant
-                .content
-                .iter()
-                .filter_map(|part| match part {
-                    AssistantContent::Text(text) => Some(text.text.clone()),
-                    _ => None,
-                })
-                .collect::<Vec<_>>(),
-            "\n",
-        );
-        if !text.is_empty() {
-            return Some(text);
-        }
-    }
-    None
 }

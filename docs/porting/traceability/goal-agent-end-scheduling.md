@@ -1,0 +1,3 @@
+# Scheduled goal agent-end — frozen 4f9e6f8a4
+
+Whole export/branch audit: `runScheduledGoalAgentEnd` captures the review epoch before calling `handleGoalAgentEnd`, forwards event/context/review/select/same-goal/apply, and wires epoch/deferDecision/deferReview to the same scheduler. The supplied empty-response scheduler is intentionally unused in frozen. Native wrappers now propagate Result from all context/scheduler callbacks instead of defaulting failure to false. Existing goal agent-end integration tests cover normal decisions; explicit cancellation/deferred callback matrix remains pending, so the row is partial. Runtime races and pathological input shapes follow the repository gap policy.

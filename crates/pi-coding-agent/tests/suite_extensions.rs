@@ -1,5 +1,7 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "extension_context_supervisor_cancellation.rs"]
+pub mod extension_context_supervisor_cancellation;
 #[path = "extension_session_read_view.rs"]
 pub mod extension_session_read_view;
 
@@ -59,8 +61,14 @@ pub mod example_trigger_compact;
 pub mod goal_extension;
 #[path = "goal_idle_selection.rs"]
 pub mod goal_idle_selection;
+#[path = "goal_rendering.rs"]
+pub mod goal_rendering;
 #[path = "goal_review_evidence.rs"]
 pub mod goal_review_evidence;
+#[path = "goal_scheduling.rs"]
+pub mod goal_scheduling;
+#[path = "goal_supervisor_review.rs"]
+pub mod goal_supervisor_review;
 #[path = "loop_runtime.rs"]
 pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]

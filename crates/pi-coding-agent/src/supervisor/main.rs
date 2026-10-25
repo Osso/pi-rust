@@ -8,11 +8,12 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
+use crate::core::codex_quota_fallback::CODEX_FALLBACK_PROVIDERS;
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::types::BeforeToolCallResult;
 use pi_ai::request::BoxFuture;
 use pi_ai::session_resources::cleanup_session_resources;
-use pi_ai::types::{AssistantContent, StopReason};
+use pi_ai::types::{AssistantContent, Model, StopReason};
 use pi_js_compat::js_json::{JsString, JsValue};
 
 use pi_js_compat::abort::AbortSignal;
@@ -62,6 +63,34 @@ pub const SUPERVISOR_EXCLUDED_TOOL_NAMES: [&str; 12] = [
     "send_agent_message",
     "spawn_agent",
 ];
+
+const SUPERVISOR_MODEL_ID: &str = "gpt-6.1-sol";
+
+fn require_supervisor_models(registry: &ModelRegistry) -> Result<Vec<Model>, JsString> {
+    let fallbacks = CODEX_FALLBACK_PROVIDERS
+        .iter()
+        .find_map(|(provider, fallback)| (*provider == "openai-codex").then_some(fallback.as_slice()))
+        .unwrap_or_default();
+    let providers = std::iter::once("openai-codex")
+        .chain(fallbacks.iter().copied())
+        .collect::<Vec<_>>();
+    let mut models = Vec::new();
+    for provider in &providers {
+        if let Some(model) = registry.find(*provider, SUPERVISOR_MODEL_ID)
+            && registry.has_configured_auth(&model).map_err(|error| error.message)?
+        {
+            models.push(model);
+        }
+    }
+    if models.is_empty() {
+        return Err(js_format!(
+            "Pi Supervisor requires {} on an authenticated provider: {}",
+            SUPERVISOR_MODEL_ID,
+            providers.join(", ")
+        ));
+    }
+    Ok(models)
+}
 
 const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str =
     "Preserve Supervisor decisions, project-specific policies, and reusable approval rationale.";
@@ -598,10 +627,8 @@ pub struct CreateSupervisorSessionOptions {
 pub async fn create_supervisor_session(
     options: CreateSupervisorSessionOptions,
 ) -> Result<CreateAgentSessionResult, JsString> {
-    let model = options
-        .model_registry
-        .find("openai-codex", "gpt-5.6-sol")
-        .ok_or_else(|| "Pi Supervisor requires openai-codex/gpt-5.6-sol".to_owned())?;
+    let models = require_supervisor_models(&options.model_registry)?;
+    let model = models[0].clone();
     let mut tools: Vec<String> = SUPERVISOR_TOOL_NAMES.iter().map(|name| (*name).to_owned()).collect();
     tools.push(SUPERVISOR_RESPONSE_TOOL_NAME.to_owned());
     create_agent_session(CreateAgentSessionOptions {

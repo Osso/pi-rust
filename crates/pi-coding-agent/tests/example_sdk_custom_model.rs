@@ -48,6 +48,36 @@ async fn selects_first_available_model_and_streams_greeting() {
 }
 
 #[tokio::test]
+async fn no_available_model_prints_catalog_without_creating_a_session() {
+    use pi_coding_agent::core::{
+        auth_storage::AuthStorage, model_registry::ModelRegistry, sdk::CreateAgentSessionOptions,
+    };
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap();
+    assert!(registry.get_available().unwrap().is_empty());
+    let models = registry
+        .find("anthropic", "claude-opus-4-5")
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut oracle = oracle::TsOracle::spawn(
+        "sdk-examples-oracle.ts",
+        "packages/coding-agent/examples/sdk/02-custom-model.ts",
+    );
+    let expected = oracle.request(&serde_json::json!({"models":models,"available":[]}));
+    let output = support::Output::default();
+    example::run(
+        CreateAgentSessionOptions {
+            model_registry: Some(registry),
+            ..Default::default()
+        },
+        output.clone(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(output.text(), expected["stdout"]);
+    assert!(output.text().ends_with("Available models: []\n"));
+}
+
+#[tokio::test]
 async fn stream_write_failure_retains_message_and_disposes_owned_session() {
     use std::io::Write;
     struct FailText(support::Output);

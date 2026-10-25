@@ -235,10 +235,13 @@ impl FakeChildSession {
 }
 
 impl ChildAgentSession for FakeChildSession {
-    fn messages(&self) -> Vec<AgentMessage> {
+    fn messages(&self) -> Vec<Arc<AgentMessage>> {
         lock_session_manager(&self.session_manager)
             .build_session_context()
             .messages
+            .into_iter()
+            .map(Arc::new)
+            .collect()
     }
 
     fn prompt(&self, text: JsString) -> BoxFuture<'static, Result<(), JsString>> {
@@ -438,10 +441,27 @@ async fn inherited_child_forks_the_parent_prefix() {
         ))
         .await
         .expect("child session");
+    let previous_messages = child.messages();
+    assert_eq!(
+        pi_coding_agent::bundled_extensions::agents_core::child_response::read_current_child_assistant_text(
+            &child.messages(),
+            &previous_messages
+        )
+        .unwrap(),
+        None
+    );
     child
         .prompt("Continue integrated task".to_owned().into())
         .await
         .expect("prompt");
+    assert_eq!(
+        pi_coding_agent::bundled_extensions::agents_core::child_response::read_current_child_assistant_text(
+            &child.messages(),
+            &previous_messages
+        )
+        .unwrap(),
+        Some("fresh child done".into())
+    );
 
     let child_manager = captured_session_manager(&captured);
     assert_eq!(

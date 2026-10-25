@@ -189,7 +189,7 @@ pub trait ChildAgentSession: Send + Sync {
     fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
         None
     }
-    fn messages(&self) -> Vec<AgentMessage>;
+    fn messages(&self) -> Vec<Arc<AgentMessage>>;
     fn prompt(
         &self,
         text: pi_js_compat::js_json::JsString,
