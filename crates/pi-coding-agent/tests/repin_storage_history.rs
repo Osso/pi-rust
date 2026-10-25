@@ -34,6 +34,37 @@ fn missing_compacted_transcript_preserves_frozen_open_error() {
 }
 
 #[test]
+fn corrupted_archive_history_preserves_frozen_decoder_error_and_cleanup() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create", "dir":dir, "cwd":dir, "compacted":true}));
+    let archive = call(&mut ts, json!({"op":"fileArchive","path":created["path"]}));
+    let path = archive.as_str().unwrap();
+    let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
+    let peer = ts.request(&json!({"id":1,"op":"historyAfterRewrite","path":path,"contents":"not a zstd archive"}));
+    assert_eq!(peer["ok"], false, "{peer}");
+    let mut history = read_session_history_reverse(&manager);
+    for _ in 0..3 {
+        assert!(history.next().unwrap().is_ok());
+    }
+    let error = history.next().unwrap().unwrap_err();
+    let expected = peer["error"].as_str().unwrap().strip_prefix("Error: ").unwrap();
+    assert_eq!(error.message(), expected);
+    let native = std::error::Error::source(&error)
+        .expect("history must preserve the original decoder Error")
+        .downcast_ref::<pi_js_compat::node_error::NativeNodeError>()
+        .unwrap();
+    let value = native.value().to_serde().unwrap();
+    for property in ["name", "code", "errno"] {
+        assert_eq!(value[property], peer["details"][property], "{property}");
+    }
+    assert!(history.next().is_none());
+    assert_eq!(std::fs::read(path).unwrap(), b"not a zstd archive");
+    assert!(!std::path::Path::new(created["path"].as_str().unwrap()).exists());
+}
+
+#[test]
 fn empty_parent_does_not_open_removed_transcript() {
     // Frozen session-history.ts:75-76 stops on !parentId before opening a file.
     let tmp = tempfile::tempdir().unwrap();
