@@ -162,7 +162,7 @@ async fn isolated_provider_auth_matrix() {
             .cloned()
             .unwrap_or_default();
         let storage = AuthStorage::in_memory(data);
-        let registry = ModelRegistry::in_memory(storage.clone());
+        let registry = ModelRegistry::in_memory(storage.clone()).unwrap();
         if let Some(config) = request.get("config") {
             registry.register_provider(PROVIDER, native_config(config)).unwrap();
         }

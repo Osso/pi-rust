@@ -322,7 +322,7 @@ pub async fn model_registry() -> Arc<ModelRegistry> {
 
 async fn model_registry_with(auth: Option<JsObject>) -> Arc<ModelRegistry> {
     match auth {
-        Some(auth) => Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(auth))),
+        Some(auth) => Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(auth)).unwrap()),
         None => support::model_registry().await,
     }
 }

@@ -16,7 +16,7 @@ async fn custom_and_bash_appends_preserve_existing_message_identity() {
         no_supervisor: Some(true),
         cwd: Some(temp.path().to_str().unwrap().into()),
         agent_dir: Some(temp.path().to_str().unwrap().into()),
-        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new()))),
+        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
         resource_loader: Some(StaticResourceLoader::new()),
         ..Default::default()
     })

@@ -11,7 +11,7 @@ fn options(temp: &tempfile::TempDir) -> CreateAgentSessionOptions {
         no_supervisor: Some(true),
         cwd: Some(temp.path().to_str().unwrap().into()),
         agent_dir: Some(temp.path().to_str().unwrap().into()),
-        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new()))),
+        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
         resource_loader: Some(StaticResourceLoader::new()),
         ..Default::default()
     }
@@ -84,7 +84,8 @@ async fn standalone_llm_approval_blocks_write_without_contacting_supervisor_or_m
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
         model.provider.clone(),
         serde_json::json!({"type":"api_key","key":"fixture"}),
-    )])));
+    )])))
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let mut config = options(&temp);
     config.model = Some(model);

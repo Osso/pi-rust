@@ -15,9 +15,12 @@ use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::{JsObject, JsString, JsValue as Value};
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 #[derive(Default)]

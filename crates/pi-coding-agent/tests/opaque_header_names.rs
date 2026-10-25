@@ -137,7 +137,7 @@ async fn cached_model_header_name_probe() {
     }
     let loaded = load_openrouter_catalog_at_startup().await.unwrap();
     assert_eq!(loaded.source, "cache");
-    let registry = ModelRegistry::in_memory(empty_auth());
+    let registry = ModelRegistry::in_memory(empty_auth()).unwrap();
     assert!(registry.find("openrouter", "bad-header-model").is_none());
     let error = registry.get_error().expect("invalid cached model must fail explicitly");
     let text = error.to_utf8().unwrap();

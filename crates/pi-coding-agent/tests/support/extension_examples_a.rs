@@ -250,7 +250,7 @@ pub async fn run(factory: impl FnOnce(Trace) -> ExtensionFactory, request: &Valu
     let manager = Arc::new(Mutex::new(
         SessionManager::in_memory(Some(&JsString::from("/fixture")), None).unwrap(),
     ));
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let observed: Trace = Arc::default();
     let mut extensions = vec![extension.clone()];
     if request["observeBus"] == true {

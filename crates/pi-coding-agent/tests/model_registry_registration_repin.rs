@@ -68,7 +68,7 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
         let expected: JsValue = oracle
             .request(&js_json!({"id":name,"operation":"registration_snapshot","provider":PROVIDER,"config":config,"updates":updates}));
         assert_eq!(expected["ok"], JsValue::Bool(true), "{name}: {expected:?}");
-        let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new()));
+        let registry = ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(String, Value)>::new())).unwrap();
         let mut error = registry
             .register_provider(
                 PROVIDER,

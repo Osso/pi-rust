@@ -93,6 +93,7 @@ Parent5315a68a is integrated at0d091ce1. Current all-target workspace check:0err
 | ExtensionRunner queued registrations | extensions/runner.ts:442–455 catches Error.message or String(err), then clears queue | convert only at pending catch; String conversion failure propagates from bind_core without clearing queue |
 | ExtensionRunner immediate operations | extensions/runner.ts:461–473 has no catch | provider handler/runtime/API channels return CallbackError unchanged |
 | Session services queued providers | agent-session-services.ts:161–173 catches Error.message/String(error) into diagnostics | same fallible conversion; normal diagnostics continue and pending queue clears only after conversion succeeds |
+| SDK09/12 explicit inMemory examples | examples/sdk/09-api-keys-and-oauth.ts:45 and12-full-control.ts:27 have no catch | propagate with ? through existing CallbackError results;74positive fixture constructors assert successful setup with unwrap, not production panic transport |
 
 Other consumers and current compile proof remain pending; this table is not a completed migration claim.
 

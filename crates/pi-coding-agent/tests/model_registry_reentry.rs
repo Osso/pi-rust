@@ -87,7 +87,7 @@ fn isolated_reentrant_registry_probe() {
     let expected_path = std::env::var_os(EXPECTED_PATH).expect("private fixture path");
     let expected = js_json::parse_lossless(std::fs::read_to_string(expected_path).unwrap()).unwrap();
     let auth = js_json!({PROVIDER:{"type":"oauth","access":"fixture-access","refresh":"fixture-refresh","expires":9999999999999_f64}});
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(auth.as_object().unwrap().clone()));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(auth.as_object().unwrap().clone())).unwrap();
     let reader = registry.clone();
     let observations = Arc::new(Mutex::new(Vec::<JsValue>::new()));
     let callback_observations = observations.clone();
@@ -186,7 +186,7 @@ async fn isolated_request_auth_reentry_probe() {
     let expected_path = std::env::var_os(EXPECTED_PATH).expect("private fixture path");
     let expected = js_json::parse_lossless(std::fs::read_to_string(expected_path).unwrap()).unwrap();
     let auth = js_json!({AUTH_PROVIDER:{"type":"oauth","access":"fixture-access","refresh":"fixture-refresh","expires":9999999999999_f64}});
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(auth.as_object().unwrap().clone()));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(auth.as_object().unwrap().clone())).unwrap();
     let reader = registry.clone();
     let count = Arc::new(Mutex::new(0));
     let callback_count = count.clone();

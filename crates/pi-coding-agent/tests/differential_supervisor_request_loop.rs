@@ -111,7 +111,7 @@ async fn run_rust(dir: &str) -> Value {
         )
         .into(),
     ]);
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new())).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let mut manager = SessionManager::create(
         &JsString::from(dir),

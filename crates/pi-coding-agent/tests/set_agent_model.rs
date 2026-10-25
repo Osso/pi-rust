@@ -151,7 +151,8 @@ async fn live_fixture_with_persistence(persistence: Option<(&mut oracle::TsOracl
             serde_json::json!({"faux": {"type":"api_key", "key":"fixture"}}),
         )
         .unwrap(),
-    ));
+    ))
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, faux.provider.clone());
     runtime.refresh();
     let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));

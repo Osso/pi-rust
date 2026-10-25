@@ -59,7 +59,7 @@ fn auth_data() -> serde_json::Map<String, serde_json::Value> {
 }
 
 async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data()));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(auth_data())).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }

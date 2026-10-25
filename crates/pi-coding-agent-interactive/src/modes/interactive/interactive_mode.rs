@@ -13138,7 +13138,7 @@ mod ui_tests {
         let model_registry = setup
             .model_registry
             .clone()
-            .unwrap_or_else(|| ModelRegistry::in_memory(AuthStorage::in_memory(credentials)));
+            .unwrap_or_else(|| ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap());
         scripted_registry::register_scripted_provider(&model_registry, Arc::clone(&faux.provider));
         for provider in extra_providers {
             scripted_registry::register_scripted_provider(&model_registry, provider);

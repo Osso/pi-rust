@@ -8946,7 +8946,8 @@ mod supervisor_project_failure_tests {
         let cwd = JsString::from(directory.path().to_str().unwrap());
         let runtime = crate::core::model_registry::ModelRegistry::in_memory(
             crate::core::auth_storage::AuthStorage::in_memory(Vec::<(String, serde_json::Value)>::new()),
-        );
+        )
+        .unwrap();
         let faux = faux_provider(RegisterFauxProviderOptions {
             provider: Some("supervisor-project-test".to_owned()),
             models: Some(vec![FauxModelDefinition {

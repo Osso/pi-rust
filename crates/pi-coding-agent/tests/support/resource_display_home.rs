@@ -165,7 +165,7 @@ fn reload_home_child() {
                 model.provider.clone(),
                 serde_json::json!({"type":"api_key","key":"fixture"}),
             )]);
-            let registry = ModelRegistry::in_memory(auth_storage.clone());
+            let registry = ModelRegistry::in_memory(auth_storage.clone()).unwrap();
             let settings = Arc::new(Mutex::new(SettingsManager::in_memory(
                 Settings::new(),
                 SettingsManagerCreateOptions::default(),

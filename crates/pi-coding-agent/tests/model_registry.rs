@@ -34,7 +34,7 @@ fn storage_with(entries: &[(&str, Value)]) -> Arc<AuthStorage> {
 async fn registry(storage: Arc<AuthStorage>, models_path: Option<String>) -> ModelRegistry {
     match models_path {
         Some(path) => ModelRegistry::create((*storage).clone(), Some(path.into())).unwrap(),
-        None => ModelRegistry::in_memory((*storage).clone()),
+        None => ModelRegistry::in_memory((*storage).clone()).unwrap(),
     }
 }
 

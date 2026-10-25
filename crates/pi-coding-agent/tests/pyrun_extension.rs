@@ -414,9 +414,12 @@ fn event_bus() -> Arc<dyn EventBus> {
 }
 
 async fn model_registry() -> Arc<ModelRegistry> {
-    Arc::new(ModelRegistry::in_memory(
-        pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    ))
+    Arc::new(
+        ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
+            serde_json::Map::new(),
+        ))
+        .unwrap(),
+    )
 }
 
 fn actions() -> ExtensionActions {

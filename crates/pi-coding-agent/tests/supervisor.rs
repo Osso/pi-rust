@@ -552,7 +552,8 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
     });
     let runtime = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()),
-    );
+    )
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }

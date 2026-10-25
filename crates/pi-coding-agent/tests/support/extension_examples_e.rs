@@ -72,7 +72,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     )
     .await
     .unwrap();
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let manager = support::session_manager(cwd);
     let mut runner = ExtensionRunner::new(
         vec![extension.clone()],

@@ -56,7 +56,8 @@ pub async fn fixture() -> Fixture {
     let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::from_iter([(
         model.provider.clone(),
         json!({"type":"api_key","key":"fixture"}),
-    )])));
+    )])))
+    .unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     let requests = Arc::new(Mutex::new(Vec::new()));
     let seen = Arc::clone(&requests);

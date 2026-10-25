@@ -52,7 +52,7 @@ async fn sigusr2_wakes_the_idle_session_without_the_poll_interval() {
     });
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime.refresh();
     let model = faux.get_model(None).expect("model");

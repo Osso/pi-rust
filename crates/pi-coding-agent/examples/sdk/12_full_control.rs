@@ -26,7 +26,7 @@ pub async fn configure_options(
         None => ModelRegistry::in_memory(
             pi_coding_agent::core::auth_storage::AuthStorage::create(Some(&(agent_dir.clone() + "/auth.json")))
                 .map_err(pi_ai::request::CallbackError::from)?,
-        ),
+        )?,
     };
     if let Some(key) = api_key.filter(|key| !key.is_empty()) {
         runtime

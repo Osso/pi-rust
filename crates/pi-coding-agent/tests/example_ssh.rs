@@ -79,7 +79,8 @@ async fn native(request: &Value) -> Value {
     .unwrap();
     let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(pi_js_compat::js_json::JsObject::new()),
-    );
+    )
+    .unwrap();
     let mut runner = support::runner_for(vec![extension.clone()], cwd, runtime, Arc::new(model_registry));
     runner.bind_core(support::actions(), support::context_actions(), None);
     let ui = Arc::new(Ui {

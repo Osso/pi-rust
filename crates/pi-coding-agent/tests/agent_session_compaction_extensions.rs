@@ -45,7 +45,7 @@ fn faux_model() -> FauxModelDefinition {
 async fn model_registry(faux: &FauxProviderHandle) -> ModelRegistry {
     let mut data = serde_json::Map::new();
     data.insert("faux".to_owned(), json!({"type": "api_key", "key": "faux-key"}));
-    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let runtime = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     scripted_registry::register_scripted_provider(&runtime, Arc::clone(&faux.provider));
     runtime
 }

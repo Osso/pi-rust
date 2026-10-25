@@ -161,7 +161,7 @@ pub async fn compare(name: &str, factory: ExtensionFactory, mut request: Value) 
         let registration = extension.read();
         json!({"commands":registration.commands.keys().collect::<Vec<_>>(),"tools":registration.tools.keys().collect::<Vec<_>>()})
     };
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let model_calls = Arc::new(Mutex::new(Vec::<Value>::new()));
     let model = if request["modelFixture"].is_object() {
         Some(configure_faux(

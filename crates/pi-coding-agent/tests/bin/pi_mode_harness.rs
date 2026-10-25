@@ -241,7 +241,7 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
     if std::env::var("PI_HARNESS_NO_AUTH").as_deref() != Ok("1") {
         data.push(("faux", js_json!({"type": "api_key", "key": "faux-key"})));
     }
-    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(data));
+    let registry = ModelRegistry::in_memory(AuthStorage::in_memory(data)).unwrap();
     let model = handle.get_model(None).expect("faux model");
     let provider = Arc::clone(&handle.provider);
     registry

@@ -265,7 +265,8 @@ pub async fn compare(name: &str, factory: ExtensionFactory, request: Value) -> V
     }
     let models = ModelRegistry::in_memory(pi_coding_agent::core::auth_storage::AuthStorage::in_memory(
         pi_js_compat::js_json::JsObject::new(),
-    ));
+    ))
+    .unwrap();
     let mut runner = ExtensionRunner::new(
         vec![extension],
         runtime,

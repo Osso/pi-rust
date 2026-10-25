@@ -232,7 +232,7 @@ async fn run(name: &str, factory: ExtensionFactory, mut request: Value, compare_
     )
     .await
     .unwrap();
-    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new()));
+    let model_registry = ModelRegistry::in_memory(AuthStorage::in_memory(Map::new())).unwrap();
     let mut runner = extensions::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     let live = Arc::new(Mutex::new(request.clone()));
     let mut actions = extensions::actions();

@@ -256,7 +256,7 @@ pub async fn compare(name: &str, register: fn(&ExtensionApi) -> Result<(), Handl
     if request["noAuth"] != true {
         credentials.insert("openai".into(), json!({"type":"api_key","key":"fixture-key"}));
     }
-    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials));
+    let models = ModelRegistry::in_memory(AuthStorage::in_memory(credentials)).unwrap();
     scripted_registry::register_scripted_provider(&models, provider_with_stored_key_auth(faux.provider.clone()));
     if request["noAuth"] != true {
         models.refresh();

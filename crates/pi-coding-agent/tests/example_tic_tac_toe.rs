@@ -176,7 +176,8 @@ async fn sibling_moves_finish_before_play_through_real_agent_scheduler() {
     .unwrap();
     let model_registry = pi_coding_agent::core::model_registry::ModelRegistry::in_memory(
         pi_coding_agent::core::auth_storage::AuthStorage::in_memory(serde_json::Map::new()),
-    );
+    )
+    .unwrap();
     let mut runner = scheduler::runner_for(vec![extension], cwd, runtime, Arc::new(model_registry));
     scheduler::bind(&mut runner);
     let initial = details(["X  ", "   ", "   "], "playing", "O", 0, 0);
