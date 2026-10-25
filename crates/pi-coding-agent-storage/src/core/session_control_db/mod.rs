@@ -19,9 +19,11 @@ pub use retention::{MAILBOX_MESSAGE_RETENTION_MS, is_mailbox_message_expired};
 mod schema;
 mod sessions;
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use parking_lot::ReentrantMutex;
 use rusqlite::{Connection, Row, params};
 use serde::{Deserialize, Serialize};
 
@@ -339,7 +341,7 @@ pub fn with_immediate_transaction<T>(
 }
 
 struct RetainedControlDb {
-    connection: Mutex<Option<Connection>>,
+    connection: ReentrantMutex<RefCell<Option<Connection>>>,
     active_calls: Mutex<usize>,
     retain_count: Mutex<usize>,
     retention_thread: OnceLock<std::thread::Thread>,
@@ -363,8 +365,9 @@ pub fn with_control_db<T>(
     if let Some(retained) = retained {
         *retained.active_calls.lock().expect("retained call mutex") += 1;
         let result = {
-            let guard = retained.connection.lock().expect("retained connection mutex");
-            match guard.as_ref() {
+            let guard = retained.connection.lock();
+            let connection = guard.borrow();
+            match connection.as_ref() {
                 Some(connection) => callback(connection),
                 None => Err(ControlDbError::new("SQLite database is closed")),
             }
@@ -409,7 +412,7 @@ fn close_released_control_db(control_db_path: &JsString, retained: &Arc<Retained
         .lock()
         .expect("retained control db mutex")
         .remove(control_db_path);
-    retained.connection.lock().expect("retained connection mutex").take();
+    retained.connection.lock().borrow_mut().take();
     if let Some(thread) = retained.retention_thread.get() {
         thread.unpark();
     }
@@ -444,7 +447,7 @@ fn open_retained_control_db(control_db_path: &JsString) -> Result<Arc<RetainedCo
     })();
     result?;
     let retained = Arc::new(RetainedControlDb {
-        connection: Mutex::new(Some(db)),
+        connection: ReentrantMutex::new(RefCell::new(Some(db))),
         active_calls: Mutex::new(0),
         retain_count: Mutex::new(0),
         retention_thread: OnceLock::new(),
@@ -466,17 +469,9 @@ fn start_retention_timer(retained: &Arc<RetainedControlDb>, control_db_path: &Js
             loop {
                 std::thread::park_timeout(std::time::Duration::from_secs(60));
                 let Some(retained) = weak.upgrade() else { break };
-                let guard = match retained.connection.lock() {
-                    Ok(guard) => guard,
-                    Err(error) => {
-                        eprintln!(
-                            "Message retention cleanup failed for {}: {error}",
-                            encode_node_utf8(&path)
-                        );
-                        break;
-                    }
-                };
-                let Some(db) = guard.as_ref() else { break };
+                let guard = retained.connection.lock();
+                let connection = guard.borrow();
+                let Some(db) = connection.as_ref() else { break };
                 if let Err(error) = retention::cleanup_expired_messages(db) {
                     eprintln!(
                         "Message retention cleanup failed for {}: {error}",

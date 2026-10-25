@@ -10,6 +10,7 @@ autoexamples = false
 autobenches = false
 
 [dependencies]
+parking_lot = "=0.12.5"
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
 pi-ai = { version = "=0.0.0", path = "../pi-ai" }

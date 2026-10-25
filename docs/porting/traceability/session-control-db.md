@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Retained callback reentrancy (2026-10-25)
+
+Owned-process RED `/tmp/storage3-control-reentrant-red.log` proves frozen nested withControlDb/enqueue returns ID1 while native deadlocks on its non-reentrant connection mutex. Main approved exact parking_lot for RetainedControlDb only; [dependency purpose](../../dependencies.md) and Cargo.lock are tracked. Its ReentrantMutex protects the existing RefCell/optional connection; nested callbacks borrow the same connection, while closing waits for the active-call count to reach zero. GREEN `/tmp/storage3-control-reentrant-green.log` also verifies an outer immediate transaction rolls back a nested public enqueue, leaving exactly the original message to claim. The child is bounded and killed/waited on failure; no unsafe pointer, alternate connection, fallback or production API is added.
+
 ## Runtime instance UUID wire format (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-instance-red.log` validates frozen UUIDv4 then finds a native UUIDv7 incarnation in getRuntimeProcessInstanceId output. Generation now uses the existing random_uuid authority; its failures use the existing ControlDbError rather than panicking in the UUIDv7 generator. The public return type is unchanged. Source/native GREEN `/tmp/storage3-control-instance-green.log` checks cached wire equality, exact field order, UUID version/variant and the native live PID; three existing identity/cache tests pass in `/tmp/storage3-control-instance-unit.log`. Random values and process-specific identities are not falsely compared across runtimes.

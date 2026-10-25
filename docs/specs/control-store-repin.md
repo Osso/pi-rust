@@ -65,6 +65,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Preserve runtime-registration process-probe rejection before listener/health replacement.
 - [x] Wake a verified local mailbox listener for an explicitly empty recipient host through both stored-message and existing-row enqueue APIs.
 - [x] Cache runtime process-instance JSON with frozen pid/startTimeTicks/incarnation order and a crypto.randomUUID-compatible UUIDv4 incarnation.
+- [x] Permit nested retained-database callbacks on the same connection, including rollback of nested public writes in an outer immediate transaction.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.
