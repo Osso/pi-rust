@@ -62,7 +62,13 @@ function emit(path: string, error = false) {
 }
 for await (const line of createInterface({ input: process.stdin })) {
 	const { operation } = JSON.parse(line) as {
-		operation: "poll" | "head_fail" | "reftable_fail" | "retry";
+		operation:
+			| "poll"
+			| "head_fail"
+			| "reftable_fail"
+			| "retry"
+			| "wsl_empty"
+			| "wsl_ctime";
 	};
 	const root = await mkdtemp(join(tmpdir(), "footer-watch-"));
 	const git = join(root, ".git");
@@ -79,14 +85,24 @@ for await (const line of createInterface({ input: process.stdin })) {
 	const changes: (string | null)[] = [];
 	provider.onBranchChange(() => changes.push(provider.getGitBranch()));
 	const initial = provider.getGitBranch();
+	const wsl = operation.startsWith("wsl_");
+	const oldDistro = process.env.WSL_DISTRO_NAME;
+	const oldInterop = process.env.WSL_INTEROP;
+	if (wsl) {
+		process.env.WSL_DISTRO_NAME = operation === "wsl_empty" ? "" : "fixture";
+		delete process.env.WSL_INTEROP;
+	}
 	const permissionPath =
-		operation === "head_fail"
+		operation === "head_fail" || wsl
 			? git
 			: operation === "reftable_fail"
 				? table
 				: undefined;
 	if (permissionPath) {
 		(Reflect.get(provider, "clearGitWatchers") as () => void).call(provider);
+		if (wsl)
+			(Reflect.get(provider, "gitPaths") as { repoDir: string }).repoDir =
+				"/mnt/Z/repo";
 		fs.chmodSync(permissionPath, 0o111);
 		(Reflect.get(provider, "setupGitWatcher") as () => void).call(provider);
 	}
@@ -94,10 +110,15 @@ for await (const line of createInterface({ input: process.stdin })) {
 		await delay(50);
 		if (operation === "retry") emit(git, true);
 		branch = "next";
-		await writeFile(list, "1\n");
-		emit(table);
-		emit(list);
-		await delay(operation === "poll" ? 1800 : 800);
+		if (operation === "wsl_empty")
+			await writeFile(join(git, "HEAD"), "ref: refs/heads/.invalid\n");
+		else if (wsl) fs.chmodSync(join(git, "HEAD"), 0o600);
+		else {
+			await writeFile(list, "1\n");
+			emit(table);
+			emit(list);
+		}
+		await delay(operation === "poll" || wsl ? 1800 : 800);
 		const before = {
 			branch: provider.getGitBranch(),
 			changes: [...changes],
@@ -124,6 +145,10 @@ for await (const line of createInterface({ input: process.stdin })) {
 	} finally {
 		provider.dispose();
 		if (permissionPath) fs.chmodSync(permissionPath, 0o700);
+		if (oldDistro === undefined) delete process.env.WSL_DISTRO_NAME;
+		else process.env.WSL_DISTRO_NAME = oldDistro;
+		if (oldInterop === undefined) delete process.env.WSL_INTEROP;
+		else process.env.WSL_INTEROP = oldInterop;
 		await rm(root, { recursive: true, force: true });
 	}
 }

@@ -256,8 +256,8 @@ pub fn resolve_footer_executable_name() -> Option<JsString> {
 
 fn is_wsl_environment() -> bool {
     cfg!(target_os = "linux")
-        && (pi_js_compat::process_env::get("WSL_DISTRO_NAME").is_some()
-            || pi_js_compat::process_env::get("WSL_INTEROP").is_some())
+        && (pi_js_compat::process_env::get("WSL_DISTRO_NAME").is_some_and(|value| !value.is_empty())
+            || pi_js_compat::process_env::get("WSL_INTEROP").is_some_and(|value| !value.is_empty()))
 }
 
 fn is_windows_mounted_repo_path(path: &JsString) -> bool {
@@ -673,21 +673,12 @@ impl FooterDataProvider {
     }
 }
 
-fn file_stamp(path: &JsString) -> Option<(u128, u128, u64)> {
+fn file_stamp(path: &JsString) -> Option<(f64, f64, f64)> {
+    use std::os::unix::fs::MetadataExt;
     let metadata = std::fs::metadata(encode_node_utf8(path)).ok()?;
-    let modified = metadata
-        .modified()
-        .ok()?
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_nanos();
-    let created = metadata
-        .created()
-        .ok()
-        .and_then(|value| value.duration_since(std::time::UNIX_EPOCH).ok())
-        .map(|value| value.as_nanos())
-        .unwrap_or(0);
-    Some((modified, created, metadata.len()))
+    let modified_ms = metadata.mtime() as f64 * 1000.0 + metadata.mtime_nsec() as f64 / 1_000_000.0;
+    let changed_ms = metadata.ctime() as f64 * 1000.0 + metadata.ctime_nsec() as f64 / 1_000_000.0;
+    Some((modified_ms, changed_ms, metadata.len() as f64))
 }
 
 /// Unsubscribes a branch-change callback on drop.

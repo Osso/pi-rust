@@ -8,6 +8,8 @@ Real private fault experiment: deleting a watched directory emits rename twice, 
 
 Actual frozen/native real-watcher RED compares cached branch/notifications/git execution IO after: HEAD directory watch EACCES, reftable directory watch EACCES while tables.list is accessible, and one tables.list mutation held across the polling boundary. Native wrongly installed dependent watchers after failure and performed an extra tables.list poll absent source. The fix adds the literal early returns and removes tables.list polling; only WSL Windows-mounted HEAD polling remains. Actual real-watcher3-scenario differential GREEN at22bcb488e (11.22s); source and native do not use a factory mock for these cases. Artifacts: `/tmp/pi-rust-repin-lossless-interactive/footer-real-watch-{head-failure,all-failures}-red.log`.
 
+Real WSL-poll proof uses private process environment (never host mutation) and a synthetic Windows-mounted repoDir over private actual HEAD metadata: empty WSL vars must not enable polling; a nonempty WSL variable plus ctime-only chmod must refresh. Both were genuine RED (native presence truthiness and birthtime instead of ctime). Poll stamps now compare Node-style binary64 mtimeMs/ctimeMs/size; GREEN pending. No WSL host feature or mount is enabled.
+
 The older audit below is historical and contains superseded type/gap descriptions; it will be replaced by the full current branch map before acceptance.
 
 ## Native representation checkpoint

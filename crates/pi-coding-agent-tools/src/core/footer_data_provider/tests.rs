@@ -46,20 +46,35 @@ async fn native_real_watch_scenario(operation: &str) -> JsValue {
         Ok(())
     });
     let initial = provider.get_git_branch();
+    let wsl = operation.starts_with("wsl_");
     let permission_path = match operation {
-        "head_fail" => Some(&git_dir),
+        "head_fail" | "wsl_empty" | "wsl_ctime" => Some(&git_dir),
         "reftable_fail" => Some(&table),
         _ => None,
     };
     if let Some(path) = permission_path {
         provider.clear_git_watchers();
+        if wsl {
+            lock(&provider.state.git_paths).as_mut().unwrap().repo_dir = "/mnt/Z/repo".into();
+        }
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o111)).unwrap();
         provider.setup_git_watcher();
     }
     tokio::time::sleep(Duration::from_millis(50)).await;
     *lock(&git.branch) = "next".into();
-    std::fs::write(&list, "1\n").unwrap();
-    tokio::time::sleep(Duration::from_millis(if operation == "poll" { 1800 } else { 800 })).await;
+    if operation == "wsl_empty" {
+        std::fs::write(git_dir.join("HEAD"), "ref: refs/heads/.invalid\n").unwrap();
+    } else if wsl {
+        std::fs::set_permissions(git_dir.join("HEAD"), std::fs::Permissions::from_mode(0o600)).unwrap();
+    } else {
+        std::fs::write(&list, "1\n").unwrap();
+    }
+    tokio::time::sleep(Duration::from_millis(if operation == "poll" || wsl {
+        1800
+    } else {
+        800
+    }))
+    .await;
     let before = snapshot(&provider, &changes, &git);
     provider.dispose();
     *lock(&git.branch) = "disposed".into();
@@ -69,6 +84,49 @@ async fn native_real_watch_scenario(operation: &str) -> JsValue {
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
     }
     js_json!({"initial":initial,"before":before,"after":null,"disposed":disposed})
+}
+
+#[test]
+fn wsl_head_polling_uses_truthiness_and_ctime_instead_of_birthtime() {
+    const PROBE: &str = "PI_FOOTER_WSL_PROBE";
+    if let Ok(path) = std::env::var(PROBE) {
+        let operation = std::env::var("PI_FOOTER_WSL_OPERATION").unwrap();
+        let result = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap()
+            .block_on(native_real_watch_scenario(&operation));
+        std::fs::write(path, pi_js_compat::js_json::stringify_lossless(&result)).unwrap();
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let mut source = crate::test_oracle::TsOracle::spawn(
+        "footer-watch-oracle.mts",
+        "packages/coding-agent/src/core/footer-data-provider.ts",
+    );
+    let mut expected_cases = Vec::new();
+    let mut actual_cases = Vec::new();
+    for operation in ["wsl_empty", "wsl_ctime"] {
+        let expected = source.request(&js_json!({"operation":operation}));
+        let output_path = root.path().join("wsl.json");
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "core::footer_data_provider::tests::wsl_head_polling_uses_truthiness_and_ctime_instead_of_birthtime",
+                "--nocapture",
+            ])
+            .env(PROBE, &output_path)
+            .env("PI_FOOTER_WSL_OPERATION", operation)
+            .env("WSL_DISTRO_NAME", if operation == "wsl_empty" { "" } else { "fixture" })
+            .env_remove("WSL_INTEROP")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let actual = pi_js_compat::js_json::parse_lossless(std::fs::read_to_string(output_path).unwrap()).unwrap();
+        expected_cases.push(js_json!({"operation":operation,"result":expected}));
+        actual_cases.push(js_json!({"operation":operation,"result":actual}));
+    }
+    assert_eq!(actual_cases, expected_cases);
 }
 
 #[tokio::test]
