@@ -1,8 +1,8 @@
 # coding-agent detached-job-control traceability
 
-Pinned source: `packages/coding-agent/src/core/detached-job-control.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Earlier scalar test evidence requires current-pin revalidation.
+Pinned source: `packages/coding-agent/src/core/detached-job-control.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Whole-module audit in progress; found incarnation matching divergence and missing explicit createdAt construction.
 
-Rust: `crates/pi-coding-agent-tools/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (native real-mailbox behavioral fixtures; currently compiler-blocked).
+Rust: `crates/pi-coding-agent-tools/src/core/detached_job_control.rs`. Tests: `crates/pi-coding-agent/tests/detached_job_control.rs` (native real-mailbox behavioral fixtures). Incarnation differential RED: `/tmp/runtime-services-red-control-incarnation.log`; frozen accepts a command with a different incarnation while old native equality drops it. New explicit comparison preserves the candidate identity in the returned command; GREEN pending at commit.
 
 | Source symbol / branch | Rust item | Proof |
 | --- | --- | --- |
@@ -12,7 +12,7 @@ Rust: `crates/pi-coding-agent-tools/src/core/detached_job_control.rs`. Tests: `c
 | `enqueueDetachedJobStatusResponse` | `enqueue_detached_job_status_response` | `enqueues_a_status_response_for_the_requester` |
 | `claimDetachedJobControlCommands` (cancel filter) | `claim_detached_job_control_commands` | cancellation test |
 | `parseRuntimeCommand` validation (record, identity safe integers, command-specific fields) | `parse_runtime_command`, `parse_identity`, `parse_process_identity`, `parse_mailbox_address` | mismatch tests |
-| `commandIdentityMatches` | `StoredCommand::identity` equality with `DetachedJobOwnershipIdentity` | different-runner test |
+| `commandIdentityMatches` | Explicit job/owner/pid/start/output comparison; incarnation deliberately excluded | different-runner test |
 | Failure messages `Detached job control identity mismatch` / `Detached job control delivery failed` | `fail_runtime_mailbox_message` calls | mismatch tests assert the exact message |
 
 ## Q18 native control checkpoint
