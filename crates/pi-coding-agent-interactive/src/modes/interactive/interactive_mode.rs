@@ -4348,6 +4348,7 @@ impl InteractiveMode {
         let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
         let subscription = store.subscribe_agent_updates(move |_previous, current| {
             let _ = sender.send(current.clone());
+            Ok(())
         });
         *self.multi_agent_updates.borrow_mut() = Some(receiver);
         *self.multi_agent_subscription.borrow_mut() = Some(subscription);

@@ -41,7 +41,10 @@ fn restore_clears_source_listener_sets_but_keeps_update_subscribers() {
     let lifecycle = counts.clone();
     let _l = store.subscribe_lifecycle_notifications(move |_| lifecycle.lock().unwrap()[1] += 1);
     let updates = counts.clone();
-    let _u = store.subscribe_agent_updates(move |_, _| updates.lock().unwrap()[2] += 1);
+    let _u = store.subscribe_agent_updates(move |_, _| {
+        updates.lock().unwrap()[2] += 1;
+        Ok(())
+    });
     store.restore_from_session_manager(&session).unwrap();
     store
         .publish_lifecycle_coordinator_snapshot(&serde_json::from_value(running).unwrap())

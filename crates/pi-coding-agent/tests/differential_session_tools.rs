@@ -6,8 +6,6 @@ mod executable_script;
 mod oracle;
 #[path = "support/tool_context.rs"]
 mod tool_context;
-#[path = "support/transcript_worker.rs"]
-mod transcript_worker;
 
 use std::path::Path;
 
@@ -1994,7 +1992,6 @@ async fn change_working_directory_rejects_missing_recorded_cwd_without_relocatio
 
 #[tokio::test]
 async fn change_working_directory_reads_an_archived_target_through_resume_lookup_without_mutation() {
-    transcript_worker::configure_worker();
     use pi_coding_agent::core::extensions::types::ContextTool;
     use pi_coding_agent::core::session_manager::SessionManager;
     use pi_coding_agent::core::tools::change_working_directory::ChangeWorkingDirectoryTool;

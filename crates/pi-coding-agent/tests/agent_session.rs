@@ -1096,6 +1096,7 @@ async fn publishes_multi_agent_activity_across_agent_and_tool_events() {
     let recorded = Arc::clone(&activities);
     let _subscription = store.subscribe_agent_updates(move |_previous, current| {
         recorded.lock().unwrap().push(current.current_activity.clone());
+        Ok(())
     });
 
     let fixture = fixture_with_multi_agent(

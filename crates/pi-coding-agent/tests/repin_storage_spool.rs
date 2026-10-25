@@ -1,7 +1,5 @@
 #[path = "support/oracle.rs"]
 mod oracle;
-#[path = "support/transcript_worker.rs"]
-mod transcript_worker;
 
 use pi_coding_agent::core::session_transcript_spool::with_seekable_session_transcript;
 use pi_js_compat::abort::AbortReason;
@@ -70,8 +68,37 @@ fn native_spool(path: &str, kind: &str) -> Value {
 }
 
 #[test]
+fn archived_spool_needs_no_packaged_pi_binary() {
+    if let Ok(path) = std::env::var("PI_STORAGE_NO_PACKAGE_ARCHIVE") {
+        let mut ts = oracle::TsOracle::spawn("storage-spool-oracle.mts", "packages/coding-agent/src/core");
+        let expected = ts.request(&json!({"id":1,"path":path,"kind":"read"}));
+        assert_eq!(expected["output"]["ok"], true);
+        assert_eq!(native_spool(&path, "read"), expected["output"]);
+        return;
+    }
+    let tmp = tempfile::tempdir().unwrap();
+    let archive = tmp.path().join("fixture.jsonl.zst");
+    std::fs::write(
+        &archive,
+        zstd::stream::encode_all(&b"SDK archive without package executable"[..], 0).unwrap(),
+    )
+    .unwrap();
+    let child = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "archived_spool_needs_no_packaged_pi_binary", "--nocapture"])
+        .env("PI_STORAGE_NO_PACKAGE_ARCHIVE", &archive)
+        .env("PI_PACKAGE_DIR", tmp.path().join("no-package"))
+        .output()
+        .unwrap();
+    assert!(
+        child.status.success(),
+        "{}{}",
+        String::from_utf8(child.stdout).unwrap(),
+        String::from_utf8(child.stderr).unwrap()
+    );
+}
+
+#[test]
 fn plain_pass_through_and_already_removed_spools_match_frozen() {
-    transcript_worker::configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let plain = tmp.path().join("plain.jsonl");
     std::fs::write(&plain, b"existing plain").unwrap();
@@ -103,7 +130,6 @@ fn plain_pass_through_and_already_removed_spools_match_frozen() {
 
 #[test]
 fn cleanup_failure_overrides_callback_failure_with_frozen_rm_error() {
-    transcript_worker::configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("cleanup.jsonl.zst");
     std::fs::write(&path, zstd::stream::encode_all(&b"private plaintext"[..], 0).unwrap()).unwrap();
@@ -199,7 +225,6 @@ fn spool_mkdtemp_failures_preserve_frozen_template_path_and_errno() {
 fn spool_callback_and_worker_errors_match_frozen_cleanup_and_error_values() {
     // Frozen session-transcript-spool.ts:49-51 stringifies worker errors;
     // :60-70 preserves callback throws across recursive temporary cleanup.
-    transcript_worker::configure_worker();
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("fixture.jsonl.zst");
     let valid = zstd::stream::encode_all(&b"source-compatible spool fixture"[..], 0).unwrap();

@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Reciprocal mailbox acceptance (2026-10-25)
+
+`repin_storage_mailbox_compat` in `suite_core_4` proves TS enqueue → Rust claim/accept → TS read, then Rust enqueue → TS claim/accept → Rust reopen of the same recipient JSONL. Both receipts and messages survive, and canonical claims are deleted. RED `/tmp/storage2-mailbox-red.log` exposed a fixture ownership error, not a native delivery defect: frozen `deliverRuntimeMailboxMessage` rejects another process's claimant identity. SQLite reuses the deleted numeric ID, so the invalid second delivery made both final lookups see the latest row. Each runtime now registers/claims its own delivery; the frozen ownership check is unchanged. GREEN `/tmp/storage2-mailbox-green.log`: 1 differential passed. This is bounded compatibility evidence, not whole-module acceptance.
+
 ## Q15 writable-open filesystem failure
 
 `interactive_login_defaults::authentication_completion_ordinary_defaults_match_frozen` uses real TS/Rust AgentSessions and persisted managers against a regular-file DB parent. RED `q15-auth-setter-failure-green.log` at `938d142a` is genuinely failing despite its filename: native rendered `File exists (os error 17)` rather than frozen EEXIST/mkdir/path text. `create_private_directory` now uses node_fs argument/error records; ControlDbError retains NativeNodeError and SessionManagerError retains the control error as source. AgentSession forwards that native error. Extended proof compares exact underlying error properties plus complete UI frames and the model mutation before failed metadata persistence. At `4f68b872`, all5 completion cases pass, including native error name/message/code/errno/syscall/path and full original frames; session_control_db46/46 passes and both-package all-target check has zero warnings. Grep found no other raw filesystem projections in session_control_db's open path.
