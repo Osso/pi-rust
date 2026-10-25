@@ -18,11 +18,10 @@ use pi_agent_core::harness::messages::{
 use pi_ai::compat::complete_simple;
 use pi_ai::request::{ProviderRequestOptions, SimpleStreamOptions, StreamOptions};
 use pi_ai::types::{
-    AssistantMessage, CacheRetention, Context, Message, Model, ProviderHeaders, ProviderNativeContext, StopReason,
-    TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
+    AssistantContent, AssistantMessage, CacheRetention, Context, Message, Model, ProviderHeaders,
+    ProviderNativeContext, StopReason, TextContent, TextOrImageContent, Usage, UserContent, UserMessage, UserRole,
 };
 pub use pi_ai::utils::estimate::calculate_context_tokens;
-use pi_ai::utils::text::{ContentText, content_text};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_json::{JsString, JsValue as Value};
 use serde::{Deserialize, Serialize};
@@ -841,7 +840,13 @@ async fn generate_summary_with_options(
         return Err(CompactionError::new(JsString::from("Summarization failed: ") + detail));
     }
     Ok(SummaryWithUsage {
-        text: content_text(ContentText::Assistant(&response.content), "\n"),
+        text: JsString::join(
+            response.content.iter().filter_map(|content| match content {
+                AssistantContent::Text(content) if !content.text.trim().is_empty() => Some(&content.text),
+                _ => None,
+            }),
+            "\n",
+        ),
         usage: response.usage,
     })
 }
@@ -1077,7 +1082,13 @@ fn interpret_turn_prefix_summary_response(response: &AssistantMessage) -> Result
         ));
     }
     Ok(SummaryWithUsage {
-        text: content_text(ContentText::Assistant(&response.content), "\n"),
+        text: JsString::join(
+            response.content.iter().filter_map(|content| match content {
+                AssistantContent::Text(content) if !content.text.trim().is_empty() => Some(&content.text),
+                _ => None,
+            }),
+            "\n",
+        ),
         usage: response.usage.clone(),
     })
 }

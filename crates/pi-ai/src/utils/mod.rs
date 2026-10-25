@@ -15,7 +15,6 @@ pub mod provider_retry;
 pub mod random_uuid;
 pub mod retry;
 pub mod sanitize_unicode;
-pub mod text;
 pub mod typebox_helpers;
 pub mod validation;
 mod validation_formats;

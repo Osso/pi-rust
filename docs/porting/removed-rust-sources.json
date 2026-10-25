@@ -16,6 +16,7 @@
   "ai/src/providers/radius-config.ts",
   "ai/src/providers/radius.ts",
   "ai/src/utils/deferred-tools.ts",
+  "ai/src/utils/text.ts",
   "client/",
   "coding-agent/examples/extensions/custom-compaction.ts",
   "coding-agent/src/cli/auth-check.ts",

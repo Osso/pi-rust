@@ -92,8 +92,6 @@ pub mod differential_providers;
 pub mod differential_retry;
 #[path = "differential_stainless_abort.rs"]
 pub mod differential_stainless_abort;
-#[path = "differential_text.rs"]
-pub mod differential_text;
 #[path = "differential_transform_messages.rs"]
 pub mod differential_transform_messages;
 #[path = "differential_validation.rs"]
