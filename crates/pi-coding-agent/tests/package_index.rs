@@ -19,6 +19,36 @@ use pi_coding_agent::{
 };
 use pi_js_compat::js_json::JsString;
 
+#[test]
+fn crate_root_exposes_frozen_auth_footer_and_event_types() {
+    use pi_coding_agent::{
+        ApiKeyCredential, AuthCredential, AuthStatus, CompactionReason, ExtensionStatus, ModelInfo,
+        ModelRequestEndEvent, ModelRequestStartEvent, OAuthCredential,
+    };
+    let credential = AuthCredential::ApiKey(ApiKeyCredential {
+        key: Some(JsString::from_utf16(vec![115, 101, 99, 114, 101, 116, 0xd800])),
+        env: None,
+    });
+    let value = pi_js_compat::js_json::to_value(&credential).unwrap();
+    let expected = pi_js_compat::js_json::parse_lossless(r#"{"type":"api_key","key":"secret\ud800"}"#).unwrap();
+    assert_eq!(value, expected);
+    let storage = AuthStorage::in_memory([("root-fixture", value.clone())]);
+    assert_eq!(storage.get("root-fixture"), Some(value));
+    let status: AuthStatus = storage.get_auth_status("root-fixture");
+    assert!(status.configured);
+    let raw = JsString::from_utf16(vec![0xd800]);
+    assert_eq!(ExtensionStatus::Text(raw.clone()).evaluate(None).unwrap(), Some(raw));
+    let oauth = OAuthCredential::new("refresh", "access", 123.0);
+    assert_eq!(
+        oauth.to_js_value().get("access").and_then(|value| value.as_string()),
+        Some(&JsString::from("access"))
+    );
+    let _: Option<CompactionReason> = None;
+    let _: Option<ModelInfo> = None;
+    let _: Option<ModelRequestStartEvent> = None;
+    let _: Option<ModelRequestEndEvent> = None;
+}
+
 fn assert_paths_exist() {
     // Type-only imports above are the proof; these function pointers keep the
     // value exports referenced so a rename breaks compilation.
