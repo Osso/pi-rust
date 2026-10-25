@@ -42,7 +42,7 @@ parent-invoked. This repairs fixture setup; it does not renew unrelated rows.
 | `TEMPLATE_RENDERED_TOOLS` | `TEMPLATE_RENDERED_TOOLS` | live-session export (custom calls absent) |
 | `preRenderCustomTools` | `pre_render_custom_tools` | live-session export; `tool_renderer.rs` |
 | in-memory / empty / missing-file errors | `ExportError` messages | `rejects_in_memory_sessions`, differential missing file |
-| default output name `APP_NAME-session-<basename>.html` | `default_output_path` | not directly tested (would write into the process cwd) |
+| default output name `APP_NAME-session-<basename>.html` | `output_path_or_default` | child-isolated `differential_export_probe`: live/file, absent/empty/explicit string options and write failure, exact returned path and HTML |
 
 ## Embedded assets
 
@@ -71,8 +71,7 @@ TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
 `undefined`.
 
 ## Gaps / deviations
-- The default output filename is implemented but not tested to avoid writing into
-  the test process cwd.
+- Default output names and relative output paths are tested in the standalone target's isolated child cwd; no parent process cwd is changed.
 - Session-entry key order comes from the session-manager serializer. Pi-written
   sessions use the canonical append order that the differential fixture follows;
   arbitrary hand-edited key orders are reordered by `SessionEntry` serialization

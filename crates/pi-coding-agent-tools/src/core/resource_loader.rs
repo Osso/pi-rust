@@ -1042,6 +1042,7 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(base_system_prompt.as_ref()),
             None => base_system_prompt,
         };
+        *self.state() = state.clone();
 
         let append_sources = match &self.append_system_prompt_source {
             Some(sources) => sources.clone(),
@@ -1314,13 +1315,17 @@ impl DefaultResourceLoader {
         let mut themes = Vec::new();
         for mut theme in themes_result.themes {
             if let Some(source_path) = theme.source_path.clone() {
-                if let Some(source_info) = self.find_source_info_for_path(
-                    &source_path,
-                    Some(&state.extension_theme_source_infos),
-                    metadata_by_path,
-                )? {
-                    theme.source_info = Some(source_info);
-                }
+                let source_info = self
+                    .find_source_info_for_path(
+                        &source_path,
+                        Some(&state.extension_theme_source_infos),
+                        metadata_by_path,
+                    )?
+                    .or(theme.source_info);
+                theme.source_info = Some(match source_info {
+                    Some(source_info) => source_info,
+                    None => self.get_default_source_info_for_path(&source_path)?,
+                });
             }
             themes.push(theme);
         }

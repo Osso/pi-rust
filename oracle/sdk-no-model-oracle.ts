@@ -16,6 +16,20 @@ async function main(): Promise<void> {
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
 		const cwd = request.root;
+		if (request.operation === "legacy_model") {
+			const { createFauxCore } = await load("../../../ai/src/providers/faux.ts");
+			const faux = createFauxCore({ models: [{ id: "preferred" }, { id: "historical" }] });
+			const registry = ModelRegistry.inMemory(AuthStorage.inMemory());
+			registry.registerProvider("faux", { api: faux.api, apiKey: "fixture", baseUrl: "https://faux.invalid", streamSimple: faux.streamSimple, models: faux.models });
+			const settings = SettingsManager.inMemory({ defaultProvider: "faux", defaultModel: "preferred" });
+			const manager = SessionManager.inMemory(cwd);
+			manager.appendModelChange("faux", "historical");
+			const resourceLoader = new DefaultResourceLoader({ cwd, agentDir: cwd, settingsManager: settings });
+			const { session, modelFallbackMessage } = await createAgentSession({ cwd, agentDir: cwd, modelRegistry: registry, sessionManager: manager, settingsManager: settings, resourceLoader });
+			process.stdout.write(`${JSON.stringify({ id: request.id, model: session.model.id, fallback: modelFallbackMessage ?? null })}\n`);
+			await session.dispose();
+			continue;
+		}
 		if (request.operation === "resource_order") {
 			const settings = SettingsManager.inMemory();
 			settings.setSessionSandboxProfile("full-access");

@@ -136,6 +136,104 @@ async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rul
     loader_ref.lock().unwrap().take();
 }
 
+#[tokio::test]
+async fn additional_theme_paths_receive_default_source_metadata_like_frozen() {
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    let root = tempfile::tempdir().unwrap();
+    let theme = root.path().join("custom.json");
+    std::fs::copy(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("theme/dark.json"),
+        &theme,
+    )
+    .unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":4,"operation":"theme_source","root":root.path(),"theme":theme}));
+    let loader = DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+        cwd: root.path().to_str().unwrap().into(),
+        agent_dir: root.path().to_str().unwrap().into(),
+        settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+            Default::default(),
+            Default::default(),
+        )))),
+        no_extensions: true,
+        no_skills: true,
+        no_prompt_templates: true,
+        no_themes: true,
+        no_context_files: true,
+        additional_theme_paths: vec![theme.to_str().unwrap().into()],
+        ..Default::default()
+    })
+    .unwrap();
+    loader.reload().await.unwrap();
+    assert_eq!(
+        json!({"id":4,"themes":loader.get_themes().themes.into_iter().map(|theme| theme.source_info).collect::<Vec<_>>()}),
+        expected
+    );
+}
+
+#[tokio::test]
+async fn append_prompt_override_reads_the_new_system_prompt_like_frozen() {
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use serde_json::json;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicUsize, Ordering},
+    };
+    let root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":3,"operation":"prompt_publication","root":root.path()}));
+    let loader_ref: Arc<Mutex<Option<Arc<DefaultResourceLoader>>>> = Arc::new(Mutex::new(None));
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let revision = Arc::new(AtomicUsize::new(0));
+    let system_revision = Arc::clone(&revision);
+    let append_revision = Arc::clone(&revision);
+    let append_loader = Arc::clone(&loader_ref);
+    let append_seen = Arc::clone(&seen);
+    let loader = Arc::new(
+        DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+            cwd: root.path().to_str().unwrap().into(),
+            agent_dir: root.path().to_str().unwrap().into(),
+            settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+                Default::default(),
+                Default::default(),
+            )))),
+            no_extensions: true,
+            no_skills: true,
+            no_prompt_templates: true,
+            no_themes: true,
+            no_context_files: true,
+            system_prompt_override: Some(Arc::new(move |_| {
+                Some(format!("system-{}", system_revision.fetch_add(1, Ordering::SeqCst) + 1).into())
+            })),
+            append_system_prompt_override: Some(Arc::new(move |_| {
+                let loader = append_loader.lock().unwrap().clone().unwrap();
+                append_seen.lock().unwrap().push(loader.get_system_prompt());
+                vec![format!("append-{}", append_revision.load(Ordering::SeqCst)).into()]
+            })),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+    *loader_ref.lock().unwrap() = Some(Arc::clone(&loader));
+    loader.reload().await.unwrap();
+    loader.reload().await.unwrap();
+    assert_eq!(
+        json!({"id":3,"seen":seen.lock().unwrap().clone(),"system":loader.get_system_prompt(),"append":loader.get_append_system_prompt()}),
+        expected
+    );
+    loader_ref.lock().unwrap().take();
+}
+
 #[test]
 fn context_and_prompt_directory_warnings_match_frozen_stderr() {
     use serde_json::json;
