@@ -128,25 +128,6 @@ fn format_broadcast_result(result: &SessionBroadcastResult) -> JsString {
     )
 }
 
-#[cfg(test)]
-mod native_filter_tests {
-    use super::*;
-
-    #[test]
-    fn broadcast_filters_accept_raw_units_without_repair() {
-        let wire = json::parse_lossless(r#"{"message":"body-\ud800","session_ids":["id-\ud801"],"cwd":"cwd-\ud802","name":"name-\ud803","status":["idle","unknown-\ud804"]}"#).unwrap();
-        let params: BroadcastParams = json::from_value(&wire).unwrap();
-        assert_eq!(params.message, wire["message"].as_string().unwrap().clone());
-        assert_eq!(
-            params.session_ids.unwrap()[0],
-            wire["session_ids"][0].as_string().unwrap().clone()
-        );
-        assert_eq!(params.cwd.as_ref(), wire["cwd"].as_string());
-        assert_eq!(params.name.as_ref(), wire["name"].as_string());
-        assert_eq!(parse_statuses(params.status), Some(vec![SessionLiveStatus::Idle]));
-    }
-}
-
 impl ContextTool<Option<ExtensionContext>> for BroadcastTool {
     fn name(&self) -> &str {
         NAME
@@ -325,4 +306,23 @@ pub fn create_broadcast_tool_definition() -> ToolDefinition {
     definition.render_call = Some(infallible_render_call(render_call));
     definition.render_result = Some(infallible_render_result(render_result));
     definition
+}
+
+#[cfg(test)]
+mod native_filter_tests {
+    use super::*;
+
+    #[test]
+    fn broadcast_filters_accept_raw_units_without_repair() {
+        let wire = json::parse_lossless(r#"{"message":"body-\ud800","session_ids":["id-\ud801"],"cwd":"cwd-\ud802","name":"name-\ud803","status":["idle","unknown-\ud804"]}"#).unwrap();
+        let params: BroadcastParams = json::from_value(&wire).unwrap();
+        assert_eq!(params.message, wire["message"].as_string().unwrap().clone());
+        assert_eq!(
+            params.session_ids.unwrap()[0],
+            wire["session_ids"][0].as_string().unwrap().clone()
+        );
+        assert_eq!(params.cwd.as_ref(), wire["cwd"].as_string());
+        assert_eq!(params.name.as_ref(), wire["name"].as_string());
+        assert_eq!(parse_statuses(params.status), Some(vec![SessionLiveStatus::Idle]));
+    }
 }

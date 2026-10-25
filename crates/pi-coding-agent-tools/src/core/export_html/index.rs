@@ -553,7 +553,7 @@ mod lossless_tests {
         std::fs::create_dir_all(encode_node_utf8(&path)).unwrap();
         let error = write_html(&path, "content".into()).unwrap_err();
         // Node fs errors report the UTF-8-repaired path (pi_js_compat::node_fs format_fs_error_record).
-        assert!(error.message().contains(&JsString::from(encode_node_utf8(&path))));
+        assert!(error.message().contains(JsString::from(encode_node_utf8(&path))));
     }
 
     #[test]

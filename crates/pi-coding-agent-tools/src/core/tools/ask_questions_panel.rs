@@ -39,32 +39,6 @@ impl Answer {
         JsString::join(selected, ", ")
     }
 }
-#[cfg(test)]
-mod raw_answer_tests {
-    use super::super::ask_questions::QuestionOption;
-    use super::*;
-
-    #[test]
-    fn custom_and_multi_select_answers_keep_original_units() {
-        let raw = JsString::from_utf16(vec![0xd800]);
-        let label = JsString::from("choice-") + &raw;
-        let custom = JsString::from("other-") + &raw;
-        let question = Question {
-            question: "question".into(),
-            header: None,
-            options: Some(vec![QuestionOption {
-                label: label.clone(),
-                description: None,
-            }]),
-            multi_select: Some(true),
-        };
-        let answer = Answer {
-            selected: vec![label.clone()],
-            custom: Some(custom.clone()),
-        };
-        assert_eq!(answer.format(&question), label + ", " + custom);
-    }
-}
 
 enum InputAction {
     Submit(JsString),
@@ -461,5 +435,32 @@ impl ExtensionUiComponent for QuestionPanel {
             rule,
         ]);
         lines
+    }
+}
+
+#[cfg(test)]
+mod raw_answer_tests {
+    use super::super::ask_questions::QuestionOption;
+    use super::*;
+
+    #[test]
+    fn custom_and_multi_select_answers_keep_original_units() {
+        let raw = JsString::from_utf16(vec![0xd800]);
+        let label = JsString::from("choice-") + &raw;
+        let custom = JsString::from("other-") + &raw;
+        let question = Question {
+            question: "question".into(),
+            header: None,
+            options: Some(vec![QuestionOption {
+                label: label.clone(),
+                description: None,
+            }]),
+            multi_select: Some(true),
+        };
+        let answer = Answer {
+            selected: vec![label.clone()],
+            custom: Some(custom.clone()),
+        };
+        assert_eq!(answer.format(&question), label + ", " + custom);
     }
 }
