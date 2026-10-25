@@ -15,6 +15,7 @@ pub fn append_goal_scheduling_error(
         ctx,
         &(pi_js_compat::js_json::JsString::from("Goal wait failed: ") + error),
         None,
+        None,
     );
 }
 
@@ -30,14 +31,14 @@ pub fn create_wait_status_callbacks(
             let ctx = ctx.clone();
             let message = message.clone();
             move || {
-                let _ = append_status(ctx.clone(), &message, None);
+                let _ = append_status(ctx.clone(), &message, None, None);
             }
         }),
         on_review_scheduled: std::sync::Arc::new({
             let append_status = std::sync::Arc::clone(&append_status);
             let ctx = ctx.clone();
             move |review_at: &str| {
-                let _ = append_status(ctx.clone(), &message, Some(review_at));
+                let _ = append_status(ctx.clone(), &message, Some(review_at), None);
             }
         }),
     }

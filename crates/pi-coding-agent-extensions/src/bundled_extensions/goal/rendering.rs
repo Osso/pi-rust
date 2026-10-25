@@ -117,8 +117,9 @@ pub struct SupervisorStatusController {
     refresher: WaitCountdownRefresher,
 }
 
-pub type AppendSupervisorStatus =
-    std::sync::Arc<dyn Fn(ExtensionContext, &JsString, Option<&str>) -> Result<(), HandlerError> + Send + Sync>;
+pub type AppendSupervisorStatus = std::sync::Arc<
+    dyn Fn(ExtensionContext, &JsString, Option<&str>, Option<&JsString>) -> Result<(), HandlerError> + Send + Sync,
+>;
 
 impl SupervisorStatusController {
     /// `append`.
@@ -127,28 +128,29 @@ impl SupervisorStatusController {
         ctx: ExtensionContext,
         message: impl Into<JsString>,
         review_at: Option<&str>,
+        display_id: Option<&JsString>,
     ) -> Result<(), HandlerError> {
         let session = ctx.session_manager()?;
         let session_id = session.get_session_id().clone();
         self.refresher.clear_session(&session_id);
-        let data = match review_at {
-            Some(review_at) => {
-                let mut object = JsObject::new();
-                object.insert("message".into(), Value::String(message.into()));
-                object.insert("reviewAt".into(), Value::String(review_at.into()));
-                Some(Value::Object(object))
-            }
-            None => {
-                let mut object = JsObject::new();
-                object.insert("message".into(), Value::String(message.into()));
-                Some(Value::Object(object))
-            }
-        };
+        let review_at = review_at.filter(|value| !value.is_empty());
+        let display_id = display_id.filter(|value| !value.is_empty());
+        let mut data = JsObject::new();
+        data.insert("message".into(), Value::String(message.into()));
+        if let Some(review_at) = review_at {
+            data.insert("reviewAt".into(), Value::String(review_at.into()));
+        }
+        if let Some(display_id) = display_id {
+            data.insert("displayId".into(), Value::String(display_id.clone()));
+        }
         self.pi
-            .append_entry(&SUPERVISOR_STATUS_TYPE.into(), data)
+            .append_entry(&SUPERVISOR_STATUS_TYPE.into(), Some(Value::Object(data)))
             .map_err(|error| HandlerError::new(error.to_string()))?;
         if let Some(review_at) = review_at {
-            self.refresher.start(ctx, &review_at.into())?;
+            self.refresher.start(ctx.clone(), &review_at.into())?;
+        }
+        if display_id.is_some() {
+            ctx.ui()?.request_render();
         }
         Ok(())
     }
@@ -174,7 +176,9 @@ impl SupervisorStatusController {
 
     pub fn append_callback(self: &std::sync::Arc<Self>) -> AppendSupervisorStatus {
         let controller = std::sync::Arc::clone(self);
-        std::sync::Arc::new(move |ctx, message, review_at| controller.append(ctx, message, review_at))
+        std::sync::Arc::new(move |ctx, message, review_at, display_id| {
+            controller.append(ctx, message, review_at, display_id)
+        })
     }
 }
 
@@ -183,19 +187,27 @@ pub fn supervisor_instruction_content(instructions: impl Into<JsString>) -> JsSt
     JsString::from(SUPERVISOR_INSTRUCTION_OPEN) + "\n" + instructions.into() + "\n" + SUPERVISOR_INSTRUCTION_CLOSE
 }
 
-fn supervisor_message(content: &JsString) -> CustomMessagePayload {
+fn supervisor_message(content: &JsString, display_id: Option<&JsString>) -> CustomMessagePayload {
     CustomMessagePayload {
         custom_type: "supervisor".into(),
         content: CustomMessageContent::Text(supervisor_instruction_content(content).into()),
-        display: true,
-        details: None,
+        display: display_id.is_none(),
+        details: display_id.map(|id| {
+            let mut data = JsObject::new();
+            data.insert("displayId".into(), Value::String(id.clone()));
+            Value::Object(data)
+        }),
     }
 }
 
 /// `sendSupervisorInstructions`.
-pub fn send_supervisor_instructions(pi: &ExtensionApi, instructions: &JsString) -> Result<(), HandlerError> {
+pub fn send_supervisor_instructions(
+    pi: &ExtensionApi,
+    instructions: &JsString,
+    display_id: Option<&JsString>,
+) -> Result<(), HandlerError> {
     pi.send_message(
-        supervisor_message(instructions),
+        supervisor_message(instructions, display_id),
         Some(SendMessageOptions {
             trigger_turn: Some(true),
             deliver_as: Some(crate::core::extensions::types::MessageDelivery::FollowUp),

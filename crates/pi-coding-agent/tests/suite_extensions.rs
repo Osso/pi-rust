@@ -63,6 +63,8 @@ pub mod goal_idle_selection;
 pub mod goal_rendering;
 #[path = "goal_review_evidence.rs"]
 pub mod goal_review_evidence;
+#[path = "goal_supervisor_review.rs"]
+pub mod goal_supervisor_review;
 #[path = "loop_runtime.rs"]
 pub mod loop_runtime;
 #[path = "lossless_extension_loader.rs"]

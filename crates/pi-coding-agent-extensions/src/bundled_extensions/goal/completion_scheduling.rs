@@ -3,8 +3,8 @@
 use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
+use super::goal_types::GoalSupervisorResponse as SupervisorResponse;
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, ExtensionContext, HandlerError};
-use crate::core::session_control_db::SupervisorResponse;
 
 use super::goal_scheduling::{GoalScheduler, GoalSchedulingOptions, GoalWaitCallbacks, create_goal_scheduler};
 use super::goal_types::{Goal, GoalEvidenceReview, GoalReviewInput, GoalReviewKind, ReviewedGoalResponse};
@@ -115,7 +115,7 @@ async fn apply_completion_decision(
         SupervisorResponse::Continue { instructions, .. } => {
             (options.on_continue)(&pi_js_compat::js_json::JsString::from(instructions))
         }
-        SupervisorResponse::Wait { reason } => {
+        SupervisorResponse::Wait { reason, .. } => {
             let message = pi_js_compat::js_json::JsString::from("Waiting: ") + reason;
             let on_agent_wait = {
                 let on_status = Arc::clone(&options.on_status);
@@ -145,14 +145,14 @@ async fn apply_completion_decision(
                 )
                 .await;
         }
-        SupervisorResponse::Pause { reason } => {
+        SupervisorResponse::Pause { reason, .. } => {
             let _ = (options.on_status)(
                 ctx.clone(),
                 &(pi_js_compat::js_json::JsString::from("Goal waiting: ") + reason),
                 None,
             );
         }
-        SupervisorResponse::Error { reason } => {
+        SupervisorResponse::Error { reason, .. } => {
             let _ = (options.on_status)(
                 ctx.clone(),
                 &(pi_js_compat::js_json::JsString::from("Goal review failed: ") + reason),
@@ -168,7 +168,6 @@ async fn apply_completion_decision(
             );
             return Ok(());
         }
-        _ => {}
     }
     (options.consume_review_evidence)(ctx, waiting.goal, reviewed.evidence_count)
 }
