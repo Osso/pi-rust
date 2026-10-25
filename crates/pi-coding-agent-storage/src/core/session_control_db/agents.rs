@@ -1405,6 +1405,11 @@ fn persist_lifecycle_mutation(
         return Ok(false);
     }
     if let Some((message_id, message)) = &plan.cancellation {
+        let birth = JsObject::from_iter([("createdAt".into(), JsValue::String(input.updated_at.clone().into()))]);
+        super::retention::assert_mailbox_message_fresh(
+            &birth,
+            &js_format!("multi_agent_mailbox_messages:{}#{}", input.session_path, message_id),
+        )?;
         db.execute(
             "INSERT INTO multi_agent_mailbox_messages (session_path, message_id, data, updated_at)
 		 VALUES (?, ?, ?, ?)",

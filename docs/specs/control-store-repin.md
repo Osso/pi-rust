@@ -54,7 +54,8 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Preserve original connection/transaction callback throws and rollback state through the existing shared SQLite error source.
 - [x] Match legacy prompt-history `slice(0, limit)` return semantics independently of SQLite LIMIT, including negative/zero limits and whitespace-only legacy entries.
 - [x] Sort archive candidates by frozen date/UTF-16 path comparison, exclude cutoff-equal/archived/subagent rows and keep selection read-only.
-- [ ] Preserve raw control-DB agent object/reference-array key order separately from normalized store-copy constructor order, without duplicate JSON values.
+- [x] Preserve raw control-DB agent object/reference-array key order separately from normalized store-copy constructor order, without duplicate JSON values.
+- [ ] Reject expired detached cancellation commands inside the lifecycle transaction, rolling back agent state and command insertion together.
 - [ ] Resolve canonical lossless JSON and run independent group acceptance.
 - [x] Complete the whole multi-agent-store module export/private-branch audit; preserve the separate shared control-DB acceptance boundary.
 - [ ] Complete group-wide schema migration/reverse-init, control-DB export/private-branch audit and acceptance; bounded migration/reciprocal proofs do not establish whole control-DB parity.

@@ -1,5 +1,9 @@
 # `coding-agent/src/core/session-control-db.ts`
 
+## Detached-cancellation freshness rollback (2026-10-25)
+
+Actual-source RED `/tmp/storage3-control-cancellation-real-red.log` shows expired cancellation timestamps advanced native lifecycle/revision while frozen rejected the command and rolled back the whole mutation. The lifecycle writer now calls the existing retention freshness authority inside the transaction, after the agent CAS and before command insertion, matching frozen ordering. The fixture compares original error, complete agent and canonical command bytes for expired/fresh cases. Earlier cancellation probe logs failed on fixture-only enum serialization/type inference/native-object JSON representation and are not production RED evidence.
+
 ## Raw agent writes versus store copies (2026-10-25)
 
 Actual-source attachment creation RED `/tmp/storage3-control-agent-wire-red.log` shows typed agent serialization incorrectly applied store copyAccount order to a raw control-DB payload. Existing approved AgentNode order-only metadata now records object paths (including reference-array entries); no JSON values are duplicated. Raw control reads/creation/mutation retain original nested orders. Only copyAgent discards metadata for the objects it rebuilds (account root; result/reference, worker, transcript and event-stream subtrees), so store copies keep their distinct frozen constructor order. The fixture compares actual frozen/native attachment SQLite data bytes for five ordinary nested fields.

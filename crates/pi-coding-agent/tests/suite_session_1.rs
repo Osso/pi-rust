@@ -74,6 +74,8 @@ pub mod repin_storage_archive;
 pub mod repin_storage_control_agent_wire;
 #[path = "repin_storage_control_callbacks.rs"]
 pub mod repin_storage_control_callbacks;
+#[path = "repin_storage_control_cancellation.rs"]
+pub mod repin_storage_control_cancellation;
 #[path = "repin_storage_control_history.rs"]
 pub mod repin_storage_control_history;
 #[path = "repin_storage_copy_validation.rs"]
