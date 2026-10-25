@@ -96,6 +96,8 @@ pub mod differential_spawn_sync;
 pub mod differential_sqlite_open_errors;
 #[path = "differential_standalone_worker.rs"]
 pub mod differential_standalone_worker;
+#[path = "differential_supervisor_main.rs"]
+pub mod differential_supervisor_main;
 #[path = "differential_supervisor_response.rs"]
 pub mod differential_supervisor_response;
 #[path = "differential_supervisor_runtime.rs"]
