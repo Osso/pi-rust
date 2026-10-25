@@ -7,6 +7,7 @@
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
+use pi_js_compat::node_error::{NativeErrorClass, NativeNodeError};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -48,11 +49,10 @@ pub struct HttpRequest {
 /// Content remains native before this boundary; errors identify the original unit.
 pub fn header_value(value: &JsString) -> Result<String, CallbackError> {
     if let Some((index, unit)) = value.units().iter().enumerate().find(|(_, unit)| **unit > 255) {
-        let mut error = CallbackError::new(format!(
-            "Cannot convert argument to a ByteString because the character at index {index} has a value of {unit} which is greater than 255."
-        ));
-        error.name = "TypeError".into();
-        return Err(error);
+        return Err(NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            format!("Cannot convert argument to a ByteString because the character at index {index} has a value of {unit} which is greater than 255."),
+        ).into());
     }
     Ok(value.to_utf8().expect("ByteString units are Unicode scalars"))
 }
@@ -67,9 +67,11 @@ pub(crate) fn header_bytes(value: &JsString) -> Result<Vec<u8>, CallbackError> {
 pub fn request_url(value: &JsString) -> Result<String, CallbackError> {
     let input = pi_js_compat::js_json::encode_node_utf8(value);
     url::Url::parse(&input).map(String::from).map_err(|_| {
-        let mut error = CallbackError::new(pi_js_compat::js_format!("Failed to parse URL from {}", value));
-        error.name = "TypeError".into();
-        error
+        NativeNodeError::from_constructor(
+            NativeErrorClass::TypeError,
+            pi_js_compat::js_format!("Failed to parse URL from {}", value),
+        )
+        .into()
     })
 }
 
