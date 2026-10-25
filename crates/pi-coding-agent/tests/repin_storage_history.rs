@@ -14,6 +14,26 @@ fn call(ts: &mut oracle::TsOracle, mut request: Value) -> Value {
 }
 
 #[test]
+fn missing_compacted_transcript_preserves_frozen_open_error() {
+    let tmp = tempfile::tempdir().unwrap();
+    let dir = tmp.path().to_str().unwrap();
+    let mut ts = oracle::TsOracle::spawn("session-storage-oracle.ts", "packages/coding-agent/src/core");
+    let created = call(&mut ts, json!({"op":"create", "dir":dir, "cwd":dir, "compacted":true}));
+    let path = created["path"].as_str().unwrap();
+    let manager = SessionManager::open_read_only(&JsString::from(path), None).unwrap();
+    let peer = ts.request(&json!({"id":1,"op":"historyAfterRemove","path":path}));
+    assert_eq!(peer["ok"], false, "{peer}");
+    let mut history = read_session_history_reverse(&manager);
+    for _ in 0..3 {
+        assert!(history.next().unwrap().is_ok());
+    }
+    let error = history.next().unwrap().unwrap_err();
+    let expected = peer["error"].as_str().unwrap().strip_prefix("Error: ").unwrap();
+    assert_eq!(error.message(), expected);
+    assert!(history.next().is_none(), "a failed history iterator is exhausted");
+}
+
+#[test]
 fn empty_parent_does_not_open_removed_transcript() {
     // Frozen session-history.ts:75-76 stops on !parentId before opening a file.
     let tmp = tempfile::tempdir().unwrap();
