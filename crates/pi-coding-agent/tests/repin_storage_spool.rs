@@ -29,7 +29,7 @@ fn native_spool(path: &str, kind: &str) -> Value {
             }
             "cleanup" => {
                 let directory = std::path::Path::new(temporary.as_ref().unwrap()).parent().unwrap();
-                std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0)).unwrap();
+                std::fs::set_permissions(directory, std::fs::Permissions::from_mode(0o000)).unwrap();
                 Err(CallbackError::new(
                     "callback failure must be replaced by cleanup failure",
                 ))
