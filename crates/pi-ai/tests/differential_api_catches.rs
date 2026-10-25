@@ -137,3 +137,44 @@ async fn provider_payload_catches_keep_raw_values_and_branded_error_fields() {
     }
     assert!(mismatches.is_empty(), "{}", mismatches.join("\n"));
 }
+
+#[tokio::test]
+async fn vertex_payload_rejection_precedes_adc_credential_file_loading() {
+    use pi_ai::api::google_vertex::GoogleVertexApi;
+    let mut source = oracle::TsOracle::spawn("api-catch-oracle.ts", "packages/ai/src/api/google-vertex.ts");
+    let model = js_json!({"id":"gemini-2.5-flash","name":"test","api":"google-vertex","provider":"google-vertex","baseUrl":"https://unused.invalid/v1","reasoning":false,"input":["text"],"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0},"contextWindow":8192,"maxTokens":2048});
+    let request_options = js_json!({"apiKey":"gcp-vertex-credentials","project":"fixture-project","location":"us-central1","env":{"GOOGLE_APPLICATION_CREDENTIALS":"/missing-pi-ai-api-credential.json"}});
+    let mut expected = source.request(
+        &js_json!({"model":model,"kind":"error","value":"payload wins","properties":{},"options":request_options}),
+    );
+    normalize_clock(&mut expected);
+    assert_eq!(expected["requests"], js_json!(0));
+    assert_eq!(expected["result"]["errorMessage"], js_json!("payload wins"));
+    let mut options = StreamOptions::default();
+    options.extra = serde_json::json!({"project":"fixture-project","location":"us-central1"})
+        .as_object()
+        .unwrap()
+        .clone();
+    options.request.api_key = Some("gcp-vertex-credentials".into());
+    options.request.env = Some(indexmap::IndexMap::from([(
+        "GOOGLE_APPLICATION_CREDENTIALS".into(),
+        "/missing-pi-ai-api-credential.json".into(),
+    )]));
+    options.request.on_payload = Some(Arc::new(|_, _| {
+        Box::pin(async { Err(CallbackError::new("payload wins")) })
+    }));
+    let mut stream = GoogleVertexApi
+        .stream(
+            pi_js_compat::js_json::from_value(&model).unwrap(),
+            pi_js_compat::js_json::from_value(&js_json!({"messages":[]})).unwrap(),
+            options,
+        )
+        .unwrap();
+    let mut events = Vec::new();
+    while let Some(event) = stream.next().await {
+        events.push(event.unwrap());
+    }
+    let mut actual = js_json!({"requests":0,"events":events,"result":stream.result().await.unwrap()});
+    normalize_clock(&mut actual);
+    assert_eq!(actual, expected);
+}

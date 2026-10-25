@@ -1,54 +1,29 @@
-# google-vertex traceability
+# Google Vertex API traceability
 
-Source: `packages/ai/src/api/google-vertex.ts` and `google-vertex.lazy.ts`.
-Rust: `crates/pi-ai/src/api/google_vertex.rs` (plus the private SDK/auth stand-in `google_client.rs`).
-Tests: `crates/pi-ai/tests/differential_google_api.rs` (21 recorded-fixture scenarios, ids 100-120, against the pinned TypeScript module with the real `google-auth-library` token exchange replayed through a local CONNECT/TLS proxy), `crates/pi-ai/tests/google_api.rs` (8 behavioral).
+Frozen: `packages/ai/src/api/google-vertex.ts` at [source lock](../source-lock.json),599 lines. Native: `crates/pi-ai/src/api/google_vertex.rs` and `google_client.rs`.
 
-## Representation
-- `GoogleVertexOptions extends StreamOptions` → `GoogleVertexOptions { stream, tool_choice, thinking, project, location }`, parsed from `StreamOptions::extra`.
-- `streamSimple` reproduces the TypeScript `buildBaseOptions` shape: `project`/`location` are **not** copied, so only env-provided project/location reach Vertex.
-- Vertex API-key detection: trimmed key; empty, `gcp-vertex-credentials`, and `/^<[^>]+>$/` placeholders fall back to ADC.
-- ADC: `GOOGLE_APPLICATION_CREDENTIALS` (provider env, then process env) or `$HOME/.config/gcloud/application_default_credentials.json`. Supported credential types: `service_account` (JWT bearer grant, RS256) and `authorized_user` (refresh-token grant).
-- `THINKING_LEVEL_MAP` maps every level to the identical Google enum string, so the level is serialized directly.
+## Whole-module body audit (2026-10-25)
 
-## Symbols → proof
-| TS | Rust | Test |
-|---|---|---|
-| `GoogleVertexOptions` | `GoogleVertexOptions` | differential ids 100-120 |
-| `stream` | `stream` | differential ids 100-120 |
-| `streamSimple` | `stream_simple` | differential ids 111, 112 |
-| `createClient` | `GoogleClient::vertex_adc` | differential ids 103-108, 120 |
-| `createClientWithApiKey` | `GoogleClient::vertex_api_key` | differential ids 100-102, 109, 110 |
-| `buildHttpOptions` | `resolve_custom_base_url`, `base_url_includes_api_version` | differential ids 101, 102, 108 |
-| `resolveCustomBaseUrl` (`{location}` placeholder) | `resolve_custom_base_url` | differential ids 100, 105-107 |
-| `baseUrlIncludesApiVersion` | `base_url_includes_api_version` | differential id 102 |
-| `buildGoogleAuthOptions` | `load_credentials` (provider env) | differential ids 103, 104 |
-| `resolveApiKey` / `isPlaceholderApiKey` | `resolve_api_key`, `is_placeholder_api_key` | differential ids 109, 110 |
-| `resolveProject` | `project_from_options_or_env` | differential id 112, `vertex_stream_simple_without_project_or_env_reports_the_typescript_message` |
-| `resolveLocation` | `location_from_options_or_env` | differential ids 103-108 |
-| `buildParams` | `build_params` | differential request bodies |
-| `getDisabledThinkingConfig` | `get_disabled_thinking_config` | differential id 113 |
-| `getGemini3ThinkingLevel` | `get_gemini3_thinking_level` | differential ids 111, 114 |
-| `getGoogleBudget` | `get_google_budget` | differential id 115 |
-| `googleVertexApi` (lazy) | `google_vertex_api` | `lazy_api_wrappers_expose_the_provider_streams_contract` |
-| token exchange (google-auth-library) | `GoogleClient::fetch_access_token`, `sign_service_account_jwt` | differential ids 103, 104, 120 (JWT header key order asserted); `service_account_tokens_are_signed_rs256_with_the_google_claims` (RS256 verified with the fixture public key), `authorized_user_tokens_use_the_refresh_token_grant`, `vertex_retries_reuse_the_cached_access_token` |
+| Source symbols / branches | Native proof |
+|---|---|
+| `GoogleVertexOptions`, API_VERSION, credentials marker, THINKING_LEVEL_MAP | typed options and identical SDK enum strings; original21 real-SDK loopback scenarios |
+| `resolveApiKey`, `isPlaceholderApiKey`, `resolveProject`, `resolveLocation` | trimmed API key; marker/empty/placeholder→ADC; truthy project→GOOGLE_CLOUD_PROJECT→GCLOUD_PROJECT; truthy location→GOOGLE_CLOUD_LOCATION; exact missing errors; new empty-option/env-precedence cases |
+| `createClient`, `createClientWithApiKey`, `buildHttpOptions`, `resolveCustomBaseUrl`, `buildGoogleAuthOptions` | native ADC/key modes, custom collection-scope endpoint or location defaults, placeholder base suppression, model→caller headers, captured keyFilename; credentials load is deferred until HTTP auth, after onPayload; genuine callback-priority RED pins missing-file ordering |
+| `baseUrlIncludesApiVersion`, SDK constructUrl/requestStream | parsed pathname version segments, regex-equivalent segment fallback only for invalid URL input; query-bearing base URL regression; URL serialization and alt=sse setter preserve source behavior; full projects/... model resource does not get a second caller project prefix |
+| `buildParams`, thinking config and disabled/level/budget helpers | exact source body text;65535 cap, optional system/tools/choice, latest server-managed alias, unanchored Pro/Flash match, gemini-3.7-flash off LOW; Vertex budget map intentionally differs from Studio Flash-Lite/Gemma cases |
+| `streamSimple` | base field selection, no synchronous auth requirement, reasoning clamp/off→high, explicit level or budget; API-specific project/location are not copied by source base helper |
+| `stream`: fixed output API, resolve client, replaceable payload, SDK request/start, shared text/thinking/function state machine, first response ID, finish/usage/cost, final close/abort/error/catch | original21 plus new wire/config cases and shared native callback matrix; text/signature/argument values stay native; empty/duplicate IDs generate from the Vertex-only counter |
+| module toolCallCounter, absent function name, lazy factory | exact source/native isolated counter sequence1,1,2,2 across alternating Studio/Vertex calls; absent name prefix `undefined_` retained; native lazy-wrapper behavior |
 
-## Branch notes
-- Default endpoint selection: `global` → `https://aiplatform.googleapis.com/`; `us`/`eu` → `https://aiplatform.{location}.rep.googleapis.com/`; otherwise `https://{location}-aiplatform.googleapis.com/`.
-- ADC requests prepend `projects/{project}/locations/{location}`; API-key mode and custom base URLs (`ResourceScope.COLLECTION`) do not.
-- Custom base URL already containing a `vN[betaN]` path segment suppresses the `v1` path element.
-- `GOOGLE_VERTEX_BASE_URL` process env replaces the location-derived base URL when the model has no custom base URL.
-- Service-account JWT: header `{"alg":"RS256"}`, claims `iss, scope, aud=https://oauth2.googleapis.com/token, exp=iat+3600, iat`, `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` then `assertion` in the body, `accept: application/json`.
-- Authorized-user token body order: `refresh_token, client_id, client_secret, grant_type=refresh_token`, `accept: */*`.
-- The token exchange is never cancelled by the request signal (google-auth-library's transporter has no AbortSignal); the adapter's request still passes the signal to `fetch`.
-- Retries reuse the cached access token within one client instance.
+**DISCREPANCIES preserved:** Simple drops project/location passed as API-specific extras and requires env-derived values in ADC mode (original source cases111/112); absent function name yields `undefined_` in the generated ID while tool name is empty. Neither behavior is silently fixed.
 
-## Gaps
-- Metadata-server (GCE) credentials, `external_account`, `external_account_authorized_user`, and `impersonated_service_account` ADC types are not implemented; they fail with "Unsupported application default credential type".
-- The well-known ADC path reads `$HOME` at request time; it is implemented but not exercised by tests (process env isolation).
-- `GOOGLE_VERTEX_BASE_URL` fallback is implemented but not differentially exercised.
-- Token-endpoint transport failures without a JSON error body use gaxios's `Request failed with status code <status>` message; the exact gaxios text for exotic failures is not reproduced.
-- Non-object `functionCall.args` and non-object `onPayload` replacements follow the typed-core exclusions noted in `google-generative-ai.md`.
+## Explicit gap rows (not full ADC acceptance)
 
-## Discrepancies
-- **Source bug preserved**: `streamSimple` calls `buildBaseOptions`, which does not copy `project`/`location`, so `streamSimple(model, context, {project, location})` cannot reach Vertex without env-provided project/location. The Rust port preserves the behavior; differential id 112 pins the resulting error and id 111 pins the env-provided path.
+| Status | Source boundary / remaining capability |
+|---|---|
+| gap | Existing SDK stand-in does not implement GCE metadata credentials or external_account, external_account_authorized_user, impersonated_service_account ADC files; those valid SDK credential modes remain unported, not silently ignored. |
+| gap | Universe-domain token URLs and broad gaxios proxy/retry/transport-fault behavior are outside the proven service_account/authorized_user token exchange. Well-known ADC path and process-env endpoint overrides are implemented but not separately isolated in the current differential. |
+
+The approved [typed-native payload signal gap](google-client.md#typed-native-payload-signal-boundary) also applies. Pathological wrong-typed JSON, numeric extremes, OS/runtime fault shapes and unmatched units beyond existing opaque/schema carriers retain the project bar.
+
+Supported service-account RS256/JWT and authorized-user refresh-token wire requests are proven with the actual frozen google-auth-library through a private CONNECT/TLS proxy; only JWT time/signature and host-version substrings are normalized. The new full-resource auth test first omitted the fixture's existing private TLS allowance; that no-request TLS setup failure is not counted as behavioral RED. After matching the established isolated proxy setup, the exact double-project URL mismatch was genuine RED. [Ledger](../ai-api-repin-proof.md); [SDK scope](google-client.md).

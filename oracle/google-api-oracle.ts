@@ -1,5 +1,5 @@
 import * as fs from "node:fs";
-import { normalizeAssistantMessageClock } from "./assistant-snapshots.ts";
+import { installAssistantSnapshots, normalizeAssistantMessageClock } from "./assistant-snapshots.ts";
 import * as net from "node:net";
 import * as path from "node:path";
 import { pathToFileURL } from "node:url";
@@ -328,19 +328,9 @@ async function execute(request: RunRequest, api: ApiModule): Promise<unknown> {
 		const runner =
 			request.operation === "streamSimple" ? api.streamSimple : api.stream;
 		const stream = runner(request.model, request.context, options);
-		const originalPush = stream.push?.bind(stream);
-		if (originalPush) {
-			stream.push = (event: unknown) => {
-				events.push(normalizeEvent(event));
-				originalPush(event);
-			};
-		}
-		let consumed = 0;
 		for await (const event of stream) {
-			// Events pushed before the patch was installed (synchronous setup
-			// failures) are snapshotted when the consumer receives them.
-			if (events.length === consumed) events.push(normalizeEvent(event));
-			consumed++;
+			// Every queue entry is already cloned at push, including early setup errors.
+			events.push(normalizeEvent(event));
 		}
 		const result = normalizeAssistantMessageClock(await stream.result());
 		return { requests, events, result };
@@ -367,6 +357,7 @@ async function main(): Promise<void> {
 	const moduleDir = process.argv[2];
 	if (!moduleDir) throw new Error("module directory argument is required");
 	installScriptedFetch();
+	await installAssistantSnapshots(path.dirname(moduleDir));
 	const apis = new Map<string, ApiModule>();
 	const proxyPort = await startTokenProxy();
 	process.env.HTTPS_PROXY = `http://127.0.0.1:${proxyPort}`;

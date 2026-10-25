@@ -56,6 +56,8 @@ pub mod differential_github_copilot_headers;
 pub mod differential_github_copilot_oauth;
 #[path = "differential_google_api.rs"]
 pub mod differential_google_api;
+#[path = "differential_google_shared.rs"]
+pub mod differential_google_shared;
 #[path = "differential_hash_sanitize.rs"]
 pub mod differential_hash_sanitize;
 #[path = "differential_headers.rs"]

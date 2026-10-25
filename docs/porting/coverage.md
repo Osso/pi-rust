@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 609, `gap` 25, `partial` 29, `todo` 23.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 611, `gap` 25, `partial` 27, `todo` 23.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -57,10 +57,10 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `ai/src/api/cloudflare.ts` | 15 | 0 | done | `crates/pi-ai/src/api/cloudflare.rs` | Four endpoint constants; exact differential.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/github-copilot-headers.ts` | 37 | 1 | done | `crates/pi-ai/src/api/github_copilot_headers.rs` | Initiator/vision/header builders; differential 16 requests.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/google-generative-ai.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | `google_generative_ai_api()` lazy wrapper.; re-run vs 4f9e6f8a4 pending |
-| `ai/src/api/google-generative-ai.ts` | 525 | 1 | partial | `crates/pi-ai/src/api/google_generative_ai.rs` | Exact frozen45 scenarios + shared/runtime-header/caller-ID proof GREEN. SDK identity, max65535, stop metadata, replay signatures and no provider retry wrapper restored. Remaining wider SDK/native boundary gaps explicit. [Traceability](traceability/google-client.md). |
-| `ai/src/api/google-shared.ts` | 382 | 1 | partial | `crates/pi-ai/src/api/google_shared.rs` | Google28 shared +8 API behavioral GREEN; exact provider66 request/event scenarios. Removed source-absent strict/retry helpers; native descriptions and max65535 helper retained. Remaining replay/empty-signature/source gap audit pending. [Traceability](traceability/google-shared.md). |
+| `ai/src/api/google-generative-ai.ts` | 525 | 1 | done | `crates/pi-ai/src/api/google_generative_ai.rs` | Whole-module native/lazy request/event/catch and thinking/counter/config proof; explicit SDK/signal gaps in [trace](traceability/google-generative-ai.md). |
+| `ai/src/api/google-shared.ts` | 382 | 1 | done | `crates/pi-ai/src/api/google_shared.rs` | Whole-module actual-source helper/content/schema/finish mappings; frozen signed-empty drop, role/parts order and UTF16 IDs. [Trace](traceability/google-shared.md). |
 | `ai/src/api/google-vertex.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/google_vertex.rs` | `google_vertex_api()` lazy wrapper.; re-run vs 4f9e6f8a4 pending |
-| `ai/src/api/google-vertex.ts` | 599 | 1 | partial | `crates/pi-ai/src/api/google_vertex.rs` | Exact frozen21 scenarios GREEN, including ADC/token requests. Native headers/max cap/plain tools/replay IDs and direct SDK caller match; wider SDK credential boundaries partial. [Traceability](traceability/google-client.md). |
+| `ai/src/api/google-vertex.ts` | 599 | 1 | partial | `crates/pi-ai/src/api/google_vertex.rs` | Whole module body + native/lazy request/event/ADC-loopback proof; explicit remaining ADC/SDK gap rows and approved signal boundary in [trace](traceability/google-vertex.md). |
 | `ai/src/api/lazy.ts` | 70 | 1 | done | `crates/pi-ai/src/api/lazy.rs` | Whole common-pin audit: acquisition catch, raw/simple lazy loads, events/terminal forwarding, EOF without inner result(), uncaught inner iteration failure. Genuine frozen-oracle REDs remove EOF hang and invented error event; bounded app-handler child proof. Import/runtime gap explicit. [Trace](traceability/api-lazy.md). |
 | `ai/src/api/mistral-conversations.lazy.ts` | 4 | 2 | done | `crates/pi-ai/src/api/mistral_conversations.rs` | `mistral_conversations_api()` wraps `MistralConversationsApi` in `LazyApi`.; re-run vs 4f9e6f8a4 pending |
 | `ai/src/api/mistral-conversations.ts` | 664 | 1 | partial | `crates/pi-ai/src/api/mistral_conversations.rs` | Exact frozen43 original request/error scenarios +5 header validation +5 separate valid SSE cases GREEN;16 behavioral GREEN. Native partialArgs and SDK wire/error/callback/header behavior restored. Nested SDK schema/default/unknown-field semantics remain partial. [Traceability](traceability/mistral-conversations.md). |
