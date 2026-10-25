@@ -70,7 +70,6 @@ fn assistant_message(text: &str) -> AgentMessage {
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }))
 }

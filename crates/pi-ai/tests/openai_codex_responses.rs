@@ -354,7 +354,7 @@ async fn maps_incomplete_max_output_to_length() {
 
     assert_eq!(result.stop_reason, StopReason::Length);
     assert_eq!(result.error_message, None);
-    assert_eq!(result.raw_stop_reason, None);
+    assert!(serde_json::to_value(&result).unwrap().get("rawStopReason").is_none());
 }
 
 #[tokio::test]
@@ -1197,7 +1197,7 @@ async fn response_done_is_normalized_to_completed() {
 
     assert_eq!(result.stop_reason, StopReason::Stop);
     assert!(serde_json::to_value(&result).unwrap().get("endTurn").is_none());
-    assert_eq!(result.raw_stop_reason, None);
+    assert!(serde_json::to_value(&result).unwrap().get("rawStopReason").is_none());
 }
 
 #[tokio::test]

@@ -57,7 +57,6 @@ fn assistant(content: Vec<AssistantContent>, stop_reason: StopReason) -> AgentMe
         usage: Usage::default(),
         stop_reason,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }))
 }

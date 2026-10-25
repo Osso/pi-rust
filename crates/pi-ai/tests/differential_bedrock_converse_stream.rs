@@ -519,7 +519,6 @@ fn scenarios() -> Vec<Scenario> {
             usage: Default::default(),
             stop_reason: StopReason::ToolUse,
             error_message: None,
-            raw_stop_reason: None,
             timestamp: 0.0,
         })),
         Message::ToolResult(ToolResultMessage {
