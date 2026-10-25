@@ -15,8 +15,73 @@ use crate::utils::chalk::Chalk;
 /// Startup selectors used by the trust prompt. The TUI-backed implementation
 /// arrives with `cli/startup-ui.ts`; the trait keeps this module testable.
 pub trait ProjectTrustStartupUi: Send + Sync {
-    fn select<'a>(&'a self, title: &'a JsString, options: &'a [JsString]) -> BoxFuture<'a, Option<JsString>>;
-    fn input<'a>(&'a self, title: &'a JsString, placeholder: Option<&'a JsString>) -> BoxFuture<'a, Option<JsString>>;
+    fn select<'a>(
+        &'a self,
+        title: &'a JsString,
+        options: &'a [JsString],
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>>;
+    fn input<'a>(
+        &'a self,
+        title: &'a JsString,
+        placeholder: Option<&'a JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>>;
+}
+
+/// Process-terminal adapter for prompts before the main TUI exists.
+pub struct TerminalProjectTrustStartupUi {
+    pub settings: crate::core::settings_manager::Settings,
+}
+
+fn run_startup_dialog<F, Fut>(
+    settings: crate::core::settings_manager::Settings,
+    show: F,
+) -> BoxFuture<'static, Result<Option<JsString>, CallbackError>>
+where
+    F: FnOnce(crate::core::settings_manager::SettingsManager) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = Result<Option<JsString>, CallbackError>> + 'static,
+{
+    Box::pin(async move {
+        tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| CallbackError::new(error.to_string()))?;
+            let settings = crate::core::settings_manager::SettingsManager::in_memory(settings, Default::default());
+            runtime.block_on(show(settings))
+        })
+        .await
+        .map_err(|error| CallbackError::new(format!("Startup UI worker failed: {error}")))?
+    })
+}
+
+impl ProjectTrustStartupUi for TerminalProjectTrustStartupUi {
+    fn select<'a>(
+        &'a self,
+        title: &'a JsString,
+        options: &'a [JsString],
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
+        let title = title.clone();
+        let choices = options.iter().map(|label| (label.clone(), label.clone())).collect();
+        run_startup_dialog(self.settings.clone(), move |settings| async move {
+            let terminal = std::rc::Rc::new(std::cell::RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
+            let env = pi_js_compat::process_env::vars().into_iter().collect();
+            crate::cli::startup_ui::show_startup_selector(&settings, terminal, &env, &title, choices).await
+        })
+    }
+
+    fn input<'a>(
+        &'a self,
+        title: &'a JsString,
+        placeholder: Option<&'a JsString>,
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
+        let title = title.clone();
+        let placeholder = placeholder.cloned();
+        run_startup_dialog(self.settings.clone(), move |settings| async move {
+            let terminal = std::rc::Rc::new(std::cell::RefCell::new(pi_tui::terminal::ProcessTerminal::new()));
+            let env = pi_js_compat::process_env::vars().into_iter().collect();
+            crate::cli::startup_ui::show_startup_input(&settings, terminal, &env, &title, placeholder.as_ref()).await
+        })
+    }
 }
 
 pub struct CreateProjectTrustContextOptions {
@@ -68,7 +133,7 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(None);
             };
-            Ok(startup_ui.select(&title, &options).await)
+            startup_ui.select(&title, &options).await
         })
     }
 
@@ -87,7 +152,7 @@ impl ExtensionUiContext for ProjectTrustUi {
                 return Ok(false);
             };
             let options = [JsString::from("Yes"), JsString::from("No")];
-            let selected = startup_ui.select(&title, &options).await;
+            let selected = startup_ui.select(&title, &options).await?;
             Ok(selected.as_ref().is_some_and(|selected| selected == "Yes"))
         })
     }
@@ -107,7 +172,7 @@ impl ExtensionUiContext for ProjectTrustUi {
             let Some(startup_ui) = self.startup_ui.as_ref() else {
                 return Ok(None);
             };
-            Ok(startup_ui.input(&title, placeholder.as_ref()).await)
+            startup_ui.input(&title, placeholder.as_ref()).await
         })
     }
 

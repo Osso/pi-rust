@@ -373,6 +373,7 @@ pub struct RuntimeFactoryOptions {
     pub parsed: Args,
     pub agent_dir: JsString,
     pub startup_default_project_trust: DefaultProjectTrust,
+    pub startup_ui: Option<Arc<dyn crate::cli::project_trust::ProjectTrustStartupUi>>,
     pub trust_store: Arc<ProjectTrustStore>,
     pub trust_prompt_mode: AppMode,
     pub app_mode: AppMode,
@@ -463,12 +464,13 @@ fn project_trust_context(
     cwd: &JsString,
     mode: AppMode,
     has_ui: bool,
+    startup_ui: Option<Arc<dyn crate::cli::project_trust::ProjectTrustStartupUi>>,
 ) -> crate::core::extensions::types::ProjectTrustContext {
     create_project_trust_context(CreateProjectTrustContextOptions {
         cwd: cwd.clone(),
         mode,
         has_ui,
-        startup_ui: None,
+        startup_ui,
     })
 }
 
@@ -534,6 +536,7 @@ async fn create_runtime(
         let diagnostics = Arc::clone(&project_trust_diagnostics);
         let trust_override = parsed.project_trust_override;
         let default_project_trust = options.startup_default_project_trust;
+        let startup_ui = options.startup_ui.clone();
         let trust_prompt_mode = options.trust_prompt_mode;
         let app_mode = options.app_mode;
         let resolver_cwd = cwd.clone();
@@ -545,6 +548,7 @@ async fn create_runtime(
                 let diagnostics = Arc::clone(&diagnostics);
                 let cwd = resolver_cwd.clone();
                 let provided_trust_context = provided_trust_context.clone();
+                let startup_ui = startup_ui.clone();
                 Box::pin(async move {
                     let mode = if is_initial_runtime {
                         trust_prompt_mode
@@ -556,6 +560,7 @@ async fn create_runtime(
                             &cwd,
                             mode,
                             is_initial_runtime && trust_prompt_mode == AppMode::Interactive,
+                            startup_ui,
                         )
                     });
                     let on_extension_error = |message: JsString| {
@@ -2124,6 +2129,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         parsed: parsed.clone(),
         agent_dir: agent_dir.clone(),
         startup_default_project_trust: startup_settings_manager.get_default_project_trust(),
+        startup_ui: Some(Arc::new(crate::cli::project_trust::TerminalProjectTrustStartupUi {
+            settings: startup_settings_manager.get_merged_settings(),
+        })),
         trust_store,
         trust_prompt_mode,
         app_mode,
