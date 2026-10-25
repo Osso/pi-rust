@@ -2335,7 +2335,7 @@ async fn ask_questions_tool_differential() {
             _title: &JsString,
             _options: &[JsString],
             _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
-        ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+        ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
             let choice = self.selects.lock().expect("selects").pop_front().flatten();
             Box::pin(async move { Ok(choice) })
         }
@@ -2345,7 +2345,7 @@ async fn ask_questions_tool_differential() {
             _title: &JsString,
             _placeholder: Option<&JsString>,
             _opts: Option<&pi_coding_agent::core::extensions::ExtensionUiDialogOptions>,
-        ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+        ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
             let answer = self.inputs.lock().expect("inputs").pop_front().flatten();
             Box::pin(async move { Ok(answer) })
         }

@@ -74,13 +74,14 @@ impl ExtensionUiContext for Ui {
         &'a self,
         title: &JsString,
         prefill: Option<&JsString>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.trace.lock().unwrap().push(json!(["editor", title, prefill]));
         let result = self.request["editor"].as_str().map(str::to_owned);
         Box::pin(async move { Ok(result.map(JsString::from)) })
     }
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.trace.lock().unwrap().push(json!(["setEditorText", text]));
+        Ok(())
     }
     fn custom<'a>(
         &'a self,

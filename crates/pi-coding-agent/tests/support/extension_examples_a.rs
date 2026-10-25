@@ -96,15 +96,16 @@ impl ExtensionUiContext for CaptureUi {
     fn set_hidden_thinking_label(&self, label: Option<&JsString>) {
         self.trace.lock().unwrap().push(json!(["thinkingLabel", label]));
     }
-    fn set_title(&self, title: &JsString) {
+    fn set_title(&self, title: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.trace.lock().unwrap().push(json!(["title", title]));
+        Ok(())
     }
     fn confirm<'a>(
         &'a self,
         title: &JsString,
         message: &JsString,
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, pi_ai::request::CallbackError>> {
         self.trace.lock().unwrap().push(json!([
             "confirm",
             title,
@@ -130,7 +131,7 @@ impl ExtensionUiContext for CaptureUi {
         title: &JsString,
         items: &[JsString],
         opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.trace.lock().unwrap().push(json!([
             "select",
             title,

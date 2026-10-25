@@ -136,8 +136,9 @@ impl ExtensionUiContext for Ui {
             })
         })
     }
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().push(json!(["editorText", text]));
+        Ok(())
     }
     fn notify(
         &self,
@@ -152,16 +153,22 @@ impl ExtensionUiContext for Ui {
         title: &JsString,
         items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.calls.lock().unwrap().push(json!(["select", title, items]));
         let selected = self.selected.lock().unwrap().clone();
         Box::pin(async move { Ok(selected.map(JsString::from)) })
     }
-    fn set_widget(&self, key: &JsString, content: Option<&[JsString]>, options: Option<&ExtensionWidgetOptions>) {
+    fn set_widget(
+        &self,
+        key: &JsString,
+        content: Option<&[JsString]>,
+        options: Option<&ExtensionWidgetOptions>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
         self.calls
             .lock()
             .unwrap()
             .push(json!(["widget", key, content, options]));
+        Ok(())
     }
     fn set_working_message(&self, message: Option<&JsString>) {
         self.calls.lock().unwrap().push(json!(["workingMessage", message]));

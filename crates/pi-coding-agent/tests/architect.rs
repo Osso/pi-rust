@@ -92,7 +92,7 @@ fn observer_reads_a_snapshot_on_every_observation() {
             Ok(pi_coding_agent::architect::observer::ArchitectSnapshot { requests, sessions })
         })
     };
-    let observer = ArchitectObserver::new(&JsString::from("/unused"), Some(reader));
+    let observer = ArchitectObserver::new(&JsString::from("/unused"), Some(reader)).unwrap();
 
     let initial = observer.observe().unwrap().unwrap();
     assert_eq!(initial.reason, ArchitectObservationReason::SessionStateChanged);

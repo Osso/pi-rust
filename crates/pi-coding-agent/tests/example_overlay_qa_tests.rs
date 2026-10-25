@@ -229,8 +229,9 @@ struct Ui {
     mount_clock: Option<tokio::time::Instant>,
 }
 impl ExtensionUiContext for Ui {
-    fn set_editor_text(&self, text: &JsString) {
+    fn set_editor_text(&self, text: &JsString) -> Result<(), pi_ai::request::CallbackError> {
         self.calls.lock().unwrap().push(json!(["editorText", text]));
+        Ok(())
     }
     fn notify(
         &self,

@@ -118,7 +118,10 @@ fn tree_ids(nodes: &[SessionTreeNode]) -> Vec<JsString> {
 }
 
 fn temp_dir(name: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("pi-rust-{name}-{}", pi_ai::utils::random_uuid::random_uuid()));
+    let dir = std::env::temp_dir().join(format!(
+        "pi-rust-{name}-{}",
+        pi_ai::utils::random_uuid::random_uuid().unwrap()
+    ));
     fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -171,7 +174,7 @@ fn migrates_v1_entries_and_is_idempotent() {
          {\"type\":\"message\",\"timestamp\":\"2025-01-01T00:00:01Z\",\"message\":{\"role\":\"user\",\"content\":\"hi\",\"timestamp\":1}}\n\
          {\"type\":\"message\",\"timestamp\":\"2025-01-01T00:00:02Z\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"hello\"}],\"api\":\"test\",\"provider\":\"test\",\"model\":\"test\",\"usage\":{\"input\":1,\"output\":1,\"cacheRead\":0,\"cacheWrite\":0},\"stopReason\":\"stop\",\"timestamp\":2}}\n",
     );
-    migrate_session_entries(&mut entries);
+    migrate_session_entries(&mut entries).unwrap();
     let FileEntry::Header(header) = &entries[0] else {
         panic!("expected header");
     };
@@ -186,7 +189,7 @@ fn migrates_v1_entries_and_is_idempotent() {
         .iter()
         .map(|entry| entry.entry().and_then(|entry| entry.id().cloned()))
         .collect();
-    migrate_session_entries(&mut entries);
+    migrate_session_entries(&mut entries).unwrap();
     let after: Vec<Option<JsString>> = entries
         .iter()
         .map(|entry| entry.entry().and_then(|entry| entry.id().cloned()))

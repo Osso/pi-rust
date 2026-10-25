@@ -29,7 +29,7 @@ impl ExtensionUiContext for CapturedUi {
         title: &JsString,
         items: &[JsString],
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.actions
             .lock()
             .unwrap()
@@ -43,7 +43,7 @@ impl ExtensionUiContext for CapturedUi {
         title: &JsString,
         message: &JsString,
         _opts: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, pi_ai::request::CallbackError>> {
         self.actions
             .lock()
             .unwrap()

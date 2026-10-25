@@ -908,7 +908,7 @@ mod tests {
             assert!(broker.resolve(value_response(&id, "two")));
         };
         let (result, ()) = tokio::join!(promise, resolver);
-        assert_eq!(result, Some(JsString::from("two")));
+        assert_eq!(result.unwrap(), Some(JsString::from("two")));
     }
 
     #[tokio::test]
@@ -932,7 +932,7 @@ mod tests {
             |_response| Some("answered".to_owned()),
         )
         .await;
-        assert_eq!(result, Some("default".to_owned()));
+        assert_eq!(result.unwrap(), Some("default".to_owned()));
         assert!(started.elapsed() >= Duration::from_millis(10));
         let request = receiver.recv().await.expect("request line");
         let id = request["id"].as_string().expect("request id").to_utf8().unwrap();
@@ -953,8 +953,9 @@ mod tests {
             signal: Some(signal),
             ..ExtensionUiDialogOptions::default()
         };
-        let result =
-            create_dialog_promise(&broker, emit, Some(options), false, select_request(), |_response| true).await;
+        let result = create_dialog_promise(&broker, emit, Some(options), false, select_request(), |_response| true)
+            .await
+            .unwrap();
         assert!(!result);
         assert!(receiver.try_recv().is_err());
     }
@@ -985,7 +986,7 @@ mod tests {
             controller.abort(None);
         };
         let (result, ()) = tokio::join!(promise, resolver);
-        assert_eq!(result, "default");
+        assert_eq!(result.unwrap(), "default");
     }
 
     fn run_frozen_rpc_observation(order: &str) -> JsValue {
@@ -1062,7 +1063,8 @@ mod tests {
                     create_dialog_promise(&broker, emit, Some(options), None, select_request(), |response| {
                         response.get("value").and_then(JsValue::as_string).cloned()
                     })
-                    .await,
+                    .await
+                    .unwrap(),
                 );
             }
             assert!(results.iter().all(|result| result == &expected), "{order}: {results:?}");

@@ -32,7 +32,7 @@ impl ExtensionUiContext for Ui {
         title: &JsString,
         items: &[JsString],
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.calls.lock().unwrap().push(json!(["select", title, items]));
         let value = self.selected.lock().unwrap().clone();
         Box::pin(async move { Ok(value.map(JsString::from)) })
@@ -42,7 +42,7 @@ impl ExtensionUiContext for Ui {
         title: &JsString,
         placeholder: Option<&JsString>,
         _: Option<&ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, pi_ai::request::CallbackError>> {
         self.calls.lock().unwrap().push(json!(["input", title, placeholder]));
         let value = self.note.lock().unwrap().clone();
         Box::pin(async move { Ok(value.map(JsString::from)) })
