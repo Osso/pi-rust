@@ -106,8 +106,12 @@ async fn transfer_command_child() {
             let (context, identities) = manager.build_session_context_with_identities();
             session.agent().set_messages_with_identities(context.messages, identities).unwrap();
         }
-        let colors: Vec<_> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name|((*name).into(),crate::modes::interactive::theme::ColorValue::Index(0.0))).collect();
-        crate::modes::interactive::theme::set_theme_instance(Arc::new(Theme::new(&colors,&colors,crate::modes::interactive::theme::ColorMode::Color256,None,None).unwrap()));
+        let colors: serde_json::Map<_, _> = crate::modes::interactive::theme::REQUIRED_COLORS.iter().map(|name| ((*name).to_owned(), serde_json::json!(0))).collect();
+        let theme_path = root.join("transfer-theme.json");
+        std::fs::write(&theme_path, serde_json::json!({"name":"transfer-fixture","colors":colors}).to_string()).unwrap();
+        let theme = crate::modes::interactive::theme::load_theme_from_path(&js_path(&theme_path), Some(crate::modes::interactive::theme::ColorMode::Color256)).unwrap();
+        crate::modes::interactive::theme::set_registered_themes(vec![Arc::new(theme)]).unwrap();
+        crate::modes::interactive::theme::init_theme(Some(&"transfer-fixture".into()), false).unwrap();
         mode.chat_container.borrow_mut().clear();
         mode.restore_editor();
         mode.ui.start().unwrap();

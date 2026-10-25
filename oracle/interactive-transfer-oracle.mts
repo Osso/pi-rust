@@ -13,7 +13,7 @@ const { SettingsManager } = await load("core/settings-manager.ts");
 const { InteractiveMode } = await load("modes/interactive/interactive-mode.ts");
 const { Agent } = await load("../../agent-core/src/agent.ts");
 const { Container, Input, TUI } = await load("../../tui/src/index.ts");
-const { initTheme, Theme, setThemeInstance } = await load(
+const { initTheme, loadThemeFromPath, setRegisteredThemes } = await load(
 	"modes/interactive/theme/theme.ts",
 );
 const units = (text: string) =>
@@ -62,14 +62,10 @@ async function capture(request: Request) {
 	const date = globalThis.Date;
 	for (const name of ["ready", "terminated", "clipboard"])
 		rmSync(join(request.cwd, name), { force: true });
-	initTheme("dark", false);
-	setThemeInstance(
-		new Theme(
-			Object.fromEntries(request.colors.map((name) => [name, 0])),
-			{},
-			"256color",
-		),
-	);
+	setRegisteredThemes([
+		loadThemeFromPath(join(request.cwd, "transfer-theme.json"), "256color"),
+	]);
+	initTheme("transfer-fixture", false);
 	const manager = SessionManager.open(request.sessionPath);
 	const session = Object.create(AgentSession.prototype);
 	session.sessionManager = manager;
