@@ -617,7 +617,7 @@ fn create_browser_read_tools(
     }
     let root = match options.browser_agent_config_root.as_ref() {
         Some(root) => root,
-        None => super::runtime::default_browser_agent_config_root().map_err(|error| error.message().clone())?,
+        None => super::runtime::default_browser_agent_config_root().map_err(|error| error.message)?,
     };
     Ok(vec![
         crate::core::tools::read::create_agent_config_read_tool_definition(agent.cwd.clone(), root.clone()),
