@@ -1,31 +1,20 @@
-# Coding-agent sessions command traceability
+# sessions-command.ts traceability
 
-Pinned source: `packages/coding-agent/src/cli/sessions-command.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
+Frozen: `packages/coding-agent/src/cli/sessions-command.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`. Whole 186-line module audited against `src/cli/sessions_command.rs`.
 
-Rust: `crates/pi-coding-agent/src/cli/sessions_command.rs`.
+| Symbol / branches | Proof |
+| --- | --- |
+| `handleSessionsCommand`: non-sessions ignored; help/unknown destinations and exit codes | Actual-source `sessions_console_branches_match_frozen`, full output comparison |
+| `truncate-tool-output`: exact argc, agent dir, migration report; singular/plural, skipped total, errors/exit1 | Existing native migration and raw-UTF16 error fixtures; invalid argc in actual-source matrix |
+| `archive`: parseDays default5/finite/positive/exact flag+argc; refresh before cutoff/archive; singular/plural report | Existing concrete cutoff/native console fixtures and actual-source console matrix (default/fractional/invalid days) |
+| Default archive effect compresses each selected file with `archivePersistedSession` | `default_archive_compresses_the_file_and_relocates_metadata`: real JSONL, zstd round-trip, old-path removal, atomic DB metadata relocation/archive state |
+| `compressArchivedSessions`: exact no args/--dry-run, ordered candidates/skips, no mutation on dry-run, per-file catch/continue, complete stdout/stderr and exit1 on failures | Six actual-source candidate/report scenarios (empty/single/mixed × dry/live), including both resident ids/directories, precompressed suffix, lookalike directory, success and failure |
+| `shouldCompressArchivedSession`, `isResidentSession`: .jsonl only, exact resident id or path segment (slash/backslash) | Same candidate differential |
+| `writableMetadata`: loaded fields, ISO created/modified times, explicit invalid-date rejection | Existing `sessions_command_date_tests::writable_metadata_dates_match_frozen_iso_and_invalid_date_errors`; native refresh maps fields into the shared DB writer |
+| `formatTruncateToolOutputReport`, `printSessionsHelp` | Native report fixtures and exact help in actual-source matrix; help now includes compress-archived |
 
-Process module (session files, control DB, filesystem migration). Behavioral proof with injected effects: `tests/sessions_command.rs` (6 tests, ports of `test/sessions-command.test.ts`).
+RED `/tmp/settings-models-sessions-red.log`: frozen compression command/help absent natively. RED `/tmp/settings-models-sessions-archive-red.log`: default archive returned original path and left file/metadata uncompressed. The shared archive helper now performs the same effect as the frozen default branch. Dependency injection uses existing `SessionMetadata`, not a new carrier; control DB/list/compress effect seams match frozen options.
 
-| TypeScript source | Observable behavior | Rust proof |
-|---|---|---|
-| `sessions-command.ts:19-24` | Ignore non-`sessions` argv; route `truncate-tool-output` and `archive`; other subcommands print help (stdout only for `--help`/`-h`) with exit code 0/1 | `prints_help_and_ignores_non_sessions_commands` |
-| `sessions-command.ts:25-43` | Truncate requires exactly one argument, prints the report, and reports migration errors on stderr with exit code 1 | `reports_tool_result_truncation_through_the_migration_command`, `reports_migration_errors_and_sets_a_failing_exit_code` |
-| `sessions-command.ts:45-71` | Archive refreshes metadata, computes the cutoff (`now - days*86_400_000`), archives, and prints the exact count sentence | `archives_sessions_using_a_five_day_default_cutoff`, `accepts_an_explicit_day_cutoff` |
-| `sessions-command.ts:73-78` | `parseDays`: default 5, `--older-than <days>`, finite and positive, else invalid | `rejects_invalid_archive_arguments` |
-| `sessions-command.ts:80-94` | Writable metadata fields and ISO timestamps | Default `refresh_metadata` implementation uses `SessionManager::list_all` + `write_session_metadata`; exercised by the session-control-db slice |
-| `sessions-command.ts:96-101` | Truncation report sentence, including singular/plural and skipped counts | Truncate tests |
-| `sessions-command.ts:103-106` | Help text | `prints_help_and_ignores_non_sessions_commands` |
+OS/runtime fault and numeric-extreme shapes remain excluded by the parity bar. Default stdout/stderr exotic-fd failures are in that excluded boundary; no API widening for them. No new dependency, provider call or source delta.
 
-## Semantics
-
-- Exit codes are returned (`SessionsCommandOutcome.exit_code`) instead of mutating `process.exitCode`.
-- `days` stays `f64` because the source accepts fractional `Number` values; the cutoff truncates like `Date` millisecond storage, and the message uses `js_number_to_string`.
-- The default `control_db_path` is `getControlDbPath(getUserStateRoot())`, matching the source's no-argument call.
-
-## Gaps
-
-- Default `refresh_metadata`/`archive_older_than`/`truncate_tool_output` bodies run real filesystem/SQLite code; their behavior is covered by the session-manager, session-control-db, and session-tool-output slices.
-
-## Discrepancies
-
-None found.
+Focused post-commit GREEN and changed-line warning/readability evidence: `/tmp/settings-models-proof-ledger.md`.
