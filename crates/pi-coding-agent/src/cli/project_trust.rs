@@ -6,7 +6,7 @@ use pi_js_compat::{
 };
 use std::sync::Arc;
 
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, CallbackError};
 
 use crate::core::extensions::types::{ExtensionUiContext, NotifyType, ProjectTrustContext};
 use crate::core::project_trust::AppMode;
@@ -58,7 +58,7 @@ impl ExtensionUiContext for ProjectTrustUi {
         title: &JsString,
         options: &[JsString],
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let title = title.to_owned();
         let options = options.to_vec();
         Box::pin(async move {
@@ -77,7 +77,7 @@ impl ExtensionUiContext for ProjectTrustUi {
         title: &JsString,
         message: &JsString,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<bool, JsString>> {
+    ) -> BoxFuture<'a, Result<bool, CallbackError>> {
         let title = js_format!("{}\n{}", title, message);
         Box::pin(async move {
             if !self.interactive() {
@@ -97,7 +97,7 @@ impl ExtensionUiContext for ProjectTrustUi {
         title: &JsString,
         placeholder: Option<&JsString>,
         _opts: Option<&crate::core::extensions::types::ExtensionUiDialogOptions>,
-    ) -> BoxFuture<'a, Result<Option<JsString>, JsString>> {
+    ) -> BoxFuture<'a, Result<Option<JsString>, CallbackError>> {
         let title = title.to_owned();
         let placeholder = placeholder.cloned();
         Box::pin(async move {

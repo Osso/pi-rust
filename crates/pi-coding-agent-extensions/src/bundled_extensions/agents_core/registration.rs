@@ -655,7 +655,7 @@ async fn background_command(
         .expect("ownerships")
         .insert(agent.id.clone(), Arc::clone(&runtime));
     let agent = start_background_dispatch(background, runtime, &prompt, ctx, Some(prepared_runtime.child_session));
-    ctx.ui()?.set_editor_text(&JsString::default());
+    ctx.ui()?.set_editor_text(&JsString::default())?;
     notify(
         ctx,
         &js_format!(

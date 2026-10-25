@@ -104,7 +104,7 @@ pub fn find_selected_effort(levels: &[ThinkingLevel], effort: impl Into<JsString
 }
 
 fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
-    ctx.ui()?.set_editor_text(&JsString::default());
+    ctx.ui()?.set_editor_text(&JsString::default())?;
     Ok(())
 }
 

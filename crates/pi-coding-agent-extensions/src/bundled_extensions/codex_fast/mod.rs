@@ -205,12 +205,12 @@ pub async fn handle_fast_command(
             &"Fast mode is controlled by the main thread".into(),
             Some(NotifyType::Warning),
         )?;
-        ui.set_editor_text(&JsString::default());
+        ui.set_editor_text(&JsString::default())?;
         return Ok(());
     }
     let Some(requested) = requested_fast_mode(args, authority.service_tier()) else {
         ui.notify(&"Usage: /fast [on|off|ultra]".into(), Some(NotifyType::Warning))?;
-        ui.set_editor_text(&JsString::default());
+        ui.set_editor_text(&JsString::default())?;
         return Ok(());
     };
     if let RequestedFastMode::Tier(_) = requested
@@ -220,7 +220,7 @@ pub async fn handle_fast_command(
             &"Fast mode requires openai-codex or openai-codex-gc".into(),
             Some(NotifyType::Warning),
         )?;
-        ui.set_editor_text(&JsString::default());
+        ui.set_editor_text(&JsString::default())?;
         return Ok(());
     }
 
@@ -234,7 +234,7 @@ pub async fn handle_fast_command(
         &format!("Fast mode: {}", fast_mode_label(authority.service_tier())).into(),
         Some(NotifyType::Info),
     )?;
-    ui.set_editor_text(&JsString::default());
+    ui.set_editor_text(&JsString::default())?;
     Ok(())
 }
 

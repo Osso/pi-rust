@@ -82,7 +82,7 @@ pub fn safe_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     },
                     Some(NotifyType::Info),
                 )?;
-                ctx.ui()?.set_editor_text(&JsString::default());
+                ctx.ui()?.set_editor_text(&JsString::default())?;
                 Ok(())
             })
         }),

@@ -452,7 +452,7 @@ async fn handle_loop_command(
                 &format!("Loop started every {}", format_interval(active.interval_ms)).into(),
                 Some(NotifyType::Info),
             )?;
-            ui.set_editor_text(&JsString::default());
+            ui.set_editor_text(&JsString::default())?;
         }
     }
     Ok(())

@@ -38,7 +38,7 @@ pub fn spec_validation_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
                 }
 
                 api.send_user_message(UserMessageContent::Text(SPEC_VALIDATION_PROMPT.to_owned().into()), None)?;
-                ctx.ui()?.set_editor_text(&JsString::default());
+                ctx.ui()?.set_editor_text(&JsString::default())?;
                 Ok(())
             })
         }),
