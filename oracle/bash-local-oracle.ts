@@ -14,6 +14,7 @@ type Input = {
 	missingArtifacts?: boolean;
 	preAbort?: boolean;
 	abortMs?: number;
+	abortOnData?: boolean;
 	shellPath?: string;
 	env?: Record<string, string>;
 	replaceDirectory?: boolean;
@@ -51,7 +52,10 @@ void runOracle(async (module, request) => {
 			result = {
 				ok: true,
 				value: await ops.exec(command, input.cwd ?? cwd, {
-					onData: (chunk: Buffer) => data.push(...chunk),
+					onData: (chunk: Buffer) => {
+						data.push(...chunk);
+						if (input.abortOnData) controller.abort("reason");
+					},
 					signal: controller.signal,
 					timeout:
 						input.number === undefined ? input.timeout : Number(input.number),
