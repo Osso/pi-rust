@@ -138,3 +138,7 @@ Frozen parsePackageCommand reports `--all cannot be combined with --self,
 --extensions, or --extension`; the stale unit expectation additionally named
 --models. The concrete expected string is replaced with the frozen value.
 The JSON differential remains exact and no longer invokes the real config UI.
+
+## Successor command-error correction (2026-10-25)
+
+Whole-module audit found native list failures escaped the frozen catch, self-update read the merged rather than global npm command, and child failures used OS descriptions/numeric signals. Native REDs in `/tmp/settings-models-package-red.log` cover those boundaries; fixes preserve exact UTF-16 list errors, global-only npm selection, `spawn … ENOENT`, and `SIGTERM`. The stale lookup assertion now requires the full frozen wrapper including `: offline`, not a weakened assertion. Targeted GREEN: `/tmp/settings-models-package-green.log` (30 passing; scope fixture needed an existing package directory), `/tmp/settings-models-package-scope-green.log` (corrected real executable fixture passes). [Contract](../../specs/package-command-errors.md).

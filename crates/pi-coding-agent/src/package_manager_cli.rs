@@ -1026,7 +1026,7 @@ pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), 
             .stderr(std::process::Stdio::inherit())
             .status()
             .await
-            .map_err(|error| JsString::from(error.to_string()))?;
+            .map_err(|error| crate::utils::child_process::node_spawn_error_message("spawn", &step.command, &error))?;
         if status.success() {
             continue;
         }
@@ -1037,7 +1037,7 @@ pub async fn run_self_update(command: &config::SelfUpdateCommand) -> Result<(), 
                 return Err(pi_js_compat::js_format!(
                     "{} terminated by signal {}",
                     step.display,
-                    signal
+                    crate::utils::child_process::signal_name(signal)
                 ));
             }
         }
@@ -1161,7 +1161,12 @@ pub async fn execute_package_command(
     outcome
         .stderr
         .extend(report_settings_errors(&settings.store, "package command"));
-    let npm_command = settings.store.with(|manager| manager.get_npm_command());
+    let npm_command: Option<Vec<JsString>> = settings.store.with(|manager| {
+        manager
+            .get_global_settings()
+            .get("npmCommand")
+            .and_then(|value| pi_js_compat::js_json::from_value(value).ok())
+    });
 
     match action {
         PackageAction::Install { source, local } => {
@@ -1194,10 +1199,10 @@ pub async fn execute_package_command(
                 Err(message) => package_error(&mut outcome, &message),
             }
         }
-        PackageAction::List => {
-            let packages = effects.list_packages(&settings.store)?;
-            outcome.stdout.push(format_package_list(&packages));
-        }
+        PackageAction::List => match effects.list_packages(&settings.store) {
+            Ok(packages) => outcome.stdout.push(format_package_list(&packages)),
+            Err(message) => package_error(&mut outcome, &message),
+        },
         PackageAction::Update {
             target,
             force,
@@ -1233,7 +1238,11 @@ pub async fn execute_package_command(
                 }
             }
             if update_target_includes_self(&target) {
-                run_self_update_target(&mut outcome, effects, &agent_dir, force, npm_command.as_deref()).await?;
+                if let Err(message) =
+                    run_self_update_target(&mut outcome, effects, &agent_dir, force, npm_command.as_deref()).await
+                {
+                    package_error(&mut outcome, &message);
+                }
             }
         }
         PackageAction::Config => {}

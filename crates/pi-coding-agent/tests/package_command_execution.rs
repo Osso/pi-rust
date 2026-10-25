@@ -133,6 +133,7 @@ struct FakeEffects {
     remove: Result<bool, JsString>,
     update: Result<(), JsString>,
     packages: Vec<ConfiguredPackage>,
+    list_error: Option<JsString>,
     progress_messages: Vec<JsString>,
     config_requests: Mutex<Vec<ResolvedPaths>>,
     calls: Mutex<Vec<JsString>>,
@@ -156,6 +157,7 @@ impl FakeEffects {
             remove: Ok(true),
             update: Ok(()),
             packages: Vec::new(),
+            list_error: None,
             progress_messages: Vec::new(),
             config_requests: Mutex::new(Vec::new()),
             calls: Mutex::new(Vec::new()),
@@ -255,7 +257,10 @@ impl PackageCommandEffects for FakeEffects {
         &self,
         _settings: &Arc<pi_coding_agent::core::package_manager::SettingsManagerStore>,
     ) -> Result<Vec<ConfiguredPackage>, JsString> {
-        Ok(self.packages.clone())
+        match &self.list_error {
+            Some(error) => Err(error.clone()),
+            None => Ok(self.packages.clone()),
+        }
     }
 
     fn update_packages<'a>(
@@ -837,7 +842,7 @@ async fn get_self_update_plan_reports_lookup_failures() {
     let error = get_self_update_plan(&FailingFetch, &JsString::from("0.0.0"), false)
         .await
         .expect_err("offline lookup fails");
-    assert_eq!(error, "Could not determine latest pi version.");
+    assert_eq!(error, "Could not determine latest pi version: offline");
 }
 
 #[test]
@@ -906,7 +911,83 @@ async fn run_self_update_reports_exit_codes_and_signals() {
         display: "missing".to_owned().into(),
         steps: None,
     };
-    assert!(run_self_update(&missing).await.is_err());
+    assert_eq!(
+        run_self_update(&missing).await,
+        Err(JsString::from("spawn /nonexistent/pi-self-update ENOENT"))
+    );
+}
+
+#[tokio::test]
+async fn self_update_uses_node_signal_names() {
+    let command = SelfUpdateCommand {
+        command: "sh".into(),
+        args: vec!["-c".into(), "kill -TERM $$".into()],
+        display: "terminate fixture".into(),
+        steps: None,
+    };
+    assert_eq!(
+        run_self_update(&command).await,
+        Err(JsString::from("terminate fixture terminated by signal SIGTERM"))
+    );
+}
+
+#[tokio::test]
+async fn list_failure_is_reported_as_a_package_error() {
+    let root = temp_dir("list-failure");
+    let mut effects = FakeEffects::new(&root, &agent_dir("list-failure"), bun_install_context(&root));
+    let error = JsString::from_utf16(vec![98, 97, 100, 0xd800]);
+    effects.list_error = Some(error.clone());
+    let outcome = execute_package_command(&args(&["list"]), &effects)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(outcome.exit_code, Some(1));
+    assert_eq!(
+        outcome.stderr,
+        vec![Chalk::stderr().red(&(JsString::from("Error: ") + error))]
+    );
+}
+
+#[tokio::test]
+async fn self_update_uses_global_npm_command_not_project_override() {
+    let root = temp_dir("npm-scope");
+    let agent = agent_dir("npm-scope");
+    use std::os::unix::fs::PermissionsExt;
+    let global_npm = root.join("global-npm");
+    let project_npm = root.join("project-npm");
+    let package_root = root.join("npm-global/node_modules");
+    for executable in [&global_npm, &project_npm] {
+        fs::write(
+            executable,
+            format!("#!/bin/sh\nprintf '%s\\n' '{}'\n", package_root.display()),
+        )
+        .unwrap();
+        fs::set_permissions(executable, fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    fs::write(
+        agent.join("settings.json"),
+        serde_json::json!({"npmCommand":[global_npm]}).to_string(),
+    )
+    .unwrap();
+    fs::create_dir_all(root.join(".pi")).unwrap();
+    fs::write(
+        root.join(".pi/settings.json"),
+        serde_json::json!({"npmCommand":[project_npm]}).to_string(),
+    )
+    .unwrap();
+    let mut context = bun_install_context(&root);
+    context.is_bun_runtime = false;
+    context.package_dir = root.join("npm-global/node_modules/@earendil-works/pi-coding-agent");
+    fs::create_dir_all(&context.package_dir).unwrap();
+    let effects = FakeEffects::new(&root, &agent, context);
+    let outcome = execute_package_command(&args(&["update", "--self", "--approve"]), &effects)
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(outcome.stderr.is_empty(), "{:?}", outcome.stderr);
+    let calls = effects.calls();
+    let prefix = format!("self_update:{} ", global_npm.display());
+    assert!(calls.iter().any(|call| call.starts_with(prefix.as_str())), "{calls:?}");
 }
 
 #[test]
