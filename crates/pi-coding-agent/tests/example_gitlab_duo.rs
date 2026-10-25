@@ -69,6 +69,29 @@ impl Fetch for FetchFixture {
 struct Backend {
     calls: Arc<Mutex<Vec<Value>>>,
     name: &'static str,
+    rejection: Option<CallbackError>,
+}
+fn backend_rejection(input: &Value) -> Option<CallbackError> {
+    let kind = input["backendThrow"].as_str()?;
+    let units = input["valueUnits"]
+        .as_array()
+        .expect("fixture UTF16 units")
+        .iter()
+        .map(|value| u16::try_from(value.as_u64().unwrap()).unwrap())
+        .collect();
+    let message = JsString::from_utf16(units);
+    let reason = match kind {
+        "error" => pi_js_compat::node_error::NativeNodeError::from_constructor(
+            pi_js_compat::node_error::NativeErrorClass::TypeError,
+            message,
+        )
+        .with_property("code", pi_js_compat::js_json::JsValue::String("E_BACKEND".into()))
+        .into(),
+        "value" => pi_js_compat::abort::AbortReason::Value(pi_js_compat::js_json::JsValue::String(message)),
+        "conversion" => pi_js_compat::abort::AbortReason::Value(js_json!({"toString":null,"valueOf":null})),
+        _ => panic!("unknown fixture backendThrow kind"),
+    };
+    Some(CallbackError::from_rejection(reason))
 }
 fn backend_event() -> Value {
     json!({"type":"error","reason":"aborted","error":{"role":"assistant","api":"fixture-api","provider":"fixture","model":"fixture","content":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"stopReason":"aborted","errorMessage":"backend event","timestamp":12}})
@@ -84,6 +107,9 @@ impl ProviderStreams for Backend {
         o: SimpleStreamOptions,
     ) -> Result<AssistantMessageEventStream, CallbackError> {
         self.calls.lock().unwrap().push(json!({"type":"backend","backend":self.name,"model":m,"context":c,"apiKey":o.stream.request.api_key,"headers":o.stream.request.headers}));
+        if let Some(error) = &self.rejection {
+            return Err(error.clone());
+        }
         let (tx, rx) = create_assistant_message_event_stream();
         tx.push(serde_json::from_value(backend_event()).unwrap());
         tx.end(None);
@@ -138,6 +164,7 @@ fn stream_fixture(
     (config.stream_simple.as_ref().unwrap())(model, context, Some(options)).expect("acquisition")
 }
 async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<f64>>) -> ProviderConfigInput {
+    let rejection = backend_rejection(&input);
     let now = clock.clone();
     let runtime = OAuthRuntime::new(
         Arc::new(FetchFixture {
@@ -151,8 +178,13 @@ async fn provider(input: Value, calls: Arc<Mutex<Vec<Value>>>, clock: Arc<Mutex<
         anthropic: Arc::new(Backend {
             calls: calls.clone(),
             name: "anthropic",
+            rejection: rejection.clone(),
         }),
-        openai: Arc::new(Backend { calls, name: "openai" }),
+        openai: Arc::new(Backend {
+            calls,
+            name: "openai",
+            rejection,
+        }),
     };
     let mut registry = ExtensionRegistry::new();
     registry.register(
@@ -334,4 +366,130 @@ async fn backend_dispatch_errors_cache_expiry_and_oauth_invalidation() {
         .filter(|c| c["url"].as_str().is_some_and(|s| s.ends_with("direct_access")))
         .count();
     assert_eq!(direct, 3, "cache hit, TTL boundary, refresh invalidation");
+}
+
+#[tokio::test]
+async fn backend_acquisition_rejections_keep_frozen_catch_units() {
+    let mut source = oracle::TsOracle::spawn(
+        "example-gitlab-duo-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/index.ts",
+    );
+    let mut actual_cases = Vec::new();
+    let mut expected_cases = Vec::new();
+    for index in [0, 5] {
+        for kind in ["error", "value"] {
+            let input = json!({"kind":"streams","indices":[index],"backendThrow":kind,"valueUnits":[66,55296]});
+            let expected = source.request(&pi_js_compat::js_json::JsValue::from(&input));
+            let calls = Arc::new(Mutex::new(Vec::new()));
+            let config = provider(input, calls.clone(), Arc::new(Mutex::new(1700000000000.0))).await;
+            let mut options = SimpleStreamOptions::default();
+            options.stream.request.api_key = Some("FAKE-gitlab".into());
+            options.stream.request.headers = Some([("ignored".into(), Some("caller".into()))].into_iter().collect());
+            let mut stream = stream_fixture(
+                &config,
+                config.models.as_ref().unwrap()[index].clone(),
+                serde_json::from_value(json!({"messages":[]})).unwrap(),
+                options,
+            );
+            let mut events = Vec::new();
+            while let Some(event) = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+                .await
+                .expect("catch settles")
+            {
+                events.push(pi_js_compat::js_json::to_value(&event.unwrap()).unwrap());
+            }
+            assert_eq!(
+                expected["events"][0][0]["error"]["errorMessage"],
+                pi_js_compat::js_json::JsValue::String(JsString::from_utf16(vec![66, 55296]))
+            );
+            actual_cases.push((
+                index,
+                kind,
+                js_json!({"calls":*calls.lock().unwrap(),"events":[events]}),
+            ));
+            expected_cases.push((index, kind, expected));
+        }
+    }
+    assert_eq!(actual_cases, expected_cases);
+}
+
+fn wait_fixture_output(mut child: std::process::Child) -> std::process::Output {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(15);
+    while child.try_wait().expect("fixture status").is_none() {
+        if std::time::Instant::now() >= deadline {
+            let pid = rustix::process::Pid::from_raw(child.id() as i32).unwrap();
+            let killed = rustix::process::kill_process_group(pid, rustix::process::Signal::KILL);
+            let reaped = child.wait();
+            panic!("fixture timed out; kill={killed:?}, reap={reaped:?}");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    child.wait_with_output().expect("fixture output")
+}
+
+#[test]
+fn catch_conversion_rejection_is_process_uncaught_like_frozen() {
+    use std::io::Write;
+    use std::os::unix::process::CommandExt;
+    let source_lock = oracle::read_source_lock();
+    oracle::verify_source_head(&source_lock);
+    let mut source = oracle::spawn_oracle_process(
+        &source_lock,
+        "example-gitlab-duo-oracle.ts",
+        "packages/coding-agent/examples/extensions/custom-provider-gitlab-duo/index.ts",
+        &[],
+        std::process::Stdio::piped(),
+    );
+    source
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(
+            b"{\"kind\":\"streams\",\"indices\":[0],\"backendThrow\":\"conversion\",\"valueUnits\":[66,55296]}\n",
+        )
+        .unwrap();
+    let source = wait_fixture_output(source);
+    assert_eq!(source.status.code(), Some(1), "{source:?}");
+    assert!(source.stdout.is_empty(), "no error event/completion may be invented");
+    assert!(
+        std::str::from_utf8(&source.stderr)
+            .expect("Node stderr UTF8")
+            .contains("TypeError: Cannot convert object to primitive value"),
+        "{source:?}"
+    );
+    let native = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "gitlab_conversion_child", "--ignored", "--nocapture"])
+        .env("PI_GITLAB_CONVERSION_CHILD", "1")
+        .process_group(0)
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let native = wait_fixture_output(native);
+    assert_eq!(native.status.code(), Some(1), "{native:?}");
+    assert_eq!(native.stderr, b"TypeError: Cannot convert object to primitive value\n");
+}
+
+#[tokio::test]
+#[ignore = "isolated process hook fixture"]
+async fn gitlab_conversion_child() {
+    assert_eq!(std::env::var("PI_GITLAB_CONVERSION_CHILD").as_deref(), Ok("1"));
+    pi_coding_agent::utils::uncaught::install_uncaught_handler();
+    let config = provider(
+        json!({"backendThrow":"conversion","valueUnits":[66,55296]}),
+        Arc::new(Mutex::new(Vec::new())),
+        Arc::new(Mutex::new(1700000000000.0)),
+    )
+    .await;
+    let mut options = SimpleStreamOptions::default();
+    options.stream.request.api_key = Some("FAKE-gitlab".into());
+    let mut stream = stream_fixture(
+        &config,
+        config.models.as_ref().unwrap()[0].clone(),
+        serde_json::from_value(json!({"messages":[]})).unwrap(),
+        options,
+    );
+    let _event = tokio::time::timeout(std::time::Duration::from_secs(5), stream.next())
+        .await
+        .expect("fixture stream progress");
 }

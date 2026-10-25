@@ -74,7 +74,7 @@ Only per-example Cargo test targets and formatting; no broad checks or live stat
 
 ## Shared acquisition Result migration (2026-10-24)
 
-Custom Anthropic and GitLab registered callbacks wrap their existing synchronously returned outer streams in Ok; neither callback adds a catch. GitLab inner backend acquisition now propagates Result into its existing async catch at frozen index.ts:347–369. Parent approved correcting only that catch to Error.message/String(error) and native AssistantMessage construction, with a negative proof; conversion-rejection routing must be established from actual source before using the uncaught authority. This correction/proof is pending.
+Custom Anthropic and GitLab registered callbacks wrap their existing synchronously returned outer streams in Ok; neither callback adds a catch. GitLab inner backend acquisition now propagates Result into its existing async catch at frozen index.ts:347–369. Parent approved correcting only that catch to Error.message/String(error) and native AssistantMessage construction, with a negative proof; conversion-rejection routing must be established from actual source before using the uncaught authority. Actual-source negative RED q15e-gitlab-acquisition-catch-red: four full request/event cases preserve TypeError/raw lone units in frozen but not native; a separate source child exits1 with no completion/error-event output for String-conversion rejection. Its TypeError diagnostic is checked before the failing native exit0 assertion. That proves this conversion boundary is process-uncaught, authorizing the existing shared authority here. Production correction/GREEN pending.
 
 ## GitLab Duo
 
