@@ -165,6 +165,8 @@ async function main(): Promise<void> {
 				if (request.stage !== "register") {
 					storage.set(provider, credential);
 					if (request.stage === "refresh") registry.refresh();
+					else if (request.stage === "create")
+						ModelRegistry.create(storage, "");
 					else ModelRegistry.inMemory(storage);
 				}
 			} catch (error) {
