@@ -1,7 +1,7 @@
 # `coding-agent/src/core/lifecycle-coordinator.ts`
 
-Source: `packages/coding-agent/src/core/lifecycle-coordinator.ts` (448 lines) at the pinned
-revision. Rust: `crates/pi-coding-agent-storage/src/core/lifecycle_coordinator.rs`.
+Whole-module audit: `packages/coding-agent/src/core/lifecycle-coordinator.ts` (454 lines) at
+common pin `4f9e6f8a4`. [Contract](../../specs/lifecycle-coordinator.md). Rust: `crates/pi-coding-agent-storage/src/core/lifecycle_coordinator.rs`.
 
 The coordinator is a thin command layer over `session_control_db::agents`; the DB layer itself is
 covered by `session_control_db.md`. All methods take the control DB path from
@@ -67,8 +67,7 @@ options, mirroring the TS constructor.
 
 The module is deterministic only with a real `control.sqlite` and live process identities, and its
 observable effects are the DB mutations covered by `differential_control_db.rs` and
-`cross_implementation_control_db.rs`. No separate TS oracle is used; the 23 behavioral tests port
-the TS coordinator and lifecycle-authority cases.
+`cross_implementation_control_db.rs`. Actual pinned coordinator oracles now cover suppression, reconciliation cleanup (default/explicit roots), real SQLite contention retry and timer cancellation. The original 23 behavioral tests remain valid; current proofs are listed below.
 
 ## Discrepancies / gaps
 
@@ -76,13 +75,16 @@ the TS coordinator and lifecycle-authority cases.
   enums directly where the shapes are identical (`CreateMultiAgentChildWithRuntimeOwnershipResult`,
   `CreateFailedMultiAgentChildResult`, `CreateMultiAgentAttachmentResult`,
   `AcquireAttachedRuntimeOwnershipResult`). Field names and `ok`/`error` tags are unchanged.
-- `setTimeout`-based retry is implemented with a detached `std::thread` sleeping 250 ms; there is
-  no cancellation token because the TS code also lets the timer run to completion.
+- `setTimeout`-based retry is implemented with a detached `std::thread` sleeping 250 ms; a per-timer identity preserves source clearTimeout semantics and prevents an obsolete timer from consuming a later timer.
 
 ## Re-pin audit checkpoint (2026-10-25)
 
-Frozen common pin 4f9e6f8a4 adds DetachedCancellationCommandInput.suppressTerminalNotification. Rust now exposes Option<bool> and forwards it to the existing transactional repository field. Actual coordinator/SQLite behavioral test and frozen coordinator oracle assert the persisted suppression flag; missing-field RED `/tmp/runtime-services-red-lifecycle-suppression.log`, GREEN at 56f10cc47: 24 coordinator tests pass, including actual frozen coordinator suppression (`/tmp/runtime-services-green-lifecycle.log`). Existing callers are mechanically set to None; their suppression-policy integration remains owned by their lanes. Still open: reconciliation artifactRoot/cleanup side effect and retry-root propagation; whole-module row is not done.
+Frozen common pin 4f9e6f8a4 adds DetachedCancellationCommandInput.suppressTerminalNotification. Rust now exposes Option<bool> and forwards it to the existing transactional repository field. Actual coordinator/SQLite behavioral test and frozen coordinator oracle assert the persisted suppression flag; missing-field RED `/tmp/runtime-services-red-lifecycle-suppression.log`, GREEN at 56f10cc47: 24 coordinator tests pass, including actual frozen coordinator suppression (`/tmp/runtime-services-green-lifecycle.log`). Existing callers are mechanically set to None; their suppression-policy integration remains owned by their lanes. Reconciliation cleanup/root propagation and timer cancellation are completed by the subsequent checkpoints below.
 
 Reconciliation RED `/tmp/runtime-services-red-lifecycle-cleanup.log`: repository reconciles one dead detached runtime but expired artifact remains. The coordinator now calls the existing cleanup wrapper when count > 0, forwards the optional artifact root through contention retry, and sends unexpected asynchronous errors to the shared uncaught authority instead of discarding them. Four real DB/filesystem cases compare native/frozen with default and explicit root. GREEN at adde11a9e (`/tmp/runtime-services-green-reconcile.log`). Caller signature propagation in main.rs and agents_core/wait_runtime.rs is mechanical; main forwards its existing agent_dir, matching frozen main.ts:1266.
 
-Timer cancellation RED `/tmp/runtime-services-red-retry-cancel.log`: after a real SQLite writer forces contention, manual successful reconciliation clears the pending timer; old Rust still reopens/recreates a removed DB after 250ms. Retry bookkeeping now stores one identity per pending timer, so clearing cancels it and an old timer cannot remove a newer timer. Frozen/native process-lifetime test checks the observable DB file, not internal callbacks. GREEN pending at commit.
+Timer cancellation RED `/tmp/runtime-services-red-retry-cancel.log`: after a real SQLite writer forces contention, manual successful reconciliation clears the pending timer; old Rust still reopens/recreates a removed DB after 250ms. Retry bookkeeping now stores one identity per pending timer, so clearing cancels it and an old timer cannot remove a newer timer. Frozen/native process-lifetime test checks the observable DB file, not internal callbacks. GREEN at 0e0623fe8 (`/tmp/runtime-services-green-retry-cancel.log`).
+
+Automatic retry proof at e6f3419ad: native and frozen each return zero under a real held SQLite write transaction; after release, the timer terminalizes the dead worker and clears its runtime ownership without manual reconciliation (`/tmp/runtime-services-green-retry-automatic.log`). Suppression/cleanup/cancellation/automatic-retry tests exercise persistence and process-lifetime boundaries, not internal calls. Changed-library clippy warning mode exit0 at 0e0623fe8, no warnings in owned module files (`/tmp/runtime-services-clippy-final-slice.log`). Manual changed-line readability audit: no new violations; optional metric executable unavailable.
+
+Gap: adversarial JSON/ownership shapes, numeric extremes, Node timer scheduling races and OS/runtime fault shapes are outside the parity bar.
