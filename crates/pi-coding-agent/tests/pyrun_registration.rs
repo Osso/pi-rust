@@ -7,9 +7,11 @@ use pi_coding_agent::bundled_extensions::pyrun::{PyrunExtensionOptions, install_
 use pi_coding_agent::core::extensions::ExtensionRunner;
 use pi_coding_agent::core::extensions::types::RuntimeMailboxEvent;
 use pi_js_compat::{js_json as json, process_env};
+static ENVIRONMENT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 #[tokio::test]
 async fn pyrun_registration_checks_command_without_parsing_args_and_routes_bridge() {
+    let _environment = ENVIRONMENT.lock().await;
     let directory = tempfile::tempdir().unwrap();
     let cwd = directory.path().to_str().unwrap();
     let mut oracle = oracle::TsOracle::spawn(
@@ -153,7 +155,12 @@ async fn pyrun_dispatcher_supervisor_and_active_tool_guards_match_frozen() {
         let dispatcher = create_pyrun_pi_dispatcher(
             &api.lock().unwrap().take().unwrap(),
             &PyrunExtensionOptions {
-                pi_request_handlers: vec![Arc::new(|_, _, _, _| Box::pin(async { Ok(Some(json!("handled"))) }))],
+                pi_request_handlers: vec![
+                    pi_coding_agent::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                        dispatch: Arc::new(|_, _, _, _| Box::pin(async { Ok(Some(json!("handled"))) })),
+                        dispose: None,
+                    },
+                ],
                 ..Default::default()
             },
         );
@@ -176,4 +183,75 @@ async fn pyrun_dispatcher_supervisor_and_active_tool_guards_match_frozen() {
         assert_eq!(expected["ok"], json!(true), "{expected:?}");
         assert_eq!(actual, expected["output"], "{method}, standalone={standalone}");
     }
+}
+
+#[tokio::test]
+async fn pyrun_custom_prompt_and_handler_disposal_match_frozen() {
+    let _environment = ENVIRONMENT.lock().await;
+    process_env::set("PI_PYRUN_RUNNER_COMMAND", "/bin/true");
+    use pi_coding_agent::bundled_extensions::pyrun::index::{
+        PyrunPiRequestHandler, PyrunToolDefinitionOptions, create_pyrun_tool_definition,
+    };
+    use std::sync::{Arc, Mutex};
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-registration-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/index.ts",
+    );
+    let options = json!({"promptSnippet":"","promptGuidelines":[]});
+    let tool = create_pyrun_tool_definition(
+        Arc::new(|_, _, _, _, _| Box::pin(async { unreachable!() })),
+        pi_js_compat::js_json::from_value::<PyrunToolDefinitionOptions>(&options).unwrap(),
+    );
+    let expected = oracle.request(&json!({"id":1,"operation":"definition","options":options}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(
+        json!({"promptSnippet":tool.prompt_snippet,"promptGuidelines":tool.prompt_guidelines}),
+        expected["output"]
+    );
+    let directory = tempfile::tempdir().unwrap();
+    let cwd = directory.path().to_str().unwrap();
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let disposed = events.clone();
+    let runtime = support::runtime();
+    let extension = support::extension(&runtime, cwd, "disposal", move |api| {
+        install_pyrun_extension(
+            api,
+            PyrunExtensionOptions {
+                pi_request_handlers: vec![PyrunPiRequestHandler {
+                    dispatch: Arc::new(|_, _, _, _| Box::pin(async { Ok(None) })),
+                    dispose: Some(Arc::new(move || {
+                        disposed.lock().unwrap().push("disposed");
+                        Ok(())
+                    })),
+                }],
+                ..Default::default()
+            },
+        )
+        .unwrap()
+    })
+    .await;
+    let mut runner = ExtensionRunner::new(
+        vec![extension],
+        runtime,
+        cwd,
+        support::session_manager(cwd),
+        support::model_registry().await,
+        None,
+    );
+    runner
+        .bind_core(support::actions(), support::context_actions(), None)
+        .unwrap();
+    runner
+        .emit(
+            &mut pi_coding_agent::core::extensions::types::ExtensionEvent::SessionShutdown(
+                pi_coding_agent::core::extensions::types::SessionShutdownEvent {
+                    reason: pi_coding_agent::core::extensions::types::SessionShutdownReason::Quit,
+                    target_session_file: None,
+                },
+            ),
+        )
+        .await;
+    let expected = oracle.request(&json!({"id":2,"operation":"disposal"}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    assert_eq!(json!(events.lock().unwrap().clone()), expected["output"]);
 }

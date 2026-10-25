@@ -151,3 +151,12 @@ Dispatcher follow-up: eleven frozen/native scenarios prove standalone rejection
 for agents/messages/session-resume, all seven active-tool mappings, and custom
 handler fall-through. RED accepted an unavailable standalone capability; GREEN
 `/tmp/bundled3-pyrun-dispatcher-green.log` rejects it before custom dispatch.
+
+Custom API follow-up: `PyrunToolDefinitionOptions` now preserves explicit empty
+prompt snippets/guidelines. `PyrunPiRequestHandler` models the source callable plus
+optional dispose property; shutdown disposes the runner, then each handler in order
+with fallible propagation. Actual-frozen prompt/disposal differential is GREEN in
+`/tmp/bundled3-pyrun-custom-green2.log` (three standalone registration tests).
+Mechanical fallout: `crates/pi-coding-agent/src/main.rs` wraps its existing dispatcher
+with no disposer; existing custom-handler and tool-definition tests adapt to the
+explicit native option structures. No handler behavior was changed outside this lane.

@@ -783,7 +783,7 @@ fn tool_definition_prepares_a_uuidv7_agent_id() {
             })
         })
     });
-    let tool = create_pyrun_tool_definition(evaluate);
+    let tool = create_pyrun_tool_definition(evaluate, Default::default());
     let prepared = futures_lite_block_on((tool.prepare_execution.as_ref().unwrap())(
         "call".into(),
         None,
@@ -858,7 +858,15 @@ async fn custom_pi_request_handlers_treat_null_as_handled() {
     let dispatcher = create_pyrun_pi_dispatcher(
         &harness.api,
         &PyrunExtensionOptions {
-            pi_request_handlers: vec![first, second],
+            pi_request_handlers: vec![first, second]
+                .into_iter()
+                .map(
+                    |dispatch| pi_coding_agent::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                        dispatch,
+                        dispose: None,
+                    },
+                )
+                .collect(),
             ..Default::default()
         },
     );

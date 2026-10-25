@@ -345,7 +345,12 @@ fn pyrun_extension_factory(
                         .map(Some)
                 })
             });
-        options.pi_request_handlers.push(dispatcher);
+        options
+            .pi_request_handlers
+            .push(crate::bundled_extensions::pyrun::index::PyrunPiRequestHandler {
+                dispatch: dispatcher,
+                dispose: None,
+            });
         let result = crate::bundled_extensions::pyrun::install_pyrun_extension(pi, options);
         Box::pin(async move { result })
     })

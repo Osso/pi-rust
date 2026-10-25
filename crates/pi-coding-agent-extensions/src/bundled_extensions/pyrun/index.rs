@@ -62,7 +62,21 @@ pub struct PyrunExtensionOptions {
     pub background_jobs_store: Option<Arc<crate::core::multi_agent_store::MultiAgentStore>>,
     pub bwrap_command: Option<JsString>,
     pub detach_registry: Option<Arc<crate::core::tool_detach_registry::ToolDetachRegistry>>,
-    pub pi_request_handlers: Vec<PyrunPiRequestDispatcher>,
+    pub pi_request_handlers: Vec<PyrunPiRequestHandler>,
+}
+
+/// Native representation of the source dispatcher's callable and optional `dispose` property.
+#[derive(Clone)]
+pub struct PyrunPiRequestHandler {
+    pub dispatch: PyrunPiRequestDispatcher,
+    pub dispose: Option<Arc<dyn Fn() -> Result<(), HandlerError> + Send + Sync>>,
+}
+
+#[derive(Clone, Default, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PyrunToolDefinitionOptions {
+    pub prompt_guidelines: Option<Vec<JsString>>,
+    pub prompt_snippet: Option<JsString>,
 }
 
 pub type PyrunEvaluate = Arc<
@@ -750,7 +764,7 @@ pub fn create_pyrun_pi_dispatcher(pi: &ExtensionApi, options: &PyrunExtensionOpt
                 return Err(HandlerError::new(format!("Tool is not active: {required}")));
             }
             for handler in &handlers {
-                let result = handler(
+                let result = (handler.dispatch)(
                     request.clone(),
                     ctx.clone(),
                     signal.clone(),
@@ -837,7 +851,7 @@ fn render_result(
 }
 
 /// `createPyrunToolDefinition`.
-pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
+pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate, options: PyrunToolDefinitionOptions) -> ToolDefinition {
     let execute = Arc::new(
         move |_tool_call_id: String, params: Value, signal, on_update, ctx: Option<ExtensionContext>| {
             let evaluate = Arc::clone(&evaluate);
@@ -863,8 +877,12 @@ pub fn create_pyrun_tool_definition(evaluate: PyrunEvaluate) -> ToolDefinition {
         name: "pyrun_eval".into(),
         label: "Pyrun Eval".into(),
         description: "Evaluate Python/Pyrun code through the canonical Pyrun JSONL runtime adapter.".into(),
-        prompt_snippet: Some(PYRUN_PROMPT_SNIPPET.into()),
-        prompt_guidelines: Some(PYRUN_PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect()),
+        prompt_snippet: Some(options.prompt_snippet.unwrap_or_else(|| PYRUN_PROMPT_SNIPPET.into())),
+        prompt_guidelines: Some(
+            options
+                .prompt_guidelines
+                .unwrap_or_else(|| PYRUN_PROMPT_GUIDELINES.iter().map(|line| (*line).into()).collect()),
+        ),
         approval_required: Some(true),
         approval_kind: None,
         parameters: pyrun_parameters(),
@@ -1037,7 +1055,7 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
             .await
         }) as BoxFuture<'static, Result<AgentToolResult, HandlerError>>
     });
-    pi.register_tool(create_pyrun_tool_definition(evaluate))?;
+    pi.register_tool(create_pyrun_tool_definition(evaluate, Default::default()))?;
     let slot_for_shutdown = Arc::clone(&slot);
     let handlers_for_shutdown = options.pi_request_handlers.clone();
     pi.on_session_shutdown(move |_event, _ctx| {
@@ -1046,7 +1064,9 @@ pub fn install_pyrun_extension(pi: &ExtensionApi, options: PyrunExtensionOptions
         Box::pin(async move {
             dispose_executor(&slot);
             for handler in handlers {
-                let _ = handler;
+                if let Some(dispose) = handler.dispose {
+                    dispose()?;
+                }
             }
             Ok(None)
         }) as BoxFuture<'static, Result<Option<()>, HandlerError>>
