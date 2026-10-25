@@ -70,7 +70,7 @@ Historical suites not linked in the current matrix are not promoted into accepta
 
 ## Known gaps (current cycle)
 
-- [ ] [Shared child envp ordering](../porting/traceability/child-process.md#open-shared-spawn-item): parent deferred replacement of std Command's sorted environment to final-gate/user decision; unchanged failing regression is explicitly ignored. Bash closure is permitted with this cross-reference, not a claim the shared item passes.
+- [x] [Child envp ordering](../porting/traceability/child-process.md#accepted-runtime-gap-child-envp-order) is an accepted runtime gap (user decision 2026-10-24): native std Command sorts envp; frozen uses JS own-key order. The active test asserts both real orders and unchanged names/values; original frozen evidence is retained. No replacement spawn backend or change to pre-spawn validation order.
 - [ ] Coding-agent package-global lint debt remains parent-owned; current scoped source is clean, not the whole package.
 
 ## Out of scope
