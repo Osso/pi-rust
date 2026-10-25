@@ -170,7 +170,15 @@ pub fn with_seekable_session_transcript<T>(
 }
 
 fn remove_spool_directory(directory: &JsString) -> Result<(), CallbackError> {
-    match fs::remove_dir_all(encode_node_utf8(directory)) {
+    let encoded = encode_node_utf8(directory);
+    let result = fs::symlink_metadata(&encoded).and_then(|metadata| {
+        if metadata.is_dir() {
+            fs::remove_dir_all(&encoded)
+        } else {
+            fs::remove_file(&encoded)
+        }
+    });
+    match result {
         Ok(()) => Ok(()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(error) => Err(CallbackError::from(NativeNodeError::from(

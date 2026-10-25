@@ -1,5 +1,5 @@
 import { createInterface } from "node:readline";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -15,9 +15,10 @@ function observeSpool(request: Request): unknown {
         const output = spool.withSeekableSessionTranscript(request.path, (plain: string) => {
             temporary = plain;
             if (request.kind === "path") return { path: plain };
-            if (request.kind === "remove") {
+            if (request.kind === "remove" || request.kind === "replace") {
                 const bytes = [...readFileSync(plain)];
                 rmSync(dirname(plain), { recursive: true, force: true });
+                if (request.kind === "replace") writeFileSync(dirname(plain), "replacement");
                 return { bytes };
             }
             if (request.kind === "cleanup") {

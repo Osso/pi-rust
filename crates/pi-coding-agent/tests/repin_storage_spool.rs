@@ -17,9 +17,14 @@ fn native_spool(path: &str, kind: &str) -> Value {
         temporary = Some(encode_node_utf8(plain));
         match kind {
             "path" => Ok(json!({"path":plain})),
-            "remove" => {
+            "remove" | "replace" => {
                 let bytes = std::fs::read(encode_node_utf8(plain)).unwrap();
-                std::fs::remove_dir_all(std::path::Path::new(&encode_node_utf8(plain)).parent().unwrap()).unwrap();
+                let encoded = encode_node_utf8(plain);
+                let directory = std::path::Path::new(&encoded).parent().unwrap();
+                std::fs::remove_dir_all(directory).unwrap();
+                if kind == "replace" {
+                    std::fs::write(directory, b"replacement").unwrap();
+                }
                 Ok(json!({"bytes":bytes}))
             }
             "cleanup" => {
@@ -44,6 +49,12 @@ fn native_spool(path: &str, kind: &str) -> Value {
         std::fs::remove_dir_all(directory).unwrap();
         let error = result.unwrap_err().thrown_value().as_error().unwrap().value();
         return json!({"ok":false,"error":error.to_serde().unwrap(),"directory":directory});
+    }
+    if kind == "replace" {
+        let directory = std::path::Path::new(temporary.as_ref().unwrap()).parent().unwrap();
+        if directory.exists() {
+            std::fs::remove_file(directory).unwrap();
+        }
     }
     let exists = temporary.is_some_and(|path| std::path::Path::new(&path).exists());
     match result {
@@ -79,8 +90,14 @@ fn plain_pass_through_and_already_removed_spools_match_frozen() {
     let archive = tmp.path().join("fixture.jsonl.zst");
     let bytes = zstd::stream::encode_all(&b"no leftover temporary files"[..], 0).unwrap();
     std::fs::write(&archive, &bytes).unwrap();
-    let expected = ts.request(&json!({"id":2,"path":archive,"kind":"remove"}));
-    assert_eq!(native_spool(archive.to_str().unwrap(), "remove"), expected["output"]);
+    for kind in ["remove", "replace"] {
+        let expected = ts.request(&json!({"id":2,"path":archive,"kind":kind}));
+        assert_eq!(
+            native_spool(archive.to_str().unwrap(), kind),
+            expected["output"],
+            "{kind}"
+        );
+    }
     assert_eq!(std::fs::read(archive).unwrap(), bytes);
 }
 
