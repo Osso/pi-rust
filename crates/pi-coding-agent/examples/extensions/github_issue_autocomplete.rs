@@ -13,7 +13,7 @@ struct Issue {
     title: String,
     state: String,
 }
-type Issues = Shared<BoxFuture<'static, Result<Option<Vec<Issue>>, String>>>;
+type Issues = Shared<BoxFuture<'static, Result<Option<Vec<Issue>>, pi_js_compat::callback_error::CallbackError>>>;
 struct Provider {
     current: Rc<dyn AutocompleteProvider>,
     issues: Issues,
@@ -59,7 +59,10 @@ pub fn github_issue_autocomplete_extension(pi: &ExtensionApi) -> Result<(), Hand
                 let preload = issues.clone();
                 tokio::spawn(async move {
                     // Same eager one-shot promise as the source; requests share its outcome.
-                    preload.await.expect("GitHub issue preload execution failed");
+                    // Frozen github-issue-autocomplete.ts:183 leaves the eager promise uncaught.
+                    preload
+                        .await
+                        .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
                 });
                 ui.add_autocomplete_provider(Arc::new(move |current| {
                     Rc::new(Provider {
@@ -97,7 +100,7 @@ async fn load_issues(
     cwd: JsString,
     repo: String,
     ui: Arc<dyn ExtensionUiContext>,
-) -> Result<Option<Vec<Issue>>, String> {
+) -> Result<Option<Vec<Issue>>, pi_js_compat::callback_error::CallbackError> {
     let args = [
         "issue",
         "list",
@@ -208,7 +211,7 @@ impl AutocompleteProvider for Provider {
                     .issues
                     .clone()
                     .await
-                    .expect("GitHub issue request execution failed");
+                    .unwrap_or_else(|error| pi_coding_agent::utils::uncaught::throw_callback_uncaught(error));
                 if !options.signal.aborted()
                     && let Some(issues) = issues
                 {

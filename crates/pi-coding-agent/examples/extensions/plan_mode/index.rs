@@ -258,11 +258,11 @@ fn toggle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<
         ctx.ui()?.notify(
             &JsString::from("Plan mode enabled. Built-in write tools disabled."),
             None,
-        )
+        )?;
     } else {
         normal(pi, &mut s)?;
         ctx.ui()?
-            .notify(&JsString::from("Plan mode disabled. Full access restored."), None)
+            .notify(&JsString::from("Plan mode disabled. Full access restored."), None)?;
     }
     update(&s, ctx)?;
     persist(pi, &s)

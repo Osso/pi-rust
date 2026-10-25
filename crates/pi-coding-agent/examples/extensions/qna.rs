@@ -165,7 +165,9 @@ pub fn qna_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                     )
                     .await?;
                 match result {
-                    Some(Value::Null) => ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info)),
+                    Some(Value::Null) => {
+                        ui.notify(&JsString::from("Cancelled"), Some(NotifyType::Info))?;
+                    }
                     Some(Value::String(text)) => {
                         ui.set_editor_text(&JsString::from(&text));
                         ui.notify(
