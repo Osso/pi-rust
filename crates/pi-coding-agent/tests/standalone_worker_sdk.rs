@@ -35,7 +35,7 @@ async fn standalone_sdk_defaults_to_memory_and_blocks_activation_detachment_and_
     );
     assert!(!result.session.get_active_tool_names().contains(&"channel_post".into()));
     assert!(!result.session.has_detachable_tool());
-    assert!(!result.session.detach_running_tool());
+    assert!(!result.session.detach_running_tool().expect("fixture detach callback"));
     let context = result.session.extension_runner().create_context();
     assert!(context.no_supervisor().unwrap());
     assert!(context.tool_detach_registry().unwrap().is_none());

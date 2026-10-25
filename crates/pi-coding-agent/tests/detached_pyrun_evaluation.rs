@@ -705,7 +705,7 @@ async fn detaches_to_a_handle_while_the_runner_keeps_running() {
     )
     .await;
 
-    assert!(registry.detach_running());
+    assert!(registry.detach_running().expect("fixture detach callback"));
     let result = evaluation.await.expect("join").expect("detached");
     let details = result.details.as_ref().expect("details");
     assert_eq!(details["type"], json!("detached"));
