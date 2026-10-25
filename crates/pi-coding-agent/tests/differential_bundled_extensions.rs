@@ -510,6 +510,13 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             .filter(|child| *child)
             .map(|_| JsString::from("child-agent"));
         let harness = Harness::new(vec![extension.clone()], runtime, options).await;
+        *harness.actions.active_tools.lock().unwrap() = case
+            .get("activeTools")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .map(|name| name.as_string().unwrap().to_utf8().unwrap())
+            .collect();
         harness.ui.select_result(
             case.get("selectResult")
                 .and_then(Value::as_string)
@@ -603,6 +610,8 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
             "editor": harness.ui.editor_texts.lock().unwrap().clone(),
             "entries": harness.actions.entries.lock().unwrap().iter().map(|(custom_type, data)| json!([custom_type, data])).collect::<Vec<_>>(),
             "selectCalls": select_calls,
+            "activeTools": harness.actions.active_tools.lock().unwrap().clone(),
+            "toolUpdates": harness.actions.tool_updates.lock().unwrap().clone(),
             "systemPrompt": system_prompt,
         }));
     }
@@ -612,6 +621,10 @@ async fn rust_effort_results(cases: &[Value]) -> Vec<Value> {
 #[tokio::test(start_paused = true)]
 async fn differential_effort_handlers() {
     let cases = vec![
+        json!({"name":"disable-tools","model":{},"activeTools":["read","spawn_agent","send_agent_message","spawn_agent","custom"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"before_agent_start","systemPrompt":"base\n\n<multi_agent_mode>old policy</multi_agent_mode>"}]}),
+        json!({"name":"restore-tools","model":{},"activeTools":["read","spawn_agent","wait_agent"],"ops":[{"kind":"command","command":"multi-agent","args":"disabled"},{"kind":"command","command":"multi-agent","args":"proactive"}]}),
+        json!({"name":"disabled-ultra","model":{},"thinkingLevel":"ultra","ops":[{"kind":"command","command":"multi-agent","args":"disabled"}]}),
+        json!({"name":"select-active","model":{},"selectResult":"active","ops":[{"kind":"command","command":"multi-agent","args":""}]}),
         json!({"name": "select-high", "model": {}, "selectResult": "high", "ops": [{"kind": "command", "command": "effort", "args": ""}]}),
         json!({"name": "set-high", "model": {}, "thinkingLevel": "off", "ops": [{"kind": "command", "command": "effort", "args": "high"}]}),
         json!({"name": "unsupported", "model": {"reasoning": false}, "ops": [{"kind": "command", "command": "effort", "args": "high"}]}),
