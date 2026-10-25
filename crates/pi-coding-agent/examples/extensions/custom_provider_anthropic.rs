@@ -23,12 +23,12 @@ const REDIRECT_URI: &str = "https://console.anthropic.com/oauth/code/callback";
 const PROVIDER: &str = "custom-anthropic";
 const API: &str = "custom-anthropic-api";
 
-pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), JsString> {
+pub fn custom_anthropic_extension(api: &ExtensionApi) -> Result<(), CallbackError> {
     custom_anthropic_extension_with_runtime(api, OAuthRuntime::system())
 }
 
 /// Existing OAuth runtime supplies transport, PKCE randomness and clock to embedders.
-pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), JsString> {
+pub fn custom_anthropic_extension_with_runtime(api: &ExtensionApi, runtime: OAuthRuntime) -> Result<(), CallbackError> {
     let login = runtime.clone();
     let refresh = runtime.clone();
     api.register_provider(

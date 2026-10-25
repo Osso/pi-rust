@@ -114,7 +114,7 @@ fn isolated_reentrant_registry_probe() {
                     },
                 )
                 .unwrap();
-            models
+            Ok(models)
         })),
     };
     registry
@@ -132,11 +132,11 @@ fn isolated_reentrant_registry_probe() {
             },
         )
         .unwrap();
-    registry.refresh();
+    registry.refresh().unwrap();
     let after_refresh = snapshot(&registry);
-    registry.unregister_provider(PROVIDER);
+    registry.unregister_provider(PROVIDER).unwrap();
     let after_unregister = snapshot(&registry);
-    registry.unregister_provider(NESTED);
+    registry.unregister_provider(NESTED).unwrap();
     let actual = js_json!({"observations":observations.lock().unwrap().clone(),"afterRefresh":after_refresh,"afterUnregister":after_unregister});
     assert_eq!(actual, expected);
 }
@@ -214,20 +214,18 @@ async fn isolated_request_auth_reentry_probe() {
                         };
                         let mut definition = updated_definition.clone();
                         definition.headers = Some(request_headers("Model", current_count, 0xd800));
-                        reader
-                            .register_provider(
-                                AUTH_PROVIDER,
-                                ProviderConfigInput {
-                                    api: Some("openai-completions".into()),
-                                    base_url: Some("https://provider.invalid".into()),
-                                    api_key: Some("updated-provider-key".into()),
-                                    auth_header: Some(true),
-                                    headers: Some(request_headers("Provider", current_count, 0xdc00)),
-                                    models: Some(vec![definition]),
-                                    ..Default::default()
-                                },
-                            )
-                            .map_err(|error| pi_ai::request::CallbackError::new(error.message().clone()))?;
+                        reader.register_provider(
+                            AUTH_PROVIDER,
+                            ProviderConfigInput {
+                                api: Some("openai-completions".into()),
+                                base_url: Some("https://provider.invalid".into()),
+                                api_key: Some("updated-provider-key".into()),
+                                auth_header: Some(true),
+                                headers: Some(request_headers("Provider", current_count, 0xdc00)),
+                                models: Some(vec![definition]),
+                                ..Default::default()
+                            },
+                        )?;
                         Ok(credential.access.clone())
                     }),
                     modify_models: None,
@@ -247,7 +245,7 @@ async fn isolated_request_auth_reentry_probe() {
     );
     let first = resolved_auth_value(registry.get_api_key_and_headers(&model).await.unwrap());
     let second = resolved_auth_value(registry.get_api_key_and_headers(&model).await.unwrap());
-    registry.unregister_provider(AUTH_PROVIDER);
+    registry.unregister_provider(AUTH_PROVIDER).unwrap();
     let actual = js_json!({"first":first,"second":second,"count":*count.lock().unwrap()});
     assert_eq!(actual, expected);
 }

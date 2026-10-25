@@ -52,7 +52,7 @@ fn legacy_modify_models_filters_present_ids_and_preserves_absent_id_catalog() {
             "credentials":js_json::to_value(&pi_ai::auth::Credential::OAuth(credentials.clone())).unwrap()}),
         );
         assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
-        let actual = provider.modify_models(models.clone(), &credentials);
+        let actual = provider.modify_models(models.clone(), &credentials).unwrap();
         assert_eq!(
             js_json::to_value(&actual).unwrap(),
             expected["output"],

@@ -109,10 +109,10 @@ async fn isolated_registry_constructor_matrix() {
             Ok(registry) => {
                 let before = registry_snapshot(&registry);
                 pi_js_compat::process_env::set("HOME", &request["nextHome"].as_string().unwrap().to_utf8().unwrap());
-                registry.refresh();
+                registry.refresh().unwrap();
                 js_json!({"created":true,"before":before,"after":registry_snapshot(&registry)})
             }
-            Err(error) => js_json!({"created":false,"error":error.into_native_error().value()}),
+            Err(error) => js_json!({"created":false,"error":error.thrown_value().value()}),
         };
         outputs.push(js_json!({"name":request["name"],"output":outcome}));
     }

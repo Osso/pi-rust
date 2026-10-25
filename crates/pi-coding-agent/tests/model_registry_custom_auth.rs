@@ -34,7 +34,7 @@ async fn custom_provider_key_propagates_only_after_frozen_registration_validatio
                 },
             )
             .err()
-            .map(|error| error.message().to_utf8().unwrap());
+            .map(|error| error.error_or_string_message().unwrap().to_utf8().unwrap());
         let actual = match registry.get_api_key_and_headers(&model).await.unwrap() {
             ResolvedRequestAuth::Ok { api_key, headers, env } => {
                 assert!(headers.is_none());

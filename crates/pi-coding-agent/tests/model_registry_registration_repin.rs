@@ -85,7 +85,7 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
                 },
             )
             .err()
-            .map(|error| error.message().clone());
+            .map(|error| error.error_or_string_message().unwrap());
         if update.is_some() && error.is_none() {
             error = registry
                 .register_provider(
@@ -97,7 +97,7 @@ async fn registered_model_inputs_preserve_frozen_optional_fields_and_reconstruct
                     },
                 )
                 .err()
-                .map(|error| error.message().clone());
+                .map(|error| error.error_or_string_message().unwrap());
         }
         let models = registry
             .get_all()
