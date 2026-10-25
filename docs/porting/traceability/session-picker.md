@@ -1,7 +1,6 @@
 # session-picker traceability
 
-Source: `packages/coding-agent/src/cli/session-picker.ts` at authorized `c248b0067`
-(now included in [common source lock](../source-lock.json); 2026-10-20 approval to re-validate against 4f9e6f8a4).
+Frozen source: `packages/coding-agent/src/cli/session-picker.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (all 90 lines audited).
 Rust: `crates/pi-coding-agent/src/cli/session_picker.rs`.
 
 | Symbol / branch | Rust | Proof |
@@ -21,3 +20,9 @@ Loader futures remain local to the TUI `LocalSet`; no additional dependency.
 ## Q18 native UTF-16 integration (2026-10-22)
 
 SessionLoader errors, selected path, control-db path and validation callbacks retain JsString. `lossless_interactive_selectors::picker_selection_and_validation_retain_unpaired_path_units` is authored, unexecuted. No primary diagnostics at interactive6.
+
+## Common-pin resident filtering
+
+`loadSessions` excludes resident ids and resident-directory paths before archive filtering/sorting. Added missing shared `is_resident_session` predicate at the same position. RED `/tmp/settings-models-picker-red.log` shows supervisor id/path entries leaked into the current list. `suite_session_1::session_picker::hides_resident_sessions_from_current_and_archived_lists` covers both ids, both resident directories and both archive modes.
+
+Source `loadSessions` is private; no source rewriting or test-only export is introduced. Native concrete loader/progress/order/error tests cover it. `selectSession` startup TUI/keybindings, single-resolution selection, validation-error retry, cancel/exit, render/focus and stop branches map to the existing native/PTY picker fixtures; the frozen interactive no-whole-mode-differential approval applies. Module-load/microtask ordering oddities remain outside the parity bar.
