@@ -6838,6 +6838,7 @@ impl InteractiveMode {
             crate::utils::tools_manager::ensure_tool(crate::utils::tools_manager::Tool::Rg, false),
         );
         *self.fd_path.borrow_mut() = fd_path;
+        self.print_model_scope()?;
         self.render_widgets();
         self.mount_interactive_tui();
         let editor_ref = Rc::clone(&self.editor_handle.borrow());
@@ -6848,19 +6849,50 @@ impl InteractiveMode {
         self.is_initialized.set(true);
         self.subscribe_to_multi_agent_store();
         self.update_terminal_current_directory();
-        self.update_terminal_title();
         self.theme_controller.borrow_mut().apply_from_settings();
         self.render_widgets();
         self.build_header();
-        self.show_loaded_resources(false, true)
-            .unwrap_or_else(|error| crate::utils::uncaught::throw_native_uncaught(error));
-        self.show_startup_notices_if_needed();
-        self.bind_extensions().await?;
+        self.rebind_current_session(false).await?;
         self.render_initial_messages();
         self.subscribe_to_agent();
         self.update_ui_shared();
         self.ui.request_render();
         Ok(())
+    }
+
+    fn print_model_scope(&self) -> Result<(), CallbackError> {
+        use crate::modes::interactive::components::keybinding_hints::{KeyTextFormatOptions, format_key_text};
+        use std::io::Write;
+
+        let models = self.session().scoped_models();
+        let quiet = self.settings(|settings| settings.get_quiet_startup());
+        if models.is_empty() || (quiet && !self.options.verbose) {
+            return Ok(());
+        }
+        let names = models.iter().map(|entry| match entry.thinking_level {
+            Some(level) => js_format!("{}:{}", entry.model.id, level.as_str()),
+            None => entry.model.id.as_str().into(),
+        });
+        let keys = self.keybindings.get_keys("app.model.cycleForward");
+        let hint = if keys.is_empty() {
+            JsString::default()
+        } else {
+            let keys = format_key_text(JsString::join(keys, "/"), KeyTextFormatOptions { capitalize: true });
+            with_theme(|theme| theme.fg(ThemeColor::Muted, &js_format!(" ({} to cycle)", keys)))
+        };
+        let line = with_theme(|theme| {
+            theme.fg(
+                ThemeColor::Dim,
+                &js_format!("Model scope: {}{}", JsString::join(names, ", "), hint),
+            )
+        });
+        std::io::stdout()
+            .write_all(encode_node_utf8(&js_format!("{}\n", line)).as_bytes())
+            .map_err(|error| {
+                CallbackError::from(pi_js_compat::node_error::NativeNodeError::from(
+                    pi_js_compat::node_fs::node_file_write_error_record(&error),
+                ))
+            })
     }
 
     fn update_ui_shared(&self) {
@@ -7114,8 +7146,19 @@ impl InteractiveMode {
             })
             .await
             .map_err(CallbackError::from)?;
+        let registered = session
+            .resource_loader()
+            .get_themes()
+            .themes
+            .into_iter()
+            .map(Arc::new)
+            .collect();
+        crate::modes::interactive::theme::set_registered_themes(registered)
+            .map_err(|error| CallbackError::from_error(error.message(), error))?;
         self.setup_autocomplete_provider();
         self.setup_extension_shortcuts();
+        self.show_loaded_resources(false, true)?;
+        self.show_startup_notices_if_needed();
         self.footer.borrow_mut().invalidate();
         self.ui.request_render();
         Ok(())
@@ -12458,6 +12501,7 @@ mod ui_tests {
         rows: usize,
         columns: usize,
         writes: Vec<JsString>,
+        titles: Vec<JsString>,
         events: Vec<TerminalEvent>,
         progress: Vec<bool>,
         start_error: Option<TerminalRawModeError>,
@@ -12509,7 +12553,9 @@ mod ui_tests {
         fn clear_line(&mut self) {}
         fn clear_from_cursor(&mut self) {}
         fn clear_screen(&mut self) {}
-        fn set_title(&mut self, _title: &JsString) {}
+        fn set_title(&mut self, title: &JsString) {
+            self.titles.push(title.clone());
+        }
         fn set_progress(&mut self, active: bool) {
             self.progress.push(active);
         }
@@ -12875,6 +12921,10 @@ mod ui_tests {
 
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_startup.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_session_options.rs"
     ));
     include!(concat!(
@@ -13169,6 +13219,7 @@ mod ui_tests {
         multi_agent_store: Option<Arc<MultiAgentStore>>,
         steer_multi_agent: Option<SteerMultiAgent>,
         model_registry: Option<ModelRegistry>,
+        cwd: Option<String>,
     }
 
     async fn build_mode_with_extra_providers(
@@ -13187,7 +13238,7 @@ mod ui_tests {
     ) {
         init_dark_theme();
         let temp = tempfile::tempdir().expect("temp dir");
-        let cwd = temp.path().display().to_string();
+        let cwd = setup.cwd.clone().unwrap_or_else(|| temp.path().display().to_string());
         let faux = Arc::new(faux_provider(RegisterFauxProviderOptions {
             provider: Some("faux".to_owned()),
             api: Some("faux".to_owned()),
@@ -13341,6 +13392,7 @@ mod ui_tests {
             rows: 24,
             columns: 80,
             writes: Vec::new(),
+            titles: Vec::new(),
             events: Vec::new(),
             progress: Vec::new(),
             start_error: None,
