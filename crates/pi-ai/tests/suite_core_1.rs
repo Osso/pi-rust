@@ -16,6 +16,8 @@ pub mod auth_resolve_contract;
 pub mod bedrock_converse_stream;
 #[path = "cloudflare.rs"]
 pub mod cloudflare;
+#[path = "credential_store.rs"]
+pub mod credential_store;
 #[path = "device_code.rs"]
 pub mod device_code;
 #[path = "diagnostics.rs"]
