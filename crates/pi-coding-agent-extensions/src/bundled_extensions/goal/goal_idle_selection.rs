@@ -32,23 +32,18 @@ where
         return Ok(None);
     };
     let has_pending_messages = options.has_pending_messages;
+    if has_pending_messages() {
+        (options.clear_retry)();
+        return Ok(None);
+    }
     if did_last_assistant_abort(options.event) {
         (options.clear_retry)();
-        let message = if has_pending_messages() {
-            "Goal continuation deferred: pending input will run next."
-        } else {
-            "Goal continuation skipped: the model turn was aborted."
-        };
-        (options.report_skipped)(message);
+        (options.report_skipped)("Goal continuation skipped: the model turn was aborted.");
         return Ok(None);
     }
     if find_last_assistant_message(options.event).is_some_and(|message| message.stop_reason == StopReason::Error) {
         (options.clear_retry)();
-        if has_pending_messages() {
-            (options.report_skipped)("Goal continuation deferred: pending input will run next.");
-        } else {
-            (options.schedule_error_status)("Goal continuation skipped: the model turn ended with an error.")?;
-        }
+        (options.schedule_error_status)("Goal continuation skipped: the model turn ended with an error.")?;
         return Ok(None);
     }
     if did_last_assistant_return_empty(options.event) {
