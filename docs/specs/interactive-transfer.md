@@ -5,7 +5,7 @@ Port frozen `interactive-mode.ts` export/share/copy handlers. [Source and proof]
 ## What it must do
 
 - [x] `/export` uses the shared UTF-16 path parser. A literal lowercase `.jsonl` suffix selects JSONL; all other paths select HTML. Success shows `Session exported to: <path>`. Failure shows `Failed to export session: <Error.message>`, or `Unknown error` for a non-Error rejection.
-- [x] `/share` preserves the frozen authentication, temporary HTML export, cancellable loader, child process and gist-result behavior, including exact messages and cleanup. Escape invokes cancellation after loader borrows are released, sends SIGTERM, restores editor focus and removes the temporary file.
+- [x] `/share` preserves the frozen authentication, temporary HTML export, cancellable loader, child process and gist-result behavior, including exact messages and cleanup. Escape invokes the cancellation callback after loader borrows are released, sends SIGTERM, restores editor focus and removes the temporary file.
 - [x] `/copy` preserves the frozen last-assistant-text guard and exact success/error messages. Clipboard work stays delegated to the existing clipboard module.
 
 ## Tests asserting this spec

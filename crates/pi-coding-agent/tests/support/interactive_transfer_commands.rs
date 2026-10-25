@@ -1,6 +1,6 @@
 #[test]
 fn export_commands_match_frozen_frames_and_private_effects() {
-    assert_transfer_cases(&["export-jsonl", "export-html"]);
+    assert_transfer_cases(&["export-jsonl", "export-html", "export-memory"]);
 }
 
 #[test]
@@ -98,7 +98,7 @@ async fn transfer_command_child() {
         let (mode, terminal, faux, _temp) = build_mode_with_extra_providers(
             StaticResourceLoader::new(), None,
             SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
-            Vec::new(), serde_json::Map::new(), true, TestModeSetup { cwd: Some(cwd.clone()), ..Default::default() },
+            Vec::new(), serde_json::Map::new(), case != "export-memory", TestModeSetup { cwd: Some(cwd.clone()), ..Default::default() },
         ).await;
         {
             let session = mode.session();
@@ -155,7 +155,7 @@ async fn transfer_command_child() {
         }
         let artifact = (case == "export-jsonl").then(|| std::fs::read_to_string(&export_path).unwrap());
         let clock = artifact.as_ref().and_then(|text| text.lines().next()).and_then(|line| serde_json::from_str::<serde_json::Value>(line).ok()).and_then(|header| header["timestamp"].as_str().map(str::to_owned));
-        let html = case.starts_with("export") && std::fs::read_to_string(&export_path).unwrap().trim_start().to_ascii_lowercase().starts_with("<!doctype html>");
+        let html = matches!(case.as_str(), "export-jsonl" | "export-html") && std::fs::read_to_string(&export_path).unwrap().trim_start().to_ascii_lowercase().starts_with("<!doctype html>");
         let output = serde_json::json!({
             "chat": mode.chat_container.borrow_mut().render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>(),
             "loaderFrame": *loader_frame.borrow(),
@@ -163,7 +163,7 @@ async fn transfer_command_child() {
             "temporaryExists": tmp.join("session.html").exists(), "terminated": root.join("terminated").exists(),
             "clipboard": std::fs::read(root.join("clipboard")).unwrap_or_default(), "artifact": artifact, "html": html,
         });
-        let request = serde_json::json!({"cwd":cwd,"case":case,"sessionPath":mode.session().session_file().unwrap(),"model":faux.get_model(None).unwrap(),"exportPath":export_path,"clock":clock,"colors":crate::modes::interactive::theme::REQUIRED_COLORS});
+        let request = serde_json::json!({"cwd":cwd,"case":case,"sessionPath":mode.session().session_file(),"model":faux.get_model(None).unwrap(),"exportPath":export_path,"clock":clock,"colors":crate::modes::interactive::theme::REQUIRED_COLORS});
         println!("TRANSFER_RESULT {}", serde_json::json!({"request":request,"output":output}));
         mode.stop().unwrap();
     }).await;

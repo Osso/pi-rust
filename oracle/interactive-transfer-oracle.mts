@@ -40,7 +40,7 @@ class CaptureTerminal implements Terminal {
 interface Request {
 	cwd: string;
 	case: string;
-	sessionPath: string;
+	sessionPath: string | null;
 	model: unknown;
 	exportPath: string;
 	clock?: string | null;
@@ -67,7 +67,10 @@ async function capture(request: Request) {
 		loadThemeFromPath(join(request.cwd, "transfer-theme.json"), "256color"),
 	]);
 	initTheme("transfer-fixture", false);
-	const manager = SessionManager.open(request.sessionPath);
+	const manager =
+		request.case === "export-memory"
+			? SessionManager.inMemory(request.cwd)
+			: SessionManager.open(request.sessionPath);
 	const session = Object.create(AgentSession.prototype);
 	session.sessionManager = manager;
 	session.settingsManager = SettingsManager.inMemory({});
@@ -145,7 +148,7 @@ async function capture(request: Request) {
 				? readFileSync(request.exportPath, "utf8")
 				: null;
 		const html =
-			request.case.startsWith("export") &&
+			["export-jsonl", "export-html"].includes(request.case) &&
 			readFileSync(request.exportPath, "utf8")
 				.trimStart()
 				.toLowerCase()
