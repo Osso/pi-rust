@@ -702,6 +702,57 @@ fn frozen_child_response_matrix_preserves_identity_errors_and_utf16() {
     }
 }
 
+#[test]
+fn detached_memory_selection_and_cleanup_failures_match_frozen() {
+    use pi_coding_agent::bundled_extensions::agents_core::control_runtime::{
+        read_detached_runtime_agent_ids, request_direct_detached_runtime_cancellations,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::shared::empty_agent;
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let mut active = json!(empty_agent("detached"));
+    active["agentType"] = json!("background");
+    active["parentId"] = json!("parent");
+    active["lifecycle"] = json!("running");
+    active["detached"] = json!(true);
+    active["worker"] = json!({"adapter":"runtime","handleId":"job"});
+    active["result"] = json!({"fileRefs":[{"path":"output","label":"Pyrun output"}]});
+    let mut terminal = active.clone();
+    terminal["lifecycle"] = json!("completed");
+    let mut other_parent = active.clone();
+    other_parent["parentId"] = json!("other");
+    let mut other_worker = active.clone();
+    other_worker["worker"] = json!({"adapter":"terminal","handleId":"job"});
+    for agents in [
+        vec![],
+        vec![active],
+        vec![terminal],
+        vec![other_parent],
+        vec![other_worker],
+    ] {
+        let source = ts.request(
+            &json!({"id":4,"op":"detachedMemory","agents":agents,"ids":["detached","unknown"],"parent":"parent"}),
+        );
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
+        for value in &agents {
+            store
+                .publish_lifecycle_coordinator_snapshot(&pi_js_compat::js_json::from_value(value).unwrap())
+                .unwrap();
+        }
+        let ids = read_detached_runtime_agent_ids(&store, &["detached".into(), "unknown".into()]).unwrap();
+        let direct_error = request_direct_detached_runtime_cancellations(&store, &"parent".into(), &"cleanup".into())
+            .err()
+            .map(|error| error.message);
+        assert_eq!(
+            source["output"],
+            json!({"ids":ids.into_iter().collect::<Vec<_>>(),"directError":direct_error})
+        );
+    }
+}
+
 #[tokio::test]
 async fn frozen_settlement_abort_and_detached_predicate_match() {
     use pi_coding_agent::bundled_extensions::agents_core::control_runtime::is_detached_runtime_agent;
@@ -926,9 +977,33 @@ async fn descendant_settlement_reconciles_persisted_newer_revision_without_local
     let mut child = empty_agent("child");
     child.parent_id = Some("parent".into());
     child.lifecycle = AgentLifecycle::Running;
-    child.revision = 1;
+    child.revision = 3;
     store.publish_lifecycle_coordinator_snapshot(&child).unwrap();
-    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    let mut stale = child.clone();
+    stale.revision = 2;
+    stale.lifecycle = AgentLifecycle::Completed;
+    bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(stale)).unwrap();
+    let mut grandchild = child.clone();
+    grandchild.id = "grandchild".into();
+    grandchild.parent_id = Some(child.id.clone());
+    grandchild.revision = 1;
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &grandchild.id,
+        &json!(grandchild),
+    )
+    .unwrap();
+    let mut unrelated = child.clone();
+    unrelated.id = "unrelated".into();
+    unrelated.parent_id = None;
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &unrelated.id,
+        &json!(unrelated),
+    )
+    .unwrap();
     let parent_id = JsString::from("parent");
     let waiting = wait_for_active_descendants(&store, &parent_id, None);
     tokio::pin!(waiting);
@@ -937,15 +1012,38 @@ async fn descendant_settlement_reconciles_persisted_newer_revision_without_local
             .await
             .is_err()
     );
+    assert_eq!(
+        store.get_agent(&child.id).unwrap().revision,
+        3,
+        "stale persisted state must not replace newer local state"
+    );
+    assert!(
+        store.get_agent(&grandchild.id).is_some(),
+        "missing persisted descendants must be published"
+    );
+    assert!(store.get_agent(&unrelated.id).is_none());
     child.lifecycle = AgentLifecycle::Completed;
-    child.revision = 2;
+    child.revision = 4;
+    grandchild.lifecycle = AgentLifecycle::Completed;
+    grandchild.revision = 2;
     bootstrap_multi_agent_agent(&test.control_db_path, &test.session_path, &child.id, &json!(child)).unwrap();
+    bootstrap_multi_agent_agent(
+        &test.control_db_path,
+        &test.session_path,
+        &grandchild.id,
+        &json!(grandchild),
+    )
+    .unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(2), waiting)
         .await
         .expect("250ms persisted poll")
         .unwrap();
-    assert_eq!(store.get_agent(&child.id).unwrap().revision, 2);
+    assert_eq!(store.get_agent(&child.id).unwrap().revision, 4);
     assert_eq!(store.get_agent(&child.id).unwrap().lifecycle, AgentLifecycle::Completed);
+    assert_eq!(
+        store.get_agent(&grandchild.id).unwrap().lifecycle,
+        AgentLifecycle::Completed
+    );
 }
 
 #[tokio::test]

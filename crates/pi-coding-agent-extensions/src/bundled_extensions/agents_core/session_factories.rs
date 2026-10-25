@@ -107,6 +107,7 @@ pub enum ChildExtensionFactories {
 /// The parts of `AgentSession` the production factory drives.
 pub trait UnboundChildAgentSession: ChildAgentSession {
     fn bind_extensions(&self) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>;
+    fn emit_session_shutdown(&self) -> BoxFuture<'static, Result<(), JsString>>;
     fn session_manager(&self) -> SharedSessionManager;
 }
 
@@ -135,8 +136,12 @@ impl ChildAgentSession for AgentSessionChildSession {
         });
     }
 
-    fn dispose(&self) {
-        self.session.dispose();
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let session = self.session.clone();
+        Box::pin(async move {
+            session.dispose();
+            Ok(())
+        })
     }
 
     fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
@@ -247,6 +252,20 @@ impl ViewedSessionMutationTarget for AgentSessionMutationTarget {
 }
 
 impl UnboundChildAgentSession for AgentSessionChildSession {
+    fn emit_session_shutdown(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let runner = self.session.extension_runner();
+        Box::pin(async move {
+            runner
+                .emit(&mut crate::core::extensions::types::ExtensionEvent::SessionShutdown(
+                    crate::core::extensions::types::SessionShutdownEvent {
+                        reason: crate::core::extensions::types::SessionShutdownReason::Quit,
+                        target_session_file: None,
+                    },
+                ))
+                .await;
+            Ok(())
+        })
+    }
     fn bind_extensions(&self) -> BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>> {
         let session = self.session.clone();
         Box::pin(async move {
@@ -650,8 +669,13 @@ impl ChildAgentSession for TranscriptChildSession {
         self.inner.abort();
     }
 
-    fn dispose(&self) {
-        self.inner.dispose();
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let session = Arc::clone(&self.inner);
+        Box::pin(async move {
+            let shutdown = session.emit_session_shutdown().await;
+            session.dispose().await?;
+            shutdown
+        })
     }
 
     fn drain_runtime_coordination(&self) -> Option<BoxFuture<'static, Result<(), pi_js_compat::js_json::JsString>>> {
@@ -689,6 +713,9 @@ impl ChildAgentSession for TranscriptChildSession {
 
     fn transcript(&self) -> Option<AgentTranscriptMetadata> {
         Some(self.transcript.clone())
+    }
+    fn session_mutation_target(&self) -> Option<Arc<dyn ViewedSessionMutationTarget>> {
+        self.inner.session_mutation_target()
     }
 }
 

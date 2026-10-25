@@ -13,10 +13,15 @@ type SettlementStore = {
 type SettlementModule = {
 	waitForActiveDescendants(store: SettlementStore, id: string, signal: AbortSignal): Promise<void>;
 };
+type ChildSessionModule = { bindProductionChildSession(session: unknown): { dispose(): Promise<void> } };
 type ChildResponseModule = {
 	readCurrentChildAssistantText(messages: unknown[], previous: ReadonlySet<unknown>): string | undefined;
 };
-type DetachedModule = { isDetachedRuntimeAgent(agent: unknown): boolean };
+type DetachedModule = {
+    isDetachedRuntimeAgent(agent: unknown): boolean;
+    readDetachedRuntimeAgentIds(store: unknown, ids: string[]): Set<string>;
+    requestDirectDetachedRuntimeCancellations(store: unknown, parentId: string, reason: string): void;
+};
 
 async function load<T>(name: string): Promise<T> {
 	const source = process.argv[2];
@@ -52,12 +57,42 @@ async function runSettlementAbort(cancelling: boolean): Promise<unknown> {
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
 		case "settlementAbort": return runSettlementAbort(request.cancelling === true);
+        case "childSessionDisposal": {
+            const {bindProductionChildSession} = await load<ChildSessionModule>("child-session.ts");
+            const events: string[] = [];
+            const session = {
+                sessionManager: {getBranch: () => []},
+                extensionRunner: {emit: async () => {
+                    events.push("shutdown");
+                    if (typeof request.shutdownError === "string") throw new Error(request.shutdownError);
+                }},
+                dispose: async () => {
+                    events.push("dispose");
+                    if (typeof request.disposeError === "string") throw new Error(request.disposeError);
+                },
+                setModel: async () => {}, setThinkingLevel: () => {}, cycleModel: async () => {},
+                prompt: async () => {},
+            };
+            let failure: string | null = null;
+            try { await bindProductionChildSession(session).dispose(); }
+            catch (error) { failure = error instanceof Error ? error.message : String(error); }
+            return {events, error: failure};
+        }
 		case "childResponse": {
 			const { readCurrentChildAssistantText } = await load<ChildResponseModule>("child-response.ts");
 			const messages = request.messages as unknown[];
 			const previous = new Set(messages.slice(0, Number(request.previousCount ?? 0)));
 			return readCurrentChildAssistantText(messages, previous) ?? null;
 		}
+        case "detachedMemory": {
+            const api = await load<DetachedModule>("detached-runtime-cancellation.ts");
+            const store = { getPersistenceTarget: () => undefined, listAgents: () => request.agents };
+            const ids = [...api.readDetachedRuntimeAgentIds(store, request.ids as string[])];
+            let directError: string | null = null;
+            try { api.requestDirectDetachedRuntimeCancellations(store, String(request.parent), "cleanup"); }
+            catch (error) { directError = error instanceof Error ? error.message : String(error); }
+            return { ids, directError };
+        }
 		case "isDetached": {
 			const { isDetachedRuntimeAgent } = await load<DetachedModule>("detached-runtime-cancellation.ts");
 			return isDetachedRuntimeAgent(request.agent);

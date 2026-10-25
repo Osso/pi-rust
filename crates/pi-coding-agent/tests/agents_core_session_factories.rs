@@ -1,6 +1,8 @@
 //! Behavioral tests for `extensions/agents-core/src/session-factories.ts`
 //! production child and attached session factories.
 
+#[path = "support/oracle.rs"]
+mod oracle;
 use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
@@ -223,6 +225,9 @@ fn child_agent(env: &TestEnv, id: &str, display_name: &str) -> AgentSnapshot {
 struct FakeChildSession {
     session_manager: SharedSessionManager,
     summary: String,
+    events: Arc<Mutex<Vec<&'static str>>>,
+    shutdown_error: Option<JsString>,
+    dispose_error: Option<JsString>,
 }
 
 impl FakeChildSession {
@@ -230,11 +235,22 @@ impl FakeChildSession {
         Self {
             session_manager,
             summary: summary.to_owned(),
+            events: Default::default(),
+            shutdown_error: None,
+            dispose_error: None,
         }
     }
 }
 
 impl ChildAgentSession for FakeChildSession {
+    fn dispose(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let events = Arc::clone(&self.events);
+        let error = self.dispose_error.clone();
+        Box::pin(async move {
+            events.lock().unwrap().push("dispose");
+            error.map_or(Ok(()), Err)
+        })
+    }
     fn messages(&self) -> Vec<Arc<AgentMessage>> {
         lock_session_manager(&self.session_manager)
             .build_session_context()
@@ -260,6 +276,14 @@ impl ChildAgentSession for FakeChildSession {
 }
 
 impl UnboundChildAgentSession for FakeChildSession {
+    fn emit_session_shutdown(&self) -> BoxFuture<'static, Result<(), JsString>> {
+        let events = Arc::clone(&self.events);
+        let error = self.shutdown_error.clone();
+        Box::pin(async move {
+            events.lock().unwrap().push("shutdown");
+            error.map_or(Ok(()), Err)
+        })
+    }
     fn bind_extensions(&self) -> BoxFuture<'static, Result<(), JsString>> {
         Box::pin(async { Ok(()) })
     }
@@ -274,6 +298,9 @@ struct Captured {
     options: Mutex<Option<CreateAgentSessionOptions>>,
     manager: Mutex<Option<SharedSessionManager>>,
     calls: Mutex<usize>,
+    events: Arc<Mutex<Vec<&'static str>>>,
+    shutdown_error: Mutex<Option<JsString>>,
+    dispose_error: Mutex<Option<JsString>>,
 }
 
 type TestCreateSession = Arc<
@@ -288,9 +315,16 @@ fn create_child_session(captured: Arc<Captured>, summary: &'static str) -> TestC
         let manager = Arc::new(Mutex::new(options.session_manager.clone().expect("session manager")));
         *captured.manager.lock().expect("manager") = Some(Arc::clone(&manager));
         *captured.options.lock().expect("options") = Some(options);
-        Box::pin(
-            async move { Ok(Arc::new(FakeChildSession::new(manager, summary)) as Arc<dyn UnboundChildAgentSession>) },
-        )
+        let events = Arc::clone(&captured.events);
+        let shutdown_error = captured.shutdown_error.lock().unwrap().clone();
+        let dispose_error = captured.dispose_error.lock().unwrap().clone();
+        Box::pin(async move {
+            let mut session = FakeChildSession::new(manager, summary);
+            session.events = events;
+            session.shutdown_error = shutdown_error;
+            session.dispose_error = dispose_error;
+            Ok(Arc::new(session) as Arc<dyn UnboundChildAgentSession>)
+        })
     })
 }
 
@@ -334,6 +368,93 @@ fn captured_session_manager(captured: &Captured) -> SharedSessionManager {
         .expect("manager")
         .clone()
         .expect("session manager")
+}
+
+#[tokio::test]
+async fn production_bound_child_exposes_the_live_model_and_effort_surface() {
+    let env = test_env().await;
+    let mut options = child_options(&env, Arc::new(Captured::default()), None, None);
+    options.create_session = Arc::new(|mut options| {
+        options.resource_loader = Some(StaticResourceLoader::new());
+        Box::pin(async move {
+            let faux = faux();
+            let registry = faux_runtime(&faux).await;
+            registry.refresh().unwrap();
+            options.model_registry = Some(registry);
+            let created = create_agent_session(options).await.map_err(|error| error.message)?;
+            Ok(Arc::new(
+                pi_coding_agent::bundled_extensions::agents_core::session_factories::AgentSessionChildSession::new(
+                    created.session,
+                ),
+            ) as Arc<dyn UnboundChildAgentSession>)
+        })
+    });
+    let factory = create_production_child_agent_session_factory(options);
+    let child = factory
+        .call(child_input(
+            &env,
+            child_agent(&env, "child", "worker"),
+            SpawnContext::Fresh,
+            "task",
+        ))
+        .await
+        .unwrap();
+    let target = child
+        .session_mutation_target()
+        .expect("bound child must retain the live mutation surface");
+    assert_eq!(target.model().unwrap().id, "faux-1");
+    target
+        .set_thinking_level(pi_agent_core::harness::ThinkingLevel::High)
+        .unwrap();
+    assert_eq!(target.thinking_level(), pi_agent_core::harness::ThinkingLevel::High);
+    assert!(target.model_registry().find("faux", "faux-1").is_some());
+    assert!(
+        target
+            .cycle_model(pi_coding_agent::core::agent_session::CycleDirection::Forward)
+            .await
+            .unwrap()
+            .is_none()
+    );
+    child.dispose().await.unwrap();
+}
+
+#[tokio::test]
+async fn bound_child_dispose_emits_shutdown_before_releasing_the_session() {
+    let mut ts = oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    for (shutdown_error, dispose_error) in [
+        (None, None),
+        (Some("shutdown failed"), None),
+        (None, Some("dispose failed")),
+        (Some("shutdown failed"), Some("dispose failed")),
+    ] {
+        let source = ts.request(
+            &json!({"id":5,"op":"childSessionDisposal","shutdownError":shutdown_error,"disposeError":dispose_error}),
+        );
+        assert_eq!(source["ok"], json!(true), "{source:?}");
+        let env = test_env().await;
+        let captured = Arc::new(Captured::default());
+        *captured.shutdown_error.lock().unwrap() = shutdown_error.map(JsString::from);
+        *captured.dispose_error.lock().unwrap() = dispose_error.map(JsString::from);
+        let factory =
+            create_production_child_agent_session_factory(child_options(&env, Arc::clone(&captured), None, None));
+        let child = factory
+            .call(child_input(
+                &env,
+                child_agent(&env, "child", "worker"),
+                SpawnContext::Fresh,
+                "task",
+            ))
+            .await
+            .unwrap();
+        let error = child.dispose().await.err();
+        assert_eq!(
+            source["output"],
+            json!({"events":*captured.events.lock().unwrap(),"error":error})
+        );
+    }
 }
 
 #[tokio::test]
