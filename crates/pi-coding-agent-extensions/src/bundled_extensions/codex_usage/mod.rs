@@ -611,7 +611,7 @@ async fn reset_codex_usage_and_send_result(
             None,
         )
         .await
-        .map_err(HandlerError::new)?;
+        .map_err(HandlerError::from)?;
     if !reset_confirmed {
         return Ok(());
     }
