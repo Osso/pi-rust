@@ -16,7 +16,7 @@ Integrated model-lane clippy follow-up: native `MailboxMessageCommandResult::Ok.
 
 Partial integration only; [integration status and open boundaries](../../specs/control-store-repin.md#integration-status--2026-10-21) are authoritative.
 
-Current group blocker: [canonical JSON UTF16 counterexample](session-control-db.md#blocking-canonical-json-counterexample--current-group-is-not-accepted). Lossless receipts do not make serde-backed canonical payloads or typed runtime body egress lossless. No whole-module acceptance/coverage advancement is claimed.
+The former [canonical JSON UTF16 counterexample](session-control-db.md#canonical-json-counterexample--bounded-regression-now-green) now passes against the actual frozen producer/reader at `65e23c966`; the old public-body RED is no longer a current blocker. This bounded result does not establish all store restoration/serialization or all payload egress. No whole-module acceptance/coverage advancement is claimed.
 
 Terminal summary/error JS trimming now has actual-source RED→GREEN proof in `repin_control_whitespace`, sharing the JS whitespace helper rather than native Unicode trim.
 
