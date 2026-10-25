@@ -6,6 +6,10 @@ Ported to `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_
 
 The two baseline stalls (`hidden_coordination_queue_keeps_user_input_and_delivery_intact`, `reload_while_streaming_matches_frozen_warning`) pass alone. Their fixture dispatched through the process-global `faux` API, which another fixture registration or registry refresh replaces. The blocked test then waits for a factory that was never called. `fixture_streams_keep_their_responses_across_other_registry_refreshes` reproduces this deterministically: first session receives the second session's answer. The fixture now captures its own provider in the existing Agent stream injection seam, as the session tests already do; production registry behavior is unchanged. The regression uses real complete `end_turn` responses (frozen agent-loop.ts continues otherwise), not a timeout, global lock or weakened assertion. RED/GREEN logs: `/tmp/repin-interactive-2-proof/fixture-completed-{red,green}.log`. Full parallel targeted regression evidence is pending the startup-assertion corrections below.
 
+## Authentication snapshot Number domain (2026-10-25)
+
+Both baseline completion failures reproduce alone: native provider counts serialize as serde `Number(1.0/2.0)`, the frozen oracle JSON parses as serde `Number(1/2)`, and serde equality distinguishes those despite identical JavaScript Number values. The snapshot now compares the same complete model/count/UTF-16 chat/error object through existing `JsValue` on both sides. No fields, ANSI, padding, values or failure assertions are removed. Production behavior is unchanged. All nine ordinary-default/scoped-count scenarios pass; `/tmp/repin-interactive-2-proof/authentication_completion_-red.log` and `authentication-green.log` record RED/GREEN.
+
 ## Q15 runtime-oddity removal (2026-10-23)
 
 | Frozen branch | Native | Status/proof |
