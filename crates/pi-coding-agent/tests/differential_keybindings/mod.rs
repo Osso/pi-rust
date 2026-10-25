@@ -15,8 +15,53 @@ pub(crate) fn run() {
         "packages/coding-agent/src/core/keybindings.ts",
     );
 
+    compare_definitions(&mut oracle);
     compare_migrations(&mut oracle);
     compare_loaded_files(&mut oracle);
+    compare_reloads(&mut oracle);
+}
+
+fn compare_definitions(oracle: &mut oracle::TsOracle) {
+    let expected = oracle.request(&json!({"id":0,"operation":"definitions"}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let actual: Vec<_> = pi_coding_agent::core::keybindings::keybindings()
+        .into_iter()
+        .map(|(id, definition)| json!({"id":id,"keys":definition.default_keys,"description":definition.description}))
+        .collect();
+    assert_eq!(json!(actual), expected["output"]);
+}
+
+fn compare_reloads(oracle: &mut oracle::TsOracle) {
+    let contents = [
+        Some(r#"{"app.tools.expand":"ctrl+w","app.interrupt":"ctrl+x"}"#),
+        Some(r#"{"expandTools":"ctrl+x","app.interrupt":"ctrl+x"}"#),
+        None,
+        Some(r#"{"app.tools.expand":["ctrl+w","ctrl+w"],"app.agent.slot1":[]}"#),
+    ];
+    for without_path in [false, true] {
+        let directory = TempDir::new().unwrap();
+        let path = directory.path().join("keybindings.json");
+        let expected = oracle.request(&json!({"id":0,"operation":"reload","agentDir":directory.path(),"contents":contents,"withoutPath":without_path}));
+        assert_eq!(expected["ok"], true, "{expected}");
+        fs::remove_file(&path).unwrap();
+        let mut manager = if without_path {
+            KeybindingsManager::new(vec![("app.tools.expand".into(), vec!["ctrl+w".into()])], None)
+        } else {
+            KeybindingsManager::create(Some(&JsString::from(directory.path().to_str().unwrap()))).unwrap()
+        };
+        let actual: Vec<_> = contents.iter().map(|content| {
+            if let Some(content) = content { fs::write(&path,content).unwrap(); } else { fs::remove_file(&path).unwrap(); }
+            manager.reload();
+            let conflicts: Vec<_> = manager.get_conflicts().into_iter().map(|conflict|json!({"key":conflict.key,"keybindings":conflict.keybindings})).collect();
+            json!({"user":manager.get_user_bindings(),"effective":manager.get_effective_config(),"conflicts":conflicts,"matches":[manager.matches("\u{17}","app.tools.expand"),manager.matches("\u{18}","app.tools.expand"),manager.matches("\u{18}","app.interrupt")]})
+        }).collect();
+        assert_eq!(json!(actual), expected["output"], "withoutPath={without_path}");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            contents.last().unwrap().unwrap(),
+            "loader must not rewrite the file"
+        );
+    }
 }
 
 fn compare_migrations(oracle: &mut oracle::TsOracle) {

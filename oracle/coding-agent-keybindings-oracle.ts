@@ -1,14 +1,26 @@
+import { rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
 type RequestId = string | number | null;
 
+type Manager = {
+	getUserBindings(): Record<string, string | string[]>;
+	getEffectiveConfig(): Record<string, string | string[]>;
+	getKeys(keybinding: string): string[];
+	getConflicts(): unknown[];
+	matches(data: string, keybinding: string): boolean;
+	reload(): void;
+};
+
 type KeybindingsApi = {
+	KEYBINDINGS: Record<
+		string,
+		{ defaultKeys: string | string[]; description: string }
+	>;
 	KeybindingsManager: {
-		create(agentDir?: string): {
-			getUserBindings(): Record<string, string | string[]>;
-			getEffectiveConfig(): Record<string, string | string[]>;
-			getKeys(keybinding: string): string[];
-		};
+		new (userBindings?: Record<string, string | string[]>): Manager;
+		create(agentDir?: string): Manager;
 	};
 	migrateKeybindingsConfig(rawConfig: Record<string, unknown>): {
 		config: Record<string, unknown>;
@@ -18,7 +30,15 @@ type KeybindingsApi = {
 
 type Request =
 	| { id: RequestId; operation: "migrate"; config: Record<string, unknown> }
-	| { id: RequestId; operation: "load"; agentDir: string };
+	| { id: RequestId; operation: "load"; agentDir: string }
+	| { id: RequestId; operation: "definitions" }
+	| {
+			id: RequestId;
+			operation: "reload";
+			agentDir: string;
+			contents: Array<string | null>;
+			withoutPath: boolean;
+	  };
 
 type Response =
 	| { id: RequestId; ok: true; output: unknown }
@@ -32,6 +52,16 @@ function normalizeError(error: unknown): { name: string; message: string } {
 }
 
 function execute(request: Request, api: KeybindingsApi): unknown {
+	if (request.operation === "definitions") {
+		return Object.entries(api.KEYBINDINGS).map(([id, definition]) => ({
+			id,
+			keys: Array.isArray(definition.defaultKeys)
+				? definition.defaultKeys
+				: [definition.defaultKeys],
+			description: definition.description,
+		}));
+	}
+	if (request.operation === "reload") return captureReloads(request, api);
 	if (request.operation === "migrate") {
 		const result = api.migrateKeybindingsConfig(request.config);
 		return { config: Object.entries(result.config), migrated: result.migrated };
@@ -42,6 +72,36 @@ function execute(request: Request, api: KeybindingsApi): unknown {
 		ids,
 		keys: ids.map((keybinding) => manager.getKeys(keybinding)),
 	};
+}
+
+function captureReloads(
+	request: Extract<Request, { operation: "reload" }>,
+	api: KeybindingsApi,
+): unknown {
+	const path = join(request.agentDir, "keybindings.json");
+	const manager = request.withoutPath
+		? new api.KeybindingsManager({ "app.tools.expand": "ctrl+w" })
+		: api.KeybindingsManager.create(request.agentDir);
+	return request.contents.map((content) => {
+		if (content === null) rmSync(path, { force: true });
+		else writeFileSync(path, content);
+		manager.reload();
+		const entries = (config: Record<string, string | string[]>) =>
+			Object.entries(config).map(([id, keys]) => [
+				id,
+				Array.isArray(keys) ? keys : [keys],
+			]);
+		return {
+			user: entries(manager.getUserBindings()),
+			effective: entries(manager.getEffectiveConfig()),
+			conflicts: manager.getConflicts(),
+			matches: [
+				manager.matches("\u0017", "app.tools.expand"),
+				manager.matches("\u0018", "app.tools.expand"),
+				manager.matches("\u0018", "app.interrupt"),
+			],
+		};
+	});
 }
 
 function executeRequestLine(line: string, api: KeybindingsApi): void {
@@ -75,11 +135,15 @@ async function main(): Promise<void> {
 	if (sourceModulePath === undefined) {
 		throw new Error("keybindings oracle requires a source module path");
 	}
-	const api = (await import(pathToFileURL(sourceModulePath).href)) as KeybindingsApi;
+	const api = (await import(
+		pathToFileURL(sourceModulePath).href
+	)) as KeybindingsApi;
 	serveRequests(api);
 }
 
 void main().catch((error: unknown) => {
-	process.stderr.write(`keybindings oracle startup failed: ${normalizeError(error).message}\n`);
+	process.stderr.write(
+		`keybindings oracle startup failed: ${normalizeError(error).message}\n`,
+	);
 	process.exitCode = 1;
 });
