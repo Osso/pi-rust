@@ -17,10 +17,15 @@ Removed old-only Qwen/Radius/Baseten environment mappings and Anthropic auth-tok
 
 `50307512` + env slice: `cargo test -j4 -p pi-ai --test env_api_keys` — 15 GREEN; `--test differential_env_api_keys` — 5 GREEN. RED: 2 failures before implementation. Logs and revision ledger: `/tmp/pi-rust-repin-delta-ai/`.
 
-## Explicit gaps — partial, not approved new-pin parity
+## Current completion audit
 
-- Frozen lines 1–26, 39–48: asynchronous Node import readiness/browser caching absent in native Rust.
+The proposed empty-scoped-path defect was falsified: frozen `getProviderEnvValue` uses `scoped || ambient`, and unchanged Rust matches. The added actual-source real-file/process sequence covers empty-scoped ambient fallback, missing explicit path bypass of a positive cache, and reuse of cached ambient credentials. No production change is required. [Contract](../../specs/env-api-keys.md). Current focused proof is pending.
+
+## Explicit runtime gap
+
+Browser-only ADC caching and Node import-readiness timing are not ported (explicit 2026-10-25 parent decision); inherited-prototype lookups and OS/runtime fault shapes follow the common parity bar.
+
 Frozen lines 57–59 now call shared `node_os::homedir()` lazily at the uncached/default-ADC branch. Errors escape as `Result<_, NativeNodeError>` without caching a false result. Explicit credentials and cached probes bypass homedir. `pi-coding-agent/tests/differential_model_selector_nss.rs` forces getpwuid_r EIO through the real registry; exact selector rows/render count match the frozen process. The approved nix-vs-Node NSS errno gap remains explicit in AGENTS.md.
 Anthropic provider slice also removed old-only public env-name constants and their shape-only test. Current behavioral count is 14; previous 15 included the deleted constant test.
 
-No frozen source bugs identified in the covered runtime matrix.
+No frozen source bugs identified in the covered runtime branches.
