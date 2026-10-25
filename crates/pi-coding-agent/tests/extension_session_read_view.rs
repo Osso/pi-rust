@@ -8,6 +8,31 @@ use pi_coding_agent::core::session_manager::{KnownSessionEntry, SessionEntry, lo
 use pi_js_compat::js_json;
 
 #[test]
+fn frozen_border_editor_render_theme_failure_is_process_uncaught() {
+    let source = oracle::read_source_lock();
+    oracle::verify_source_head(&source);
+    let child = oracle::spawn_oracle_process(
+        &source,
+        "border-editor-render-uncaught.mts",
+        "packages/coding-agent/examples/extensions/border-status-editor.ts",
+        &[],
+        std::process::Stdio::piped(),
+    );
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(
+        output.status.code(),
+        Some(17),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap(),
+        serde_json::json!({"phase":"render-theme-getter","name":"Error","message":"border-render-theme-failed"})
+    );
+}
+
+#[test]
 fn uninitialized_sandbox_theme_rejects_like_frozen_without_panicking() {
     let mut oracle = oracle::TsOracle::spawn(
         "extensions-boundary-oracle.ts",
