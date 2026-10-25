@@ -44,7 +44,6 @@ interface Request {
 	model: unknown;
 	exportPath: string;
 	clock?: string | null;
-	colors: string[];
 }
 async function capture(request: Request) {
 	const cwd = process.cwd();

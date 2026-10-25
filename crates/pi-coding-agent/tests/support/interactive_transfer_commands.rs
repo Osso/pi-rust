@@ -81,20 +81,7 @@ async fn transfer_command_child() {
         let case = std::env::var("PI_TRANSFER_CASE").unwrap();
         let cwd = std::env::var("PI_TRANSFER_ROOT").unwrap();
         let root = Path::new(&cwd);
-        let bin = root.join("bin");
-        std::fs::create_dir(&bin).unwrap();
-        let tmp = root.join("tmp");
-        std::fs::create_dir(&tmp).unwrap();
-        let gh = bin.join("gh");
-        let script = match case.as_str() {
-            "share-auth" => "#!/bin/sh\nexit 1\n".to_owned(),
-            "share-error" => "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf '  denied  \\n' >&2\nexit 1\n".to_owned(),
-            "share-cancel" => format!("#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\ntrap 'printf terminated > {:?}; exit 0' TERM\nprintf ready > {:?}\nwhile :; do :; done\n", root.join("terminated"), root.join("ready")),
-            _ => "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf 'https://gist.github.com/fixture/abc123\\n'\n".to_owned(),
-        };
-        if case != "share-missing" { write_transfer_program(&gh, &script); }
-        write_transfer_program(&bin.join("which"), if case == "copy-error" { "#!/bin/sh\nexit 1\n" } else { "#!/bin/sh\ntest \"$1\" = wl-copy\n" });
-        write_transfer_program(&bin.join("wl-copy"), &format!("#!/usr/bin/python3\nimport pathlib, sys\npathlib.Path({:?}).write_bytes(sys.stdin.buffer.read())\n", root.join("clipboard").to_str().unwrap()));
+        let (gh, tmp) = write_transfer_fixture_programs(root, &case);
         let (mode, terminal, faux, _temp) = build_mode_with_extra_providers(
             StaticResourceLoader::new(), None,
             SettingsManager::in_memory(Default::default(), SettingsManagerCreateOptions::default()),
@@ -136,15 +123,11 @@ async fn transfer_command_child() {
         } else if case.starts_with("copy") {
             mode.handle_copy_command().await;
             if case == "copy-text" {
-                tokio::time::timeout(Duration::from_secs(5), async {
-                    while std::fs::read(root.join("clipboard")).ok().as_deref() != Some(b"clipboard text") { tokio::task::yield_now().await; }
-                }).await.expect("fake clipboard received text");
+                wait_for_transfer_clipboard(root).await;
             }
         } else if case == "share-cancel" {
             let drive = async {
-                tokio::time::timeout(Duration::from_secs(5), async {
-                    while !root.join("ready").exists() { tokio::task::yield_now().await; }
-                }).await.expect("fake gh ready");
+                wait_for_transfer_gh(root).await;
                 *loader_frame.borrow_mut() = mode.editor_container.borrow_mut().render(120).into_iter().map(|line| line.units().to_vec()).collect();
                 terminal.borrow_mut().send_input("\u{1b}");
                 mode.ui.process_events();
@@ -163,10 +146,70 @@ async fn transfer_command_child() {
             "temporaryExists": tmp.join("session.html").exists(), "terminated": root.join("terminated").exists(),
             "clipboard": std::fs::read(root.join("clipboard")).unwrap_or_default(), "artifact": artifact, "html": html,
         });
-        let request = serde_json::json!({"cwd":cwd,"case":case,"sessionPath":mode.session().session_file(),"model":faux.get_model(None).unwrap(),"exportPath":export_path,"clock":clock,"colors":crate::modes::interactive::theme::REQUIRED_COLORS});
+        let request = serde_json::json!({"cwd":cwd,"case":case,"sessionPath":mode.session().session_file(),"model":faux.get_model(None).unwrap(),"exportPath":export_path,"clock":clock});
         println!("TRANSFER_RESULT {}", serde_json::json!({"request":request,"output":output}));
         mode.stop().unwrap();
     }).await;
+}
+
+fn write_transfer_fixture_programs(root: &Path, case: &str) -> (PathBuf, PathBuf) {
+    let bin = root.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let tmp = root.join("tmp");
+    std::fs::create_dir(&tmp).unwrap();
+    let gh = bin.join("gh");
+    let script = match case {
+        "share-auth" => "#!/bin/sh\nexit 1\n".to_owned(),
+        "share-error" => {
+            "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf '  denied  \\n' >&2\nexit 1\n".to_owned()
+        }
+        "share-cancel" => format!(
+            "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\ntrap 'printf terminated > {:?}; exit 0' TERM\nprintf ready > {:?}\nwhile :; do :; done\n",
+            root.join("terminated"),
+            root.join("ready")
+        ),
+        _ => "#!/bin/sh\nif [ \"$1\" = auth ]; then exit 0; fi\nprintf 'https://gist.github.com/fixture/abc123\\n'\n"
+            .to_owned(),
+    };
+    if case != "share-missing" {
+        write_transfer_program(&gh, &script);
+    }
+    write_transfer_program(
+        &bin.join("which"),
+        if case == "copy-error" {
+            "#!/bin/sh\nexit 1\n"
+        } else {
+            "#!/bin/sh\ntest \"$1\" = wl-copy\n"
+        },
+    );
+    write_transfer_program(
+        &bin.join("wl-copy"),
+        &format!(
+            "#!/usr/bin/python3\nimport pathlib, sys\npathlib.Path({:?}).write_bytes(sys.stdin.buffer.read())\n",
+            root.join("clipboard").to_str().unwrap()
+        ),
+    );
+    (gh, tmp)
+}
+
+async fn wait_for_transfer_clipboard(root: &Path) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while std::fs::read(root.join("clipboard")).ok().as_deref() != Some(b"clipboard text") {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("fake clipboard received text");
+}
+
+async fn wait_for_transfer_gh(root: &Path) {
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !root.join("ready").exists() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("fake gh ready");
 }
 
 fn write_transfer_program(path: &Path, source: &str) {
