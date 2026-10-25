@@ -426,3 +426,11 @@ Frozen :5807–5950 maps to the [bash lifecycle spec](../../specs/agent-session-
 ## Naming and summary-materialization finalizers, 2026-10-25
 
 Frozen :5933–5994 maps to the [management lifecycle spec](../../specs/agent-session-management-lifecycle.md). Naming and clearing reuse the existing first-poll dispatch; the old unpolled spawn deferred immediate extension effects. Materialization authentication/settings now stay inside its finalizer scope: an auth failure no longer leaves isCompacting set or rejects retry as already running. Two native behavioral REDs now pass. Existing thinking-cycle/sync/pending/real-effort source tests also pass4 in the same six-test run (`/tmp/repin-agent-session-management-green.log`), closing their earlier GREEN-pending notes. No persistence codec or public API changed.
+
+## Original HTML tool definitions, 2026-10-25
+
+Frozen :5457–5505/:6322–6342 retains original definitions in its registry and supplies them to the exporter. Native reconstructed definitions from execution metadata and discarded all custom renderers. The private registry now retains that existing definition carrier alongside its executable projection; all replacements/filtering still use the same registry. Removed the obsolete reconstruction. Native actual-export RED/GREEN1 checks call plus collapsed/expanded result HTML after executing an SDK custom tool. No JSONL codec or public API changed. [Spec](../../specs/agent-session-html-renderers.md).
+
+## Await tool-result relocation, 2026-10-25
+
+Frozen :1550–1593/:1640–1680 awaits deliverToolResultRelocation after persistence. Native captured the original ID but discarded it. The actual message-end handler now awaits the existing runner API after persistence and preserves callback-error identity. A real tool schedules relocation; its yielding prepare callback sees the stored result, then the public relocation end event precedes activation, with no second provider call. Native RED/GREEN1; [spec](../../specs/agent-session-tool-result-relocation.md). The old direct-runner binding test alone did not cross this missing session boundary. No JSONL codec changed.

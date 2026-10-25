@@ -4,6 +4,8 @@
 mod bash_parity;
 #[path = "agent_session_effort_prefix.rs"]
 mod effort_prefix;
+#[path = "agent_session_html_renderers.rs"]
+mod html_renderers;
 #[path = "support/image_fixtures.rs"]
 mod image_fixtures;
 #[path = "agent_session_management_lifecycle.rs"]
@@ -14,6 +16,8 @@ mod manual_tool_compaction;
 mod prompt_images;
 #[path = "agent_session_thinking_cycle.rs"]
 mod thinking_cycle;
+#[path = "agent_session_tool_relocation.rs"]
+mod tool_relocation;
 #[path = "support/oracle.rs"]
 mod tools_oracle;
 

@@ -1859,6 +1859,7 @@ impl UiShared {
 enum UiRequest {
     LifecycleTransition(pi_ai::request::BoxFuture<'static, ()>),
     RendererCompletion(pi_ai::request::BoxFuture<'static, ()>),
+    BashOutput(JsString),
     SelectAgentView {
         agent_id: JsString,
         respond: tokio::sync::oneshot::Sender<bool>,
@@ -2583,19 +2584,21 @@ impl AuthInteraction for InteractiveAuthInteraction {
 }
 
 impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
-    fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) {
+    fn on_auth(&self, info: pi_ai::oauth::OAuthAuthInfo) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::AuthUrl {
             url: info.url,
             instructions: info.instructions,
         });
+        Ok(())
     }
-    fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) {
+    fn on_device_code(&self, info: pi_ai::oauth::OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::DeviceCode {
             user_code: info.user_code,
             verification_uri: info.verification_uri,
             interval_seconds: info.interval_seconds,
             expires_in_seconds: info.expires_in_seconds,
         });
+        Ok(())
     }
     fn on_prompt(
         &self,
@@ -2609,10 +2612,11 @@ impl pi_ai::oauth::OAuthLoginCallbacks for InteractiveAuthInteraction {
             },
         })
     }
-    fn on_progress(&self, message: &JsString) {
+    fn on_progress(&self, message: &JsString) -> Result<(), CallbackError> {
         self.notify_ui(AuthEvent::Progress {
             message: message.clone(),
         });
+        Ok(())
     }
     fn on_manual_code_input(&self) -> Option<pi_ai::request::BoxFuture<'_, Result<JsString, CallbackError>>> {
         Some(Box::pin(async move {
@@ -2724,6 +2728,7 @@ pub struct InteractiveMode {
     multi_agent_updates: RefCell<Option<tokio::sync::mpsc::UnboundedReceiver<AgentSnapshot>>>,
     multi_agent_subscription: RefCell<Option<crate::core::multi_agent_store::AgentSubscription>>,
     agent_slot_input_listener: Cell<Option<usize>>,
+    interrupt_input_listener: Cell<Option<usize>>,
     ui: Rc<InteractiveTuiHandle>,
     header_container: Rc<RefCell<Container>>,
     loaded_resources_container: Rc<RefCell<Container>>,
@@ -2818,6 +2823,7 @@ pub struct InteractiveMode {
     active_session_selector: RefCell<Option<Rc<tokio::sync::Mutex<SessionSelectorComponent>>>>,
     active_selector_dispose: RefCell<Option<Rc<dyn Fn()>>>,
     active_bash_components: RefCell<Vec<ComponentRef>>,
+    pending_bash_components: RefCell<Vec<ComponentRef>>,
     provisional_user_messages: RefCell<Vec<(AgentMessage, Vec<ComponentRef>)>>,
     auth_ui: RefCell<Option<AuthUiState>>,
 }
@@ -3045,6 +3051,7 @@ impl InteractiveMode {
             multi_agent_updates: RefCell::new(None),
             multi_agent_subscription: RefCell::new(None),
             agent_slot_input_listener: Cell::new(None),
+            interrupt_input_listener: Cell::new(None),
             ui,
             header_container,
             loaded_resources_container,
@@ -3138,6 +3145,7 @@ impl InteractiveMode {
             active_session_selector: RefCell::new(None),
             active_selector_dispose: RefCell::new(None),
             active_bash_components: RefCell::new(Vec::new()),
+            pending_bash_components: RefCell::new(Vec::new()),
             provisional_user_messages: RefCell::new(Vec::new()),
             auth_ui: RefCell::new(None),
         });
@@ -3881,6 +3889,48 @@ impl InteractiveMode {
             }
         }));
         self.agent_slot_input_listener.set(Some(listener_id));
+    }
+
+    fn register_global_interrupt_input_handler(&self) {
+        if let Some(id) = self.interrupt_input_listener.take() {
+            self.ui.remove_input_listener(id);
+        }
+        let mode_id = self.ui_id.get();
+        let listener = self.ui.add_input_listener(Rc::new(move |data: &JsString| {
+            let consumed = with_mode(mode_id, |mode| {
+                if pi_tui::keys::is_key_release(data) || !mode.keybindings.matches(data, "app.interrupt") {
+                    return false;
+                }
+                let editor_focused = mode
+                    .ui
+                    .get_focused_component()
+                    .is_some_and(|focused| Rc::ptr_eq(&focused, &mode.editor_handle.borrow()));
+                if mode.keybindings.matches(data, "tui.select.cancel") && !editor_focused {
+                    return false;
+                }
+                if mode.session().cancel_supervisor_review() {
+                    mode.stop_working_loader();
+                    mode.status_container.borrow_mut().clear();
+                    mode.ui.request_render();
+                    return true;
+                }
+                if !mode.session().is_streaming() {
+                    return false;
+                }
+                tokio::task::spawn_local(async move {
+                    if let Err(error) = mode.cancel_streaming_and_submit_queued_messages().await {
+                        mode.show_error(&error.message);
+                    }
+                });
+                true
+            })
+            .unwrap_or(false);
+            TuiInputListenerResult {
+                consume: consumed,
+                data: None,
+            }
+        }));
+        self.interrupt_input_listener.set(Some(listener));
     }
 
     fn restore_previous_agent_selection(&self, agent_id: Option<&JsString>) {
@@ -6264,6 +6314,12 @@ impl InteractiveMode {
         self.stop_child_activity_timer();
         self.clear_child_agent_view();
         self.theme_controller.borrow_mut().disable_auto_sync();
+        if let Some(id) = self.interrupt_input_listener.take() {
+            self.ui.remove_input_listener(id);
+        }
+        if let Some(id) = self.agent_slot_input_listener.take() {
+            self.ui.remove_input_listener(id);
+        }
         self.clear_extension_terminal_input_listeners();
         if let Some(component) = self.custom_footer.borrow_mut().take() {
             dispose_extension_component(&component);
@@ -6331,7 +6387,38 @@ impl InteractiveMode {
 
     /// `disposeActiveBashComponents`: drops the active bash execution views.
     fn dispose_active_bash_components(&self) {
-        self.active_bash_components.borrow_mut().clear();
+        let active = std::mem::take(&mut *self.active_bash_components.borrow_mut());
+        let pending = std::mem::take(&mut *self.pending_bash_components.borrow_mut());
+        for component in active.into_iter().chain(pending) {
+            if let Some(bash) = component
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<BashExecutionComponent>())
+            {
+                bash.dispose();
+            }
+        }
+    }
+
+    fn flush_pending_bash_components(&self) {
+        for component in std::mem::take(&mut *self.pending_bash_components.borrow_mut()) {
+            self.pending_messages_container.borrow_mut().remove_child(&component);
+            self.chat_container.borrow_mut().add_child(component);
+        }
+    }
+
+    fn append_bash_output(&self, chunk: &JsString) {
+        let active = self.active_bash_components.borrow().last().cloned();
+        if let Some(active) = active {
+            if let Some(bash) = active
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|any| any.downcast_mut::<BashExecutionComponent>())
+            {
+                bash.append_output(chunk);
+            }
+            self.ui.request_render();
+        }
     }
 
     /// `clearPendingToolComponents`: drops components awaiting a tool result.
@@ -6920,6 +7007,7 @@ impl InteractiveMode {
             .on_action("app.agent.select", action(self, InteractiveMode::show_agent_switcher));
         self.register_agent_slot_key_handlers();
         self.register_global_agent_slot_input_handler();
+        self.register_global_interrupt_input_handler();
 
         let mode = Rc::clone(self);
         let debug_handler: Rc<dyn Fn()> = Rc::new(move || {
@@ -7593,6 +7681,7 @@ impl InteractiveMode {
             return Ok(());
         }
 
+        self.flush_pending_bash_components();
         if let Some(callback) = self.on_input_callback.borrow().clone() {
             callback(text);
             return Ok(());
@@ -8563,95 +8652,151 @@ impl InteractiveMode {
     }
 
     async fn handle_bash_command(&self, command: JsString, exclude_from_context: bool) {
-        let command = JsString::from(command);
-        let mode = self.ui_id.get();
+        use crate::core::extensions::types::UserBashEvent;
         let session = self.session();
+        let interception = session
+            .extension_runner()
+            .emit_user_bash(&UserBashEvent {
+                command: command.clone(),
+                exclude_from_context,
+                cwd: session.session_manager().get_cwd().clone(),
+            })
+            .await;
+        let complete = interception
+            .as_ref()
+            .and_then(|event| event.result.as_ref())
+            .map(|value| {
+                pi_js_compat::js_json::from_value::<crate::core::bash_executor::BashResult>(value)
+                    .unwrap_or_else(|error| throw_uncaught(ERROR, format!("Invalid user_bash result: {error}")))
+            });
         let render: Rc<dyn Fn()> = Rc::new({
             let ui = Rc::clone(&self.ui);
             move || ui.request_render()
         });
-        let bash = BashExecutionComponent::new(
+        let bash = component(BashExecutionComponent::new(
             command.clone(),
-            Rc::clone(&render),
+            render,
             exclude_from_context,
-            BashExecutionOptions::default(),
-        );
-        let bash_ref = component(bash);
-        self.active_bash_components.borrow_mut().push(Rc::clone(&bash_ref));
-        self.pending_messages_container
-            .borrow_mut()
-            .add_child(Rc::clone(&bash_ref));
+            BashExecutionOptions {
+                show_elapsed: complete.as_ref().map(|_| false),
+            },
+        ));
+        if session.is_streaming() {
+            self.pending_messages_container.borrow_mut().add_child(Rc::clone(&bash));
+            self.pending_bash_components.borrow_mut().push(Rc::clone(&bash));
+        } else {
+            self.chat_container.borrow_mut().add_child(Rc::clone(&bash));
+        }
+        self.active_bash_components.borrow_mut().push(Rc::clone(&bash));
+        if let Some(result) = complete {
+            self.append_bash_output(&result.output);
+            Self::complete_bash_view(&bash, &result);
+            session.record_bash_result(&command, &result, Some(exclude_from_context));
+            self.invalidate_footer_after_bash_result(exclude_from_context);
+            self.active_bash_components
+                .borrow_mut()
+                .retain(|active| !Rc::ptr_eq(active, &bash));
+            self.ui.request_render();
+            return;
+        }
         self.set_prompt_activity(PromptActivitySource::Bash, true);
         self.ui.request_render();
+        let sender = self.ui_sender.clone();
+        let on_chunk: crate::core::bash_executor::BashChunkCallback = Arc::new(move |chunk| {
+            sender
+                .send(UiRequest::BashOutput(chunk.clone()))
+                .map_err(|_| CallbackError::new("Interactive UI is not available"))
+        });
         let result = session
             .execute_bash(
                 &command,
-                None,
+                Some(on_chunk),
                 crate::core::agent_session::ExecuteBashOptions {
                     exclude_from_context: Some(exclude_from_context),
-                    operations: None,
+                    operations: interception.and_then(|event| event.operations),
                 },
             )
             .await;
+        // Flush the final queued chunk before dropping the active output target.
+        if let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) {
+            mode.handle_ui_requests().await;
+        }
         match result {
             Ok(result) => {
-                if let Some(component) = bash_ref
+                self.invalidate_footer_after_bash_result(exclude_from_context);
+                Self::complete_bash_view(&bash, &result);
+            }
+            Err(error) => {
+                if let Some(view) = bash
                     .borrow_mut()
                     .as_any_mut()
                     .and_then(|any| any.downcast_mut::<BashExecutionComponent>())
                 {
-                    component.set_complete(
-                        result.exit_code,
-                        result.cancelled,
-                        result
-                            .truncated
-                            .then(|| crate::core::tools::truncate::TruncationResult {
-                                content: JsString::default(),
-                                truncated: true,
-                                truncated_by: None,
-                                total_lines: 0,
-                                total_bytes: 0,
-                                output_lines: 0,
-                                output_bytes: 0,
-                                last_line_partial: false,
-                                first_line_exceeds_limit: false,
-                                max_lines: 0 as f64,
-                                max_bytes: 0 as f64,
-                            }),
-                        result.full_output_path.clone(),
-                    );
+                    view.set_complete(None, false, None, None);
                 }
-                self.pending_messages_container.borrow_mut().clear();
-                self.chat_container.borrow_mut().add_child(Rc::clone(&bash_ref));
-                self.footer.borrow_mut().invalidate();
-            }
-            Err(error) => {
-                self.pending_messages_container.borrow_mut().clear();
-                self.show_error(error.message());
+                self.show_error(&js_format!("Bash command failed: {}", error.message()));
             }
         }
         self.active_bash_components
             .borrow_mut()
-            .retain(|component| !Rc::ptr_eq(component, &bash_ref));
-        if let Some(mode) = with_mode(mode, |mode| mode) {
-            let _ = mode;
-        }
+            .retain(|active| !Rc::ptr_eq(active, &bash));
         self.set_prompt_activity(PromptActivitySource::Bash, false);
         self.ui.request_render();
     }
 
-    async fn handle_compact_command(&self, custom_instructions: Option<JsString>) {
-        let session = self.session();
-        let result = session.compact(custom_instructions.as_ref()).await;
-        match result {
-            Ok(result) => {
-                self.rebuild_chat_after_compaction(&result);
-                self.footer.borrow_mut().invalidate();
-                self.show_status("Compaction complete");
-            }
-            Err(error) => self.show_error(error.message()),
+    fn invalidate_footer_after_bash_result(&self, excluded: bool) {
+        if !self.session().is_streaming() && !excluded {
+            self.footer.borrow_mut().invalidate();
         }
-        self.flush_compaction_queue(false).await;
+    }
+
+    fn complete_bash_view(component: &ComponentRef, result: &crate::core::bash_executor::BashResult) {
+        if let Some(view) = component
+            .borrow_mut()
+            .as_any_mut()
+            .and_then(|any| any.downcast_mut::<BashExecutionComponent>())
+        {
+            view.set_complete(
+                result.exit_code,
+                result.cancelled,
+                result
+                    .truncated
+                    .then(|| crate::core::tools::truncate::TruncationResult {
+                        content: result.output.clone(),
+                        truncated: true,
+                        truncated_by: None,
+                        total_lines: 0,
+                        total_bytes: 0,
+                        output_lines: 0,
+                        output_bytes: 0,
+                        last_line_partial: false,
+                        first_line_exceeds_limit: false,
+                        max_lines: 0.0,
+                        max_bytes: 0.0,
+                    }),
+                result.full_output_path.clone(),
+            );
+        }
+    }
+
+    async fn handle_compact_command(&self, custom_instructions: Option<JsString>) {
+        self.stop_working_loader();
+        self.status_container.borrow_mut().clear();
+        let session = self.session();
+        let saved = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let observed = Arc::clone(&saved);
+        let subscription = session.subscribe(Arc::new(move |event| {
+            if matches!(event,AgentSessionEvent::CompactionEnd(event) if event.result.is_some()) {
+                observed.store(true, std::sync::atomic::Ordering::SeqCst);
+            }
+        }));
+        let result = session.compact(custom_instructions.as_ref()).await;
+        session.unsubscribe(subscription);
+        if let Err(error) = result {
+            if saved.load(std::sync::atomic::Ordering::SeqCst) {
+                self.show_error(error.message());
+            }
+        }
     }
 
     fn rebuild_chat_after_compaction(&self, result: &crate::core::compaction::CompactionResult) {
@@ -11439,6 +11584,7 @@ impl InteractiveMode {
                 Some(NotifyType::Warning) => self.show_warning(&message),
                 Some(NotifyType::Info) | None => self.show_status(&message),
             },
+            UiRequest::BashOutput(chunk) => self.append_bash_output(&chunk),
             UiRequest::RequestRender => self.ui.request_render(),
             UiRequest::RequestComponentRender(identity) => self.request_extension_component_render(identity)?,
             UiRequest::RequestRenderForce => self.ui.request_render_force(),
@@ -12320,6 +12466,7 @@ impl InteractiveMode {
                 }
             }
             AgentSessionEvent::CompactionStart(event) => {
+                self.stop_working_loader();
                 if self.settings(|settings| settings.get_show_terminal_progress()) {
                     self.ui.terminal().borrow_mut().set_progress(true);
                 }
@@ -12398,7 +12545,12 @@ impl InteractiveMode {
                     }
                 }
                 *self.auto_compaction_source_hint.borrow_mut() = None;
-                self.flush_compaction_queue(event.will_retry).await;
+                self.sync_working_loader_visibility();
+                if let Some(mode) = with_mode(self.ui_id.get(), |mode| mode) {
+                    tokio::task::spawn_local(async move {
+                        mode.flush_compaction_queue(event.will_retry).await;
+                    });
+                }
                 self.ui.request_render();
             }
             AgentSessionEvent::AutoRetryStart(event) => {

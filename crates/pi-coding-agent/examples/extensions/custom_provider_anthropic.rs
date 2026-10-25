@@ -84,7 +84,7 @@ impl CustomOAuth {
             interaction.on_auth(OAuthAuthInfo {
                 url: JsString::from(url),
                 instructions: None,
-            });
+            })?;
             let answer = interaction
                 .on_prompt(OAuthPrompt {
                     message: "Paste the authorization code:".into(),

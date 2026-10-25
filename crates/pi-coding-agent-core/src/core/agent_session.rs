@@ -313,6 +313,7 @@ pub struct ToolInfo {
 #[derive(Clone)]
 struct ToolDefinitionEntry {
     definition: ToolDefinition,
+    html_definition: crate::core::extensions::types::ToolDefinition,
     source_info: crate::core::source_info::SourceInfo,
 }
 
@@ -1819,6 +1820,7 @@ impl AgentSession {
                 (
                     name.clone(),
                     ToolDefinitionEntry {
+                        html_definition: definition.clone(),
                         definition: ToolDefinition {
                             name: definition.name.clone(),
                             description: definition.description.clone(),
@@ -1857,6 +1859,7 @@ impl AgentSession {
                         name,
                         ToolDefinitionEntry {
                             definition,
+                            html_definition: tool.definition.clone(),
                             source_info: tool.source_info.clone(),
                         },
                     )
@@ -1877,6 +1880,9 @@ impl AgentSession {
             .iter()
             .filter(|definition| is_allowed(&definition.name))
             .map(|definition| ToolDefinitionEntry {
+                html_definition: crate::core::tools::tool_definition_wrapper::create_tool_definition_from_agent_tool(
+                    Arc::clone(&definition.tool),
+                ),
                 definition: definition.clone(),
                 source_info: create_synthetic_source_info(
                     &JsString::from(format!("<sdk:{}>", definition.name)),
@@ -1906,6 +1912,7 @@ impl AgentSession {
             .iter()
             .filter(|definition| is_allowed(&definition.name))
             .map(|definition| ToolDefinitionEntry {
+                html_definition: definition.clone(),
                 definition: ToolDefinition {
                     name: definition.name.clone(),
                     description: definition.description.clone(),
@@ -3576,7 +3583,13 @@ impl AgentSession {
         };
         self.emit(listener_event);
         if let AgentEvent::MessageEnd { message } = &event {
-            self.persist_completed_message(message, original_tool_call_id.as_deref(), mailbox_delivery.as_ref());
+            self.persist_completed_message(message, mailbox_delivery.as_ref());
+            if let Some(tool_call_id) = original_tool_call_id.as_deref() {
+                self.runner()
+                    .deliver_tool_result_relocation(tool_call_id)
+                    .await
+                    .map_err(|cause| AgentError::from(pi_ai::request::CallbackError::from(cause)))?;
+            }
             if let AgentMessage::Assistant(assistant) = message {
                 self.start_background_compaction_during_tool_turn(assistant)
                     .map_err(|failure| AgentError::new(failure.message()))?;
@@ -4184,7 +4197,6 @@ impl AgentSession {
     fn persist_completed_message(
         &self,
         message: &AgentMessage,
-        original_tool_call_id: Option<&str>,
         mailbox_delivery: Option<&crate::core::runtime_mailbox_acceptance::RuntimeMailboxToolDelivery>,
     ) {
         let is_internal = is_duplicate_turn_guard_message(message);
@@ -4236,7 +4248,6 @@ impl AgentSession {
         if let Err(error) = result {
             crate::utils::uncaught::throw_uncaught(crate::utils::uncaught::ERROR, error.message().clone());
         }
-        let _ = original_tool_call_id;
         if let AgentMessage::Assistant(assistant) = message {
             self.track_completed_assistant_message(assistant);
         }
@@ -7619,8 +7630,8 @@ impl AgentSession {
         let get_tool_definition = Arc::new(move |name: &str| {
             let inner = weak.upgrade()?;
             AgentSession { inner }
-                .get_tool_definition(name)
-                .map(extension_tool_definition_for_html)
+                .find_tool_definition(name)
+                .map(|entry| entry.html_definition)
         });
         let cwd = lock(&self.inner.session_manager).get_cwd().to_owned();
         let tool_renderer = create_tool_html_renderer(ToolHtmlRendererDeps {
@@ -7686,34 +7697,6 @@ struct BashExecutionWire<'a> {
     timestamp: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     exclude_from_context: Option<bool>,
-}
-
-fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core::extensions::types::ToolDefinition {
-    // Session tool definitions do not carry extension TUI renderers yet; the
-    // HTML exporter falls back to structured rendering for those tools.
-    crate::core::extensions::types::ToolDefinition {
-        name: definition.name.clone(),
-        label: definition.name.into(),
-        description: definition.description,
-        prompt_snippet: definition.prompt_snippet,
-        prompt_guidelines: Some(definition.prompt_guidelines),
-        approval_required: Some(definition.approval_required),
-        approval_kind: definition.approval_kind,
-        parameters: definition.parameters,
-        render_shell: None,
-        prepare_arguments: None,
-        prepare_execution: None,
-        execution_mode: None,
-        execute: Arc::new(|_, _, _, _, _| {
-            Box::pin(async {
-                Err(crate::core::extensions::types::HandlerError::new(
-                    "Tool execution is unavailable during HTML export",
-                ))
-            })
-        }),
-        render_call: None,
-        render_result: None,
-    }
 }
 
 fn bash_message_to_agent_message(message: &BashExecutionMessage) -> AgentMessage {

@@ -230,7 +230,6 @@ pub fn model() -> pi_ai::types::Model {
                 cache_read: 0.3,
                 cache_write: 3.75,
             },
-            tiers: None,
         },
         context_window: 200_000.0,
         auto_compaction_threshold: None,

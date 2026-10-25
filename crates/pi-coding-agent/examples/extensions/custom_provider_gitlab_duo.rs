@@ -161,7 +161,7 @@ impl GitlabOAuth {
             interaction.on_auth(OAuthAuthInfo {
                 url: JsString::from(url),
                 instructions: None,
-            });
+            })?;
             let callback = interaction
                 .on_prompt(OAuthPrompt {
                     message: "Paste the callback URL:".into(),

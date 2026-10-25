@@ -107,3 +107,11 @@ Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command start
 `management_lifecycle::` RED2 in `/tmp/repin-agent-session-management-red4.log`: naming listener remains empty at return; materialization authentication leaves isCompacting=true. Earlier red/red2 are compiler setup failures; red3's materialization case used a registered scripted auth override and reached generation, so it is not auth-finalizer evidence. The corrected fixture changes the active/checkpoint provider together to an unconfigured provider and confirms the actual auth error.
 
 `/tmp/repin-agent-session-management-green.log` passes6: the two new native cases plus existing frozen missing-index, sync-prefix, pending remainder and real-effort cases. Real effort proves proactive mode, delegation tool and active status before return. A subsequently removed unused import does not change runtime scope. This closes the previous thinking GREEN-pending notes; no new frozen differential was added.
+
+## HTML renderer checkpoint, 2026-10-25
+
+`agent_session / html_renderers::` fails1 with a null rendered-tool payload before the fix (`/tmp/repin-agent-session-html-renderers-red.log`) and passes1 after retaining the registered definition (`/tmp/repin-agent-session-html-renderers-green.log`). The real turn executes a custom tool; the decoded actual HTML export must contain its call renderer and both collapsed/expanded result renderers. No persistence codec changes or new frozen matrix.
+
+## Tool-result relocation checkpoint, 2026-10-25
+
+`agent_session / tool_relocation::` genuine RED1 is `/tmp/repin-agent-session-tool-relocation-red2.log`: only `agent-end:relocation=false`, instead of prepare/persisted → relocation end → activation. Earlier red.log is a fixture compiler error, not parity evidence. GREEN1 is `/tmp/repin-agent-session-tool-relocation-green.log`; the prepare callback yields, observes the persisted actual tool result, and the complete public flow uses exactly one provider call. The fix invokes the already-existing relocation API; serialization is unchanged.

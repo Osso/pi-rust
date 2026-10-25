@@ -19,8 +19,12 @@ fn rejection() -> CallbackError {
 }
 
 impl OAuthLoginCallbacks for RejectingCallbacks {
-    fn on_auth(&self, _: OAuthAuthInfo) {}
-    fn on_device_code(&self, _: OAuthDeviceCodeInfo) {}
+    fn on_auth(&self, _: OAuthAuthInfo) -> Result<(), CallbackError> {
+        Ok(())
+    }
+    fn on_device_code(&self, _: OAuthDeviceCodeInfo) -> Result<(), CallbackError> {
+        Ok(())
+    }
     fn on_prompt(&self, _: OAuthPrompt) -> BoxFuture<'_, Result<JsString, CallbackError>> {
         self.seen.lock().unwrap().push("prompt");
         Box::pin(async { Err(rejection()) })

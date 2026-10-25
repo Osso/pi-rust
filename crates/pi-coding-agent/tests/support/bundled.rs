@@ -375,7 +375,6 @@ pub fn test_model(reasoning: bool) -> Model {
                 cache_read: 0.0,
                 cache_write: 0.0,
             },
-            tiers: None,
         },
         context_window: 200_000.0,
         auto_compaction_threshold: None,
