@@ -24,7 +24,7 @@ Tests: `crates/pi-ai/tests/api_lazy.rs`; differential `lazy_stream_error`.
 
 ## Registered callback prerequisite (2026-10-24)
 
-ProviderStreams raw/simple acquisition returns Result. LazyApi still returns Ok(outer stream) immediately; loaded-module Result belongs to its async setup catch. Codex's direct Simple export rejection now reaches that catch instead of being encoded by the direct module adapter. Success-only module adapters wrap their existing streams in Ok; producer behavior is unchanged. Consumer/current proof is pending.
+ProviderStreams raw/simple acquisition returns Result. LazyApi still returns Ok(outer stream) immediately; loaded-module Result belongs to its async setup catch. Codex's direct Simple export rejection now reaches that catch instead of being encoded by the direct module adapter. Success-only module adapters wrap their existing streams in Ok; producer behavior is unchanged. Generic lazy/compat/alias/models consumer regression matrix is GREEN47 at9c739f37. New `provider_lazy_acquisition` invokes actual frozen lazyApi and compares full one-error-event/result values for raw/simple × TypeError/raw UTF16; separate bounded frozen/native child processes establish the catch's conversion rejection is process-uncaught with no invented completion. Current new-probe GREEN pending.
 
 Parent approved moving throw_callback_uncaught unchanged to pi-js-compat::callback_error and re-exporting its old Core path. Pure move0863de71 precedes this usage; the one process crash hook/installation stays in Core-base. Existing authority tests must run after migration compiles.
 
