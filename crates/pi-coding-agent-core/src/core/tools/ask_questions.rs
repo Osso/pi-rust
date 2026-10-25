@@ -435,8 +435,8 @@ fn execute_questions(
                 false,
             );
             let details = result.details.as_mut().unwrap();
-            details["queued"] = json!(true).into();
-            details["requestId"] = json!(tool_call_id).into();
+            details["queued"] = json!(true);
+            details["requestId"] = json!(tool_call_id);
             return Ok(result);
         }
         let result = pending.await.map_err(|error| CallbackError::new(error.to_string()))??;
