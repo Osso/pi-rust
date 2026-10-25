@@ -1,5 +1,5 @@
-import { pathToFileURL } from "node:url";
 import { createServer } from "node:http";
+import { pathToFileURL } from "node:url";
 import { crc32 } from "node:zlib";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
 
@@ -24,7 +24,8 @@ interface ResponseSpec {
 
 interface OracleRequest {
 	id: RequestId;
-	model: Record<string, unknown>;
+	model?: Record<string, unknown>;
+	modelsPath?: string;
 	context: Record<string, unknown>;
 	options: Record<string, unknown>;
 	processEnv?: Record<string, string>;
@@ -32,7 +33,12 @@ interface OracleRequest {
 	capturePayload?: boolean;
 	captureResponse?: boolean;
 	abort?: "immediate" | "headers" | "body" | { afterEvents: number };
-	abortReason?: { kind:string; value?:unknown; name?:string; message?:string };
+	abortReason?: {
+		kind: string;
+		value?: unknown;
+		name?: string;
+		message?: string;
+	};
 }
 
 interface OracleResponse {
@@ -50,7 +56,7 @@ interface OracleError {
 const FIXED_MILLIS = Date.UTC(2026, 0, 2, 3, 4, 5, 0);
 const RealDate = Date;
 class FakeDate extends RealDate {
-	constructor(...args: ConstructorParameters<typeof Date>) {
+	constructor(...args: [] | ConstructorParameters<typeof Date>) {
 		if (args.length === 0) super(FIXED_MILLIS);
 		else super(...args);
 	}
@@ -135,10 +141,12 @@ let scriptIndex = 0;
 let abortAtHeaders: (() => void) | undefined;
 
 function decodeAbortReason(input: OracleRequest["abortReason"]): unknown {
-    if (!input || input.kind === "default") return undefined;
-    if (input.kind === "value") return input.value;
-    if (input.kind === "dom") return new DOMException(input.message,input.name);
-    return Object.assign(new Error(input.message),{name:input.name ?? "Error"});
+	if (!input || input.kind === "default") return undefined;
+	if (input.kind === "value") return input.value;
+	if (input.kind === "dom") return new DOMException(input.message, input.name);
+	return Object.assign(new Error(input.message), {
+		name: input.name ?? "Error",
+	});
 }
 
 async function main(): Promise<void> {
@@ -154,7 +162,12 @@ async function main(): Promise<void> {
 		).href
 	)) as {
 		NodeHttpHandler: {
-			prototype: { handle: (...args: unknown[]) => Promise<unknown> };
+			prototype: {
+				handle: (
+					request: unknown,
+					options?: { abortSignal?: AbortSignal },
+				) => Promise<unknown>;
+			};
 		};
 	};
 
@@ -164,41 +177,57 @@ async function main(): Promise<void> {
 		request.resume();
 		const scripted = pendingResponse;
 		pendingResponse = undefined;
-		if (abortAtHeaders) { abortAtHeaders(); response.destroy(); return; }
+		if (abortAtHeaders) {
+			abortAtHeaders();
+			response.destroy();
+			return;
+		}
 		if (!scripted) {
 			response.writeHead(500);
 			response.end("bedrock loopback oracle script exhausted");
 			return;
 		}
-		const bytes = scripted.frames && scripted.frames.length > 0
-			? Buffer.concat(scripted.frames.map(encodeFrameSpec))
-			: Buffer.from(scripted.text ?? "", "utf8");
+		const bytes =
+			scripted.frames && scripted.frames.length > 0
+				? Buffer.concat(scripted.frames.map(encodeFrameSpec))
+				: Buffer.from(scripted.text ?? "", "utf8");
 		response.sendDate = false;
 		response.writeHead(scripted.status, Object.fromEntries(scripted.headers));
-        if (scripted.pendingBody) {
-            response.flushHeaders();
-            // Smithy's event-stream deserializer reads the first frame before client.send resolves.
-            response.write(encodeFrameSpec({kind:"event",type:"messageStart",payload:{role:"assistant"}}));
-            return;
-        }
-		for (const chunk of splitBytes(bytes, scripted.chunkSizes)) response.write(chunk);
+		if (scripted.pendingBody) {
+			response.flushHeaders();
+			// Smithy's event-stream deserializer reads the first frame before client.send resolves.
+			response.write(
+				encodeFrameSpec({
+					kind: "event",
+					type: "messageStart",
+					payload: { role: "assistant" },
+				}),
+			);
+			return;
+		}
+		for (const chunk of splitBytes(bytes, scripted.chunkSizes))
+			response.write(chunk);
 		response.end();
 	});
 	await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
 	server.unref();
 	const address = server.address();
-	if (!address || typeof address === "string") throw new Error("missing loopback oracle address");
+	if (!address || typeof address === "string")
+		throw new Error("missing loopback oracle address");
 	nodeHttpHandler.NodeHttpHandler.prototype.handle = async function (
 		request: unknown,
 		options?: { abortSignal?: AbortSignal },
 	) {
 		activeRequests.push(request as Record<string, unknown>);
-		pendingResponse = activeScript[Math.min(scriptIndex, activeScript.length - 1)];
+		pendingResponse =
+			activeScript[Math.min(scriptIndex, activeScript.length - 1)];
 		scriptIndex += 1;
 		if (!pendingResponse) throw new Error("bedrock oracle script exhausted");
 		const localRequest = {
 			...(request as Record<string, unknown>),
-			protocol: "http:", hostname: "127.0.0.1", port: address.port,
+			protocol: "http:",
+			hostname: "127.0.0.1",
+			port: address.port,
 		};
 		return originalHandle.call(this, localRequest, options);
 	};
@@ -225,6 +254,21 @@ function restoreEnv(originals: Map<string, string | undefined>): void {
 	}
 }
 
+async function loadConfiguredModel(modelsPath: string): Promise<unknown> {
+	const source = pathToFileURL(`${process.argv[2]}/`);
+	const { ModelRegistry } = await import(
+		new URL("../../coding-agent/src/core/model-registry.ts", source).href
+	);
+	const { AuthStorage } = await import(
+		new URL("../../coding-agent/src/core/auth-storage.ts", source).href
+	);
+	const registry = ModelRegistry.create(AuthStorage.inMemory(), modelsPath);
+	const model = registry.find("local", "fixture-model");
+	if (!model)
+		throw new Error(registry.getError() ?? "configured fixture model missing");
+	return model;
+}
+
 async function execute(
 	request: OracleRequest,
 	bedrock: {
@@ -244,7 +288,10 @@ async function execute(
 		process.env[name] = value;
 	}
 	const controller = new AbortController();
-    abortAtHeaders = request.abort === "headers" ? () => controller.abort(decodeAbortReason(request.abortReason)) : undefined;
+	abortAtHeaders =
+		request.abort === "headers"
+			? () => controller.abort(decodeAbortReason(request.abortReason))
+			: undefined;
 	const options: Record<string, unknown> = { ...request.options };
 	options.signal = controller.signal;
 	let capturedPayload: unknown;
@@ -259,12 +306,26 @@ async function execute(
 			capturedResponse = response;
 		};
 	}
-    if (request.abort === "body") options.onResponse = () => controller.abort(decodeAbortReason(request.abortReason));
-	if (request.abort === "immediate") controller.abort(decodeAbortReason(request.abortReason));
-    const watchdog = request.abort ? setTimeout(() => { process.stderr.write(`Bedrock abort oracle timed out: ${request.abort}\n`); process.exit(124); }, 2000) : undefined;
+	if (request.abort === "body")
+		options.onResponse = () =>
+			controller.abort(decodeAbortReason(request.abortReason));
+	if (request.abort === "immediate")
+		controller.abort(decodeAbortReason(request.abortReason));
+	const watchdog = request.abort
+		? setTimeout(() => {
+				process.stderr.write(
+					`Bedrock abort oracle timed out: ${request.abort}\n`,
+				);
+				process.exit(124);
+			}, 2000)
+		: undefined;
 
 	try {
-		const stream = bedrock.stream(request.model, request.context, options);
+		const model =
+			request.modelsPath === undefined
+				? request.model
+				: await loadConfiguredModel(request.modelsPath);
+		const stream = bedrock.stream(model, request.context, options);
 		const events: unknown[] = [];
 		let eventCount = 0;
 		for await (const event of stream) {
@@ -300,7 +361,7 @@ async function execute(
 			},
 		};
 	} finally {
-        clearTimeout(watchdog);
+		clearTimeout(watchdog);
 		restoreEnv(originals);
 	}
 }

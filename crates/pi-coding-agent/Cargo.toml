@@ -12,6 +12,10 @@ autobins = false
 default-run = "pi"
 
 [dependencies]
+pi-coding-agent-base = { version = "=0.0.0", path = "../pi-coding-agent-base" }
+pi-coding-agent-core = { version = "=0.0.0", path = "../pi-coding-agent-core" }
+pi-coding-agent-extensions = { version = "=0.0.0", path = "../pi-coding-agent-extensions" }
+pi-coding-agent-interactive = { version = "=0.0.0", path = "../pi-coding-agent-interactive" }
 # Native normalization for rehomed edit/path primitives (Node ICU semantics).
 icu_normalizer = { version = "=2.3.0", default-features = false, features = ["compiled_data"] }
 # Supplies typed agent-harness values and the shared truncation size formatter.

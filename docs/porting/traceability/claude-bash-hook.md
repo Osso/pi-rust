@@ -1,7 +1,7 @@
 # `claude-bash-hook` extension traceability
 
 Source: `packages/coding-agent/extensions/claude-bash-hook/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/claude_bash_hook/mod.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/claude_bash_hook/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

@@ -1,6 +1,6 @@
 # Goal extension (`extensions/goal/src`)
 
-Port group: `crates/pi-coding-agent/src/bundled_extensions/goal/`.
+Port group: `crates/pi-coding-agent-extensions/src/bundled_extensions/goal/`.
 Registered as `<first-party:goal>` through `core::extensions::loader::ExtensionRegistry`
 (`bundled_extensions::register_bundled_extensions`).
 

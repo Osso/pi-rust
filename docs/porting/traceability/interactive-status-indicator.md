@@ -1,7 +1,7 @@
 # components/status-indicator.ts
 
 Source: `coding-agent/src/modes/interactive/components/status-indicator.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/status_indicator.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/status_indicator.rs`
 
 Tests: `interactive_components_c.rs::idle_status_*`, `working_status_*`, `retry_status_*`,
 `compaction_status_*`, differential `statusIndicator` cases.

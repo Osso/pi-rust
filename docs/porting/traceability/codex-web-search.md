@@ -1,7 +1,7 @@
 # `codex-web-search` extension traceability
 
 Source: `packages/coding-agent/extensions/codex-web-search/src/index.ts`. Rust:
-`crates/pi-coding-agent/src/bundled_extensions/codex_web_search/mod.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/codex_web_search/mod.rs`.
 
 | TypeScript symbol / branch | Rust item | Proof |
 |---|---|---|

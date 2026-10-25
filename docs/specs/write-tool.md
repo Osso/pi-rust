@@ -22,9 +22,9 @@ Match frozen `coding-agent/src/core/tools/write.ts` at `4f9e6f8a4`: queued whole
 - [Shared mutation queue](../porting/traceability/file-mutation-queue.md)
 
 ## Implementation inventory
-- `crates/pi-coding-agent/src/core/tools/write.rs` — write schema, operations, execution and rendering.
-- `crates/pi-coding-agent/src/core/tools/file_mutation_queue.rs` — shared file serialization.
-- `crates/pi-coding-agent/src/core/tools/render_utils.rs` — display/path normalization.
+- `crates/pi-coding-agent-core/src/core/tools/write.rs` — write schema, operations, execution and rendering.
+- `crates/pi-coding-agent-core/src/core/tools/file_mutation_queue.rs` — shared file serialization.
+- `crates/pi-coding-agent-core/src/core/tools/render_utils.rs` — display/path normalization.
 
 ## Tests asserting this spec
 [Module proof map](../porting/traceability/write.md) names the execution, filesystem, queue, renderer-history and actual consumer-boundary tests.

@@ -5,6 +5,8 @@ Worktree base updated from `5d2454d` to `04f51ba` before extension API implement
 
 ## Subagent discovery and dispatch
 
+2026-10-24 build-only correction: `js_format!` has no brace escapes. The tool description interpolates the literal `{previous}` as an argument rather than using the invalid `{{previous}}` template. `example_subagent::tool_description_matches_the_pinned_extension_literal` compares the complete registered description with the frozen extension through the real runner; no dispatch behavior changes.
+
 Embed `examples/extensions/subagent/index.rs` using `#[path]`; explicitly register
 `subagent_extension(api, agent_dir, Invocation { program, prefix })` in an
 `ExtensionRegistry` factory. `agent_dir` is the host-resolved agent root;
@@ -157,6 +159,10 @@ Native subagent request/result text, JSON values, rendering and UTF-16 preview s
 ### GitLab refresh request cancellation (2026-10-22)
 
 Frozen `custom-provider-gitlab-duo/index.ts:277–286` supplies no fetch signal when refreshing OAuth credentials. Native `refresh` now passes `None` at that request boundary; the required native trait token is intentionally unused. Existing full registration/login/refresh differential reproduced `signal:true` versus frozen `false` before the fix (`test-example_gitlab_duo-direct-green-2.log`); assertions are unchanged.
+
+### GitLab raw compat carrier (2026-10-24)
+
+Frozen `custom-provider-gitlab-duo/index.ts:333` assigns literal `forceAdaptiveThinking:true`. The native assignment now stores that same `JsValue::Bool(true)` in the single-authority compat carrier; no condition, request behavior or existing metadata changes.
 
 ### GitLab direct-token native JSON boundary (2026-10-22)
 

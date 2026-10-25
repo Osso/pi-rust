@@ -103,6 +103,34 @@ async fn runner(
     runner
 }
 #[tokio::test]
+async fn tool_description_matches_the_pinned_extension_literal() {
+    let temp = tempfile::tempdir().unwrap();
+    let (agent, script) = fixture(temp.path());
+    let runner = runner(
+        temp.path(),
+        agent.clone(),
+        PathBuf::from("python3"),
+        Vec::new(),
+        Arc::new(Ui::default()),
+    )
+    .await;
+    let tool = runner.get_tool_definition("subagent").unwrap();
+    let mut ts = oracle::TsOracle::spawn_with_environment(
+        "example-subagent-oracle.ts",
+        "packages/coding-agent/examples/extensions/subagent/index.ts",
+        &[
+            ("PI_CODING_AGENT_DIR", agent.into_os_string()),
+            ("SUBAGENT_FIXTURE", script.into_os_string()),
+        ],
+    );
+    let expected = ts.request(&json!({"cwd":temp.path(),"description":true}));
+    assert_eq!(
+        tool.description,
+        JsString::from(expected["description"].as_str().unwrap())
+    );
+}
+
+#[tokio::test]
 async fn modes_dispatch_and_streaming_match_pinned_real_extension_runtime() {
     let temp = tempfile::tempdir().unwrap();
     let (agent, script) = fixture(temp.path());

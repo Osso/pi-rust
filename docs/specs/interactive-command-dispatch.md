@@ -16,7 +16,7 @@ Interactive input follows frozen `interactive-mode.ts:3969–4196` at `4f9e6f8a4
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs`: submit routing and builtin handlers.
+- `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: submit routing and builtin handlers.
 
 ## Tests asserting this spec
 

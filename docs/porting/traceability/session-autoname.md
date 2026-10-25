@@ -3,7 +3,7 @@
 Source: `coding-agent/extensions/session-autoname/src/index.ts` at authorized
 `c248b0067c9fc3fa438f967f826c222875c54834` (2026-10-20 deviation;
 [common source lock](../source-lock.json); old approval to re-validate against 4f9e6f8a4). Rust:
-`crates/pi-coding-agent/src/bundled_extensions/session_autoname.rs`.
+`crates/pi-coding-agent-extensions/src/bundled_extensions/session_autoname.rs`.
 
 | Source symbol / branch | Rust | Proof in `tests/session_autoname.rs` |
 |---|---|---|

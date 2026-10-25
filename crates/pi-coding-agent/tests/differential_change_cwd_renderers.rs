@@ -49,6 +49,24 @@ fn resume_session_renderer_history_preserves_frozen_reuse_and_errors() {
 }
 
 #[test]
+fn ask_supervisor_complete_definition_matches_frozen() {
+    check_definition(
+        "ask-supervisor.ts",
+        "createAskSupervisorToolDefinition",
+        pi_coding_agent::core::tools::ask_supervisor::create_ask_supervisor_tool_definition(),
+    );
+}
+
+#[test]
+fn ask_supervisor_renderer_history_preserves_frozen_reuse_and_errors() {
+    check_renderer_history(
+        "ask-supervisor.ts",
+        "createAskSupervisorToolDefinition",
+        pi_coding_agent::core::tools::ask_supervisor::create_ask_supervisor_tool_definition(),
+    );
+}
+
+#[test]
 fn channel_post_complete_definition_matches_frozen() {
     check_definition(
         "channel-post.ts",

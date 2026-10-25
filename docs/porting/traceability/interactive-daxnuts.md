@@ -1,7 +1,7 @@
 # components/daxnuts.ts
 
 Source: `coding-agent/src/modes/interactive/components/daxnuts.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/components/daxnuts.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/daxnuts.rs`
 
 Tests: `interactive_components_c.rs::daxnuts_reveals_image_and_text_over_time`.
 

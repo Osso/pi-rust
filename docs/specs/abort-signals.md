@@ -39,7 +39,7 @@ One shared native signal carrier matches Node AbortController/AbortSignal and th
 - `crates/pi-js-compat/src/abort.rs` — shared controller, signal, branded reason and subscription capabilities.
 - `crates/pi-js-compat/src/node_error.rs` — single native error-record authority.
 - `crates/pi-agent-core/src/harness/types.rs` — native IO rejection uses the shared error type.
-- `crates/pi-coding-agent/src/core/model_catalog_cache.rs` — shared error import only in this slice.
+- `crates/pi-coding-agent-core/src/core/model_catalog_cache.rs` — shared error import only in this slice.
 - `crates/pi-ai/src/utils/abort_signals.rs` — literal multi-input listeners and explicit cleanup.
 
 ## Tests asserting this spec

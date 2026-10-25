@@ -1,6 +1,6 @@
 # grep.ts — current-pin traceability
 
-Frozen: `packages/coding-agent/src/core/tools/grep.ts` at immutable `4f9e6f8a4`, selected by [source lock](../source-lock.json). Rust: `crates/pi-coding-agent/src/core/tools/grep.rs`. [Contract](../../specs/grep-tool.md). Whole POSIX module re-pin complete; final all-target/scoped-lint checkpoint follows the pipe-error correction. Approved runtime exclusions below remain explicit.
+Frozen: `packages/coding-agent/src/core/tools/grep.ts` at immutable `4f9e6f8a4`, selected by [source lock](../source-lock.json). Rust: `crates/pi-coding-agent-core/src/core/tools/grep.rs`. [Contract](../../specs/grep-tool.md). Whole POSIX module re-pin complete; final all-target/scoped-lint checkpoint follows the pipe-error correction. Approved runtime exclusions below remain explicit.
 
 ## Representation
 

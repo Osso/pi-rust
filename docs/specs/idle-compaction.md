@@ -17,10 +17,10 @@ Preserve frozen `core/idle-compaction.ts` and AgentSession's idle prompt-cache c
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/idle_compaction.rs`: pure deadline calculation.
-- `crates/pi-coding-agent/src/core/agent_session.rs`: target selection, owned timer, lock/rechecks and auto compaction.
+- `crates/pi-coding-agent-core/src/core/idle_compaction.rs`: pure deadline calculation.
+- `crates/pi-coding-agent-core/src/core/agent_session.rs`: target selection, owned timer, lock/rechecks and auto compaction.
 - `crates/pi-agent-core/src/agent/agent.rs`: atomic latest-message/reference observation.
-- `crates/pi-coding-agent/src/core/extensions/types.rs`: native idle reason tag.
+- `crates/pi-coding-agent-core/src/core/extensions/types.rs`: native idle reason tag.
 
 ## Tests asserting this spec
 

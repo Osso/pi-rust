@@ -24,9 +24,9 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent/src/core/self_restart.rs`: one dependency carrier, source dispatch and native process boundaries.
-- `crates/pi-coding-agent/src/core/agent_session_runtime.rs`: built-in process restarter selects the source exec-first function.
-- `crates/pi-coding-agent/src/core/self_restart/native_execve.rs`: supplementary Node POSIX errno/stdio boundary.
+- `crates/pi-coding-agent-core/src/core/self_restart.rs`: one dependency carrier, source dispatch and native process boundaries.
+- `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`: built-in process restarter selects the source exec-first function.
+- `crates/pi-coding-agent-core/src/core/self_restart/native_execve.rs`: supplementary Node POSIX errno/stdio boundary.
 
 ## Tests asserting this spec
 
@@ -35,7 +35,7 @@ Port frozen `packages/coding-agent/src/core/self-restart.ts:231-305` process han
 - `crates/pi-coding-agent/tests/self_restart.rs`: argument/environment and actual process regression fixtures.
 - `crates/pi-coding-agent/tests/self_restart_exec_env.rs`: explicit-environment exec safety and non-Unicode environment spawn.
 - `crates/pi-coding-agent/tests/support/runtime_restart.rs`: actual constructor-default source/native process restart.
-- `crates/pi-coding-agent/src/core/self_restart.rs::process_tests`: real spawn backend failures.
+- `crates/pi-coding-agent-core/src/core/self_restart.rs::process_tests`: real spawn backend failures.
 
 ## Known gaps (current cycle)
 

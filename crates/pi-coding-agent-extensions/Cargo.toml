@@ -1,0 +1,35 @@
+[package]
+name = "pi-coding-agent-extensions"
+version = "0.0.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+publish = false
+autotests = false
+autoexamples = false
+autobenches = false
+
+[dependencies]
+pi-agent-core = { version = "=0.0.0", path = "../pi-agent-core" }
+pi-ai = { version = "=0.0.0", path = "../pi-ai" }
+pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat", features = ["rusqlite"] }
+indexmap = { version = "=2.14.2", features = ["serde"] }
+pi-tui = { version = "=0.0.0", path = "../pi-tui" }
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = { version = "=1.0.151", features = ["preserve_order", "float_roundtrip", "raw_value"] }
+regex = "=1.13.1"
+gethostname = "=1.1.0"
+jiff = { version = "=0.2.38", default-features = false, features = ["std", "tz-system", "tzdb-zoneinfo"] }
+getrandom = "=0.4.3"
+tokio = { version = "=1.53.3", features = ["rt", "macros", "time", "sync", "process", "io-util", "io-std", "fs", "signal"] }
+rustix = { version = "=1.1.5", features = ["fs", "process"] }
+futures-util = "=0.3.34"
+tempfile = "=3.27.0"
+pi-coding-agent-core = { version = "=0.0.0", path = "../pi-coding-agent-core" }
+
+[dev-dependencies]
+tokio = { version = "=1.53.3", features = ["net", "rt-multi-thread", "fs", "test-util"] }
+nix = { version = "=0.30.1", features = ["poll", "process", "term"] }
+
+[lints]
+workspace = true

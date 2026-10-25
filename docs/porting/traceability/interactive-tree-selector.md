@@ -1,7 +1,7 @@
 # tree-selector.ts
 
 Frozen: `coding-agent/src/modes/interactive/components/tree-selector.ts` at `4f9e6f8a4`.
-Native: `crates/pi-coding-agent/src/modes/interactive/components/tree_selector.rs`.
+Native: `crates/pi-coding-agent-interactive/src/modes/interactive/components/tree_selector.rs`.
 
 ## Symbol and branch map
 

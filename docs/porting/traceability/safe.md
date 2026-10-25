@@ -1,7 +1,7 @@
 # safe traceability
 
 Source: `packages/coding-agent/extensions/safe/src/index.ts` (71 lines).
-Rust: `crates/pi-coding-agent/src/bundled_extensions/safe.rs`.
+Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/safe.rs`.
 Tests: `crates/pi-coding-agent/tests/bundled_extensions_gates.rs` (`safe_matches_typescript`).
 
 | Source symbol / branch | Rust item | Proof |

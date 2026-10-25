@@ -10,12 +10,9 @@ use std::io::Write;
 use pi_ai::request::BoxFuture;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
-/// `DETACHED_BASH_RUNNER_MODE`.
-pub const DETACHED_BASH_RUNNER_MODE: &str = "--internal-detached-bash-runner";
-/// `DETACHED_PYRUN_RUNNER_MODE`.
-pub const DETACHED_PYRUN_RUNNER_MODE: &str = "--internal-detached-pyrun-runner";
-/// Rust replacement for bwrap's Node `fs-worker.cjs` (`--internal-bwrap-fs-worker`).
-pub const BWRAP_FS_WORKER_MODE: &str = "--internal-bwrap-fs-worker";
+pub use pi_coding_agent_base::internal_runner::{
+    BWRAP_FS_WORKER_MODE, DETACHED_BASH_RUNNER_MODE, DETACHED_PYRUN_RUNNER_MODE,
+};
 
 /// Runs the bwrap filesystem worker when the argv selects it. Returns the
 /// worker exit code, or `None` when the argv is not a worker invocation.

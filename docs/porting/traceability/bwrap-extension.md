@@ -1,6 +1,6 @@
 # Bwrap extension (`extensions/bwrap/src`)
 
-Port group: `crates/pi-coding-agent/src/bundled_extensions/bwrap/`.
+Port group: `crates/pi-coding-agent-extensions/src/bundled_extensions/bwrap/`.
 Registered as `<first-party:bwrap>`; `backend.rs` is also consumed by the
 bundled Pyrun extension for sandboxed runner invocations.
 

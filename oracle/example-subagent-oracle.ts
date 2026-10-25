@@ -18,6 +18,12 @@ async function main(){
   const runner=new ExtensionRunner([extension],runtime,req.cwd,SessionManager.inMemory(req.cwd),{} as any);
   runner.bindCore({refreshTools:()=>{}} as any,{getModel:()=>({provider:'fixture',id:'inherited'}),getThinkingLevel:()=> 'high'} as any);
   const confirmations:any[]=[];runner.setUIContext({confirm:async(title:string,message:string)=>{confirmations.push([title,message]);return req.confirm;}} as any,'tui');
+  if (req.description) {
+   const tool = runner.getToolDefinition('subagent');
+   if (!tool) throw new Error('Subagent fixture did not register its tool');
+   console.log(JSON.stringify({description: tool.description}));
+   continue;
+  }
   if(req.renders){
    const tool=runner.getToolDefinition('subagent')!;
    const theme={fg:(_r:string,t:string)=>t,bold:(t:string)=>t};

@@ -16,9 +16,9 @@ use crate::api::transform_messages::transform_messages_with;
 use crate::models::calculate_cost;
 use crate::request::BoxFuture;
 use crate::types::{
-    AssistantContent, AssistantMessage, AssistantMessageEvent, Context, DoneReason, ImageContent, Message, Model,
-    ModelCompat, ProviderNativeFormat, StopReason, TextContent, TextSignatureV1, TextSignatureVersion, ThinkingContent,
-    Tool, ToolCall, Usage, UsageCost,
+    AssistantContent, AssistantMessage, AssistantMessageEvent, CompatFields, Context, DoneReason, ImageContent,
+    Message, Model, ProviderNativeFormat, StopReason, TextContent, TextSignatureV1, TextSignatureVersion,
+    ThinkingContent, Tool, ToolCall, Usage, UsageCost,
 };
 use crate::utils::event_stream::AssistantMessageEventSender;
 use crate::utils::hash::short_hash;
@@ -495,10 +495,12 @@ pub fn convert_responses_messages(
 
     let include_system_prompt = options.include_system_prompt.unwrap_or(true);
     if include_system_prompt && let Some(system_prompt) = context.system_prompt.as_ref() {
-        let supports_developer_role = match &model.compat {
-            Some(ModelCompat::OpenAIResponses(compat)) => compat.supports_developer_role != Some(false),
-            _ => true,
-        };
+        // Frozen shared268: direct !==false, regardless of the model's API.
+        let supports_developer_role = model
+            .compat
+            .as_ref()
+            .and_then(|compat| compat.raw("supportsDeveloperRole"))
+            != Some(&JsValue::Bool(false));
         let role = if model.reasoning && supports_developer_role {
             "developer"
         } else {

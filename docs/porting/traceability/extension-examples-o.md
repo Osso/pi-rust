@@ -31,10 +31,10 @@ may pass `pi_ai::http::default_fetch()`).
 
 Pinned `doom-component.ts:54`: `wantsKeyRelease = true`. Its input handler
 `:83–101` needs releases to call `engine.pushKey(false, key)`. The native
-`crates/pi-coding-agent/src/core/extensions/types.rs:262–286`
+`crates/pi-coding-agent-core/src/core/extensions/types.rs:262–286`
 `ExtensionUiComponent` has input/render/focus/dispose methods but **no key-release
 opt-in**. The interactive adapter at
-`crates/pi-coding-agent/src/modes/interactive/interactive_mode.rs:2522–2547`
+`crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs:2522–2547`
 forwards input but does not override the underlying Component release opt-in.
 No terminal-input subscription, manual release simulation or new core API was
 substituted. The component's constructor/resume, 35 FPS timer/error exit,

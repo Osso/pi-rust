@@ -1,7 +1,7 @@
 # working-editor.ts
 
 Source: `coding-agent/src/modes/interactive/working-editor.ts`
-Rust: `crates/pi-coding-agent/src/modes/interactive/working_editor.rs`
+Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/working_editor.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

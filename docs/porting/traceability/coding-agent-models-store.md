@@ -1,7 +1,7 @@
 # coding-agent models store traceability
 
 Pinned source: `packages/coding-agent/src/core/models-store.ts` at `532f7d12cd19235081bd4d6e425bde185652d86f`.
-Rust: `crates/pi-coding-agent/src/core/models_store.rs`.
+Rust: `crates/pi-coding-agent-core/src/core/models_store.rs`.
 The `pi-ai` `ModelsStore` contract itself is documented in [models store traceability](models-store.md).
 
 Focused tests: `crates/pi-coding-agent/tests/models_store.rs` (4 cases, ports of
