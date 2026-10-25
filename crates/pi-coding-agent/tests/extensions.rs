@@ -876,10 +876,7 @@ async fn session_events_scenario(temp_dir: &str) -> Value {
         }))
         .unwrap();
         api.on_session_before_compact(h!(SessionBeforeCompactEvent, |_e, _c| {
-            Ok(Some(SessionBeforeCompactResult {
-                cancel: Some(true),
-                compaction: None,
-            }))
+            Ok(Some(SessionBeforeCompactResult { cancel: Some(true) }))
         }))
         .unwrap();
         let l3 = Arc::clone(&l);

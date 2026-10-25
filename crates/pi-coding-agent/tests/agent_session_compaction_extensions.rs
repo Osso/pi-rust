@@ -443,35 +443,68 @@ async fn manual_compaction_uses_the_compaction_hook_and_marks_from_hook() {
 }
 
 #[tokio::test]
-async fn manual_compaction_preflight_overrides_and_forwards_custom_instructions() {
+async fn manual_compaction_preflight_only_cancels_and_forwards_custom_instructions() {
     let env = env_with(
-        json!({"keepRecentTokens": 1}),
+        json!({"enabled": false, "keepRecentTokens": 1}),
         Some(Arc::new(|event: &SessionBeforeCompactEvent| {
             assert_eq!(
                 event.custom_instructions.as_ref(),
                 Some(&JsString::from("keep decisions"))
             );
-            Some(SessionBeforeCompactResult {
-                cancel: None,
-                compaction: Some(extension_result("preflight summary", &event.preparation)),
-            })
+            Some(
+                serde_json::from_value(json!({
+                    "compaction": extension_result("obsolete preflight summary", &event.preparation)
+                }))
+                .expect("preflight result"),
+            )
         })),
         None,
     )
     .await;
 
-    let result = env
-        .session
-        .compact(Some(&JsString::from("keep decisions")))
-        .await
-        .expect("compact");
-    assert_eq!(result.summary, "preflight summary");
-    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
-        compaction_entry(&env.session)
-    else {
-        panic!("expected a compaction entry");
+    for index in 0..4 {
+        env.session
+            .session_manager()
+            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+                role: pi_ai::UserRole::Tag,
+                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
+                input_source: None,
+                provider_native: None,
+                timestamp: f64::from(index + 1),
+            }))
+            .expect("newer user");
+    }
+    env.session
+        .session_manager()
+        .append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(
+            faux_assistant_message("latest answer", Default::default()),
+        )))
+        .expect("latest answer");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "preflight-compaction", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"error": DISABLED_MESSAGE}}));
+    let instructions = JsString::from("keep decisions");
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        env.session.compact(Some(&instructions)),
+    )
+    .await
+    .expect("compaction must settle without a continuation");
+    let actual = match result {
+        Ok(result) => json!({"summary": result.summary}),
+        Err(error) => json!({"error": error.message()}),
     };
-    assert_eq!(entry.from_hook, Some(true));
+    assert_eq!(actual, expected["value"]);
+    assert!(
+        !env.session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+    );
 }
 
 #[tokio::test]
@@ -479,10 +512,7 @@ async fn manual_compaction_preflight_cancel_reports_cancelled() {
     let env = env_with(
         json!({"keepRecentTokens": 1}),
         Some(Arc::new(|_: &SessionBeforeCompactEvent| {
-            Some(SessionBeforeCompactResult {
-                cancel: Some(true),
-                compaction: None,
-            })
+            Some(SessionBeforeCompactResult { cancel: Some(true) })
         })),
         None,
     )

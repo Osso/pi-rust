@@ -2540,8 +2540,6 @@ pub struct SessionBeforeForkResult {
 pub struct SessionBeforeCompactResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cancel: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub compaction: Option<CompactionResult>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
