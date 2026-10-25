@@ -119,3 +119,7 @@ Native REDs: `/tmp/repin-agent-session-bash-audit-red.log` reports command start
 ## Headless/reload checkpoint, 2026-10-25
 
 `/tmp/repin-agent-session-headless-flags-red.log` has three genuine native failures: ready/start before release was `(false,true)` instead of `(true,false)`; flag values became empty; configured 20ms auto-detach still used the 600000ms default. `/tmp/repin-agent-session-headless-flags-green2.log` passes3 with2 child probes ignored at top level but explicitly executed. The first green.log is a compile/import failure, not runtime evidence. The handshake probe was then strengthened to mark actual session_start rather than completion of bind; final integration runs cover that exact probe. No new non-persistence frozen matrix.
+
+## Reload scheduling correction, 2026-10-25
+
+`agent_session / idle_compaction_arms_restored_context` RED1 (`/tmp/repin-agent-session-reload-idle-red.log`) produces one unexpected compaction during reload versus source's zero. GREEN1 (`/tmp/repin-agent-session-reload-idle-green.log`) retains five scenarios, with reload/observer/error negative and startup/aborted positive. This corrects the earlier idle-audit test's native-only reload expectation; it does not weaken or remove coverage. Production change is deletion of the extra scheduling call after reload resources.

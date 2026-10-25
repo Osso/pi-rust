@@ -4202,7 +4202,7 @@ async fn idle_compaction_defers_busy_tool_then_uses_completed_request_deadline()
 }
 
 #[tokio::test(start_paused = true)]
-async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_observer_or_error() {
+async fn idle_compaction_arms_restored_context_at_startup_but_not_reload_observer_or_error() {
     for scenario in ["startup", "reload", "observer", "error", "aborted"] {
         let fixture = fixture_with_multi_agent(
             serde_json::from_value(json!({"compaction":{"keepRecentTokens":1}})).unwrap(),
@@ -4281,8 +4281,9 @@ async fn idle_compaction_arms_restored_context_at_startup_and_reload_but_not_obs
         } else {
             fixture.session.bind_extensions(Default::default()).await.unwrap();
         }
-        tokio::time::advance(std::time::Duration::from_millis(1)).await;
-        if ["observer", "error"].contains(&scenario) {
+        tokio::task::yield_now().await;
+        tokio::time::advance(std::time::Duration::from_secs(1)).await;
+        if ["reload", "observer", "error"].contains(&scenario) {
             for _ in 0..100 {
                 tokio::task::yield_now().await;
             }

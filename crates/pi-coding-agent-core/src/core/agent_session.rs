@@ -7894,7 +7894,6 @@ impl AgentSession {
         self.runner().emit(&mut event).await;
         self.extend_resources_with_reason(crate::core::extensions::types::ResourcesDiscoverReason::Reload)
             .await?;
-        self.schedule_idle_compaction();
         Ok(())
     }
 
