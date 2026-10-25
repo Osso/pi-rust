@@ -6,8 +6,9 @@ use pi_ai::types::{AssistantImages, ImagesContext, ImagesModel, ImagesStopReason
 
 fn model(api: &str, id: &str) -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: api.to_owned(),
         provider: "test".to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -16,7 +17,6 @@ fn model(api: &str, id: &str) -> ImagesModel {
         output: vec![pi_ai::types::Modality::Image],
         cost: Default::default(),
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
     }
 }

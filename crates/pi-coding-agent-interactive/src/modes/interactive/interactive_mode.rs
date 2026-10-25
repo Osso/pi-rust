@@ -1791,7 +1791,7 @@ pub struct InteractiveModeOptions {
     pub model_fallback_message: Option<JsString>,
     pub auto_trust_on_reload_cwd: Option<JsString>,
     pub initial_message: Option<JsString>,
-    pub initial_images: Vec<ImageContent>,
+    pub initial_images: Option<Vec<ImageContent>>,
     pub initial_messages: Vec<JsString>,
     pub control_message: Option<crate::core::session_control_db::IncomingControlMessage>,
     pub verbose: bool,
@@ -13442,7 +13442,7 @@ mod ui_tests {
             models: Some(vec![
                 FauxModelDefinition {
                     id: "faux-1".to_owned(),
-                    name: Some("Faux Model".to_owned()),
+                    name: Some("Faux Model".into()),
                     reasoning: Some(true),
                     input: None,
                     cost: None,
@@ -13451,7 +13451,7 @@ mod ui_tests {
                 },
                 FauxModelDefinition {
                     id: "faux-2".to_owned(),
-                    name: Some("Faux Second Model".to_owned()),
+                    name: Some("Faux Second Model".into()),
                     reasoning: Some(false),
                     input: None,
                     cost: None,

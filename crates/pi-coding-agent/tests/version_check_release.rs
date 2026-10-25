@@ -88,16 +88,17 @@ fn release_value(release: Option<LatestPiRelease>) -> Value {
 }
 fn snapshot_error(error: CallbackError) -> Value {
     match error.thrown_value() {
-        AbortReason::Error(error) | AbortReason::DomException(error) => {
-            let mut value =
-                json!({"name": error.name, "message": error.message, "constructor": error.constructor_class().name()});
-            if let Some(code) = error.value().get("code") {
-                value["code"] = serde_json::to_value(code).unwrap();
-            }
-            value
-        }
+        AbortReason::Error(error) => snapshot_native_error(&error, error.constructor_class().name()),
+        AbortReason::DomException(error) => snapshot_native_error(&error, "DOMException"),
         AbortReason::Value(value) => json!({"thrown": value}),
     }
+}
+fn snapshot_native_error(error: &NativeNodeError, constructor: &str) -> Value {
+    let mut value = json!({"name": error.name, "message": error.message, "constructor": constructor});
+    if let Some(code) = error.value().get("code") {
+        value["code"] = serde_json::to_value(code).unwrap();
+    }
+    value
 }
 async fn run_case(case: Value) -> Value {
     let version = case["currentJson"]
@@ -207,6 +208,9 @@ fn release_api_matches_frozen_source() {
         json!({"mode":"fetch-error","op":"check"}),
         json!({"body":"not json","op":"check"}),
         json!({"mode":"body-error","op":"check"}),
+        json!({"timeoutMs":-1}),
+        json!({"timeoutMs":1.5}),
+        json!({"currentJson":r#""\ud800""#}),
         json!({"timeoutMs":1,"mode":"timeout"}),
         json!({"timeoutMs":1,"mode":"slow"}),
         json!({"skip":"1"}),

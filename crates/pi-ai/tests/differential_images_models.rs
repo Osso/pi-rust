@@ -14,8 +14,9 @@ use serde_json::{Value, json};
 
 fn test_model(provider: &str, id: &str) -> ImagesModel {
     ImagesModel {
+        properties: Default::default(),
         id: id.to_owned(),
-        name: id.to_owned(),
+        name: id.into(),
         api: "test-images".to_owned(),
         provider: provider.to_owned(),
         base_url: ("https://example.test/v1".to_owned()).into(),
@@ -24,7 +25,6 @@ fn test_model(provider: &str, id: &str) -> ImagesModel {
         output: vec![Modality::Image],
         cost: Default::default(),
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
     }
 }
@@ -110,6 +110,101 @@ impl ProviderImages for RecordingApi {
     }
 }
 
+#[tokio::test]
+async fn image_refresh_preserves_an_existing_models_error() {
+    use pi_ai::auth::resolve::{ModelsError, ModelsErrorCode};
+    let models = create_images_models(Default::default());
+    let original = ModelsError::with_cause(
+        ModelsErrorCode::Auth,
+        "catalog permission denied",
+        Some(Box::new(pi_js_compat::abort::AbortReason::Value(
+            pi_js_compat::js_json::JsValue::String("cause".into()),
+        ))),
+    );
+    let failure = original.clone();
+    models.set_provider(create_images_provider(CreateImagesProviderOptions {
+        id: "p1".into(),
+        name: None,
+        auth: ProviderAuth::api_key(Arc::new(StaticAuth { result: None })),
+        models: vec![],
+        refresh_models: Some(Arc::new(move || {
+            let failure = failure.clone();
+            Box::pin(async move { Err(failure.into_callback()) })
+        })),
+        api: Arc::new(RejectingApi),
+    }));
+    assert_eq!(models.refresh(Some("p1")).await.unwrap_err(), original);
+}
+
+#[test]
+fn image_options_metadata_forwards_native_arbitrary_json() {
+    use pi_js_compat::js_json::{JsValue, parse_lossless};
+    let metadata = parse_lossless(r#"{"trace":"\ud800", "nested":{"\udc00":[true,7,null]}}"#).unwrap();
+    let mut oracle = oracle::TsOracle::spawn("images-models-oracle.ts", "packages/ai/src/images-models.ts");
+    let expected: JsValue = oracle.request(&pi_js_compat::js_json!({
+        "id":2,"operation":"generate","options":{"metadata":metadata}
+    }));
+    assert_eq!(expected["ok"], JsValue::Bool(true), "{expected:?}");
+    let calls = Arc::new(Mutex::new(Vec::new()));
+    let models = create_images_models(Default::default());
+    models.set_provider(create_images_provider(CreateImagesProviderOptions {
+        id: "p1".into(),
+        name: None,
+        auth: ProviderAuth::api_key(Arc::new(StaticAuth { result: None })),
+        models: vec![],
+        refresh_models: None,
+        api: Arc::new(RecordingApi { calls: calls.clone() }),
+    }));
+    let options = ImagesOptions {
+        metadata: Some(metadata.as_object().unwrap().clone()),
+        ..Default::default()
+    };
+    block_on(models.generate_images(test_model("p1", "m1"), context(), options)).unwrap();
+    let calls = calls.lock().unwrap();
+    let observed = JsValue::Object(calls[0].options.metadata.clone().unwrap());
+    assert_eq!(observed, expected["output"]["calls"][0]["metadata"]);
+    assert_eq!(observed, metadata);
+}
+
+struct RejectingApi;
+
+impl ProviderImages for RejectingApi {
+    fn generate_images(
+        &self,
+        _model: ImagesModel,
+        _context: ImagesContext,
+        _options: ImagesOptions,
+    ) -> BoxFuture<'_, Result<AssistantImages, CallbackError>> {
+        Box::pin(async {
+            Err(pi_js_compat::node_error::NativeNodeError::new("TypeError", "image request failed").into())
+        })
+    }
+}
+
+#[test]
+fn unauthenticated_image_rejection_matches_frozen_return_without_await() {
+    let mut oracle = oracle::TsOracle::spawn("images-models-oracle.ts", "packages/ai/src/images-models.ts");
+    let expected = oracle.request(&json!({"id": 1, "operation": "generate", "reject": true}));
+    let models = create_images_models(Default::default());
+    models.set_provider(create_images_provider(CreateImagesProviderOptions {
+        id: "p1".into(),
+        name: None,
+        auth: ProviderAuth {
+            api_key: Some(Arc::new(StaticAuth { result: None })),
+            oauth: None,
+        },
+        models: vec![test_model("p1", "m1")],
+        refresh_models: None,
+        api: Arc::new(RejectingApi),
+    }));
+    let result = block_on(models.generate_images(test_model("p1", "m1"), context(), Default::default()));
+    let actual = match result {
+        Ok(output) => json!({"id": 1, "ok": true, "output": output}),
+        Err(error) => json!({"id": 1, "ok": false, "error": {"name": error.name, "message": error.message}}),
+    };
+    assert_eq!(actual, expected);
+}
+
 fn auth_from_request(value: &Value) -> Option<AuthResult> {
     let auth = value.get("auth")?.as_object()?;
     Some(AuthResult {
@@ -161,6 +256,7 @@ fn call_value(call: &Call) -> Value {
         "apiKey": call.options.request.api_key,
         "headers": call.options.request.headers,
         "env": call.options.request.env,
+        "metadata": call.options.metadata,
     })
 }
 
@@ -201,7 +297,8 @@ fn observed(request: &Value) -> Value {
                 test_model("ghost", "m"),
                 ImagesContext { input: Vec::new() },
                 ImagesOptions::default(),
-            ));
+            ))
+            .expect("image generation");
             json!({
                 "id": request["id"],
                 "ok": true,
@@ -221,7 +318,8 @@ fn observed(request: &Value) -> Value {
                 options.request.headers = option_values.get("headers").and_then(headers_from_value);
                 options.request.env = option_values.get("env").and_then(env_from_value);
             }
-            let result = block_on(models.generate_images(test_model("p1", "m1"), context(), options));
+            let result =
+                block_on(models.generate_images(test_model("p1", "m1"), context(), options)).expect("image generation");
             let calls = calls.lock().expect("calls lock");
             json!({
                 "id": request["id"],
@@ -266,6 +364,7 @@ fn images_models_matches_the_pinned_typescript_module() {
             "options": {"headers": {"x-request": "request", "x-shared": "request"}}
         }),
         json!({"id": 4, "operation": "generate", "auth": null}),
+        json!({"id": 6, "operation": "generate", "auth": {"baseUrl": ""}}),
         json!({"id": 5, "operation": "generate", "auth": {"apiKey": "auth-key"}, "options": {"apiKey": "explicit"}}),
     ];
     let mut ts = oracle::TsOracle::spawn("images-models-oracle.ts", "packages/ai/src/images-models.ts");

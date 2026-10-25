@@ -6,9 +6,9 @@ Port `packages/coding-agent/src/supervisor/main.ts` at frozen `4f9e6f8a4`. [Trac
 
 - [x] Select authenticated `gpt-6.1-sol` models in frozen primary/fallback order and preserve the no-auth error.
 - [x] Prepare the resident session, retaining the frozen selected file, session ID, cwd and archive behavior.
-- [ ] Preserve request/console priority, durable completion and cancellation, prompt lifetime and exact current-response errors.
+- [x] Preserve request/console priority, durable completion and cancellation, prompt lifetime and exact current-response errors.
 - [x] Review non-generic goal continuation instructions; preserve accepted instructions, suppress rejected/invalid/failed reviews to the frozen generic continuation, and append exact hidden policy feedback before completion.
-- [ ] Preserve stateless review authentication/fallback, console identity, resource loading and service cleanup.
+- [x] Preserve stateless review authentication/fallback, console identity, resource loading and service cleanup.
 
 ## How it works
 
@@ -27,8 +27,7 @@ Port `packages/coding-agent/src/supervisor/main.ts` at frozen `4f9e6f8a4`. [Trac
 
 ## Known gaps (current cycle)
 
-- [ ] Finish the request-policy branch matrix and stateless evaluator/service wiring.
-- [ ] Finish snapshot identity and lifecycle proofs.
+None. The preserved frozen catalog discrepancy and approved runtime exclusions are recorded in the branch map.
 
 ## Out of scope
 

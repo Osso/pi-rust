@@ -257,11 +257,15 @@ pub fn start_tool_dispatch(input: &StartToolDispatchInput) -> AgentSnapshot {
     let agent_id = input.agent.id.clone();
     let waiting = Arc::clone(&input.waiting_desktop_notifications);
     tokio::spawn(async move {
-        if let Some(dispatch) = dispatch {
-            let _ = dispatch.await;
-        }
+        let error = match dispatch {
+            Some(dispatch) => dispatch.await.err(),
+            None => None,
+        };
         unsubscribe();
         close_waiting_desktop_notification_when_not_waiting(&store, &agent_id, &waiting);
+        if let Some(error) = error {
+            crate::utils::uncaught::throw_callback_uncaught(pi_js_compat::callback_error::CallbackError::new(error));
+        }
     });
     input
         .store
@@ -305,7 +309,7 @@ pub fn track_agent_dispatch(
             Ok(agent) => Ok(agent),
             Err(error) => {
                 let current = store.get_agent(&agent.id).unwrap_or_else(|| agent.clone());
-                Ok(finalize_reserved_runtime(FinalizeReservedRuntimeInput {
+                finalize_reserved_runtime(FinalizeReservedRuntimeInput {
                     agent: current,
                     expected_restore_generation: Some(restore_generation),
                     error: Some(AgentError {
@@ -316,7 +320,7 @@ pub fn track_agent_dispatch(
                     reserved_runtime,
                     store: Arc::clone(&store),
                     terminal_lifecycle: "failed",
-                }))
+                })
             }
         };
         if let Some(handles) = handles.as_ref() {
@@ -338,10 +342,9 @@ async fn dispatch_reserved_agent_session(
     input: DispatchReservedAgentSessionInput,
 ) -> Result<AgentSnapshot, pi_js_compat::js_json::JsString> {
     let restore_generation = input.store.get_restore_generation();
-    let creation = create_reserved_child_session(&input).await;
-    let (child_session, running_agent) = match creation {
-        Ok(created) => created,
-        Err(agent) => return Ok(*agent),
+    let (child_session, running_agent) = match create_reserved_child_session(&input).await? {
+        ReservedChildSessionCreation::Ready(session, agent) => (session, agent),
+        ReservedChildSessionCreation::Failed(agent) => return Ok(agent),
     };
     if input.store.get_restore_generation() != restore_generation {
         child_session.abort();
@@ -373,9 +376,14 @@ async fn dispatch_reserved_agent_session(
     run_confirmed_child_session(input, child_session, running_agent, restore_generation).await
 }
 
+enum ReservedChildSessionCreation {
+    Ready(Arc<dyn ChildAgentSession>, AgentSnapshot),
+    Failed(AgentSnapshot),
+}
+
 async fn create_reserved_child_session(
     input: &DispatchReservedAgentSessionInput,
-) -> Result<(Arc<dyn ChildAgentSession>, AgentSnapshot), Box<AgentSnapshot>> {
+) -> Result<ReservedChildSessionCreation, JsString> {
     let lifecycle = input.reserved_runtime.lifecycle.clone();
     match input
         .create_child_session
@@ -389,7 +397,7 @@ async fn create_reserved_child_session(
         })
         .await
     {
-        Ok(session) => Ok((session, lifecycle.agent)),
+        Ok(session) => Ok(ReservedChildSessionCreation::Ready(session, lifecycle.agent)),
         Err(error) => {
             let failed = input
                 .reserved_runtime
@@ -403,13 +411,14 @@ async fn create_reserved_child_session(
                     }),
                     result: None,
                     terminal_lifecycle: "failed".to_owned(),
-                });
+                })
+                .map_err(|error| error.message().clone())?;
             match failed {
-                Ok(LifecycleCommandResult::Ok { agent }) => {
-                    let _ = publish_coordinator_snapshot(&input.store, &agent);
-                    Err(agent)
+                LifecycleCommandResult::Ok { agent } => {
+                    publish_coordinator_snapshot(&input.store, &agent).map_err(|error| error.message)?;
+                    Ok(ReservedChildSessionCreation::Failed(*agent))
                 }
-                _ => Err(Box::new(lifecycle.agent)),
+                LifecycleCommandResult::Err { .. } => Ok(ReservedChildSessionCreation::Failed(lifecycle.agent)),
             }
         }
     }
@@ -465,13 +474,15 @@ pub fn run_agent_session(
             return Ok(agent);
         }
         let abort_registration = register_store_abort_handler(&input);
-        publish_active_session_identity(&input, &active_session);
-        let previous_messages = active_session.messages();
-        let outcome = prompt_child_and_wait_for_descendants(&input, &active_session).await;
+        let outcome = async {
+            publish_active_session_identity(&input, &active_session)?;
+            let previous_messages = active_session.messages();
+            prompt_child_and_wait_for_descendants(&input, &active_session).await?;
+            complete_prompted_child_session(&input, &active_session, &previous_messages, restore_generation).await
+        }
+        .await;
         let agent = match outcome {
-            Ok(()) => {
-                complete_prompted_child_session(&input, &active_session, &previous_messages, restore_generation).await
-            }
+            Ok(agent) => Ok(agent),
             Err(error) => fail_child_session(&input, &error, restore_generation).await,
         };
         drop(abort_registration);
@@ -573,7 +584,10 @@ fn register_store_abort_handler(input: &RunAgentSessionInput) -> crate::core::mu
         })
 }
 
-fn publish_active_session_identity(input: &RunAgentSessionInput, active_session: &Arc<dyn ChildAgentSession>) {
+fn publish_active_session_identity(
+    input: &RunAgentSessionInput,
+    active_session: &Arc<dyn ChildAgentSession>,
+) -> Result<(), JsString> {
     if let Some(handles) = input.handles.as_ref() {
         handles
             .lock()
@@ -581,10 +595,12 @@ fn publish_active_session_identity(input: &RunAgentSessionInput, active_session:
             .insert(input.running_agent.id.clone(), Arc::clone(active_session));
     }
     if let Some(transcript) = active_session.transcript() {
-        let _ = input
+        input
             .store
-            .update_agent_transcript(&input.running_agent.id, &transcript);
+            .update_agent_transcript(&input.running_agent.id, &transcript)
+            .map_err(|error| error.message)?;
     }
+    Ok(())
 }
 
 async fn prompt_child_and_wait_for_descendants(
@@ -612,7 +628,7 @@ async fn complete_prompted_child_session(
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
-    ) {
+    )? {
         return Ok(cancelled);
     }
     loop {
@@ -621,7 +637,7 @@ async fn complete_prompted_child_session(
             previous_messages,
         ) {
             Ok(summary) => summary,
-            Err(error) => return fail_child_session(input, &error, restore_generation).await,
+            Err(error) => return Err(error),
         };
         let completion_result = summary.map(|summary| AgentResult {
             summary: Some(summary),
@@ -641,13 +657,11 @@ async fn complete_prompted_child_session(
             reserved_runtime: Arc::clone(&input.reserved_runtime),
             store: Arc::clone(&input.store),
             terminal_lifecycle: "completed",
-        });
+        })?;
         if completed.lifecycle != AgentLifecycle::SteeringPending {
             return Ok(completed);
         }
-        if let Err(error) = drain_pending_steering(input, active_session).await {
-            return fail_child_session(input, &error, restore_generation).await;
-        }
+        drain_pending_steering(input, active_session).await?;
     }
 }
 
@@ -684,14 +698,14 @@ async fn fail_child_session(
         &input.running_agent.id,
         Some(&input.reserved_runtime),
         Some(restore_generation),
-    ) {
+    )? {
         return Ok(cancelled);
     }
     let current = input
         .store
         .get_agent(&input.running_agent.id)
         .unwrap_or_else(|| input.running_agent.clone());
-    Ok(finalize_reserved_runtime(FinalizeReservedRuntimeInput {
+    finalize_reserved_runtime(FinalizeReservedRuntimeInput {
         agent: current,
         expected_restore_generation: Some(restore_generation),
         error: Some(AgentError {
@@ -702,7 +716,7 @@ async fn fail_child_session(
         reserved_runtime: Arc::clone(&input.reserved_runtime),
         store: Arc::clone(&input.store),
         terminal_lifecycle: "failed",
-    }))
+    })
 }
 
 pub use super::descendant_settlement::wait_for_active_descendants;
@@ -721,14 +735,14 @@ async fn settle_descendants_before_terminalization(
     wait_for_active_descendants(store, agent_id, signal).await
 }
 
-fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapshot {
+fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> Result<AgentSnapshot, JsString> {
     if let Some(expected) = input.expected_restore_generation
         && input.store.get_restore_generation() != expected
     {
-        return input.agent;
+        return Ok(input.agent);
     }
     if !is_active_lifecycle(input.agent.lifecycle) {
-        return input.agent;
+        return Ok(input.agent);
     }
     let finalized = input
         .reserved_runtime
@@ -739,16 +753,14 @@ fn finalize_reserved_runtime(input: FinalizeReservedRuntimeInput) -> AgentSnapsh
             ownership: input.reserved_runtime.lifecycle.ownership.clone(),
             result: input.result,
             terminal_lifecycle: input.terminal_lifecycle.to_owned(),
-        });
+        })
+        .map_err(|error| error.message().clone())?;
     match finalized {
-        Ok(LifecycleCommandResult::Ok { agent }) => {
-            let _ = publish_coordinator_snapshot(&input.store, &agent);
-            *agent
+        LifecycleCommandResult::Ok { agent } => {
+            publish_coordinator_snapshot(&input.store, &agent).map_err(|error| error.message)?;
+            Ok(*agent)
         }
-        _ => input
-            .store
-            .get_agent(&input.agent.id)
-            .unwrap_or_else(|| input.agent.clone()),
+        LifecycleCommandResult::Err { .. } => Ok(input.store.get_agent(&input.agent.id).unwrap_or(input.agent)),
     }
 }
 
@@ -757,16 +769,20 @@ fn acknowledge_cancelled_runtime(
     agent_id: &JsString,
     reserved_runtime: Option<&Arc<OwnedAgentRuntime>>,
     expected_restore_generation: Option<u64>,
-) -> Option<AgentSnapshot> {
-    let reserved_runtime = reserved_runtime?;
+) -> Result<Option<AgentSnapshot>, JsString> {
+    let Some(reserved_runtime) = reserved_runtime else {
+        return Ok(None);
+    };
     if let Some(expected) = expected_restore_generation
         && store.get_restore_generation() != expected
     {
-        return None;
+        return Ok(None);
     }
-    let current = store.get_agent(agent_id)?;
+    let Some(current) = store.get_agent(agent_id) else {
+        return Ok(None);
+    };
     if current.lifecycle != AgentLifecycle::Cancelling {
-        return None;
+        return Ok(None);
     }
     let acknowledged = reserved_runtime
         .coordinator
@@ -774,13 +790,13 @@ fn acknowledge_cancelled_runtime(
             agent: current.clone(),
             ownership: reserved_runtime.lifecycle.ownership.clone(),
         })
-        .ok()?;
+        .map_err(|error| error.message().clone())?;
     match acknowledged {
         LifecycleCommandResult::Ok { agent } => {
-            let _ = publish_coordinator_snapshot(store, &agent);
-            Some(*agent)
+            publish_coordinator_snapshot(store, &agent).map_err(|error| error.message)?;
+            Ok(Some(*agent))
         }
-        LifecycleCommandResult::Err { .. } => Some(current),
+        LifecycleCommandResult::Err { .. } => Ok(Some(current)),
     }
 }
 

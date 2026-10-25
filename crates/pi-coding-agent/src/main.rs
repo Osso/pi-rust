@@ -2296,7 +2296,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             model_fallback_message: model_fallback_message.clone(),
             auto_trust_on_reload_cwd,
             initial_message: initial.initial_message.clone(),
-            initial_images: initial.initial_images.clone().unwrap_or_default(),
+            initial_images: initial.initial_images.clone(),
             initial_messages: parsed.messages.iter().map(JsString::from).collect(),
             control_message,
             verbose: parsed.verbose.is_some_and(|value| value),
@@ -2363,7 +2363,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
             mode: print_mode,
             messages: parsed.messages.iter().map(JsString::from).collect(),
             initial_message: initial.initial_message,
-            initial_images: initial.initial_images.unwrap_or_default(),
+            initial_images: initial.initial_images,
         },
     )
     .await?;

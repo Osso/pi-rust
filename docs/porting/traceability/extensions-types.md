@@ -2,7 +2,8 @@
 
 Frozen 4f9e6f8a4 model_request_start/model_request_end payloads and registration/dispatch were added with the foreground wait slice. AgentSession forwards both real AgentEvent variants; focused runner+wait deadline proof is in [wait contract](../../specs/agent-wait-slice.md). Whole extension event/API re-pin coverage remains independent.
 
-Source: `packages/coding-agent/src/core/extensions/types.ts` (2001 lines).
+Source: `packages/coding-agent/src/core/extensions/types.ts` (1958 lines, frozen `4f9e6f8a4`).
+Whole-module audit closed 2026-10-25: all 171 exported declarations are mapped to the native contracts below. Per-tool/session unions, RefreshToolsHandler and ExtensionRuntimeState are erased/represented by existing structs, native tool payloads and action/runtime fields; they do not require unused carrier types. Current proof: [extension API closure](../ext-api-repin-proof.md), superseding historical pending labels.
 Rust: `crates/pi-coding-agent-tools/src/core/extensions/types.rs`.
 
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
@@ -48,7 +49,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
   input reaches tool execution and the provider request. The differential
   `mutations` scenario proves this against the real TypeScript runner with two
   chained handlers for `tool_call` input. Source-absent BeforeProviderHeadersEvent/API/handler registry/enum and all dispatch branches are deleted in the Q15 contract rewrite; old-only header assertions are retired, not current-pin proof.
-- Tool-call inputs are `serde_json::Map<String, Value>`. The TypeScript union
+- Tool-call inputs are native `JsObject`. The TypeScript union
   carries per-tool input/detail types owned by the tools slices
   (`BashToolInput`, `ReadToolInput`, …, `BashToolDetails`, …); this module does
   not duplicate them. Type guards (`isToolCallEventType`, `is*ToolResult`) are
@@ -91,7 +92,7 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `RuntimeMailboxEvent` | same name (`RuntimeMailboxMessage` reused) | differential `mailbox` |
 | Agent events (`Context` … `ToolExecutionEnd`) | same names (`AgentMessage`, `AssistantMessageEvent`, `ToolResultMessage` reused) | differential `dispatch`, `errors` |
 | `ModelSelectEvent`, `ThinkingLevelSelectEvent` | same names (`ThinkingLevel` from agent-core) | compile-time |
-| `UserBashEvent/Result` | same names; operations/result are JSON until the bash tool port | differential `dispatch` |
+| `UserBashEvent/Result` | same names; typed BashOperations and BashResult | differential `dispatch` |
 | `InputEvent`, `InputEventResult`, `InputSource` | same names; `InputImages` carries array identity | differential `input`, `input_images` |
 | `ToolCallEvent`, `ToolResultEvent`, unions, guards | single structs + `ToolName` + guards | differential `dispatch`, `errors`; `gates_and_reviewers_patch_tool_input` |
 | Result records (`ToolCallEventResult` … `SessionBeforeTreeResult`) | same names; `ToolCallEventResult.input` is the Rust patch channel | differential |
@@ -121,16 +122,7 @@ None.
 
 ## Discrepancies
 
-- `emitInput` image identity is modeled by `InputImages` (an `Arc<Vec<ImageContent>>`
-  with `ptr_eq`). TypeScript compares `currentImages !== images`; cloning the
-  event images preserves the reference and yields `continue`, while a freshly
-  built `InputImages` with equal contents yields `transform`. In-place mutation
-  of the shared array is not expressible through the Rust contract (contents
-  are immutable); a Rust handler returns a new value instead, which produces
-  `transform` rather than TypeScript's identity-preserving `continue`. That is
-  an API-shape deviation, not a dropped observable result: the transformed
-  value still reaches the prompt. Evidence: differential `input_images` in
-  `tests/extensions.rs` runs both cases against the pinned TS runner.
+- `InputImages` retains array identity until a handler supplies transform images. The runner detaches every supplied transform array, matching frozen structuredClone before `currentImages !== images`. Both same-array return and fresh equal-array return therefore transform; omitted images retain identity. Current `input_images` differential proves these exact cases. JS mutation-through-shared-reference remains the standing Rust-native owned-value deviation, not a new runtime path.
 
 ## Representation
 

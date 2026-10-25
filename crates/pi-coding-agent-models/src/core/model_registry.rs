@@ -711,7 +711,6 @@ fn create_registered_model(provider: &str, input: &ProviderModelInput, config: &
         context_window: input.context_window,
         max_tokens: input.max_tokens,
         auto_compaction_threshold: None,
-        sampling_params: None,
         headers: None,
         compat: input
             .compat

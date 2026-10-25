@@ -5,23 +5,69 @@ import { readFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 
-type Api = Record<string, (...args: unknown[]) => unknown> & Record<string, unknown>;
-type Request = { id: number; module: string; operation: string; [key: string]: unknown };
+type Api = Record<string, (...args: unknown[]) => unknown> &
+	Record<string, unknown>;
+type Request = {
+	id: number;
+	module: string;
+	operation: string;
+	[key: string]: unknown;
+};
 type Handler = (api: Api, request: Request) => unknown | Promise<unknown>;
 
 function errorOf(error: unknown): { name: string; message: string } {
-	return error instanceof Error ? { name: error.name, message: error.message } : { name: "Unknown", message: String(error) };
+	return error instanceof Error
+		? { name: error.name, message: error.message }
+		: { name: "Unknown", message: String(error) };
 }
 
 const handlers: Record<string, Handler> = {
+	exportPaths: async (api, request) => {
+		const { SessionManager } = await import(
+			pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href
+		);
+		const oldCwd = process.cwd();
+		process.chdir(request.cwd as string);
+		try {
+			const manager = SessionManager.openReadOnly(request.inputPath as string);
+			const options =
+				request.outputPath === undefined
+					? undefined
+					: request.shorthand
+						? request.outputPath
+						: { outputPath: request.outputPath };
+			const outputPath = request.live
+				? await api.exportSessionToHtml(manager, undefined, options)
+				: await api.exportFromFile(request.inputPath, options);
+			return {
+				path: outputPath,
+				html: readFileSync(outputPath as string, "utf-8"),
+			};
+		} catch (error) {
+			return { error: errorOf(error) };
+		} finally {
+			process.chdir(oldCwd);
+		}
+	},
 	exportLive: async (api, request) => {
-		const { SessionManager } = await import(pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href);
+		const { SessionManager } = await import(
+			pathToFileURL(`${process.argv[2]}/core/session-manager.ts`).href
+		);
 		const calls: unknown[] = [];
 		const toolRenderer = {
-			renderCall(id: string, name: string, args: unknown) { calls.push({ id, name, args }); return request.callHtml; },
-			renderResult() { return undefined; },
+			renderCall(id: string, name: string, args: unknown) {
+				calls.push({ id, name, args });
+				return request.callHtml;
+			},
+			renderResult() {
+				return undefined;
+			},
 		};
-		await api.exportSessionToHtml(SessionManager.openReadOnly(request.inputPath as string), undefined, { outputPath: request.outputPath, toolRenderer });
+		await api.exportSessionToHtml(
+			SessionManager.openReadOnly(request.inputPath as string),
+			undefined,
+			{ outputPath: request.outputPath, toolRenderer },
+		);
 		return { html: readFileSync(request.outputPath as string, "utf-8"), calls };
 	},
 	exportFromFile: async (api, request) => {
@@ -30,7 +76,10 @@ const handlers: Record<string, Handler> = {
 				outputPath: request.outputPath as string,
 				themeName: request.themeName as string | undefined,
 			});
-			return { ok: true, html: readFileSync(request.outputPath as string, "utf-8") };
+			return {
+				ok: true,
+				html: readFileSync(request.outputPath as string, "utf-8"),
+			};
 		} catch (error) {
 			return { ok: false, error: errorOf(error).message };
 		}
@@ -39,12 +88,15 @@ const handlers: Record<string, Handler> = {
 
 async function main(): Promise<void> {
 	const sourceRoot = process.argv[2];
-	if (!sourceRoot) throw new Error("export oracle requires the coding-agent src directory");
+	if (!sourceRoot)
+		throw new Error("export oracle requires the coding-agent src directory");
 	const modules = new Map<string, Api>();
 	const load = async (module: string): Promise<Api> => {
 		let api = modules.get(module);
 		if (!api) {
-			api = (await import(pathToFileURL(`${sourceRoot}/${module}`).href)) as Api;
+			api = (await import(
+				pathToFileURL(`${sourceRoot}/${module}`).href
+			)) as Api;
 			modules.set(module, api);
 		}
 		return api;
@@ -59,7 +111,9 @@ async function main(): Promise<void> {
 			const output = await handler(await load(request.module), request);
 			process.stdout.write(`${JSON.stringify({ id, ok: true, output })}\n`);
 		} catch (error) {
-			process.stdout.write(`${JSON.stringify({ id, ok: false, error: errorOf(error) })}\n`);
+			process.stdout.write(
+				`${JSON.stringify({ id, ok: false, error: errorOf(error) })}\n`,
+			);
 		}
 	}
 }

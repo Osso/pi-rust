@@ -614,7 +614,11 @@ fn uncompressed_inactive_tree_and_archived_list_context_are_source_equivalent() 
         let actual=SessionManager::list(&JsString::from(&dir),Some(&JsString::from(&dir)),None,None).unwrap().into_iter().map(|s|json!({"path":s.path,"id":s.id,"cwd":s.cwd,"messageCount":s.message_count,"firstMessage":s.first_message})).collect::<Vec<_>>();
         assert_eq!(json!(actual), call(&mut ts, json!({"op":"list","cwd":dir,"dir":dir})));
     }
-    assert!(pi_coding_agent::core::session_manager::find_most_recent_session(&JsString::from(&dir), None).is_none());
+    assert!(
+        pi_coding_agent::core::session_manager::find_most_recent_session(&JsString::from(&dir), None)
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[test]

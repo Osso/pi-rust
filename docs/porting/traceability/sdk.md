@@ -1,6 +1,7 @@
 # sdk.ts traceability
 
 Rust: `crates/pi-coding-agent-core/src/core/sdk.rs`.
+Frozen `4f9e6f8a4` whole-module audit closed 2026-10-25. [Current proof](../ext-api-repin-proof.md) renews all 15 SDK behavioral/differential tests and supersedes historical pending labels below.
 
 Q18: convert-to-LLM callback propagates native AgentError from core conversion before optional image blocking; invalid typed provider context is never omitted or Display-encoded. SDK cwd/agent_dir/control_db_path options, result fallback message and errors now use JsString. Native resolution and node_join preserve path units through auth/models path construction, SettingsManager/SessionManager/resource-loader adapters and AgentSession config; no SDK encoding boundary. `lossless_agent_session_paths` adds SDK reopen/agent-dir assertions. Execution remains blocked by scalar model-storage/settings/resource-loader dependencies and coding-library callers. `sdk-path-red.jsonl` records the blocked target before SDK migration; no runtime parity claim.
 
@@ -12,11 +13,11 @@ Q18: convert-to-LLM callback propagates native AgentError from core conversion b
 | `CreateAgentSessionResult` | same (`extensions_result: LoadExtensionsResult`) | export/runtime tests |
 | `rulesScopeForRuntimeRole` | `rules_scope_for_runtime_role` | DefaultResourceLoader tests |
 | `restorePersistedSessionSettings` | inline restore of sandbox profile | `create_agent_session_*` |
-| Re-exported tool factories / `withFileMutationQueue` | not re-exported here; callers use `core::tools` | — |
+| Re-exported tool factories / `withFileMutationQueue` | direct SDK forwards | `core_and_sdk_barrels_forward_frozen_public_contracts` |
 
 ## Behavior
 
-- Model resolution: explicit model, persisted session settings, session context, then
+- Model resolution: explicit model, persisted session settings, then
   `find_initial_model`. A missing model yields `modelFallbackMessage` and an `unknown`
   default model with `thinkingLevel: "off"`; prompting then fails on authentication,
   matching TS (`create_agent_session_keeps_running_without_models`).
@@ -61,13 +62,15 @@ Parent requested an absent-model representation only if actual frozen startup/pe
 
 Frozen reloads default resources, builds existing-session context, then restores persisted settings. Native restored settings before extension factories ran, so factories saw an already-cleared session sandbox override. Moved the existing restoration block to frozen order. RED `/tmp/ext-api2-sdk-order-red2.log`: native factory sees null, frozen sees full-access; both end at null. The actual default resource loader and inline extension factory are exercised, not a mock ordering assertion. GREEN pending.
 
+## Historical model restoration audit (2026-10-25)
+
+Whole-module comparison found an old-only fallback from persisted metadata to the session context's last `model_change`. Frozen SDK restores only metadata; historical entries without metadata must use configured defaults. Removed that fallback. Actual frozen/native RED `/tmp/ext-api3-sdk-legacy-red.log` selects `preferred` versus native `historical` from the same two-model catalog and session entry. `historical_model_entries_do_not_override_settings_without_persisted_metadata` covers the ordinary in-memory/imported-session boundary; post-commit GREEN pending.
+
 ## Gaps
 
-- `base_tools` remains the injected tool override seam; when empty, `AgentSession`
-  builds `createAllToolDefinitions` from current settings.
-- `multiAgentStore`, `onSharedChannelMessageDelivered`, and `sessionStartEvent` are
-  forwarded to `AgentSession`; mutation-target resolver binding remains in `main`
-  (gap).
+- Rust-native base_tools is an injection seam; when empty, AgentSession builds current built-in definitions. Tool's erased TS factory-result union uses existing native tool traits, not a new unused enum.
+- SDK forwards the multi-agent store, coordination callback and session-start metadata. Mutation-target resolver binding is outside this frozen SDK module, not a missing SDK branch.
+- Gap: adversarial shapes, exceptional OS/runtime failures and numeric extremes are outside the current parity bar.
 
 ## Q18 native settings ID adapter (2026-10-22)
 

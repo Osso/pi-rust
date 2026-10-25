@@ -90,11 +90,18 @@ pub fn load_rules_files_from_dir(dir_path: &JsString) -> Result<Vec<RuleFile>, J
     if !path.exists() || !path.is_dir() {
         return Ok(Vec::new());
     }
+    let entries =
+        fs::read_dir(path).map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?;
+    let mut entries = entries
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?;
+    entries.sort_by(|left, right| {
+        left.file_name()
+            .as_encoded_bytes()
+            .cmp(right.file_name().as_encoded_bytes())
+    });
     let mut names = Vec::new();
-    for entry in
-        fs::read_dir(path).map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?
-    {
-        let entry = entry.map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?;
+    for entry in entries {
         let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.ends_with(".md") {
             names.push(name);
@@ -1042,6 +1049,7 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(base_system_prompt.as_ref()),
             None => base_system_prompt,
         };
+        *self.state() = state.clone();
 
         let append_sources = match &self.append_system_prompt_source {
             Some(sources) => sources.clone(),
@@ -1314,13 +1322,17 @@ impl DefaultResourceLoader {
         let mut themes = Vec::new();
         for mut theme in themes_result.themes {
             if let Some(source_path) = theme.source_path.clone() {
-                if let Some(source_info) = self.find_source_info_for_path(
-                    &source_path,
-                    Some(&state.extension_theme_source_infos),
-                    metadata_by_path,
-                )? {
-                    theme.source_info = Some(source_info);
-                }
+                let source_info = self
+                    .find_source_info_for_path(
+                        &source_path,
+                        Some(&state.extension_theme_source_infos),
+                        metadata_by_path,
+                    )?
+                    .or(theme.source_info);
+                theme.source_info = Some(match source_info {
+                    Some(source_info) => source_info,
+                    None => self.get_default_source_info_for_path(&source_path)?,
+                });
             }
             themes.push(theme);
         }
@@ -1536,7 +1548,13 @@ impl DefaultResourceLoader {
             });
             return;
         };
-        for entry in entries.flatten() {
+        let mut entries: Vec<_> = entries.flatten().collect();
+        entries.sort_by(|left, right| {
+            left.file_name()
+                .as_encoded_bytes()
+                .cmp(right.file_name().as_encoded_bytes())
+        });
+        for entry in entries {
             let entry_path = node_join(dir, JsString::from(entry.file_name().to_string_lossy().as_ref()));
             let Ok(metadata) = fs::metadata(encode_node_utf8(&entry_path)) else {
                 continue;

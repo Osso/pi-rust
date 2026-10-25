@@ -12,12 +12,14 @@ async function main(): Promise<void> {
 			api: "test-api",
 			provider: "test-provider",
 			models: [],
-			tokenSize: { min: 1, max: 1 },
+			tokenSize: request.tokenSize ?? { min: 1, max: 1 },
 		});
 		core.setResponses([
-			api.fauxAssistantMessage(request.content, { timestamp: 0 }),
+			request.reject === undefined
+				? api.fauxAssistantMessage(request.content, { timestamp: 0 })
+				: async () => { throw request.reject; },
 		]);
-		const stream = core.streamSimple(core.getModel(""), request.context, {});
+		const stream = core.streamSimple(core.getModel(""), request.context, request.options ?? {});
 		const events = [];
 		for await (const event of stream)
 			events.push(JSON.parse(JSON.stringify(event)));

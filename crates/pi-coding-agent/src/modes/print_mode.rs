@@ -42,7 +42,7 @@ pub struct PrintModeOptions {
     /// First message to send (may contain `@file` content).
     pub initial_message: Option<JsString>,
     /// Images attached to the initial message.
-    pub initial_images: Vec<ImageContent>,
+    pub initial_images: Option<Vec<ImageContent>>,
 }
 
 struct PrintState {

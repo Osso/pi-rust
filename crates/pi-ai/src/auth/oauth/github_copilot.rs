@@ -313,44 +313,43 @@ async fn poll_for_github_access_token(
             let request = json_request(&url, "POST", form_headers(), Some(body));
             let raw = match fetch_json(&runtime, request, &signal).await {
                 Ok(raw) => raw,
-                Err(error) => return OAuthDeviceCodePollResult::Failed { message: error.message },
+                Err(error) => return Ok(OAuthDeviceCodePollResult::Failed { message: error.message }),
             };
             let object = match raw.as_object() {
                 Some(object) => object,
                 None => {
-                    return OAuthDeviceCodePollResult::Failed {
+                    return Ok(OAuthDeviceCodePollResult::Failed {
                         message: "Invalid device token response".to_owned().into(),
-                    };
+                    });
                 }
             };
             if let Some(access_token) = object.get("access_token").and_then(Value::as_str) {
-                return OAuthDeviceCodePollResult::Complete(access_token.to_owned());
+                return Ok(OAuthDeviceCodePollResult::Complete(access_token.to_owned()));
             }
             let Some(error) = object.get("error").and_then(Value::as_str) else {
-                return OAuthDeviceCodePollResult::Failed {
+                return Ok(OAuthDeviceCodePollResult::Failed {
                     message: "Invalid device token response".to_owned().into(),
-                };
+                });
             };
             if error == "authorization_pending" {
-                return OAuthDeviceCodePollResult::Pending;
+                return Ok(OAuthDeviceCodePollResult::Pending);
             }
             if error == "slow_down" {
-                return OAuthDeviceCodePollResult::SlowDown {
+                return Ok(OAuthDeviceCodePollResult::SlowDown {
                     interval_seconds: object.get("interval").and_then(Value::as_f64),
-                };
+                });
             }
             let description = object
                 .get("error_description")
                 .and_then(Value::as_str)
                 .map(|description| format!(": {description}"))
                 .unwrap_or_default();
-            OAuthDeviceCodePollResult::Failed {
+            Ok(OAuthDeviceCodePollResult::Failed {
                 message: format!("Device flow failed: {error}{description}").into(),
-            }
+            })
         }
     })
     .await
-    .map_err(|error| CallbackError::new(error.to_string()))
 }
 
 async fn refresh_access_token(

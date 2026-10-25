@@ -88,7 +88,6 @@ fn model(id: &str, reasoning: bool) -> Model {
         context_window: 128_000.0,
         auto_compaction_threshold: None,
         max_tokens: 16_384.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }

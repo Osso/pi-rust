@@ -1,6 +1,9 @@
 //! Behavioral port of the supervisor service, client, and request-loop tests
 //! (approval-reviewer cases live in `approval_reviewer.rs`).
 
+#[path = "support/oracle.rs"]
+mod oracle;
+
 // This standalone target isolates process-global API registration and self-spawn fixtures.
 #[path = "differential_supervisor_cleanup.rs"]
 mod differential_supervisor_cleanup;
@@ -104,8 +107,8 @@ fn builds_bounded_prompts_for_each_request_kind() {
         SupervisorRequestKind::GoalSetReview,
         json!({"currentObjective": "ship the feature", "proposedObjective": "write one test"}),
     ));
-    assert!(prompt.contains("preserve every requirement and completion criterion in currentObjective"));
-    assert!(prompt.contains("add proposedObjective without narrowing existing scope"));
+    assert!(prompt.contains("Reconcile currentObjective and proposedObjective against that authority: preserve every grounded requirement, exclusion, and completion criterion, but remove unsupported additions."));
+    assert!(prompt.contains("When no grounded parent is known, derive the objective from the user request and supported parts of the proposal; do not copy unsupported constraints unchanged."));
     assert!(prompt.contains("Use kind set with a non-empty reason and objective"));
 
     let prompt = build_supervisor_prompt(&request(
@@ -113,8 +116,10 @@ fn builds_bounded_prompts_for_each_request_kind() {
         json!({"objective": "finish"}),
     ));
     assert!(prompt.contains("resident peer unblocker and policy engine"));
-    assert!(prompt.contains("Treat payload.objective as the authoritative full goal"));
-    assert!(prompt.contains("a completed subtask must not replace broader scope"));
+    assert!(prompt.contains("Treat payload.objective and any current claims as claims about the active goal, not automatically as the full scope."));
+    assert!(prompt.contains(
+        "A child-slice completion that lacks that proof must return continue with the smallest corrective instruction."
+    ));
     assert!(prompt.contains("instructions exactly \"Continue working toward the active goal.\""));
     assert!(prompt.contains("Use pause only when progress requires user action"));
     assert!(prompt.contains("Call supervisor_response exactly once as the final action"));
@@ -554,7 +559,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
         provider: Some("openai-codex".to_owned()),
         models: Some(vec![FauxModelDefinition {
             id: "gpt-6.1-sol".to_owned(),
-            name: Some("Sol".to_owned()),
+            name: Some("Sol".into()),
             reasoning: Some(true),
             input: None,
             cost: None,
@@ -572,7 +577,7 @@ async fn faux_codex_runtime() -> pi_coding_agent::core::model_registry::ModelReg
 }
 
 #[tokio::test]
-async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
+async fn resource_loader_registers_the_kb_gate() {
     use pi_coding_agent::core::extensions::types::{ToolCallEvent, ToolName};
     use pi_coding_agent::core::resource_loader::ResourceLoader;
     use pi_coding_agent::core::session_manager::SessionManager;
@@ -595,9 +600,6 @@ async fn resource_loader_registers_the_kb_gate_and_remote_compaction() {
     .expect("loader");
     let extensions = loader.get_extensions();
     assert!(extensions.errors.is_empty());
-    assert_eq!(extensions.extensions.len(), 2);
-    assert_eq!(extensions.extensions[0].read().tool_gates.len(), 1);
-    assert_eq!(extensions.extensions[1].read().handlers.compaction.len(), 1);
 
     let runtime = faux_codex_runtime().await;
     let runner = pi_coding_agent::core::extensions::ExtensionRunner::new(

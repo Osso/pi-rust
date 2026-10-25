@@ -166,7 +166,6 @@ fn model(context_window: f64) -> Model {
         context_window,
         auto_compaction_threshold: None,
         max_tokens: 8192.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }

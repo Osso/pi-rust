@@ -62,7 +62,6 @@ fn model(id: &str, provider: &str, context_window: f64, reasoning: bool) -> Mode
         context_window,
         auto_compaction_threshold: None,
         max_tokens: 1000.0,
-        sampling_params: None,
         headers: None,
         compat: None,
     }
