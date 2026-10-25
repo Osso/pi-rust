@@ -4,6 +4,8 @@ Rust: `crates/pi-coding-agent-tools/src/core/export_html/index.rs` (templates em
 from `src/core/export_html/templates/`). Tests: `tests/export_html.rs`,
 `tests/differential_export_html.rs`.
 
+Whole-module audit closed 2026-10-25. [Current proof](../ext-api-repin-proof.md) renews exact three-theme HTML, asset override/missing-asset, custom tool truthiness, live/file output-path and write-error contracts; it supersedes historical pending labels.
+
 Historical export proof: commit `532f7d12cd19235081bd4d6e425bde185652d86f`. Current target is the [common source lock](../source-lock.json); frozen4f9 storage-edge evidence below does not renew this entire historical export matrix.
 
 ## Baseline triage (2026-10-25)
@@ -62,7 +64,7 @@ Rust: `crates/pi-coding-agent-tools/src/core/export_html/tool_renderer.rs`. Test
 | render-result collapsed/expanded cache | `rendered_result_components` | `omits_...`, `includes_...` |
 | `renderedStates` / `renderedArgs` | `rendered_states` / `rendered_args` | `shares_render_state_between_calls` |
 | missing renderer → `undefined` | `Option::None` | `returns_none_without_a_custom_renderer` |
-| `catch` → `undefined` | Rust renderers cannot reject; no path | — |
+| `catch` → `undefined` | native tool renderer handles its fallible callbacks and returns None | owning tool-renderer behavior tests |
 | default width 100 | `width.unwrap_or(100)` | `renders_call_html_with_the_default_width` |
 
 The renderer is `Rc`-based (like `ComponentRef`) and therefore not `Send`; the
@@ -72,10 +74,7 @@ TypeScript object is likewise single-threaded. `ToolRenderContext.args` is
 
 ## Gaps / deviations
 - Default output names and relative output paths are tested in the standalone target's isolated child cwd; no parent process cwd is changed.
-- Session-entry key order comes from the session-manager serializer. Pi-written
-  sessions use the canonical append order that the differential fixture follows;
-  arbitrary hand-edited key orders are reordered by `SessionEntry` serialization
-  (session-manager limitation, not this module).
+- Session JSON is serialized through the existing lossless session authority. Native assistant records use the approved fixed key order; TS-written entries keep their original order. Numeric keys use JS enumeration order, covered by the current differential.
 - `SessionHeader` now preserves explicit `null` values for keys present in the
   source file, so `parentSession: null` survives the export payload.
 

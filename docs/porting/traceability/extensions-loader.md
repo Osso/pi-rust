@@ -3,6 +3,8 @@
 Source: `packages/coding-agent/src/core/extensions/loader.ts` (753 lines at frozen `4f9e6f8a4`).
 Rust: `crates/pi-coding-agent-tools/src/core/extensions/loader.rs`.
 
+Whole-module audit closed 2026-10-25. Current proof: [extension API closure](../ext-api-repin-proof.md). Discovery, runtime defaults and API forwarding match the common pin; current named tests supersede historical pending notes.
+
 Approved deviation: TypeScript module loading (`jiti`, virtual modules,
 workspace aliases, factory cache) is not ported. Rust extensions are static
 factories registered in `ExtensionRegistry`; discovery, enabled/disabled
@@ -36,11 +38,11 @@ Diagnostics text preserved:
 
 Whole frozen loader inspection found three ordinary path defects: configured paths and registry lookup used the process cwd instead of the supplied cwd; filesystem-loaded extensions kept the unresolved path as `resolvedPath`; absolute manifest entries were joined below the package instead of replacing it. These now follow frozen resolution and source metadata. Public discovery/loading returns `Result` and propagates path errors rather than panicking or using the unresolved input. Resource-loader and fixture callers propagate or unwrap this mechanically.
 
-RED: actual frozen relative `entry.ts` loads successfully while native reports an invalid factory (`/tmp/ext-api2-loader-red.log`). New differential covers relative loading, source metadata, configured directory and absolute manifest resolution, plus invalid file-URL errors. Post-commit GREEN pending.
+RED: actual frozen relative `entry.ts` loads successfully while native reports an invalid factory (`/tmp/ext-api2-loader-red.log`). New differential covers relative loading, source metadata, configured directory and absolute manifest resolution, plus invalid file-URL errors. GREEN in current `lossless_extension_loader` proof.
 
 ## Pre-bind action audit (2026-10-25)
 
-Frozen runtime rejects requestResumeContinuation before binding, while native silently succeeded. Its callTool/callCommand/setModel rejections use the short `Extension runtime not initialized` message; native incorrectly used the long synchronous-action text. Actual frozen/native RED `/tmp/ext-api3-loader-unbound-red2.log` proves all four differences through the real API/runtime. The continuation callback now returns its existing public Result; core binding and six fixture action tables propagate this mechanically. Post-commit focused proof pending.
+Frozen runtime rejects requestResumeContinuation before binding, while native silently succeeded. Its callTool/callCommand/setModel rejections use the short `Extension runtime not initialized` message; native incorrectly used the long synchronous-action text. Actual frozen/native RED `/tmp/ext-api3-loader-unbound-red2.log` proves all four differences through the real API/runtime. The continuation callback now returns its existing public Result; core binding and six fixture action tables propagate this mechanically. Current focused proof is GREEN.
 
 The Rust-native discovery surface is implemented; `core::resource_loader::DefaultResourceLoader` resolves factories through `ExtensionRegistry` keyed by resolved path or extension id.
 
