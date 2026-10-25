@@ -38,7 +38,7 @@ Evidence: `/tmp/test-consolidate-proof/before-suite.log`, `baseline-results.json
 | `pi-coding-agent` | `detached_pyrun_runner_process` | No status-2 response before the existing timeout. |
 | `pi-coding-agent` | `differential_claude_bash_hook` | Hook request pipe closes with EPIPE / Broken pipe. |
 | `pi-coding-agent` | `host_relay_resident` | Spawn-failure fixture child exits unsuccessfully; underlying exit cause not established. |
-| `pi-coding-agent` | `session_coordination_tools` | Supervisor does not become ready within 10000 ms. The test recursively spawns its own libtest executable with `supervisor` as a test filter; before/after orphan chains were stopped. Product/test-body fix deferred to the resumed lanes. |
+| `pi-coding-agent` | `session_coordination_tools` | Supervisor does not become ready within 10000 ms. The test recursively spawns its own libtest executable with `supervisor` as a test filter; before/after orphan chains were stopped. Fixed2026-10-25: reuse the private bwrap KB/resident IPC/durable-request child helper, preserving exact Continue./sender/details assertions and adding source/native comparison. `/tmp/storage2-coordination-green.log`:16 PASS plus1 child helper invoked by the parent; no provider-backed process or recursive launch. |
 | `pi-coding-agent-interactive` | `pi_coding_agent_interactive` | Two stalled async tests at timeout, plus four ordinary assertion failures; see names below. |
 | `pi-js-compat` | `process_env` | Same-binary env test sees PI_PROCESS_ENV_NO_ALIAS from another case. |
 

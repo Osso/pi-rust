@@ -2779,7 +2779,7 @@ impl AgentSession {
             Some(messages),
         ))
         .await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages());
+        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         result.map(|_| false)
     }
 
@@ -2916,20 +2916,20 @@ impl AgentSession {
     }
 
     /// `_completeRuntimeMailboxSteeringTurn`.
-    fn complete_runtime_mailbox_steering_turn(&self, messages: &[AgentMessage]) {
+    fn complete_runtime_mailbox_steering_turn(&self, messages: &[AgentMessage]) -> Result<(), CallbackError> {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return;
+            return Ok(());
         };
         let agent_ids = lock(&self.inner.runtime_mailbox_steering_agent_ids).clone();
         if agent_ids.is_empty() {
-            return;
+            return Ok(());
         }
         let lifecycle = runtime_mailbox_steering_lifecycle(messages);
         let summary = (lifecycle == AgentLifecycle::Completed)
             .then(|| last_runtime_mailbox_assistant_text(messages))
             .flatten();
         for agent_id in &agent_ids {
-            if self.complete_runtime_mailbox_steered_agent(agent_id, lifecycle, summary.as_ref()) {
+            if self.complete_runtime_mailbox_steered_agent(agent_id, lifecycle, summary.as_ref())? {
                 continue;
             }
             if !is_terminal_multi_agent_lifecycle(lifecycle) {
@@ -2944,6 +2944,7 @@ impl AgentSession {
             }
         }
         lock(&self.inner.runtime_mailbox_steering_agent_ids).clear();
+        Ok(())
     }
 
     fn complete_runtime_mailbox_steered_agent(
@@ -2951,18 +2952,18 @@ impl AgentSession {
         agent_id: &JsString,
         lifecycle: AgentLifecycle,
         summary: Option<&JsString>,
-    ) -> bool {
+    ) -> Result<bool, CallbackError> {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let Some(current) = store.get_agent(agent_id) else {
-            return true;
+            return Ok(true);
         };
         if is_terminal_multi_agent_lifecycle(current.lifecycle) {
-            return true;
+            return Ok(true);
         }
         if !is_terminal_multi_agent_lifecycle(lifecycle) {
-            return true;
+            return Ok(true);
         }
         let result = summary.map(|summary| crate::core::multi_agent_store::AgentResult {
             summary: Some(summary.to_owned()),
@@ -2994,16 +2995,16 @@ impl AgentSession {
         let weak = Arc::downgrade(&self.inner);
         let subscription = store.subscribe_agent_updates(move |_previous, _current| {
             if let Some(inner) = weak.upgrade() {
-                AgentSession { inner }.retry_runtime_mailbox_steered_terminals();
+                AgentSession { inner }.retry_runtime_mailbox_steered_terminals()?;
             }
             Ok(())
         });
         *lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe) = Some(subscription);
     }
 
-    fn retry_runtime_mailbox_steered_terminals(&self) {
+    fn retry_runtime_mailbox_steered_terminals(&self) -> Result<(), CallbackError> {
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return;
+            return Ok(());
         };
         let pending: Vec<(JsString, PendingSteeringTerminal)> = lock(&self.inner.runtime_mailbox_pending_terminal)
             .iter()
@@ -3018,14 +3019,15 @@ impl AgentSession {
                 continue;
             }
             lock(&self.inner.runtime_mailbox_pending_terminal).shift_remove(&agent_id);
-            if !self.complete_runtime_mailbox_steered_agent(&agent_id, pending.lifecycle, pending.summary.as_ref()) {
+            if !self.complete_runtime_mailbox_steered_agent(&agent_id, pending.lifecycle, pending.summary.as_ref())? {
                 lock(&self.inner.runtime_mailbox_pending_terminal).insert(agent_id, pending);
             }
         }
         if !lock(&self.inner.runtime_mailbox_pending_terminal).is_empty() {
-            return;
+            return Ok(());
         }
         *lock(&self.inner.runtime_mailbox_pending_terminal_unsubscribe) = None;
+        Ok(())
     }
 
     /// `_finalizeReservedMultiAgent`.
@@ -3035,28 +3037,22 @@ impl AgentSession {
         terminal_lifecycle: &str,
         error: Option<&crate::core::multi_agent_store::AgentError>,
         result: Option<&crate::core::multi_agent_store::AgentResult>,
-    ) -> bool {
+    ) -> Result<bool, CallbackError> {
         use crate::core::lifecycle_coordinator::{FinalizeChildCommandInput, LifecycleCommandResult};
 
         let Some(store) = self.inner.multi_agent_store.as_ref() else {
-            return false;
+            return Ok(false);
         };
         let Some(persistence) = store.get_persistence_target() else {
-            return false;
+            return Ok(false);
         };
-        let ownership = match crate::core::session_control_db::read_multi_agent_runtime_ownership(
+        let ownership = crate::core::session_control_db::read_multi_agent_runtime_ownership(
             &persistence.control_db_path,
             &persistence.session_path,
             &agent.id,
-        ) {
-            Ok(ownership) => ownership,
-            Err(error) => {
-                eprintln!("Failed to read multi-agent runtime ownership: {error}");
-                return false;
-            }
-        };
+        )?;
         let Some(ownership) = ownership else {
-            return false;
+            return Ok(false);
         };
         let coordinator = crate::core::lifecycle_coordinator::LifecycleCoordinator::new(
             crate::core::lifecycle_coordinator::LifecycleCoordinatorOptions {
@@ -3074,26 +3070,18 @@ impl AgentSession {
                 session_path: persistence.session_path.clone(),
             },
         );
-        let finalized = match coordinator.finalize_child(&FinalizeChildCommandInput {
+        let finalized = coordinator.finalize_child(&FinalizeChildCommandInput {
             agent: agent.clone(),
             ownership,
             error: error.cloned(),
             result: result.cloned(),
             terminal_lifecycle: terminal_lifecycle.to_owned(),
-        }) {
-            Ok(finalized) => finalized,
-            Err(error) => {
-                eprintln!("Failed to finalize steered agent: {error}");
-                return false;
-            }
-        };
+        })?;
         if !matches!(finalized, LifecycleCommandResult::Ok { .. }) {
-            return false;
+            return Ok(false);
         }
-        // Approved temporary native bool boundary; stage-4 Result listener migration
-        // must remove this sink and prove frozen agent-session.ts:1892 propagation.
-        let _ = self.drain_terminal_outbox_projections();
-        true
+        self.drain_terminal_outbox_projections()?;
+        Ok(true)
     }
 
     fn start_runtime_mailbox_polling(&self) {
@@ -4457,7 +4445,7 @@ impl AgentSession {
         }
         drop(guard);
         let result = self.run_agent_continuation().await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages());
+        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         result
     }
 
@@ -4480,7 +4468,7 @@ impl AgentSession {
             ));
         }
         let result = self.prompt_turn(text, options, guard, None).await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages());
+        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         if result.is_ok() {
             self.drain_runtime_coordination_messages(DrainCoordinationOptions {
                 checkpoint: None,
