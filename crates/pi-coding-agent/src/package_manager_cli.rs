@@ -305,7 +305,7 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
                 set_once(&mut options.invalid_option, arg);
             } else {
                 let value = rest.get(index + 1);
-                if value.is_none_or(|value| value.starts_with('-')) {
+                if value.is_none_or(|value| value.is_empty() || value.starts_with('-')) {
                     set_once(&mut options.missing_option_value, arg);
                 } else if extension_flag_source.is_some() {
                     set_once(
@@ -320,7 +320,7 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
             }
         } else if arg.starts_with('-') {
             set_once(&mut options.invalid_option, arg);
-        } else if options.source.is_none() {
+        } else if options.source.as_ref().is_none_or(JsString::is_empty) {
             options.source = Some(arg.to_owned());
         } else {
             set_once(&mut options.invalid_argument, arg);
@@ -328,6 +328,7 @@ pub fn parse_package_command(args: &[JsString]) -> Option<PackageCommandOptions>
         index += 1;
     }
 
+    options.source = options.source.filter(|source| !source.is_empty());
     if command == PackageCommand::Update {
         resolve_update_target(
             &mut options,
@@ -1237,12 +1238,11 @@ pub async fn execute_package_command(
                     }
                 }
             }
-            if update_target_includes_self(&target) {
-                if let Err(message) =
+            if update_target_includes_self(&target)
+                && let Err(message) =
                     run_self_update_target(&mut outcome, effects, &agent_dir, force, npm_command.as_deref()).await
-                {
-                    package_error(&mut outcome, &message);
-                }
+            {
+                package_error(&mut outcome, &message);
             }
         }
         PackageAction::Config => {}
@@ -1469,7 +1469,7 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
     }
 
     fn stdout_columns(&self) -> Option<usize> {
-        None
+        pi_tui::terminal::stdout_columns()
     }
 
     fn entrypoint(&self) -> Option<JsString> {

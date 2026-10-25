@@ -441,6 +441,55 @@ async fn build_session_options_uses_scoped_models_and_tool_flags() {
 }
 
 #[tokio::test]
+async fn session_argument_opens_other_project_without_fork_or_prompt() {
+    let root = tempfile::tempdir().unwrap();
+    let project_a = root.path().join("a");
+    let project_b = root.path().join("b");
+    std::fs::create_dir_all(&project_a).unwrap();
+    std::fs::create_dir_all(&project_b).unwrap();
+    let sessions = JsString::from(root.path().join("sessions").to_str().unwrap());
+    let cwd_a = JsString::from(project_a.to_str().unwrap());
+    let cwd_b = JsString::from(project_b.to_str().unwrap());
+    let original = create_session(&cwd_a.to_utf8().unwrap(), &sessions.to_utf8().unwrap(), "original");
+    let parsed = parse_args(&args(&["--session", &original.get_session_id().to_utf8().unwrap()]));
+    let settings = SettingsManager::in_memory(Default::default(), Default::default());
+    let opened = create_session_manager(&parsed, &cwd_b, Some(&sessions), &settings, None)
+        .await
+        .unwrap();
+    assert_eq!(opened.get_session_id(), original.get_session_id());
+    assert_eq!(opened.get_session_file(), original.get_session_file());
+    assert_eq!(opened.get_cwd(), &cwd_a);
+}
+
+#[test]
+fn compressed_transcript_argument_is_a_path_even_when_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let resolved = resolve_session_path(&"saved.jsonl.zst".into(), &cwd, None, None).unwrap();
+    let expected = JsString::from(root.path().join("saved.jsonl.zst").to_str().unwrap());
+    assert_eq!(resolved, ResolvedSession::Path(expected));
+}
+
+#[tokio::test]
+async fn session_argument_restores_archive_before_open() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let sessions = JsString::from(root.path().join("sessions").to_str().unwrap());
+    let original = create_session(&cwd.to_utf8().unwrap(), &sessions.to_utf8().unwrap(), "archived");
+    let path = original.get_session_file().unwrap();
+    let db = JsString::from(root.path().join("control.sqlite").to_str().unwrap());
+    let archived = pi_coding_agent::core::session_archive_storage::archive_session_file(&path).unwrap();
+    let parsed = parse_args(&args(&["--session", &archived.to_utf8().unwrap()]));
+    let settings = SettingsManager::in_memory(Default::default(), Default::default());
+    let opened = create_session_manager(&parsed, &cwd, Some(&sessions), &settings, Some(&db))
+        .await
+        .unwrap();
+    assert_eq!(opened.get_session_id(), original.get_session_id());
+    assert_eq!(opened.get_session_file(), Some(path));
+    assert!(std::path::Path::new(&path.to_utf8().unwrap()).exists());
+}
+
+#[tokio::test]
 async fn create_session_manager_honors_help_in_memory_and_session_ids() {
     let root = tempfile::tempdir().expect("temp dir");
     let agent_dir = root.path().join("agent");
@@ -800,6 +849,92 @@ async fn runtime_factory_uses_the_supplied_project_trust_context() {
         assert_eq!(*observed.lock().unwrap(), Some(expected), "provided {provided}");
         result.session.dispose();
     }
+}
+
+#[tokio::test]
+async fn runtime_factory_keeps_runtime_credentials_across_recreation() {
+    let root = tempfile::tempdir().unwrap();
+    let cwd = JsString::from(root.path().to_str().unwrap());
+    let factory = create_runtime_factory(RuntimeFactoryOptions {
+        parsed: parse_args(&args(&["--no-session", "--no-supervisor"])),
+        agent_dir: cwd.clone(),
+        startup_default_project_trust: DefaultProjectTrust::Never,
+        trust_store: Arc::new(ProjectTrustStore::new(&cwd).unwrap()),
+        trust_prompt_mode: AppMode::Print,
+        app_mode: AppMode::Print,
+        project_trust_by_cwd: Arc::new(Mutex::new(HashMap::new())),
+        additional_extension_paths: Vec::new(),
+        additional_skill_paths: Vec::new(),
+        additional_prompt_template_paths: Vec::new(),
+        additional_theme_paths: Vec::new(),
+        extension_factories: Vec::new(),
+        orchestration: None,
+    });
+    for iteration in 0..2 {
+        let result = factory(CreateAgentSessionRuntimeOptions {
+            cwd: cwd.clone(),
+            agent_dir: cwd.clone(),
+            session_manager: SessionManager::in_memory(Some(&cwd), None).unwrap(),
+            no_supervisor: Some(true),
+            session_start_event: None,
+            project_trust_context: None,
+        })
+        .await
+        .unwrap();
+        if iteration == 0 {
+            result
+                .services
+                .auth_storage
+                .set_runtime_api_key("native-fixture", &"runtime-secret".into());
+        } else {
+            assert!(result.services.auth_storage.has_auth("native-fixture").unwrap());
+        }
+        result.session.dispose();
+    }
+}
+
+#[test]
+fn startup_proxy_child() {
+    if std::env::var("PI_MAIN_PROXY_CHILD").as_deref() != Ok("1") {
+        return;
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let code = runtime
+        .block_on(pi_coding_agent::main_runner::main(
+            &args(&["--version"]),
+            Default::default(),
+        ))
+        .unwrap();
+    assert_eq!(code, 0);
+    assert_eq!(
+        pi_js_compat::process_env::get("HTTP_PROXY").as_deref(),
+        Some("http://127.0.0.1:12345")
+    );
+    assert_eq!(pi_js_compat::process_env::get("HTTPS_PROXY").as_deref(), Some(""));
+}
+
+#[test]
+fn bootstrap_applies_global_proxy_without_overwriting_existing_environment() {
+    let root = tempfile::tempdir().unwrap();
+    std::fs::write(
+        root.path().join("settings.json"),
+        r#"{"httpProxy":"  http://127.0.0.1:12345  "}"#,
+    )
+    .unwrap();
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "startup_proxy_child", "--nocapture"])
+        .env("PI_MAIN_PROXY_CHILD", "1")
+        .env("PI_CODING_AGENT_DIR", root.path())
+        .env("PI_CODING_AGENT_STATE_DIR", root.path().join("state"))
+        .env("HTTPS_PROXY", "")
+        .env_remove("HTTP_PROXY")
+        .current_dir(root.path())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8(output.stderr).unwrap());
 }
 
 #[tokio::test]

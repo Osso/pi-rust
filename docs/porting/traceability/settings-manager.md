@@ -214,3 +214,5 @@ slice must fix persisted raw-unit ingress. No parallel native cache is added.
 when executable; currently written but coding-library compilation blocks runtime
 proof. Snapshot arrays refuse malformed mixed-type fields wholesale; invalid JS
 runtime types remain excluded, not partial-filter parity.
+
+Successor GREEN at `4e68c35cc`: 30 settings native, six shared-drain and one lossless persistence tests; logs `/tmp/settings-models-settings-{native,drain,lossless}-green.log`. Workspace/all-targets check passes (`/tmp/settings-models-successor-check-2.log`). Coverage summary corrected from 641/8 to 642/7 after the initial inventory correctly rejected the stale displayed counts.

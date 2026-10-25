@@ -219,6 +219,13 @@ pub fn resolve_rows(winsize: Option<u16>, env_lines: Option<String>) -> usize {
         .unwrap_or(24)
 }
 
+/// The live stdout terminal width, absent for redirected output.
+pub fn stdout_columns() -> Option<usize> {
+    let stdout = std::io::stdout();
+    let size = tcgetwinsize(&stdout).ok()?;
+    Some(usize::from(size.ws_col))
+}
+
 fn terminal_size() -> Option<(u16, u16)> {
     let stdin = std::io::stdin();
     let size = tcgetwinsize(&stdin).ok()?;

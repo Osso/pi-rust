@@ -22,4 +22,4 @@ See [traceability](../porting/traceability/settings-manager.md). Only isolated d
 ## Successor error parity (2026-10-25)
 
 - [x] A directory at settings.json reports the Node read error during load and queued save; later scope writes continue.
-- [ ] Invalid timeout text uses JS String rather than JSON serialization; native regression is recorded in `settings_manager.rs`.
+- [x] Invalid timeout text uses JS String rather than JSON serialization; native regression is recorded in `settings_manager.rs`.

@@ -158,7 +158,6 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "bwrap",
     "pyrun",
     "loop",
-    "openai-remote-compact",
     "run-plan",
     "safe",
     "spec-validation",
@@ -476,6 +475,7 @@ fn project_trust_context(
 async fn create_runtime(
     options: &RuntimeFactoryOptions,
     request: CreateAgentSessionRuntimeOptions,
+    auth_storage: crate::core::auth_storage::AuthStorage,
 ) -> Result<CreateAgentSessionRuntimeResult, CallbackError> {
     let mut session_manager = request.session_manager;
     let parsed = &options.parsed;
@@ -614,7 +614,7 @@ async fn create_runtime(
         agent_dir: Some(options.agent_dir.clone()),
         settings_manager: Some(runtime_settings_manager),
         model_registry: None,
-        auth_storage: None,
+        auth_storage: Some(auth_storage),
         extension_flag_values: Some(parsed.unknown_flags.clone()),
         resource_loader_options: Some(resource_loader_options),
         resource_loader: None,
@@ -758,9 +758,11 @@ async fn create_runtime(
 
 /// Builds the `createRuntime` factory captured by `main`.
 pub fn create_runtime_factory(options: RuntimeFactoryOptions) -> CreateAgentSessionRuntimeFactory {
+    let auth_storage = crate::core::auth_storage::AuthStorage::create(None).map_err(CallbackError::from);
     Arc::new(move |request| {
         let options = options.clone();
-        Box::pin(async move { create_runtime(&options, request).await })
+        let auth_storage = auth_storage.clone();
+        Box::pin(async move { create_runtime(&options, request, auth_storage?).await })
     })
 }
 
@@ -1024,14 +1026,15 @@ pub fn resolve_session_path(
     session_dir: Option<&JsString>,
     control_db_path: Option<&JsString>,
 ) -> Result<ResolvedSession, JsString> {
-    let path_like = session_arg.contains("/") || session_arg.contains("\\") || session_arg.ends_with(".jsonl");
+    let transcript = crate::core::session_transcript::is_session_transcript_file(session_arg);
+    let path_like = session_arg.contains("/") || session_arg.contains("\\") || transcript;
     let resolved_session_arg_path = if path_like {
         Some(resolve_path(session_arg, cwd, &PathInputOptions::default()).map_err(|error| error.message().clone())?)
     } else {
         None
     };
     if let Some(resolved) = &resolved_session_arg_path
-        && (session_arg.ends_with(".jsonl") || Path::new(&encode_node_utf8(resolved)).exists())
+        && (transcript || Path::new(&encode_node_utf8(resolved)).exists())
     {
         return Ok(ResolvedSession::Path(resolved.clone()));
     }
@@ -1075,24 +1078,6 @@ pub fn resolve_session_path(
     }
 
     Ok(ResolvedSession::NotFound(session_arg.clone()))
-}
-
-/// `promptConfirm`.
-pub async fn prompt_confirm(message: &str) -> bool {
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-
-    let mut stdout = tokio::io::stdout();
-    let _ = stdout.write_all(format!("{message} [y/N] ").as_bytes()).await;
-    let _ = stdout.flush().await;
-
-    let stdin = tokio::io::stdin();
-    let mut reader = tokio::io::BufReader::new(stdin);
-    let mut answer = String::new();
-    if reader.read_line(&mut answer).await.is_err() {
-        return false;
-    }
-    let answer = answer.to_lowercase();
-    answer == "y" || answer == "yes"
 }
 
 // =============================================================================
@@ -1238,8 +1223,17 @@ fn report_session_error(error: &SessionManagerError) -> MainFailure {
     MainFailure::Exit(MainExit(1))
 }
 
-fn open_session_or_exit(path: &JsString, session_dir: Option<&JsString>) -> MainResult<SessionManager> {
-    SessionManager::open(path, session_dir, None).map_err(|error| report_session_error(&error))
+fn open_session_or_exit(
+    path: &JsString,
+    session_dir: Option<&JsString>,
+    control_db_path: Option<&JsString>,
+) -> MainResult<SessionManager> {
+    let restored = match control_db_path {
+        Some(db) => crate::core::session_archive_storage::restore_archived_session(db, path)
+            .map_err(|error| report_session_error(&error))?,
+        None => path.clone(),
+    };
+    SessionManager::open(&restored, session_dir, None).map_err(|error| report_session_error(&error))
 }
 
 fn fork_session_or_exit(
@@ -1318,8 +1312,10 @@ async fn select_session_for_process(
         let control_db_path = control_db_path.clone();
         let session_dir = session_dir.cloned();
         Arc::new(move |path: &JsString| {
+            let restored = crate::core::session_archive_storage::restore_archived_session(&control_db_path, path)
+                .map_err(|error| error.message().clone())?;
             let selected =
-                SessionManager::open(path, session_dir.as_ref(), None).map_err(|error| error.message().clone())?;
+                SessionManager::open(&restored, session_dir.as_ref(), None).map_err(|error| error.message().clone())?;
             crate::core::session_control_db::assert_main_session_runtime_available(
                 &control_db_path,
                 selected.get_session_id(),
@@ -1401,15 +1397,8 @@ pub async fn create_session_manager(
         })?;
 
         return match resolved {
-            ResolvedSession::Path(path) | ResolvedSession::Local(path) => open_session_or_exit(&path, session_dir),
-            ResolvedSession::Global { path, cwd: global_cwd } => {
-                console_log(Chalk::stdout().yellow(js_format!("Session found in different project: {}", global_cwd)));
-                let should_fork = prompt_confirm("Fork this session into current directory?").await;
-                if !should_fork {
-                    console_log(Chalk::stdout().dim("Aborted."));
-                    return Err(MainExit(0).into());
-                }
-                fork_session_or_exit(&path, cwd, session_dir, None)
+            ResolvedSession::Path(path) | ResolvedSession::Local(path) | ResolvedSession::Global { path, .. } => {
+                open_session_or_exit(&path, session_dir, control_db_path)
             }
             ResolvedSession::NotFound(arg) => {
                 console_error(Chalk::stderr().red(js_format!("No session found matching '{}'", arg)));
@@ -1423,7 +1412,7 @@ pub async fn create_session_manager(
         stop_theme_watcher();
         match outcome {
             crate::cli::session_picker::SelectSessionOutcome::Selected(path) => {
-                return open_session_or_exit(&path, session_dir);
+                return open_session_or_exit(&path, session_dir, control_db_path);
             }
             crate::cli::session_picker::SelectSessionOutcome::Cancelled => {
                 console_log(Chalk::stdout().dim("No session selected"));
@@ -1441,15 +1430,8 @@ pub async fn create_session_manager(
         && let Ok(Some(ResolvedSession::Local(path))) =
             find_local_session_by_exact_id(session_id, cwd, session_dir, control_db_path)
     {
-        return open_session_or_exit(&path, session_dir);
+        return open_session_or_exit(&path, session_dir, control_db_path);
     }
-    if let Some(session_id) = &session_id {
-        console_error(Chalk::stderr().yellow(js_format!(
-            "Warning: No project session found with id '{}'; creating a new session with that id.",
-            session_id
-        )));
-    }
-
     let options = session_id.map(|id| NewSessionOptions {
         id: Some(id),
         ..Default::default()
@@ -1740,6 +1722,26 @@ pub async fn run_main_or_report_error(args: &[String], options: MainOptions) -> 
     }
 }
 
+fn apply_global_http_proxy(settings: &SettingsManager) {
+    let global = settings.get_global_settings();
+    let proxy = global
+        .get("httpProxy")
+        .and_then(|value| value.as_string())
+        .map(encode_node_utf8);
+    let http = pi_js_compat::process_env::get("HTTP_PROXY");
+    let https = pi_js_compat::process_env::get("HTTPS_PROXY");
+    let resolved =
+        crate::core::http_dispatcher::resolve_http_proxy_settings(proxy.as_deref(), http.as_deref(), https.as_deref());
+    for (name, value) in [
+        ("HTTP_PROXY", resolved.http_proxy),
+        ("HTTPS_PROXY", resolved.https_proxy),
+    ] {
+        if let Some(value) = value {
+            pi_js_compat::process_env::set(name, &value);
+        }
+    }
+}
+
 fn reject_invalid_standalone_worker_startup(args: &[String]) -> bool {
     let parsed = parse_args(args);
     if parsed.no_supervisor != Some(true) {
@@ -1822,7 +1824,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
 
     let mut cwd = process_cwd().map_err(CallbackError::from)?;
     let agent_dir = get_agent_dir()?;
-    let _bootstrap_settings_manager = SettingsManager::create(
+    let bootstrap_settings_manager = SettingsManager::create(
         &cwd,
         Some(&agent_dir),
         SettingsManagerCreateOptions {
@@ -1830,6 +1832,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         },
     )
     .map_err(CallbackError::from)?;
+    apply_global_http_proxy(&bootstrap_settings_manager);
     let fetch = configure_http_dispatcher(crate::core::http_dispatcher::DEFAULT_HTTP_IDLE_TIMEOUT_MS as f64)?;
 
     let package_effects = DefaultPackageCommandEffects {
@@ -2166,6 +2169,7 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
     let resource_loader = Arc::clone(&services.resource_loader);
     let (image_auto_resize, theme, http_idle_timeout_ms) = {
         let settings = settings_manager.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        apply_global_http_proxy(&settings);
         (
             settings.get_image_auto_resize(),
             settings.get_theme().cloned(),
