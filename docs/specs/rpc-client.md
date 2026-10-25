@@ -5,7 +5,7 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 ## What it must do
 
 - [ ] Spawn the configured executable (default `node`) with the frozen CLI argument order, environment, startup checks, stop escalation and pending-request errors. A failed asynchronous spawn retains a process identity until stop; another start must reject, and stop then permits a fresh attempt.
-- [ ] Preserve parsed external JSON envelopes, property presence, raw UTF-16 and unknown properties through correlation and event delivery.
+- [ ] Preserve parsed external JSON envelopes, property presence, raw UTF-16 and unknown properties through correlation and event delivery. Hold every option string as JsString until Node's OS UTF-8 conversion; validate raw file/argv/cwd/env strings and preserve synchronous native constructor/code fields without retaining a child.
 - [ ] Apply frozen success truthiness and Error construction before decoding a declared getter result; distinguish missing data from explicit null.
 - [ ] Settle wait/collection on the first `agent_end`, regardless of `willRetry`; subscribe before prompting. Remove terminal subscriptions during notification and retain the live listener-array iteration semantics.
 - [ ] Accept binary64 millisecond timeouts and normalize them through the shared Node timer authority. Callback failures use `Result<(), CallbackError>`; frozen's encompassing line-dispatch catch swallows them literally, without uncaught routing.
@@ -32,6 +32,7 @@ The client follows frozen `packages/coding-agent/src/modes/rpc/rpc-client.ts` an
 ## Known gaps (current cycle)
 
 - [ ] Whole-module revalidation is in progress; pre-repin proof is not current acceptance.
+- [ ] Shared child envp ordering remains the centrally tracked [shared-spawn final-gate item](../porting/traceability/child-process.md#open-shared-spawn-item). This client neither classifies the mismatch nor adds a backend or test exclusion.
 - [ ] Main approved explicit Result errors where an external value cannot inhabit a declared getter type, including foreign-server extras that no frozen server emits. Each native decoding must preserve its parsed value on reserialization or reject explicitly. This does not permit rejecting any actual frozen-server response; cross-process getter proof must cover those. Enumerate each getter and rejected field in traceability; frozen unchecked casts can return such mistyped values.
 
 ## Out of scope

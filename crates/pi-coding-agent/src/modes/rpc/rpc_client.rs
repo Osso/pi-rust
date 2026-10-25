@@ -4,10 +4,10 @@
 //! correlates response lines with pending requests. Events that are not
 //! responses are delivered to subscribers in wire order.
 
-use std::collections::{BTreeMap, HashMap};
+use indexmap::IndexMap;
+use std::collections::HashMap;
 use std::fmt;
 use std::io::Write as _;
-use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -33,7 +33,6 @@ use crate::core::compaction::CompactionResult;
 use crate::core::session_manager::{SessionEntry, SessionTreeNode};
 use crate::modes::rpc::jsonl::{JsonlLineReader, attach_jsonl_line_reader, serialize_json_line};
 use crate::modes::rpc::rpc_types::{QueueMode, RpcCommand, RpcCommandBody, RpcSessionState, RpcSlashCommand};
-use crate::utils::child_process::node_spawn_error_message;
 
 /// Default wait used by `waitForIdle` and `collectEvents` in TypeScript.
 pub const DEFAULT_EVENT_TIMEOUT: f64 = 60_000.0;
@@ -54,19 +53,19 @@ pub struct RpcClientOptions {
     /// Runtime executable, defaulting to node (frozen executablePath).
     pub executable_path: Option<JsString>,
     /// Path to the CLI entry point (default: `dist/cli.js`).
-    pub cli_path: Option<PathBuf>,
+    pub cli_path: Option<JsString>,
     /// Working directory for the agent.
-    pub cwd: Option<PathBuf>,
+    pub cwd: Option<JsString>,
     /// Environment overrides merged over the inherited environment.
-    pub env: BTreeMap<String, String>,
+    pub env: IndexMap<JsString, JsString>,
     /// Provider passed as `--provider`.
-    pub provider: Option<String>,
+    pub provider: Option<JsString>,
     /// Model passed as `--model`.
-    pub model: Option<String>,
+    pub model: Option<JsString>,
     /// Additional arguments passed to Node before the CLI entry point.
-    pub node_args: Vec<String>,
+    pub node_args: Vec<JsString>,
     /// Additional CLI arguments.
-    pub args: Vec<String>,
+    pub args: Vec<JsString>,
 }
 
 /// `{ cancelled }` returned by `new_session`, `switch_session`, and `clone`.
@@ -129,8 +128,9 @@ pub struct TreeResult {
 }
 
 /// An RPC client error. `Display` matches the TypeScript `Error.message`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RpcClientError {
+    Native(Box<pi_js_compat::node_error::NativeNodeError>),
     AlreadyStartedOrStopping,
     StoppedDuringStartup {
         stderr: String,
@@ -192,6 +192,7 @@ pub enum RpcClientError {
 impl fmt::Display for RpcClientError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Native(error) => formatter.write_str(&encode_node_utf8(&error.message)),
             Self::AlreadyStartedOrStopping => formatter.write_str("Client already started or stopping"),
             Self::StoppedDuringStartup { stderr } => {
                 write!(formatter, "RPC client stopped during startup. Stderr: {stderr}")
@@ -241,7 +242,14 @@ impl fmt::Display for RpcClientError {
     }
 }
 
-impl std::error::Error for RpcClientError {}
+impl std::error::Error for RpcClientError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Native(error) => Some(error.as_ref()),
+            _ => None,
+        }
+    }
+}
 
 fn optional_code(code: Option<i32>) -> String {
     code.map_or_else(|| "null".to_owned(), |code| code.to_string())
@@ -435,6 +443,7 @@ impl RpcClient {
                 install_process(&self.inner, generation, spawned, &mut process);
                 None
             }
+            Err(error @ RpcClientError::Native(_)) => return Err(error),
             Err(error) => {
                 self.publish_spawn_failure(generation, &error);
                 Some(error)
@@ -1073,32 +1082,92 @@ struct SpawnedProcess {
     pid: u32,
 }
 
-fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
-    let cli_path = options.cli_path.clone().unwrap_or_else(|| PathBuf::from("dist/cli.js"));
-    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
-    let mut command = Command::new(encode_node_utf8(&executable));
-    command.args(&options.node_args);
-    command.arg(&cli_path);
-    command.args(["--mode", "rpc"]);
-    if let Some(provider) = &options.provider {
-        command.args(["--provider", provider]);
+fn spawn_arguments(options: &RpcClientOptions) -> Vec<JsString> {
+    let mut args = options.node_args.clone();
+    args.push(options.cli_path.clone().unwrap_or_else(|| "dist/cli.js".into()));
+    args.extend(["--mode".into(), "rpc".into()]);
+    if let Some(provider) = options.provider.as_ref().filter(|value| !value.is_empty()) {
+        args.extend(["--provider".into(), provider.clone()]);
     }
-    if let Some(model) = &options.model {
-        command.args(["--model", model]);
+    if let Some(model) = options.model.as_ref().filter(|value| !value.is_empty()) {
+        args.extend(["--model".into(), model.clone()]);
     }
-    command.args(&options.args);
+    args.extend(options.args.iter().cloned());
+    args
+}
+
+fn validate_spawn_options(
+    file: &JsString,
+    args: &[JsString],
+    options: &RpcClientOptions,
+    env: &pi_js_compat::js_json::JsObject,
+) -> Result<(), RpcClientError> {
+    use pi_js_compat::node_child_process::{validate_spawn_arguments, validate_string_argument};
+    validate_spawn_arguments(file, args).map_err(RpcClientError::Native)?;
     if let Some(cwd) = &options.cwd {
-        command.current_dir(cwd);
+        validate_string_argument(
+            "options.cwd",
+            "must be a string, Uint8Array, or URL without null bytes",
+            cwd,
+        )
+        .map_err(RpcClientError::Native)?;
     }
-    command.envs(&options.env);
+    for (key, value) in js_json::object_entries_lossless(env) {
+        let label = pi_js_compat::js_format!("options.env['{}']", key);
+        validate_string_argument(&label, "must be a string without null bytes", key).map_err(RpcClientError::Native)?;
+        let value = value.as_string().expect("spawn environment values are strings");
+        validate_string_argument(&label, "must be a string without null bytes", value)
+            .map_err(RpcClientError::Native)?;
+    }
+    Ok(())
+}
+
+fn load_spawn_environment(options: &RpcClientOptions) -> pi_js_compat::js_json::JsObject {
+    let mut env: pi_js_compat::js_json::JsObject = pi_js_compat::process_env::vars()
+        .into_iter()
+        .map(|(key, value)| (key.into(), JsValue::String(value.into())))
+        .collect();
+    env.extend(
+        options
+            .env
+            .iter()
+            .map(|(key, value)| (key.clone(), JsValue::String(value.clone()))),
+    );
+    env
+}
+
+fn spawn_process(options: &RpcClientOptions, stderr: String) -> Result<SpawnedProcess, RpcClientError> {
+    let executable = options.executable_path.clone().unwrap_or_else(|| "node".into());
+    let args = spawn_arguments(options);
+    let env = load_spawn_environment(options);
+    validate_spawn_options(&executable, &args, options, &env)?;
+    let mut command = Command::new(encode_node_utf8(&executable));
+    command.args(args.iter().map(encode_node_utf8));
+    if let Some(cwd) = &options.cwd {
+        command.current_dir(encode_node_utf8(cwd));
+    }
+    command
+        .env_clear()
+        .envs(js_json::object_entries_lossless(&env).into_iter().map(|(key, value)| {
+            (
+                encode_node_utf8(key),
+                encode_node_utf8(value.as_string().expect("spawn environment value")),
+            )
+        }));
     command
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-
-    let mut child = command.spawn().map_err(|error| RpcClientError::ProcessError {
-        message: node_spawn_error_message("spawn", &executable, &error),
-        stderr,
+    let mut child = command.spawn().map_err(|error| {
+        let record = pi_js_compat::node_fs::node_spawn_error_record(&error, &executable);
+        if pi_js_compat::node_child_process::spawn_error_is_async(&error) {
+            RpcClientError::ProcessError {
+                message: record.message,
+                stderr,
+            }
+        } else {
+            RpcClientError::Native(Box::new(record.into()))
+        }
     })?;
     let stdin = child.stdin.take().expect("piped child stdin must exist");
     let stdout = child.stdout.take().expect("piped child stdout must exist");
@@ -1189,6 +1258,7 @@ async fn wait_for_exit(receiver: &mut watch::Receiver<Option<ExitInfo>>, timeout
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     use super::*;
@@ -1215,7 +1285,7 @@ setInterval(() => {}, 1000);
         let kill_calls = Arc::clone(&calls);
         let client = RpcClient::with_kill(
             RpcClientOptions {
-                cli_path: Some(script),
+                cli_path: Some(script.to_str().unwrap().into()),
                 ..RpcClientOptions::default()
             },
             Arc::new(move |pid, signal| {

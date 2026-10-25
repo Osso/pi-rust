@@ -50,8 +50,8 @@ fn create_server_options(root: &Path, source: &Path) -> RpcClientOptions {
     .unwrap();
     let mut options = RpcClientOptions {
         executable_path: Some(source.join("node_modules/.bin/tsx").to_str().unwrap().into()),
-        cli_path: Some(repo.join("oracle/rpc-client-server.mts")),
-        cwd: Some(root.join("cwd")),
+        cli_path: Some(repo.join("oracle/rpc-client-server.mts").to_str().unwrap().into()),
+        cwd: Some(root.join("cwd").to_str().unwrap().into()),
         node_args: vec![
             "--tsconfig".into(),
             source.join("tsconfig.json").to_str().unwrap().into(),
@@ -69,7 +69,7 @@ fn create_server_options(root: &Path, source: &Path) -> RpcClientOptions {
         ("PI_HARNESS_RPC_ROOT",root.join("state").display().to_string()),
         ("PI_HARNESS_RESPONSES",r#"[{"text":"first","endTurn":"done","toolId":"first"},{"text":"second","endTurn":"done","toolId":"second"},{"text":"summary"},{"text":"turn prefix summary"}]"#.into()),
         ("PI_HARNESS_RPC_FIXTURE",r#"{"uiProbe":true}"#.into()),
-    ] { options.env.insert(name.into(),value); }
+    ] { options.env.insert(name.into(),value.into()); }
     options
 }
 

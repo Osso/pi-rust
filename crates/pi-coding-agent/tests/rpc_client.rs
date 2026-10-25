@@ -16,7 +16,7 @@ fn write_script(dir: &TempDir, contents: &str) -> PathBuf {
 
 fn options(script: PathBuf) -> RpcClientOptions {
     RpcClientOptions {
-        cli_path: Some(script),
+        cli_path: Some(script.to_str().unwrap().into()),
         ..RpcClientOptions::default()
     }
 }

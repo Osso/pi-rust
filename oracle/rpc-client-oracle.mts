@@ -24,6 +24,8 @@ type Api = {
 	RpcClient: new (options: {
 		cliPath: string;
 		executablePath?: string;
+		cwd?: string;
+		nodeArgs?: string[];
 		env: Record<string, string>;
 	}) => Client;
 };
@@ -38,6 +40,10 @@ type Request = {
 		| "spawn_error";
 	reply: unknown;
 	executable?: string;
+	cliPath?: string;
+	cwd?: string;
+	nodeArgs?: string[];
+	envOverrides?: Record<string, string>;
 	events?: unknown[];
 	delay?: number | "NaN" | "Infinity" | "-Infinity";
 	idleTimeout?: boolean;
@@ -77,11 +83,14 @@ async function execute(api: Api, request: Request): Promise<unknown> {
 	const path = join(dir, "child.mjs");
 	await writeFile(path, child);
 	const client = new api.RpcClient({
-		cliPath: path,
+		cliPath: request.cliPath ?? path,
 		executablePath: request.executable,
+		cwd: request.cwd,
+		nodeArgs: request.nodeArgs,
 		env: {
 			PI_RPC_CLIENT_REPLY: JSON.stringify(request.reply),
 			PI_RPC_EXTRA_EVENTS: JSON.stringify(request.events ?? []),
+			...request.envOverrides,
 		},
 	});
 	let remove: (() => void) | undefined;

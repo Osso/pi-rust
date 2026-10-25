@@ -14,17 +14,32 @@ async fn native(request: &JsValue) -> JsValue {
     std::fs::write(&path, CHILD).unwrap();
     let mut options = RpcClientOptions {
         executable_path: request.get("executable").and_then(JsValue::as_string).cloned(),
-        cli_path: Some(path),
+        cli_path: Some(path.to_str().unwrap().into()),
         ..Default::default()
     };
     options.env.insert(
         "PI_RPC_CLIENT_REPLY".into(),
-        js_json::stringify_lossless(request.get("reply").unwrap()),
+        js_json::stringify_lossless(request.get("reply").unwrap()).into(),
     );
     options.env.insert(
         "PI_RPC_EXTRA_EVENTS".into(),
-        js_json::stringify_lossless(request.get("events").unwrap_or(&JsValue::Array(Vec::new()))),
+        js_json::stringify_lossless(request.get("events").unwrap_or(&JsValue::Array(Vec::new()))).into(),
     );
+    if let Some(path) = request.get("cliPath").and_then(JsValue::as_string) {
+        options.cli_path = Some(path.clone());
+    }
+    if let Some(path) = request.get("cwd").and_then(JsValue::as_string) {
+        options.cwd = Some(path.clone());
+    }
+    if let Some(args) = request.get("nodeArgs").and_then(JsValue::as_array) {
+        options.node_args = args.iter().map(|arg| arg.as_string().unwrap().clone()).collect();
+    }
+    if let Some(env) = request.get("envOverrides").and_then(JsValue::as_object) {
+        options.env.extend(
+            env.iter()
+                .map(|(key, value)| (key.clone(), value.as_string().unwrap().clone())),
+        );
+    }
     let client = RpcClient::new(options);
     let removal = std::sync::Arc::new(std::sync::Mutex::new(None));
     if request.get("listenerRemovesItself").and_then(JsValue::as_bool) == Some(true) {
@@ -142,7 +157,41 @@ async fn native(request: &JsValue) -> JsValue {
 async fn start_outcome(client: &RpcClient) -> JsValue {
     match client.start().await {
         Ok(()) => pi_js_compat::js_json!({"ok":true}),
+        Err(RpcClientError::Native(error)) => pi_js_compat::js_json!({"ok":false,"error":error.value()}),
         Err(error) => pi_js_compat::js_json!({"ok":false,"error":{"name":"Error","message":error.to_string()}}),
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_option_strings_keep_raw_units_until_the_node_spawn_boundary() {
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for options in [
+        r#"{"cliPath":"entry-\ud800\u0000"}"#,
+        r#"{"nodeArgs":["arg-\udfff\u0000"]}"#,
+        r#"{"cwd":"cwd-\ud800\u0000"}"#,
+        r#"{"envOverrides":{"PRIVATE":"env-\udfff\u0000"}}"#,
+        r#"{"cliPath":"entry\u0000","cwd":"cwd\u0000"}"#,
+        r#"{"cliPath":"entry\u0000","envOverrides":{"PRIVATE":"env\u0000"}}"#,
+        r#"{"envOverrides":{"NEW_RPC_PRIVATE":"new\u0000","PATH":"path\u0000"}}"#,
+        r#"{"envOverrides":{"z":"z\u0000","2":"two\u0000","1":"one\u0000"}}"#,
+    ] {
+        let mut request = js_json::parse_lossless(options).unwrap();
+        let fields = request.as_object_mut().unwrap();
+        fields.insert("operation".into(), JsValue::String("spawn_error".into()));
+        fields.insert("reply".into(), pi_js_compat::js_json!({}));
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected);
+    }
+}
+
+#[tokio::test]
+async fn rpc_client_synchronous_spawn_validation_keeps_original_native_error_and_no_child() {
+    // Frozen :98-108 throws before assigning this.process for argument validation failures.
+    let mut source = oracle::TsOracle::spawn("rpc-client-oracle.mts", SOURCE);
+    for executable in ["", "private\0runtime"] {
+        let request = pi_js_compat::js_json!({"operation":"spawn_error","executable":executable,"reply":{}});
+        let expected = source.request(&request);
+        assert_eq!(native(&request).await, expected);
     }
 }
 
@@ -220,7 +269,7 @@ async fn rpc_client_honors_the_runtime_executable_and_argument_order() {
         provider: Some("provider".into()),
         model: Some("model".into()),
         args: vec!["extra".into()],
-        env: std::collections::BTreeMap::from([("PI_RPC_TOKEN".into(), "private".into())]),
+        env: [("PI_RPC_TOKEN".into(), "private".into())].into_iter().collect(),
         ..Default::default()
     });
     client.start().await.unwrap();
