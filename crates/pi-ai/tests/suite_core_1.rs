@@ -16,10 +16,6 @@ pub mod auth_resolve_contract;
 pub mod bedrock_converse_stream;
 #[path = "cloudflare.rs"]
 pub mod cloudflare;
-#[path = "cloudflare_gateway_binding.rs"]
-pub mod cloudflare_gateway_binding;
-#[path = "constrained_sampling.rs"]
-pub mod constrained_sampling;
 #[path = "device_code.rs"]
 pub mod device_code;
 #[path = "diagnostics.rs"]
@@ -40,10 +36,6 @@ pub mod differential_azure_openai_responses;
 pub mod differential_bedrock_converse_stream;
 #[path = "differential_chat_catalog.rs"]
 pub mod differential_chat_catalog;
-#[path = "differential_cloudflare_gateway_binding.rs"]
-pub mod differential_cloudflare_gateway_binding;
-#[path = "differential_constrained_sampling.rs"]
-pub mod differential_constrained_sampling;
 #[path = "differential_env_api_keys.rs"]
 pub mod differential_env_api_keys;
 #[path = "differential_error_body.rs"]

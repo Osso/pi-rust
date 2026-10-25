@@ -7,8 +7,6 @@ pub mod bedrock_credentials;
 pub mod bedrock_eventstream;
 pub mod bedrock_sigv4;
 pub mod cloudflare;
-pub mod cloudflare_gateway_binding;
-pub mod constrained_sampling;
 pub mod github_copilot_headers;
 pub mod google_client;
 pub mod google_generative_ai;

@@ -114,3 +114,9 @@ The unchanged `pi-coding-agent-interactive --lib` binary stalled with these two 
 - `modes::interactive::interactive_mode::ui_tests::reload_while_streaming_matches_frozen_warning`
 
 Both names appear in `/tmp/test-consolidate-proof/baseline-hang-stack-full.log`; both were parked in Tokio. The reload test retained its `interactive-reload-busy-oracle.mts` child. Parent approval permits a 600-second binary timeout for the after run as well. The baseline sandbox was terminated after the stall was diagnosed so `--no-fail-fast` could complete the other packages. This is an unchanged-library blocker, not a consolidation result.
+
+## AI re-pin disposition (2026-10-25)
+
+- `differential_github_copilot_oauth`: fixed the old-only individual policy fallback; unchanged pinned refresh/toAuth differential passes (2 tests).
+- `differential_cloudflare_gateway_binding`, `differential_constrained_sampling`, `differential_deferred_tools`, `differential_model_catalog`: reproduced absent-source failures, then deleted the frozen-absent native modules, tests and oracles; no production consumers. Retired tests are not claimed as passing tests.
+- `differential_text` and image catalog mismatches: still under diagnosis.
