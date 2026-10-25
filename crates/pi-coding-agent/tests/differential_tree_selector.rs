@@ -166,8 +166,10 @@ async fn native(request: &Value) -> Value {
                 .borrow_mut()
                 .push(json!(["label", id.units(), label.map(|s| s.units())]))
         })),
-        request["selected"].as_str().map(JsString::from),
-        filter,
+        pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorOptions {
+            initial_selected_id: request["selected"].as_str().map(JsString::from),
+            initial_filter_mode: filter,
+        },
     );
     let width = request["width"].as_u64().unwrap_or(90) as usize;
     let extra = pi_tui::tui::component(pi_tui::Text::new(

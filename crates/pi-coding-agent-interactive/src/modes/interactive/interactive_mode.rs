@@ -9920,8 +9920,10 @@ impl InteractiveMode {
             on_select,
             on_cancel,
             Some(on_label_change),
-            initial_selected_id,
-            Some(tree_filter_mode(initial_filter_mode)),
+            crate::modes::interactive::components::tree_selector::TreeSelectorOptions {
+                initial_selected_id,
+                initial_filter_mode: Some(tree_filter_mode(initial_filter_mode)),
+            },
         );
         self.show_selector(component(selector));
     }
@@ -10336,12 +10338,14 @@ impl InteractiveMode {
             on_cancel,
             on_exit,
             request_render,
-            Some(rename_session),
-            Some(true),
-            Some(self.keybindings.clone()),
-            control_db_path,
-            Some(archived_loader),
-            current_file.as_ref(),
+            crate::modes::interactive::components::session_selector::SessionSelectorOptions {
+                rename_session: Some(rename_session),
+                show_rename_hint: Some(true),
+                keybindings: Some(self.keybindings.clone()),
+                control_db_path,
+                archived_sessions_loader: Some(archived_loader),
+                current_session_file_path: current_file.as_ref(),
+            },
         )));
         *self.active_session_selector.borrow_mut() = Some(Rc::clone(&selector));
         self.show_selector(component(SharedSessionSelector(selector)));
@@ -11604,8 +11608,10 @@ impl InteractiveMode {
                     prefill.as_ref(),
                     on_submit,
                     on_cancel,
-                    EditorOptions::default(),
-                    Some(self.settings(|settings| settings.get_external_editor_command())),
+                    crate::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+                        editor: EditorOptions::default(),
+                        external_editor_command: Some(self.settings(|settings| settings.get_external_editor_command())),
+                    },
                 );
                 self.show_selector(component(editor));
             }

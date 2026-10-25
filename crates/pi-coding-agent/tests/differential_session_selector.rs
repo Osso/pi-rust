@@ -106,21 +106,24 @@ fn native(request: &Value) -> Value {
         Rc::new(move || cancel.borrow_mut().push(json!(["cancel"]))),
         Rc::new(move || exit.borrow_mut().push(json!(["exit"]))),
         Rc::new(move || render.borrow_mut().push(json!(["render"]))),
-        Some(Rc::new(move |path, name| {
-            rename.borrow_mut().push(json!(["rename", path, name]));
-            Box::pin(async move {
-                if reject_rename {
-                    Err("rename rejected".into())
-                } else {
-                    Ok(())
-                }
-            })
-        })),
-        None,
-        None,
-        None,
-        (request["noArchived"] != true).then(|| loader("archived", events.clone(), loads.clone())),
-        None,
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: Some(Rc::new(move |path, name| {
+                rename.borrow_mut().push(json!(["rename", path, name]));
+                Box::pin(async move {
+                    if reject_rename {
+                        Err("rename rejected".into())
+                    } else {
+                        Ok(())
+                    }
+                })
+            })),
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: None,
+            archived_sessions_loader: (request["noArchived"] != true)
+                .then(|| loader("archived", events.clone(), loads.clone())),
+            current_session_file_path: None,
+        },
     );
     let width = request["width"].as_u64().unwrap_or(90) as usize;
     let extra = pi_tui::tui::component(pi_tui::Text::new(

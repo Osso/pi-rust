@@ -187,14 +187,16 @@ pub async fn select_session(
         on_cancel,
         on_exit,
         request_render,
-        None,
-        Some(false),
-        Some(keybindings),
-        control_db_path.clone(),
-        options
-            .archived_sessions_loader
-            .map(|loader| session_list_loader(loader, true)),
-        None,
+        crate::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: None,
+            show_rename_hint: Some(false),
+            keybindings: Some(keybindings),
+            control_db_path: control_db_path.clone(),
+            archived_sessions_loader: options
+                .archived_sessions_loader
+                .map(|loader| session_list_loader(loader, true)),
+            current_session_file_path: None,
+        },
     );
     let list: ComponentRef = selector.session_list();
     let host = Rc::new(RefCell::new(SelectorHost { component: selector }));

@@ -562,8 +562,10 @@ fn extension_editor_submits_typed_text() {
         Some(&JsString::from("prefill")),
         std::rc::Rc::new(move |value| submit.borrow_mut().push(value)),
         std::rc::Rc::new(|| {}),
-        EditorOptions::default(),
-        None,
+        pi_coding_agent::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+            editor: EditorOptions::default(),
+            external_editor_command: None,
+        },
     );
     let rendered = plain(&editor.render(80));
     assert!(rendered.contains("Compose"));
@@ -588,8 +590,10 @@ fn extension_editor_cancels_on_escape() {
         None,
         std::rc::Rc::new(|_| {}),
         std::rc::Rc::new(move || flag.set(true)),
-        EditorOptions::default(),
-        None,
+        pi_coding_agent::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+            editor: EditorOptions::default(),
+            external_editor_command: None,
+        },
     );
     editor.handle_input(&JsString::from("\u{1b}"));
     assert!(cancelled.get());
@@ -1201,8 +1205,10 @@ fn tree_selector(entries: Vec<SessionEntry>, leaf: &str, filter: Option<FilterMo
         std::rc::Rc::new(|_| {}),
         std::rc::Rc::new(|| {}),
         None,
-        None,
-        filter,
+        pi_coding_agent::modes::interactive::components::tree_selector::TreeSelectorOptions {
+            initial_selected_id: None,
+            initial_filter_mode: filter,
+        },
     )
 }
 
@@ -1509,12 +1515,14 @@ fn build_session_selector(
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
-        None,
-        None,
-        None,
-        None,
-        None,
-        current_file.map(JsString::from).as_ref(),
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: None,
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: None,
+            archived_sessions_loader: None,
+            current_session_file_path: current_file.map(JsString::from).as_ref(),
+        },
     )
 }
 
@@ -1677,12 +1685,14 @@ async fn session_selector_archive_requires_control_db_and_archives_with_one() {
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: None,
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: None,
+            archived_sessions_loader: None,
+            current_session_file_path: None,
+        },
     );
     no_db.load_current_sessions().await;
     no_db.handle_input(&JsString::from("\u{1}"));
@@ -1696,12 +1706,14 @@ async fn session_selector_archive_requires_control_db_and_archives_with_one() {
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
-        None,
-        None,
-        None,
-        Some(JsString::from(control_db_path)),
-        None,
-        None,
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: None,
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: Some(JsString::from(control_db_path)),
+            archived_sessions_loader: None,
+            current_session_file_path: None,
+        },
     );
     with_db.load_current_sessions().await;
     with_db.handle_input(&JsString::from("\u{1}"));
@@ -1737,12 +1749,14 @@ async fn session_selector_rename_mode_trims_and_submits() {
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
         std::rc::Rc::new(|| {}),
-        Some(rename),
-        None,
-        None,
-        None,
-        None,
-        None,
+        pi_coding_agent::modes::interactive::components::session_selector::SessionSelectorOptions {
+            rename_session: Some(rename),
+            show_rename_hint: None,
+            keybindings: None,
+            control_db_path: None,
+            archived_sessions_loader: None,
+            current_session_file_path: None,
+        },
     );
     selector.load_current_sessions().await;
     selector.handle_input(&JsString::from("\u{12}"));

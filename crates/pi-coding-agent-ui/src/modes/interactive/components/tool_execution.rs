@@ -156,7 +156,6 @@ pub struct ToolExecutionComponent {
 }
 
 impl ToolExecutionComponent {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         tool_name: impl Into<String>,
         tool_call_id: impl Into<String>,

@@ -157,8 +157,10 @@ async fn native_case(request: &ProcessCase) -> Value {
         Some(&JsString::from_utf16(request.prefill.clone())),
         Rc::new(move |text| submitted.borrow_mut().push(text.units().to_vec())),
         Rc::new(move || cancelled.borrow_mut().push("cancel")),
-        Default::default(),
-        request.explicit.then(|| request.command.as_str().into()),
+        pi_coding_agent::modes::interactive::components::extension_editor::ExtensionEditorOptions {
+            editor: Default::default(),
+            external_editor_command: request.explicit.then(|| request.command.as_str().into()),
+        },
     );
     let focused = editor.as_focusable_mut().map(|editor| {
         editor.set_focused(true);
