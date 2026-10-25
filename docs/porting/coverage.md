@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 651, `gap` 25, `partial` 6, `todo` 4.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 652, `gap` 25, `partial` 5, `todo` 4.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -619,7 +619,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/rpc-entry.ts` | 12 | 23 | done | `crates/pi-coding-agent/src/rpc_entry.rs` | Whole frozen entrypoint audited; RED fixes old-only AI_AGENT overwrite, preserving absent/empty/inherited values. Six actual-source/private-native process cases and native dispatch/error tests; six-process GREEN plus 13 native tests, warning-mode clippy PASS/zero changed-line warnings. [Traceability](traceability/rpc-entry.md). |
 | `coding-agent/src/supervisor/approval-reviewer.ts` | 19 | 22 | done | `crates/pi-coding-agent-tools/src/supervisor/approval_reviewer.rs` | Decision escalation paths; 3 behavioral tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/client.ts` | 135 | 135 | done | `crates/pi-coding-agent-tools/src/supervisor/client.rs` | Whole client startup/cancellation/numeric port; actual frozen14 scenarios, durable pending/claimed and external cancellation proof. [Traceability](traceability/supervisor-client.md). |
-| `coding-agent/src/supervisor/ensure-running.ts` | 228 | 228 | partial | `crates/pi-coding-agent-tools/src/supervisor/ensure_running.rs` | Whole startup coordination/invocation port; real separate-process starters recover stale lock and launch once; real owned resident lifecycle. Late target exec failure/race is an approved gap2026-10-23 (AGENTS.md); exact missing/non-executable preflight retained. [Traceability](traceability/supervisor-ensure-running.md). |
+| `coding-agent/src/supervisor/ensure-running.ts` | 228 | 228 | done | `crates/pi-coding-agent-tools/src/supervisor/ensure_running.rs` | Whole common-pin audit; real detached resident and separate-process startup/lock proof; seven frozen startup scenarios and native mkdir EEXIST RED→GREEN. Approved late setsid exec gap retained. [Traceability](traceability/supervisor-ensure-running.md). |
 | `coding-agent/src/supervisor/main.ts` | 588 | 22 | done | `crates/pi-coding-agent/src/supervisor/main.rs` | Whole common-pin audit: authenticated model/catalog matrix, ten-case stateless evaluator, policy/cancellation/cleanup boundaries, runtime identity, resident preparation, full-record request loop and real service SIGTERM/completion/local-compaction proofs. Missing catalog alias preserved as source discrepancy. Compiled entrypoint mapping approved. [Traceability](traceability/supervisor-main.md). |
 | `coding-agent/src/supervisor/project-resolver.ts` | 108 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/project_resolver.rs` | Root/remote/basename resolution, config validation, `git remote -v` names; differential `27011`.; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/supervisor/request-wake.ts` | 149 | 0 | done | `crates/pi-coding-agent-tools/src/supervisor/request_wake.rs` | Wake socket with stale recovery, generation watch, waiter cancellation; real-socket tests.; re-run vs 4f9e6f8a4 pending |

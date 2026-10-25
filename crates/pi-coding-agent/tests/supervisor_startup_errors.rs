@@ -12,6 +12,33 @@ use pi_js_compat::{js_json as json, node_error::NativeErrorClass};
 use std::sync::Arc;
 
 #[tokio::test]
+async fn existing_file_parent_fails_before_launch_with_node_mkdir_error() {
+    let temp = tempfile::tempdir().unwrap();
+    let parent = temp.path().join("blocked");
+    std::fs::write(&parent, "not a directory").unwrap();
+    let result = ensure_supervisor_running(
+        &EnsureSupervisorRunningInput::new(parent.join("control.sqlite").to_str().unwrap().into()),
+        &EnsureSupervisorRunningDependencies {
+            probe: Some(Arc::new(|_| Box::pin(async { Ok(None) }))),
+            launch: Some(Arc::new(|_| {
+                Box::pin(async { panic!("mkdir failure must prevent launch") })
+            })),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(
+        result.message,
+        format!("EEXIST: file already exists, mkdir '{}'", parent.display())
+    );
+    assert_eq!(result.value()["code"], json!("EEXIST"));
+    assert_eq!(result.value()["syscall"], json!("mkdir"));
+    assert_eq!(result.value()["path"], json!(parent.to_str().unwrap()));
+    assert_eq!(std::fs::read_to_string(parent).unwrap(), "not a directory");
+}
+
+#[tokio::test]
 async fn startup_system_error_is_preserved_and_client_uses_only_its_message() {
     let supplied = pi_js_compat::node_os::homedir_system_error(-2, "ENOENT", "no such file or directory");
     let mut oracle = oracle::TsOracle::spawn(

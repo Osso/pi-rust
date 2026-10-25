@@ -1,6 +1,6 @@
 # supervisor/ensure-running.ts
 
-Pin: [source-lock](../source-lock.json). Contract: [spec](../../specs/supervisor-ensure-running.md).
+Pin: [source-lock](../source-lock.json), `4f9e6f8a4`. Contract: [spec](../../specs/supervisor-ensure-running.md). Whole-module audit completed 2026-10-25 under the lighter-proof rule.
 
 | Surface / branch | Implementation | Proof |
 |---|---|---|
@@ -13,4 +13,15 @@ Pin: [source-lock](../source-lock.json). Contract: [spec](../../specs/supervisor
 | late target exec failure/race | **gap**, approved2026-10-23 in [AGENTS.md](../../../AGENTS.md) | setsid(1) cannot report ENOEXEC or post-preflight disappearance as spawn errors; exact ENOENT/EACCES preflight remains. No acknowledgement protocol. |
 | homedir SystemError propagation and client Error.message catch | NativeNodeError through startup/coordinator/dependency carriers | `supervisor_startup_errors`: concrete homedir SystemError fixture with constructor/properties, actual-frozen injected rejection propagation, and client reason excludes Error-name prefix. Does not force a live OS passwd failure. |
 
-Shared `probe_resident_console` uses existing connect/parser and sends `probe`, never `attach`. Caller-provided lock delays leave existing callers' default schedule unchanged. Wider transport numeric/parser deltas remain owned by that module, not fabricated here.
+Shared `probe_resident_console` sends `probe`, never `attach`. Caller-provided lock delays leave existing callers' default schedule unchanged. [Transport common-pin audit](resident-console-transport.md) retains reciprocal wire proof.
+
+## Successor audit
+
+All 228 frozen lines audited: invocation/env construction, initial compatible reuse, resolved-path in-process startup sharing and cleanup, lock acquisition/reprobe/release, incompatible external refusal and owned termination, detached spawn, target verification, exit/readiness deadlines and timer normalization. Native compiled invocation is the approved executable-as-entrypoint mapping. Late setsid exec failures remain the explicit approved gap above; no acknowledgement protocol or fallback was added.
+
+Fixed one discrepancy with native RED→GREEN: a regular file at the control DB parent path now fails before launch as frozen `mkdirSync` does, preserving EEXIST message/code/syscall/path. `supervisor_startup_errors::existing_file_parent_fails_before_launch_with_node_mkdir_error` also proves the file is unchanged and launch is not called.
+
+Proof `/tmp/runtime-successor-ensure-{native,scenarios}.log`: five standalone tests PASS (one parent-invoked subprocess helper ignored); three Core5 tests PASS, including the existing seven-case frozen startup scenario and SystemError/client-message proof. The real detached resident and independent starters exercise process lifetime and the actual lock boundary.
+
+- GAP: malformed/adversarial inputs, numeric/timer extremes and exotic OS/runtime faults remain the approved one-line input/runtime gap.
+- DISCREPANCY (preserved frozen behavior): an already compatible initial probe bypasses startup coordination and locks; readiness waits only for matching version, not the old instance id or a fresh launch identity.
