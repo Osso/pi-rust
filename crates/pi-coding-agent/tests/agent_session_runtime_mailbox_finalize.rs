@@ -69,7 +69,7 @@ async fn reserved_finalize_propagates_outbox_claim_failure_after_durable_finaliz
         .unwrap();
     assert_eq!(serde_json::json!(status), expected["output"]["status"]);
     let persisted =
-        pi_coding_agent::core::session_control_db::read_multi_agent_state(&env.control_db, &session_path(&env))
+        pi_coding_agent::core::session_control_db::read_multi_agent_state(&env.control_db, session_path(&env))
             .unwrap()
             .unwrap();
     assert_eq!(persisted.agents[0]["lifecycle"], json!("completed"));
