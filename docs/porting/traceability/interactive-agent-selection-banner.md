@@ -1,7 +1,7 @@
 # agent-selection-banner.ts
 
 Source: `coding-agent/src/modes/interactive/components/agent-selection-banner.ts`
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/agent_selection_banner.rs`
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/agent_selection_banner.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|

@@ -1,5 +1,3 @@
-#![recursion_limit = "512"]
-
 #[path = "differential_settings_manager/mod.rs"]
 mod settings_manager_oracle;
 

@@ -19,7 +19,7 @@ Match the frozen `coding-agent/src/modes/interactive/components/tool-execution.t
 
 ## Implementation inventory
 
-- `crates/pi-coding-agent-interactive/src/modes/interactive/components/tool_execution.rs`: tool row state, shells and rendering.
+- `crates/pi-coding-agent-ui/src/modes/interactive/components/tool_execution.rs`: tool row state, shells and rendering.
 - `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`: construction/settings and pending-tool timing integration.
 - `crates/pi-tui/src/components/image.rs`: coupled f64 image numeric boundary.
 

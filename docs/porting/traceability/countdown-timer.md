@@ -1,7 +1,7 @@
 # countdown-timer.ts
 
 Frozen `4f9e6f8a4`, `packages/coding-agent/src/modes/interactive/components/countdown-timer.ts:1–38`.
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/countdown_timer.rs`.
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/countdown_timer.rs`.
 
 | Frozen branches | Rust | Proof |
 |---|---|---|

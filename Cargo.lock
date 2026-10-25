@@ -2266,6 +2266,7 @@ dependencies = [
  "pi-ai",
  "pi-coding-agent-core",
  "pi-coding-agent-extensions",
+ "pi-coding-agent-ui",
  "pi-js-compat",
  "pi-tui",
  "rusqlite",
@@ -2453,6 +2454,21 @@ dependencies = [
  "tokio",
  "url",
  "zstd",
+]
+
+[[package]]
+name = "pi-coding-agent-ui"
+version = "0.0.0"
+dependencies = [
+ "indexmap",
+ "pi-agent-core",
+ "pi-ai",
+ "pi-coding-agent-core",
+ "pi-js-compat",
+ "pi-tui",
+ "serde_json",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

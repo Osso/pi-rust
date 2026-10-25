@@ -10,6 +10,8 @@ Shared reason-bearing abort signals replace all direct tokio-util cancellation d
 
 ## Runtime
 
+- `pi-coding-agent-ui = 0.0.0` (internal path package) — widgets, selector model search and login options below interactive mode; no bundled-extension dependency. Reuses existing exact external dependencies and features.
+
 - Coding-agent's existing exact `rustix = 1.1.5` enables `net` for safe SO_TYPE/getsockname queries when classifying stderr like Node/libuv. Only stream Unix/TCP sockets are writable streams; datagram/unrecognized/closed descriptors use Node's dummy sink. No package/version or Cargo.lock change (approved2026-10-24).
 
 ### `pi-js-compat`

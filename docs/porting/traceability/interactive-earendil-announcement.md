@@ -1,7 +1,7 @@
 # earendil-announcement.ts
 
 Source: `coding-agent/src/modes/interactive/components/earendil-announcement.ts`
-Rust: `crates/pi-coding-agent-interactive/src/modes/interactive/components/earendil_announcement.rs`
+Rust: `crates/pi-coding-agent-ui/src/modes/interactive/components/earendil_announcement.rs`
 
 | Symbol / branch | Rust item | Proof |
 |---|---|---|
