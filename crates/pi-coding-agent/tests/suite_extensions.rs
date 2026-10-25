@@ -59,6 +59,8 @@ pub mod example_trigger_compact;
 pub mod goal_extension;
 #[path = "goal_idle_selection.rs"]
 pub mod goal_idle_selection;
+#[path = "goal_rendering.rs"]
+pub mod goal_rendering;
 #[path = "goal_review_evidence.rs"]
 pub mod goal_review_evidence;
 #[path = "loop_runtime.rs"]

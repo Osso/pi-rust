@@ -1,94 +1,159 @@
 //! Port of `packages/coding-agent/extensions/goal/src/wait-countdown.ts`.
 
+use pi_js_compat::callback_error::CallbackError;
+use pi_js_compat::date::date_parse_utf16;
 use pi_js_compat::js_json::JsString;
 use std::collections::HashMap;
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-
-use pi_js_compat::date::date_parse_utf16;
+use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
 
-use crate::core::extensions::types::ExtensionContext;
+use crate::core::extensions::types::{ExtensionContext, HandlerError};
 
-/// Countdown redraw scheduler for persisted Supervisor review deadlines.
+type BindingKey = (JsString, JsString);
+type RenderRequest = oneshot::Sender<bool>;
+
+struct RenderBinding {
+    token: Arc<()>,
+    requests: mpsc::UnboundedSender<RenderRequest>,
+}
+
+#[derive(Default)]
+struct CountdownState {
+    timers: HashMap<JsString, JoinHandle<()>>,
+    bindings: HashMap<BindingKey, RenderBinding>,
+}
+
+/// Timers stay Send; scoped renderer callbacks run only on their owning LocalSet.
 #[derive(Clone, Default)]
 pub struct WaitCountdownRefresher {
-    timers: Arc<Mutex<HashMap<JsString, JoinHandle<()>>>>,
+    state: Arc<Mutex<CountdownState>>,
 }
 
 impl WaitCountdownRefresher {
+    pub fn bind(
+        &self,
+        session_id: JsString,
+        review_at: JsString,
+        request_render: Rc<dyn Fn() -> Result<bool, CallbackError>>,
+    ) -> Rc<dyn Fn()> {
+        let key = (session_id, review_at);
+        let token = Arc::new(());
+        let (requests, mut receiver) = mpsc::unbounded_channel::<RenderRequest>();
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .bindings
+            .insert(
+                key.clone(),
+                RenderBinding {
+                    token: token.clone(),
+                    requests,
+                },
+            );
+        let task = tokio::task::spawn_local(async move {
+            while let Some(reply) = receiver.recv().await {
+                let rendered =
+                    request_render().unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
+                // A cancelled timer no longer needs the repaint result.
+                let _ = reply.send(rendered);
+            }
+        });
+        let state = self.state.clone();
+        Rc::new(move || {
+            let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state
+                .bindings
+                .get(&key)
+                .is_some_and(|binding| Arc::ptr_eq(&binding.token, &token))
+            {
+                state.bindings.remove(&key);
+            }
+            task.abort();
+        })
+    }
+
     pub fn clear_all(&self) {
-        let mut timers = self.timers.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        for (_, timer) in timers.drain() {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for (_, timer) in state.timers.drain() {
             timer.abort();
         }
+        state.bindings.clear();
     }
 
     pub fn clear_session(&self, session_id: &JsString) {
-        let timer = self
-            .timers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(session_id);
-        if let Some(timer) = timer {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(timer) = state.timers.remove(session_id) {
             timer.abort();
         }
+        state.bindings.retain(|(session, _), _| session != session_id);
     }
 
-    pub fn start(&self, ctx: ExtensionContext, review_at: &JsString) {
-        let Ok(session) = ctx.session_manager() else {
-            return;
-        };
-        let session_id = session.get_session_id().clone();
-        self.clear_session(&session_id);
-        let Some(deadline_ms) = parse_review_deadline(review_at) else {
-            return;
-        };
-        if deadline_ms <= now_millis() {
-            return;
-        }
-        self.schedule_next_render(ctx, session_id, deadline_ms);
+    pub fn start(&self, ctx: ExtensionContext, review_at: &JsString) -> Result<(), HandlerError> {
+        let session_id = ctx.session_manager()?.get_session_id().clone();
+        self.start_session(session_id, review_at.clone());
+        Ok(())
     }
 
-    fn schedule_next_render(&self, ctx: ExtensionContext, session_id: JsString, deadline_ms: i64) {
-        let now = now_millis();
-        let remaining_ms = deadline_ms - now;
-        if remaining_ms <= 0 {
-            return;
+    fn start_session(&self, session_id: JsString, review_at: JsString) {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(timer) = state.timers.remove(&session_id) {
+            timer.abort();
         }
-        let remaining_seconds = (remaining_ms + 999) / 1_000;
-        let next_change_at = deadline_ms - (remaining_seconds - 1) * 1_000;
-        let delay = Duration::from_millis(u64::try_from((next_change_at - now).max(1)).unwrap_or(1));
-        let timers = Arc::clone(&self.timers);
-        let task_session_id = session_id.clone();
-        let handle = tokio::spawn(async move {
-            tokio::time::sleep(delay).await;
-            timers
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .remove(&task_session_id);
-            if let Ok(ui) = ctx.ui() {
-                ui.request_render();
+        let Some(deadline) = parse_review_deadline(&review_at).filter(|deadline| *deadline > now_millis()) else {
+            return;
+        };
+        let shared = Arc::downgrade(&self.state);
+        let key = (session_id.clone(), review_at);
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(next_render_delay(deadline, now_millis())).await;
+                let Some(shared) = shared.upgrade() else {
+                    return;
+                };
+                let binding = shared
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .bindings
+                    .get(&key)
+                    .map(|binding| binding.requests.clone());
+                let rendered = request_scoped_render(binding).await;
+                if now_millis() >= deadline && rendered != Some(false) {
+                    return;
+                }
             }
-            let refresher = WaitCountdownRefresher {
-                timers: Arc::clone(&timers),
-            };
-            refresher.schedule_next_render(ctx, task_session_id, deadline_ms);
         });
-        self.timers
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(session_id, handle);
+        state.timers.insert(session_id, task);
     }
 }
 
-/// `Date.parse(reviewAt)` as epoch milliseconds; `None` where JavaScript returns `NaN`.
+async fn request_scoped_render(binding: Option<mpsc::UnboundedSender<RenderRequest>>) -> Option<bool> {
+    let binding = binding?;
+    let (reply, rendered) = oneshot::channel();
+    // Closing a binding is the native equivalent of removing the JS callback.
+    binding.send(reply).ok()?;
+    rendered.await.ok()
+}
+
+fn next_render_delay(deadline: i64, now: i64) -> Duration {
+    let remaining = deadline - now;
+    let next = if remaining > 0 {
+        let seconds = (remaining + 999) / 1000;
+        deadline - (seconds - 1) * 1000
+    } else {
+        now + 1000
+    };
+    Duration::from_millis((next - now).max(1) as u64)
+}
+
+/// `Date.parse(reviewAt)` as epoch milliseconds; `None` for JavaScript `NaN`.
 pub(super) fn parse_review_deadline(review_at: &JsString) -> Option<i64> {
     let millis = date_parse_utf16(review_at.units());
     (!millis.is_nan()).then_some(millis as i64)
 }
 
-/// `createWaitCountdownRefresher`.
 pub fn create_wait_countdown_refresher() -> WaitCountdownRefresher {
     WaitCountdownRefresher::default()
 }
@@ -96,6 +161,6 @@ pub fn create_wait_countdown_refresher() -> WaitCountdownRefresher {
 fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+        .map(|elapsed| elapsed.as_millis() as i64)
         .unwrap_or(0)
 }

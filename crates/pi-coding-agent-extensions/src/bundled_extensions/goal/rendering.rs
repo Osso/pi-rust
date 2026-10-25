@@ -30,32 +30,85 @@ struct SupervisorStatusStyles {
     message: StyleFn,
 }
 
+struct CountdownText {
+    text: Text,
+    previous_width: usize,
+    reserved_height: usize,
+}
+
+impl Component for CountdownText {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        let mut lines = self.text.render(width);
+        self.reserved_height = if width == self.previous_width {
+            self.reserved_height.max(lines.len())
+        } else {
+            lines.len()
+        };
+        self.previous_width = width;
+        lines.resize(self.reserved_height, JsString::default());
+        lines
+    }
+}
+
 struct SupervisorStatusComponent {
-    message: JsString,
+    container: BoxComponent,
+    countdown: Option<Rc<RefCell<CountdownText>>>,
+    countdown_label: JsString,
     deadline_ms: Option<i64>,
     styles: SupervisorStatusStyles,
 }
 
-impl Component for SupervisorStatusComponent {
-    fn render(&mut self, width: usize) -> Vec<JsString> {
-        let mut container = BoxComponent::new(1, 1, Some(Rc::clone(&self.styles.background)));
-        container.add_child(Rc::new(RefCell::new(Text::new(
+impl SupervisorStatusComponent {
+    fn update(&mut self, message: &JsString, review_at: Option<&JsString>) {
+        self.container.clear();
+        self.deadline_ms = review_at.and_then(parse_review_deadline);
+        self.container.add_child(Rc::new(RefCell::new(Text::new(
             (self.styles.label)(&"[Supervisor]".into()),
             0,
             0,
-        ))) as ComponentRef);
-        container.add_child(Rc::new(RefCell::new(Spacer::new(1))) as ComponentRef);
-        container
-            .add_child(Rc::new(RefCell::new(Text::new((self.styles.message)(&self.message), 0, 0))) as ComponentRef);
-        if let Some(deadline_ms) = self.deadline_ms {
-            let countdown = format_review_countdown(deadline_ms, now_millis());
-            container.add_child(Rc::new(RefCell::new(Text::new(
-                (self.styles.countdown)(&countdown.into()),
-                0,
-                0,
-            ))) as ComponentRef);
+        ))));
+        self.container.add_child(Rc::new(RefCell::new(Spacer::new(1))));
+        self.container
+            .add_child(Rc::new(RefCell::new(Text::new((self.styles.message)(message), 0, 0))));
+        self.countdown = self.deadline_ms.map(|deadline| {
+            self.countdown_label = (self.styles.countdown)(&format_review_countdown(deadline, now_millis()).into());
+            Rc::new(RefCell::new(CountdownText {
+                text: Text::new(self.countdown_label.clone(), 0, 0),
+                previous_width: 0,
+                reserved_height: 0,
+            }))
+        });
+        if let Some(countdown) = &self.countdown {
+            self.container.add_child(countdown.clone());
         }
-        container.render(width)
+    }
+
+    fn refresh_countdown(
+        component: &Rc<RefCell<Self>>,
+        request_render: &dyn Fn() -> Result<bool, pi_js_compat::callback_error::CallbackError>,
+    ) -> Result<bool, pi_js_compat::callback_error::CallbackError> {
+        let (countdown, next_label, previous_label) = {
+            let component = component.borrow();
+            let (Some(countdown), Some(deadline)) = (&component.countdown, component.deadline_ms) else {
+                return Ok(false);
+            };
+            let next_label = (component.styles.countdown)(&format_review_countdown(deadline, now_millis()).into());
+            (countdown.clone(), next_label, component.countdown_label.clone())
+        };
+        countdown.borrow_mut().text.set_text(next_label.clone());
+        // Scoped repaint renders this component synchronously; do not hold its borrow.
+        if request_render()? {
+            component.borrow_mut().countdown_label = next_label;
+            return Ok(true);
+        }
+        countdown.borrow_mut().text.set_text(previous_label);
+        Ok(false)
+    }
+}
+
+impl Component for SupervisorStatusComponent {
+    fn render(&mut self, width: usize) -> Vec<JsString> {
+        self.container.render(width)
     }
 }
 
@@ -95,7 +148,7 @@ impl SupervisorStatusController {
             .append_entry(&SUPERVISOR_STATUS_TYPE.into(), data)
             .map_err(|error| HandlerError::new(error.to_string()))?;
         if let Some(review_at) = review_at {
-            self.refresher.start(ctx, &review_at.into());
+            self.refresher.start(ctx, &review_at.into())?;
         }
         Ok(())
     }
@@ -114,7 +167,7 @@ impl SupervisorStatusController {
         let session_id = session.get_session_id().clone();
         self.refresher.clear_session(&session_id);
         if let Some(review_at) = latest_future_review_at(&ctx)? {
-            self.refresher.start(ctx, &review_at);
+            self.refresher.start(ctx, &review_at)?;
         }
         Ok(())
     }
@@ -237,23 +290,35 @@ pub fn render_supervisor_status_entry(
     theme: &Theme,
 ) -> Option<ComponentRef> {
     let (message, review_at) = status_details(entry.data.as_ref());
-    let deadline_ms = review_at.as_ref().and_then(parse_review_deadline);
+    Some(create_status_component(&message, review_at.as_ref(), theme))
+}
+
+fn create_status_component(
+    message: &JsString,
+    review_at: Option<&JsString>,
+    theme: &Theme,
+) -> Rc<RefCell<SupervisorStatusComponent>> {
     let background_theme = theme.clone();
     let countdown_theme = theme.clone();
     let label_theme = theme.clone();
     let message_theme = theme.clone();
-    Some(Rc::new(RefCell::new(SupervisorStatusComponent {
-        message,
-        deadline_ms,
-        styles: SupervisorStatusStyles {
-            background: Rc::new(move |text: &JsString| background_theme.bg(ThemeBg::CustomMessageBg, text.clone())),
-            countdown: Rc::new(move |text: &JsString| countdown_theme.fg(ThemeColor::Dim, text.clone())),
-            label: Rc::new(move |text: &JsString| {
-                label_theme.fg(ThemeColor::CustomMessageLabel, label_theme.bold(text.clone()))
-            }),
-            message: Rc::new(move |text: &JsString| message_theme.fg(ThemeColor::CustomMessageText, text.clone())),
-        },
-    })) as ComponentRef)
+    let styles = SupervisorStatusStyles {
+        background: Rc::new(move |text: &JsString| background_theme.bg(ThemeBg::CustomMessageBg, text.clone())),
+        countdown: Rc::new(move |text: &JsString| countdown_theme.fg(ThemeColor::Dim, text.clone())),
+        label: Rc::new(move |text: &JsString| {
+            label_theme.fg(ThemeColor::CustomMessageLabel, label_theme.bold(text.clone()))
+        }),
+        message: Rc::new(move |text: &JsString| message_theme.fg(ThemeColor::CustomMessageText, text.clone())),
+    };
+    let mut component = SupervisorStatusComponent {
+        container: BoxComponent::new(1, 1, Some(styles.background.clone())),
+        countdown: None,
+        countdown_label: JsString::default(),
+        deadline_ms: None,
+        styles,
+    };
+    component.update(message, review_at);
+    Rc::new(RefCell::new(component))
 }
 
 /// `renderSupervisorMessage`.
@@ -290,8 +355,110 @@ pub fn render_supervisor_message(
     Some(Rc::new(RefCell::new(container)) as ComponentRef)
 }
 
+struct SupervisorDisplay {
+    entry_id: JsString,
+    message: JsString,
+    review_at: Option<JsString>,
+    component: Rc<RefCell<SupervisorStatusComponent>>,
+    options: EntryRenderOptions,
+    cleanup_countdown: Option<Rc<dyn Fn()>>,
+}
+
+thread_local! {
+    // EntryRenderer is Send+Sync, but each component belongs to the TUI owner thread.
+    static DISPLAYS: RefCell<std::collections::HashMap<(u64, JsString), SupervisorDisplay>> = RefCell::new(std::collections::HashMap::new());
+}
+
+fn bind_countdown(
+    refresher: &WaitCountdownRefresher,
+    display: &SupervisorDisplay,
+    review_at: Option<&JsString>,
+) -> Option<Rc<dyn Fn()>> {
+    let review_at = review_at.filter(|value| !value.is_empty())?;
+    if display.options.session_id.is_empty() {
+        return None;
+    }
+    let component = display.component.clone();
+    let request_render = display.options.request_render.clone();
+    Some(refresher.bind(
+        display.options.session_id.clone(),
+        review_at.clone(),
+        Rc::new(move || SupervisorStatusComponent::refresh_countdown(&component, request_render.as_ref())),
+    ))
+}
+
+pub fn create_supervisor_status_entry_renderer(refresher: WaitCountdownRefresher) -> EntryRenderer {
+    static NEXT_RENDERER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let renderer_id = NEXT_RENDERER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    std::sync::Arc::new(move |entry, options, theme| {
+        let (message, review_at) = status_details(entry.data.as_ref());
+        let display_id = entry
+            .data
+            .as_ref()
+            .and_then(|data| data.get("displayId"))
+            .and_then(Value::as_string)
+            .filter(|id| !id.is_empty());
+        let key = (
+            renderer_id,
+            display_id.map_or_else(|| entry.id.clone(), |id| options.session_id.clone() + ":" + id.clone()),
+        );
+        DISPLAYS.with_borrow_mut(|displays| {
+            if let Some(display) = displays.get_mut(&key) {
+                if display.entry_id != entry.id {
+                    display.message = message.clone();
+                    display.review_at = review_at.clone();
+                    display.component.borrow_mut().update(&message, review_at.as_ref());
+                    if let Some(cleanup) = display.cleanup_countdown.take() {
+                        cleanup();
+                    }
+                    display.cleanup_countdown = bind_countdown(&refresher, display, review_at.as_ref());
+                    return None;
+                }
+            }
+            // Re-rendering the first persisted entry uses the latest grouped details.
+            let (message, review_at) = displays
+                .get(&key)
+                .map(|display| (display.message.clone(), display.review_at.clone()))
+                .unwrap_or((message, review_at));
+            let component = create_status_component(&message, review_at.as_ref(), theme);
+            if let Some(cleanup) = displays
+                .get_mut(&key)
+                .and_then(|display| display.cleanup_countdown.take())
+            {
+                cleanup();
+            }
+            let mut display = SupervisorDisplay {
+                entry_id: entry.id.clone(),
+                message,
+                review_at: review_at.clone(),
+                component: component.clone(),
+                options: options.clone(),
+                cleanup_countdown: None,
+            };
+            display.cleanup_countdown = bind_countdown(&refresher, &display, review_at.as_ref());
+            displays.insert(key.clone(), display);
+            let bound_component = component.clone();
+            (options.register_cleanup)(Rc::new(move || {
+                DISPLAYS.with_borrow_mut(|displays| {
+                    if displays
+                        .get(&key)
+                        .is_some_and(|display| Rc::ptr_eq(&display.component, &bound_component))
+                    {
+                        if let Some(display) = displays.remove(&key) {
+                            if let Some(cleanup) = display.cleanup_countdown {
+                                cleanup();
+                            }
+                        }
+                    }
+                });
+            }));
+            Some(component as ComponentRef)
+        })
+    })
+}
+
 pub fn supervisor_status_entry_renderer() -> EntryRenderer {
-    std::sync::Arc::new(render_supervisor_status_entry)
+    create_supervisor_status_entry_renderer(WaitCountdownRefresher::default())
 }
 
 pub fn supervisor_message_renderer() -> MessageRenderer {

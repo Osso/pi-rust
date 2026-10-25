@@ -39,8 +39,8 @@ use super::goal_types::{
     ReviewedGoalResponse,
 };
 use super::rendering::{
-    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller, render_supervisor_message,
-    render_supervisor_status_entry, send_supervisor_instructions,
+    AppendSupervisorStatus, SupervisorStatusController, create_supervisor_status_controller,
+    create_supervisor_status_entry_renderer, render_supervisor_message, send_supervisor_instructions,
 };
 use super::supervisor_review::{review_goal_with_resident_supervisor, with_supervisor_review_status};
 use super::wait_countdown::create_wait_countdown_refresher;
@@ -1366,7 +1366,8 @@ fn show_goal(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
 
 /// `goalExtension`.
 pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) -> Result<(), HandlerError> {
-    let status = create_supervisor_status_controller(pi, create_wait_countdown_refresher());
+    let refresher = create_wait_countdown_refresher();
+    let status = create_supervisor_status_controller(pi, refresher.clone());
     let review_goal = options
         .review_goal
         .unwrap_or_else(|| Arc::new(|input| review_goal_with_resident_supervisor(input)));
@@ -1374,7 +1375,7 @@ pub fn install_goal_extension(pi: &ExtensionApi, options: GoalExtensionOptions) 
     let evidence = create_goal_review_evidence_controller(supervisor_review);
     pi.register_entry_renderer(
         super::rendering::SUPERVISOR_STATUS_TYPE,
-        Arc::new(render_supervisor_status_entry),
+        create_supervisor_status_entry_renderer(refresher),
     )
     .map_err(HandlerError::new)?;
     pi.register_message_renderer("supervisor", Arc::new(render_supervisor_message))
