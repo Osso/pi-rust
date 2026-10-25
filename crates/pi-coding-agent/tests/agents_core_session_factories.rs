@@ -1117,7 +1117,7 @@ async fn attach_path_uses_control_metadata_restores_archive_and_keeps_on_request
     use pi_coding_agent::bundled_extensions::agents_core::runtime::{
         MultiAgentExtensionOptions, create_multi_agent_pi_request_handler,
     };
-    use pi_coding_agent::core::session_archive_storage::archive_session_file;
+    use pi_coding_agent::core::session_archive_storage::archive_persisted_session;
     for archived in [false, true] {
         let env = test_env_with_settings(Some(json!({"approvalPolicy":"never"}))).await;
         let store = Arc::new(MultiAgentStore::new(MultiAgentStoreOptions::default()));
@@ -1132,8 +1132,15 @@ async fn attach_path_uses_control_metadata_restores_archive_and_keeps_on_request
         target.persist_for_recovery().unwrap();
         target.set_session_name(Some(&"Metadata 🦀".into())).unwrap();
         let path = target.get_session_file().cloned().unwrap();
+        assert_eq!(
+            pi_coding_agent::core::session_control_db::read_session_metadata(&env.control_db, &path)
+                .unwrap()
+                .unwrap()
+                .name,
+            Some("Metadata 🦀".into())
+        );
         let input = if archived {
-            archive_session_file(&path).unwrap()
+            archive_persisted_session(&env.control_db.clone().into(), &path).unwrap()
         } else {
             path.clone()
         };

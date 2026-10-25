@@ -15,9 +15,11 @@ type SettlementModule = {
 };
 type RuntimeModule = {
     registerAgentsCoreTools(api: unknown, options: unknown): void;
+    registerAgentsMailboxTools(api: unknown, options: unknown): void;
     createMultiAgentRuntimeHandles(): unknown;
     createProductionChildAgentSessionFactory(options: unknown): (input: unknown) => Promise<unknown>;
     createProductionAttachedSessionFactory(options: unknown): (input: unknown) => Promise<unknown>;
+    createMultiAgentPiRequestHandler(options: unknown): (request: unknown, ctx: unknown) => Promise<unknown>;
 };
 type RouteModule = {
     sessionMessageRouteError(db: string | undefined, params: unknown): string | undefined;
@@ -105,6 +107,46 @@ async function execute(request: Request): Promise<unknown> {
                 await api.createProductionChildAgentSessionFactory(options)({agent, ctx, context: "fresh", prompt: "task"});
             }
             return captured;
+        }
+        case "mailboxToolOutput": {
+            const api = await load<RuntimeModule>("runtime.ts");
+            type Tool = {name: string; execute(...args: unknown[]): Promise<{content: Array<{text?: string}>; isError?: boolean}>};
+            const tools = new Map<string, Tool>();
+            const message = {id:"message", fromAgentId:"main", toAgentId:"main", kind:"message", status:"pending", body:"payload"};
+            const store = {
+                getAgent: () => undefined, recordOutboundSessionMessage: () => message,
+                sendMainThreadMailboxMessage: () => ({ok:false, error:"target_not_found"}),
+                markMailboxMessageFailed: () => ({...message, status:"failed"}),
+            };
+            api.registerAgentsMailboxTools({on:()=>{}, registerTool: (tool: Tool) => tools.set(tool.name, tool)}, {store});
+            const tool = tools.get("send_agent_message");
+            if (!tool) throw new Error("missing source send tool");
+            const result = await tool.execute("call", request.params, undefined, undefined, {multiAgentRequiresAgentId:request.missingIdentity});
+            return {text:result.content.map(item=>item.text ?? "").join("\n"), isError:result.isError ?? null};
+        }
+        case "handlerSendCallback": {
+            const api = await load<RuntimeModule>("runtime.ts");
+            let calls = 0;
+            const store = {
+                getPersistenceTarget: () => ({controlDbPath: request.db, sessionPath: request.sessionPath}),
+                listAgents: () => [], getAgent: () => undefined,
+                subscribeLifecycleNotifications: () => () => {},
+                recordOutboundSessionMessage: () => request.message,
+            };
+            const handler = api.createMultiAgentPiRequestHandler({store, onSessionMessageSent: () => {calls++;}});
+            await handler({method: "messages.send", params: {toAgentId: "main", toSessionId: "target", message: "payload"}}, {
+                controlDbPath: request.db, sessionManager: {getSessionId: () => "parent"},
+            });
+            return {calls};
+        }
+        case "transcriptValidation": {
+            const api = await load<{MultiAgentStore: new () => {
+                publishLifecycleCoordinatorSnapshot(agent: unknown): void;
+                updateAgentTranscript(id: unknown, transcript: unknown): unknown;
+            }}>("../../../src/core/multi-agent-store.ts");
+            const store = new api.MultiAgentStore();
+            store.publishLifecycleCoordinatorSnapshot(request.agent);
+            return store.updateAgentTranscript((request.agent as {id: string}).id, {path: "relative", sessionId: "invalid"});
         }
         case "shutdownScope": {
             const api=await load<RuntimeModule>("runtime.ts");
