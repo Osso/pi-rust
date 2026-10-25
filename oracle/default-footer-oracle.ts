@@ -35,7 +35,35 @@ function usageEntries(input: AnyRecord): AnyRecord[] {
 	];
 }
 
+type LifecycleContext = {
+	ui: {
+		setStatus(key: string, text?: string): void;
+		requestRender(): void;
+		setDefaultFooter(factory: unknown): void;
+	};
+};
+type LifecycleHandler = (event: Record<string, never>, ctx: LifecycleContext) => Promise<void>;
+type LifecycleRegistration = (pi: { on(name: string, handler: LifecycleHandler): void }) => void;
+
+async function runLifecycle(register: LifecycleRegistration): Promise<unknown[]> {
+	const handlers = new Map<string, LifecycleHandler>();
+	const calls: unknown[] = [];
+	register({ on: (name, handler) => { handlers.set(name, handler); } });
+	const ctx: LifecycleContext = { ui: {
+		setStatus: (key, text) => { calls.push(["status", key, text ?? null]); },
+		requestRender: () => { calls.push(["render"]); },
+		setDefaultFooter: () => { calls.push(["footer"]); },
+	} };
+	for (const name of ["background_compaction_start", "background_compaction_end", "background_compaction_start", "session_shutdown", "session_start"]) {
+		const handler = handlers.get(name);
+		if (!handler) throw new Error(`Missing footer handler: ${name}`);
+		await handler({}, ctx);
+	}
+	return calls;
+}
+
 void runOracle(async (api, request) => {
+	if (request.operation === "lifecycle") return runLifecycle(api.default);
 	const cases = requireCases(request) as AnyRecord[];
 	const themeModule = await loadSource("src/modes/interactive/theme/theme.ts");
 	themeModule.initTheme(undefined, false);

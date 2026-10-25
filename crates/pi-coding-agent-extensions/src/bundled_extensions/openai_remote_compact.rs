@@ -34,13 +34,17 @@ pub const OPENAI_REMOTE_COMPACTION_SUMMARY: &str = "OpenAI native compaction sto
 const DETAILS_TYPE: &str = "openai-remote-compaction";
 const DETAILS_VERSION: f64 = 1.0;
 const MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS: usize = 400_000;
-const CODEX_REMOTE_COMPACTION_MODEL: &str = "gpt-5.6-terra";
 const OPENAI_REMOTE_COMPACTION_GUIDANCE: &str = "Create a compact context checkpoint for continuing the work, not a conversational reply.
 
 - Deduplicate repeated or semantically equivalent content. Represent each fact, message, and tool result once.
 - Collapse repeated rows, messages, and tool outputs into one canonical statement. Include a repetition count only when it affects diagnosis.
-- Preserve the current goal, user-stated constraints, decisions and reasons, completed work, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
-- Prefer the latest state over superseded state. Record unresolved contradictions explicitly.
+- Derive ongoing work from the actual conversation, including research and discussion; do not invent a fixed session purpose.
+- Preserve pending user questions and requests, user decisions and corrections, relevant context, and unfinished work.
+- Distinguish completed historical work from ongoing work; do not revive it as a current task.
+- Do not infer the current task or authority from the working directory or messages addressed to another session.
+- Represent ambiguity or missing intent explicitly rather than inventing a goal, assignment, or authorization.
+- Preserve user-stated goals and constraints, reasons for decisions, current status, unresolved blockers, next steps, and exact artifacts needed to continue.
+- Prefer the latest confirmed state over superseded state. Record unresolved contradictions explicitly.
 - Integrate relevant prior compacted context instead of copying it verbatim.
 - Do not copy system, developer, or startup instruction packets into replacement history.
 - Do not invent completion, evidence, file changes, commands, or test results.
@@ -225,21 +229,15 @@ pub fn is_openai_responses_model(model: Option<&Model>) -> bool {
 
 fn is_openai_codex_responses_model(model: Option<&Model>) -> bool {
     model.is_some_and(|model| {
-        (model.provider == "openai-codex" || model.provider == "openai-codex-gc")
-            && model.api == "openai-codex-responses"
+        matches!(
+            model.provider.as_str(),
+            "openai-codex" | "openai-codex-gc" | "openai-codex-team"
+        ) && model.api == "openai-codex-responses"
     })
 }
 
 fn is_codex_remote_compaction_model(model: &Model) -> bool {
-    model.api == "openai-codex-responses" && (model.provider == "openai-codex" || model.provider == "openai-codex-gc")
-}
-
-fn get_openai_compact_model_id(model: &Model) -> String {
-    if is_codex_remote_compaction_model(model) {
-        CODEX_REMOTE_COMPACTION_MODEL.to_owned()
-    } else {
-        model.id.clone()
-    }
+    is_openai_codex_responses_model(Some(model))
 }
 
 /// `buildOpenAICompactPayload`.
@@ -282,6 +280,7 @@ pub fn build_openai_compact_payload(
         if serialized_openai_input_chars(&pinned_raw_items) <= MAX_OPENAI_REMOTE_COMPACT_CONTEXT_CHARS {
             pinned_raw_items
         } else {
+            pinned_raw_indices.clear();
             Vec::new()
         };
     let mut previous_with_pinned: Vec<Value> = previous_replacement_history.to_vec();
@@ -332,7 +331,7 @@ pub fn build_openai_compact_payload(
     }
     let input = limit_openai_compact_input(items, &pinned_items, &native_items);
     Ok(OpenAiCompactPayload {
-        model: get_openai_compact_model_id(model),
+        model: model.id.clone(),
         input,
         instructions: instructions.to_owned(),
         tools: Vec::new(),
@@ -365,7 +364,7 @@ pub fn extract_openai_compact_details(
         version: DETAILS_VERSION,
         provider: model.provider.clone(),
         api: model.api.clone(),
-        model: get_openai_compact_model_id(model),
+        model: model.id.clone(),
         endpoint: endpoint.clone(),
         replacement_history,
         replacement_history_bytes,
@@ -381,7 +380,26 @@ async fn post_openai_compact(
     headers: Option<&ProviderHeaders>,
     signal: Option<pi_js_compat::abort::AbortSignal>,
 ) -> Result<Value, HandlerError> {
-    let request_headers = build_openai_request_headers(model, api_key, headers)?;
+    let headers = headers.map(|headers| {
+        headers
+            .iter()
+            .filter_map(|(name, value)| {
+                value
+                    .as_ref()
+                    .map(|value| (JsString::from(name), Value::String(value.clone())))
+            })
+            .collect::<Map>()
+    });
+    let request_headers = build_openai_request_headers(model, api_key, headers.as_ref())?;
+    let request_headers = request_headers
+        .iter()
+        .map(|(name, value)| {
+            let name = name.to_utf8().map_err(|error| HandlerError::new(error.to_string()))?;
+            let value = js_json::to_js_string(value).map_err(HandlerError::new)?;
+            let value = pi_ai::request::header_value(&value).map_err(|error| HandlerError::new(error.message))?;
+            Ok((name, value))
+        })
+        .collect::<Result<Vec<_>, HandlerError>>()?;
     let url = pi_ai::request::request_url(endpoint).map_err(|error| HandlerError::new(error.message))?;
     let value = js_json::to_value(payload).map_err(|error| HandlerError::new(error.to_string()))?;
     let body = js_json::stringify_lossless(&value).into_bytes();
@@ -451,39 +469,33 @@ fn trim_trailing_slashes(value: &JsString) -> JsString {
 pub fn build_openai_request_headers(
     model: &Model,
     api_key: Option<&JsString>,
-    headers: Option<&ProviderHeaders>,
-) -> Result<Vec<(String, String)>, HandlerError> {
-    let mut request_headers: Vec<(String, JsString)> = vec![("content-type".to_owned(), "application/json".into())];
-    if let Some(headers) = headers {
-        for (name, value) in headers {
-            if let Some(value) = value {
-                request_headers.push((name.clone(), value.clone()));
-            }
-        }
-    }
+    headers: Option<&Map>,
+) -> Result<Map, HandlerError> {
+    let mut request_headers = headers.cloned().unwrap_or_default();
+    request_headers.insert("content-type".into(), Value::String("application/json".into()));
     let has_authorization = request_headers
-        .iter()
-        .any(|(name, _)| name.to_lowercase() == "authorization");
+        .keys()
+        .any(|name| name.to_lowercase() == "authorization");
+    let api_key = api_key.filter(|key| !key.is_empty());
     if let Some(api_key) = api_key
         && !has_authorization
     {
-        request_headers.push(("Authorization".into(), JsString::from("Bearer ") + api_key));
+        request_headers.insert(
+            "Authorization".into(),
+            Value::String(JsString::from("Bearer ") + api_key),
+        );
     }
     if let Some(api_key) = api_key
         && model.api == "openai-codex-responses"
     {
-        request_headers.push(("chatgpt-account-id".to_owned(), extract_codex_account_id(api_key)?));
-        request_headers.push(("originator".into(), "pi".into()));
-        request_headers.push(("OpenAI-Beta".to_owned(), "responses=experimental".into()));
+        request_headers.insert(
+            "chatgpt-account-id".into(),
+            Value::String(extract_codex_account_id(api_key)?),
+        );
+        request_headers.insert("originator".into(), Value::String("pi".into()));
+        request_headers.insert("OpenAI-Beta".into(), Value::String("responses=experimental".into()));
     }
-    // `fetch` converts each value to a ByteString when building `Headers`.
-    request_headers
-        .into_iter()
-        .map(|(name, value)| {
-            let value = pi_ai::request::header_value(&value).map_err(|error| HandlerError::new(error.message))?;
-            Ok((name, value))
-        })
-        .collect()
+    Ok(request_headers)
 }
 
 fn resolve_codex_responses_endpoint(base_url: &JsString) -> JsString {

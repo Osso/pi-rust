@@ -572,3 +572,70 @@ async fn default_footer_checked_render_preserves_callable_status_throw() {
     };
     assert_eq!(stringify_lossless(&actual), stringify_lossless(&expected["error"]));
 }
+
+#[path = "support/oracle.rs"]
+mod oracle;
+
+#[derive(Default)]
+struct LifecycleUi {
+    calls: Mutex<Vec<pi_js_compat::js_json::JsValue>>,
+}
+impl pi_coding_agent::core::extensions::types::ExtensionUiContext for LifecycleUi {
+    fn set_status(
+        &self,
+        key: &JsString,
+        text: Option<pi_coding_agent::core::footer_data_provider::ExtensionStatus>,
+    ) -> Result<(), pi_ai::request::CallbackError> {
+        let text = text.map(|text| text.evaluate(None)).transpose()?.flatten();
+        self.calls
+            .lock()
+            .unwrap()
+            .push(pi_js_compat::js_json!(["status", key, text]));
+        Ok(())
+    }
+    fn request_render(&self) {
+        self.calls.lock().unwrap().push(pi_js_compat::js_json!(["render"]));
+    }
+    fn set_default_footer(&self, _: Option<pi_coding_agent::core::extensions::types::ExtensionUiFooterFactory>) {
+        self.calls.lock().unwrap().push(pi_js_compat::js_json!(["footer"]));
+    }
+}
+
+#[tokio::test]
+async fn background_compaction_status_lifecycle_matches_frozen() {
+    use pi_coding_agent::core::extensions::types::{
+        BackgroundCompactionEndEvent, BackgroundCompactionStartEvent, ExtensionMode, SessionShutdownEvent,
+        SessionShutdownReason,
+    };
+    use pi_js_compat::js_json;
+    let mut ts = oracle::TsOracle::spawn(
+        "default-footer-oracle.ts",
+        "packages/coding-agent/extensions/default-footer/src/index.ts",
+    );
+    let expected = ts.request(&js_json!({"id":81,"operation":"lifecycle"}));
+    assert_eq!(expected["ok"], js_json!(true));
+    let runtime = create_extension_runtime();
+    let extension = support::extension(&runtime, "/tmp/project", "<footer>", |pi| {
+        default_footer_extension(pi, &Default::default()).unwrap()
+    })
+    .await;
+    let mut harness = Harness::new(vec![extension], runtime, HarnessOptions::new("/tmp/project")).await;
+    let ui = Arc::new(LifecycleUi::default());
+    harness.runner.set_ui_context(Some(ui.clone()), ExtensionMode::Rpc);
+    for mut event in [
+        ExtensionEvent::BackgroundCompactionStart(BackgroundCompactionStartEvent {}),
+        ExtensionEvent::BackgroundCompactionEnd(BackgroundCompactionEndEvent {}),
+        ExtensionEvent::BackgroundCompactionStart(BackgroundCompactionStartEvent {}),
+        ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }),
+        ExtensionEvent::SessionStart(SessionStartEvent {
+            reason: SessionStartReason::Startup,
+            previous_session_file: None,
+        }),
+    ] {
+        harness.runner.emit(&mut event).await;
+    }
+    assert_eq!(js_json!(ui.calls.lock().unwrap().clone()), expected["output"]);
+}

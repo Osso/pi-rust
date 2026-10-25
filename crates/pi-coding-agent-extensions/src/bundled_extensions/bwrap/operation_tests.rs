@@ -88,3 +88,32 @@ async fn core_ops_bwrap_find_glob_preserves_runner_failure() {
         expected
     );
 }
+
+#[test]
+fn zero_grep_limit_does_not_emit_a_notice() {
+    let details = js_json::parse_lossless(r#"{"matchLimitReached":0}"#).unwrap();
+    let truncation = crate::core::tools::truncate::truncate_head("none", Default::default());
+    assert!(build_grep_notices(details.as_object().unwrap(), &truncation).is_empty());
+}
+
+#[tokio::test]
+async fn signalled_worker_reports_null_exit_code() {
+    use std::os::unix::fs::PermissionsExt;
+    let directory = tempfile::tempdir().unwrap();
+    let fake = directory.path().join("fake-bwrap");
+    std::fs::write(
+        &fake,
+        "#!/bin/sh\nif [ \"$1\" = --version ]; then exit 0; fi\nkill -TERM $$\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&fake, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let params = SandboxParams {
+        bwrap_command: fake.to_str().unwrap().into(),
+        cwd: directory.path().to_str().unwrap().into(),
+        profile: BwrapSandboxProfile(SandboxProfileName::ReadOnly),
+    };
+    let error = run_json_in_sandbox(&params, "stat", path_payload(&"/fixture".into()), None)
+        .await
+        .unwrap_err();
+    assert_eq!(error, "sandbox operation failed with exit code null");
+}

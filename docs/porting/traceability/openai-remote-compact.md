@@ -1,7 +1,7 @@
 # openai-remote-compact extension traceability
 
 Pinned source: `packages/coding-agent/extensions/openai-remote-compact/src/index.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
+`4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`.
 Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/openai_remote_compact.rs`.
 Focused tests: `crates/pi-coding-agent/tests/openai_remote_compact.rs` (2),
 `crates/pi-coding-agent/tests/differential_openai_remote_compact.rs` (2: helper matrix and numeric-key budget regression).
@@ -52,9 +52,18 @@ Mutation restoration is byte-identical to the tested implementation. Required
 - JS object identity in `limitOpenAICompactInput`/pinned-message filtering is represented by indices into
   the constructed item list.
 
-## Discrepancies
+## Re-pin audit (2026-10-25)
 
-- Split-surrogate truncation follows the [approved remote-compaction String boundary](../../specs/compatibility.md#out-of-scope), recorded in `18512b55`.
+Whole-module audit covers registration, auth/no-model gates, split-turn opening-message pinning, provider-native result fields, instructions, endpoints, headers/JWT, response parsing/errors, latest-compaction selection, deduplication, all message conversions, tool reconciliation, native/raw batches, image removal and UTF-16 text reduction.
+
+- Restored frozen guidance; removed old-only forced `gpt-5.6-terra`; payload and stored details use the selected model. Added `openai-codex-team` recognition and cross-model history reuse.
+- Oversized pinned messages lose their pin before reduction, matching frozen bounded-pinned filtering. New 500k-character differential reproduces the previous unbounded output.
+- Header helper preserves object order, null values and frozen override precedence; conversion to HTTP ByteString happens only at fetch. Empty API keys do not add auth headers. Existing null-header assertion remains exact.
+- `codex_compaction_keeps_selected_model_for_each_provider` proves payload and persisted details for all three Codex providers. Helper matrix adds empty-key, content-type override and oversized pin cases. Numeric-key shared-budget test remains unchanged.
+- Existing `raw_compaction_text_and_unit_budget_remain_lossless` proves exact split-surrogate slicing. The former String-boundary discrepancy no longer applies.
+- Gap: adversarial JSON, OS/runtime faults and numeric extremes follow the repository user-observable parity bar; no new carriers are added.
+
+Proof commands and revisions: [lane ledger](../bundled-ext-b-proof.md).
 
 ## JS-value boundary regression (2026-10-20)
 

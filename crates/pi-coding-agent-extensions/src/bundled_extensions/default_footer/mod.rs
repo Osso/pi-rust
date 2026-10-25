@@ -412,15 +412,55 @@ fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore
     )
 }
 
+fn set_background_compaction_status(ctx: &ExtensionContext, text: Option<&str>) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    ui.set_status(
+        &"background-compaction".into(),
+        text.map(|text| crate::core::footer_data_provider::ExtensionStatus::Text(text.into())),
+    )?;
+    ui.request_render();
+    Ok(())
+}
+
+fn register_background_compaction_status(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    pi.on_background_compaction_start(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, Some("compacting context"))?;
+                Ok(None)
+            })
+        },
+    )?;
+    pi.on_background_compaction_end(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
+                Ok(None)
+            })
+        },
+    )?;
+    pi.on_session_shutdown(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
+                Ok(None)
+            })
+        },
+    )?;
+    Ok(())
+}
+
 pub fn default_footer_extension(
     pi: &ExtensionApi,
     options: &DefaultFooterExtensionOptions,
 ) -> Result<(), HandlerError> {
     let store = options.multi_agent_store.clone();
+    register_background_compaction_status(pi)?;
     pi.on_session_start(
         move |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let store = store.clone();
             Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
                 let factory = build_footer_factory(ctx.clone(), store);
                 ctx.ui()?.set_default_footer(Some(factory));
                 Ok(None)

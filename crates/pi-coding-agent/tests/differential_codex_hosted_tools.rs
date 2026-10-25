@@ -344,6 +344,7 @@ async fn differential_codex_hosted_tools() {
         json!({"name": "web-model-anthropic", "kind": "web_model", "model": {"api": "anthropic-messages", "provider": "anthropic"}}),
         json!({"name": "image-model-codex", "kind": "image_model", "model": {"api": "openai-codex-responses", "provider": "openai-codex"}}),
         json!({"name": "image-model-gc", "kind": "image_model", "model": {"api": "openai-codex-responses", "provider": "openai-codex-gc"}}),
+        json!({"name": "image-model-team", "kind": "image_model", "model": {"api": "openai-codex-responses", "provider": "openai-codex-team"}}),
         json!({"name": "image-model-openai", "kind": "image_model", "model": {"api": "openai-responses", "provider": "openai"}}),
         json!({"name": "web-metadata", "kind": "web_metadata"}),
         json!({"name": "image-metadata", "kind": "image_metadata"}),
