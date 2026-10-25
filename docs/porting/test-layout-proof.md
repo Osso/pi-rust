@@ -10,13 +10,13 @@ symlinked fixture directories; they need no additional targets.
 
 | Crate | Original file targets | Consolidated targets | Suite / standalone |
 | --- | ---: | ---: | ---: |
-| pi-coding-agent | 732 | 250 | 12 / 238 |
+| pi-coding-agent | 732 | 251 | 12 / 239 |
 | pi-ai | 147 | 18 | 4 / 14 |
 | pi-tui | 89 | 25 | 3 / 22 |
 | pi-agent-core | 75 | 10 | 4 / 6 |
 | pi-js-compat | 53 | 6 | 2 / 4 |
 
-The 812 process-local files share 25 suite binaries. The other 284 file targets
+The 811 process-local files share 25 suite binaries. The other 285 file targets
 retain their original process boundary. Existing `harness = false` targets remain
 separate, including `terminal_stream` and `bash-runner-lifecycle`.
 
@@ -38,8 +38,8 @@ or binary environment names change.
 ## Proof ledger
 
 Baseline source: `09f10e9c073adba93dbf60eda3ffca1e4578cc23`.
-Consolidated source after isolation corrections: `6cd6501a4`.
-The timing sample below covers `d8a7710ed`; five more targets were restored to
+Consolidated source after isolation corrections and UI integration: `950078e93`.
+The timing sample below covers `d8a7710ed`; six more targets were restored to
 standalone execution afterward, without changing their test bodies. Main merged
 the UI split `91a269c01` as `e262279ca` after the full-suite comparison; final
 check/list gates cover that integration, not another full suite.
@@ -55,8 +55,9 @@ classification, and measurement stamps are saved in `/tmp/test-consolidate-proof
 - First slice: 26 targets become one; all 98 tests pass in 10.24 seconds.
 - `cargo check -j4 --workspace --all-targets --keep-going --message-format=json`:
   success, zero errors and warnings, repeated after the UI integration at
-  `7ffde48b1` (101.6 seconds). The post-UI list/bijection also passes at that
-  revision. Later documentation-only changes do not invalidate those proofs.
+  `7ffde48b1` (101.6 seconds), then refreshed at `950078e93` after the last
+  standalone-target correction. The post-UI list/bijection covers that final
+  layout. Later documentation-only changes do not invalidate those proofs.
 - `cargo fmt --all --check`: PASS.
 - `python3 scripts/source-inventory.py`: PASS, 686 rows / 186,679 source lines.
 - Rust readability: added Rust files contain only explicit module declarations
@@ -71,7 +72,7 @@ classification, and measurement stamps are saved in `/tmp/test-consolidate-proof
   [baseline assignments](test-layout-baseline-failures.md). The other 6,355
   outcomes match. Strict pass/fail-set equality was not obtained.
 - Parent-approved corrections replace the full run's affected extension/tools,
-  mode and AI-core suite results with targeted reruns. The corrected 327-case
+  mode, AI-core and session suite results with targeted reruns. The corrected 327-case
   extension/tools scope exactly matches baseline (321 pass, six existing
   failures); the 237-case mode scope also matches (234 pass, three existing
   failures). The fixed-port Anthropic OAuth fixture retains its own sandbox;
@@ -113,6 +114,11 @@ sandbox was terminated so the full run could continue; only the corrected
 helper-counter collision was reproduced as `AlreadyExists` at
 `support/mode_harness.rs:359`; one shared module fixes it without changing the
 helper or any assertion. Final workspace integration-test targets fall from
-1,112 to 325; existing unit and documentation tests remain. The UI merge also
+1,112 to 326; existing unit and documentation tests remain. The session scope
+was rechecked after restoring `session_coordination_tools` to its original binary:
+412 pass, the same two baseline failures, all 414 outcomes match. That unchanged
+fixture recursively starts `current_exe supervisor`; libtest interprets
+`supervisor` as a filter. Before/after orphan test chains were stopped, and the
+pre-existing fixture bug is recorded for the resumed lanes. The UI merge also
 brings the sibling lane's `incremental = true` configuration; the timing samples
 above precede that merge and isolate the test-layout change.
