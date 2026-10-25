@@ -1,5 +1,7 @@
 # Storage successor checkpoint — 2026-10-25
 
+Current follow-up: [storage-3 module audits and reciprocal proof](storage-3-proof.md). The checkpoint below remains its own bounded historical evidence.
+
 Branch: `repin/core-tools`; baseline `c839fda09`; code through `65e23c966`. Frozen source remains the unmodified [common pin](source-lock.json). No merge, push, deployment, live provider or child agent was used. History work remains deferred. This is bounded persistence evidence, not whole-module acceptance.
 
 ## Implemented boundaries
