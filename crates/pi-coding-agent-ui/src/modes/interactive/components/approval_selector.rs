@@ -64,7 +64,7 @@ impl ApprovalSelectorComponent {
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Approval presets"))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold("Approval presets"))),
                 1,
                 0,
             )),

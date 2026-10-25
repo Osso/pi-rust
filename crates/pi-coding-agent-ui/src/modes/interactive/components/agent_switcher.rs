@@ -269,7 +269,7 @@ impl Component for AgentSwitcherList {
             lines.push(with_theme(|theme| {
                 theme.fg(
                     ThemeColor::Muted,
-                    &truncate_to_width_with(&scroll_text, width, "", false),
+                    truncate_to_width_with(&scroll_text, width, "", false),
                 )
             }));
         }
@@ -286,7 +286,7 @@ impl Component for AgentSwitcherList {
                 js_format!("  {} closed agent{} hidden", hidden_count, plural)
             };
             lines.push(with_theme(|theme| {
-                theme.fg(ThemeColor::Dim, &truncate_to_width_with(&status, width, "", false))
+                theme.fg(ThemeColor::Dim, truncate_to_width_with(&status, width, "", false))
             }));
         }
         lines
@@ -371,7 +371,7 @@ impl AgentSwitcherComponent {
         container.add_child(component(dynamic_border_with_accent()));
         container.add_child(component(Spacer::new(1)));
         container.add_child(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("  Agents"))),
+            with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold("  Agents"))),
             1,
             0,
         )));

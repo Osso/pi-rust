@@ -307,7 +307,7 @@ impl ToolExecutionComponent {
 
     fn create_call_fallback(&self) -> ComponentRef {
         Rc::new(RefCell::new(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::ToolTitle, &theme.bold(&self.tool_name))),
+            with_theme(|theme| theme.fg(ThemeColor::ToolTitle, theme.bold(&self.tool_name))),
             0,
             0,
         )))
@@ -503,7 +503,7 @@ impl ToolExecutionComponent {
     }
 
     fn format_tool_execution(&self) -> JsString {
-        let mut text = with_theme(|theme| theme.fg(ThemeColor::ToolTitle, &theme.bold(&self.tool_name)));
+        let mut text = with_theme(|theme| theme.fg(ThemeColor::ToolTitle, theme.bold(&self.tool_name)));
         let content = js_json::stringify_lossless_pretty(&self.args);
         if !content.is_empty() {
             text.push_str("\n\n");
@@ -515,7 +515,7 @@ impl ToolExecutionComponent {
         }
         if let Some(completion) = self.format_completion_time() {
             text.push_str("\n");
-            text.push_str(&with_theme(|theme| theme.fg(ThemeColor::Muted, completion)));
+            text.push_str(with_theme(|theme| theme.fg(ThemeColor::Muted, completion)));
         }
         if !self.hide_output {
             let output = self.get_text_output(&self.get_display_content());

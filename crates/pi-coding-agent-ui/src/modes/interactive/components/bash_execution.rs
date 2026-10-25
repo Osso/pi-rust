@@ -231,7 +231,7 @@ impl BashExecutionComponent {
 
         let mut children: Vec<ComponentRef> = Vec::new();
         children.push(component(Text::new(
-            with_theme(|theme| theme.fg(ThemeColor::BashMode, &theme.bold(&js_format!("$ {}", &self.command)))),
+            with_theme(|theme| theme.fg(ThemeColor::BashMode, theme.bold(&js_format!("$ {}", &self.command)))),
             1,
             0,
         )));

@@ -176,7 +176,7 @@ impl ScopedModelsSelectorComponent {
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Model Configuration"))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold("Model Configuration"))),
                 0,
                 0,
             )),
@@ -533,7 +533,7 @@ impl Component for ScopedModelsSelectorComponent {
 
         if matches_key(data, "ctrl+c") {
             if !self.search_input.borrow().get_value().is_empty() {
-                self.search_input.borrow_mut().set_value(&JsString::default());
+                self.search_input.borrow_mut().set_value(JsString::default());
                 self.refresh();
             } else {
                 (self.callbacks.on_cancel)();

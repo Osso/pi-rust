@@ -91,7 +91,7 @@ impl SandboxSelectorComponent {
             component(dynamic_border()),
             component(Spacer::new(1)),
             component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold("Sandbox profiles"))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold("Sandbox profiles"))),
                 1,
                 0,
             )),

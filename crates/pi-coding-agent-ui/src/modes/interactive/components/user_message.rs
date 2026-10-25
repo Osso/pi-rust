@@ -75,8 +75,6 @@ impl UserMessageComponent {
             MarkdownOptions {
                 preserve_ordered_list_markers: true,
                 preserve_backslash_escapes: true,
-
-                ..Default::default()
             },
         )));
         if self.in_transit {

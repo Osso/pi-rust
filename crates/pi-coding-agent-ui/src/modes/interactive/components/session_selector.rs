@@ -303,7 +303,7 @@ impl Component for SessionSelectorHeader {
                 key_hint("tui.select.cancel", "cancel")
             );
             (
-                with_theme(|theme| theme.fg(ThemeColor::Error, &truncate(&confirm_hint, width, "…"))),
+                with_theme(|theme| theme.fg(ThemeColor::Error, truncate(&confirm_hint, width, "…"))),
                 JsString::default(),
             )
         } else if let Some(status) = &self.status_message {
@@ -313,7 +313,7 @@ impl Component for SessionSelectorHeader {
                 ThemeColor::Accent
             };
             (
-                with_theme(|theme| theme.fg(color, &truncate(&status.message, width, "…"))),
+                with_theme(|theme| theme.fg(color, truncate(&status.message, width, "…"))),
                 JsString::default(),
             )
         } else {
@@ -775,7 +775,7 @@ impl SessionList {
                 JsString::from("  No sessions in current folder. Press Tab to view all.")
             };
             lines.push(with_theme(|theme| {
-                theme.fg(ThemeColor::Muted, &truncate(&empty_message, width, "…"))
+                theme.fg(ThemeColor::Muted, truncate(&empty_message, width, "…"))
             }));
             return Ok(lines);
         }
@@ -877,7 +877,7 @@ impl SessionList {
                 self.filtered_sessions.len()
             );
             lines.push(with_theme(|theme| {
-                theme.fg(ThemeColor::Muted, &truncate(&scroll_text, width, ""))
+                theme.fg(ThemeColor::Muted, truncate(&scroll_text, width, ""))
             }));
         }
 

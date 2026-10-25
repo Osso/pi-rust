@@ -118,7 +118,7 @@ impl LoginDialogComponent {
         let prefix_children = vec![
             component(dynamic_border()),
             component(Text::new(
-                with_theme(|theme| theme.fg(ThemeColor::Accent, &theme.bold(&title))),
+                with_theme(|theme| theme.fg(ThemeColor::Accent, theme.bold(&title))),
                 1,
                 0,
             )),
