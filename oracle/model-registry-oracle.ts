@@ -1,4 +1,4 @@
-// Frozen registry; no runtime/composer modules or live provider requests.
+// Frozen registry and its default Agent dispatch consumer; no live provider requests.
 
 import { existsSync, readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
@@ -8,6 +8,21 @@ import {
 	installScriptedFetch,
 	setFetchScript,
 } from "./scripted-fetch.ts";
+
+function createStreamRejection(
+	kind: unknown,
+	value: unknown,
+	method: unknown,
+): unknown {
+	if (kind === "error") {
+		return Object.assign(new TypeError(value as string), {
+			code: "E_STREAM",
+			detail: { method },
+		});
+	}
+	if (kind === "conversion") return { toString: null, valueOf: null };
+	return value;
+}
 
 async function main(): Promise<void> {
 	installScriptedFetch();
@@ -390,13 +405,11 @@ async function main(): Promise<void> {
 		if (request.operation === "registration_stream_throw") {
 			const provider = "registry-stream-throw";
 			const api = "registry-stream-throw-api";
-			const thrown =
-				request.kind === "error"
-					? Object.assign(new TypeError(request.value as string), {
-							code: "E_STREAM",
-							detail: { method: request.method },
-						})
-					: request.value;
+			const thrown = createStreamRejection(
+				request.kind,
+				request.value,
+				request.method,
+			);
 			let callbackCount = 0;
 			registry.registerProvider(provider, {
 				...(request.config as Record<string, unknown>),
@@ -435,6 +448,66 @@ async function main(): Promise<void> {
 			}
 			registry.unregisterProvider(provider);
 			return { callbackCount, rejection };
+		}
+		if (request.operation === "registration_agent_throw") {
+			const provider = "registry-agent-throw";
+			let callbackCount = 0;
+			const thrown = createStreamRejection(
+				request.kind,
+				request.value,
+				"streamSimple",
+			);
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				api: "registry-agent-throw-api",
+				apiKey: "config-key",
+				streamSimple: () => {
+					callbackCount++;
+					throw thrown;
+				},
+			});
+			const { Agent } = await import(
+				new URL("../../../agent-core/src/agent.ts", source).href
+			);
+			const agent = new Agent({
+				initialState: { model: registry.find(provider, "one") },
+				getApiKey: async () => "stream-key",
+			});
+			const events: unknown[] = [];
+			agent.subscribe((event: unknown) => {
+				events.push(event);
+			});
+			const before = Date.now();
+			let result: unknown = { kind: "fulfilled" };
+			try {
+				await agent.prompt("prompt");
+			} catch (error) {
+				result =
+					error instanceof Error
+						? {
+								kind: "rejected",
+								value: { name: error.name, message: error.message },
+							}
+						: { kind: "rejected", value: error };
+			}
+			const state = agent.state;
+			registry.unregisterProvider(provider);
+			return {
+				clock: { before, after: Date.now() },
+				snapshot: {
+					callbackCount,
+					result,
+					events,
+					state: {
+						messages: state.messages,
+						isStreaming: state.isStreaming,
+						isModelRequestActive: state.isModelRequestActive,
+						streamingMessage: state.streamingMessage ?? null,
+						pendingToolCalls: [...state.pendingToolCalls],
+						errorMessage: state.errorMessage ?? null,
+					},
+				},
+			};
 		}
 		if (request.operation === "clear_alias_snapshot") {
 			if (

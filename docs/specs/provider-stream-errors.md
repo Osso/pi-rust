@@ -28,7 +28,7 @@ Preserve the frozen `packages/ai/src/compat.ts`, `api/lazy.ts`, `types.ts` and a
 
 ## Tests asserting this spec
 
-`crates/pi-coding-agent/tests/model_registry_stream_throw_probe.rs` contains the actual-source four-case contract and native compiler RED. Agent-loop end-to-end and positive dispatch/lazy controls remain pending.
+`crates/pi-coding-agent/tests/model_registry_stream_throw_probe.rs`: four actual-source raw/simple × TypeError/raw-value acquisition cases GREEN at9256b49b. Existing uncaught process-authority targets also pass after pure move0863de71. `model_registry_agent_stream_throw.rs` adds default Agent end-to-end events/state and conversion-rejection cleanup: behavioral RED on raw-value failure text; TypeError control GREEN. Positive dispatch/lazy controls remain pending.
 
 ## Known gaps (current cycle)
 
