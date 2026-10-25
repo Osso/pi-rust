@@ -109,8 +109,7 @@ fn reads_webp_exif_chunks_with_and_without_the_exif_prefix() {
     }
 }
 
-/// Discrepancy vs the pinned source, fixed upstream in Pi `098356ef6`: chunk
-/// sizes and TIFF offsets are unsigned and both scans bound the next offset.
+/// Frozen 4f9e6f8a4 includes unsigned chunk/TIFF reads and bounded scans.
 mod upstream_chunk_bounds {
     use pi_coding_agent::utils::exif_orientation::read_exif_orientation;
 
@@ -259,8 +258,7 @@ fn defaults_to_orientation_one_for_truncated_segments() {
     assert_eq!(read_exif_orientation(&webp), 1);
 }
 
-/// Discrepancy vs the pinned source, fixed upstream in Pi `098356ef6`: negative
-/// RIFF chunk sizes no longer stall the scan.
+/// Frozen 4f9e6f8a4 reads RIFF chunk sizes as unsigned and bounds the scan.
 #[test]
 fn negative_webp_chunk_sizes_do_not_hang() {
     let mut webp = Vec::new();

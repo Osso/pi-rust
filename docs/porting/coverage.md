@@ -1,7 +1,7 @@
 # Port coverage matrix
 
 Source: `packages/` at [source-lock.json](source-lock.json): **686 unique files, 186,679 lines**.
-Selection and validation: [inventory](inventory.md). Status counts: `done` 481, `gap` 21, `partial` 50, `todo` 134.
+Selection and validation: [inventory](inventory.md). Status counts: `done` 481, `gap` 21, `partial` 51, `todo` 133.
 
 Re-pinned rows cite current module proof; other byte-identical rows retain old labels/mappings but require re-run. Unproven modified/renamed rows are `todo`; old approvals remain pending revalidation. No Rust code deleted by this inventory.
 
@@ -634,7 +634,7 @@ Level is the old import-graph depth where available, not recomputed for changed 
 | `coding-agent/src/utils/clipboard.ts` | 127 | 2 | done | `crates/pi-coding-agent-base/src/utils/clipboard.rs` | Whole common-pin28-case actual-source/private-process matrix GREEN: native/platform/remote/OSC52 cap+rawUTF16, immediate wl-copy nonzero/stdinEPIPE, original uncaught spawn/stdout Error fields, whole-call timeout. Shared spawn/spawn_sync only. Old text-read/right-click/image-text fallback removed; image-only consumer16scenarios +11copy regressions GREEN. Windows/native packaging/scheduling boundaries explicit. [Map](traceability/clipboard.md). |
 | `coding-agent/src/utils/deprecation.ts` | 14 | 0 | done | `crates/pi-coding-agent-base/src/utils/deprecation.rs` | Focused dedupe/yellow tests; chalk dependency port `utils::chalk` (see `traceability/chalk.md`); re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/executable.ts` | 55 | — | gap | `crates/pi-coding-agent-base/src/utils/executable.rs` | POSIX done: 38 actual-process differential cases, raw OS cwd bytes/UTF-16/env casing/order, PATH/default/empty/relative entries, symlinks/X_OK/NUL; deleted cwd propagates shared native uv_cwd record. Approved gap: Windows PATHEXT/separators/access branches (2026-10-22); [traceability](traceability/executable.md). |
-| `coding-agent/src/utils/exif-orientation.ts` | 186 | 1 | todo | `crates/pi-coding-agent-base/src/utils/exif_orientation.rs` | re-pin delta; old status: done; old Rust: `crates/pi-coding-agent-base/src/utils/exif_orientation.rs`; Differential 27100 (25 fixtures, orientations 1-8 LE/BE JPEG + WebP); matches upstream 098356ef6 bounds fix |
+| `coding-agent/src/utils/exif-orientation.ts` | 186 | 1 | partial | `crates/pi-coding-agent-base/src/utils/exif_orientation.rs` | Whole frozen module audited; current pin includes unsigned/chunk-bounds fix (old discrepancy retired). 16 native tests GREEN; partitioned 25-fixture actual-source differential and targeted clippy pending. [Traceability](traceability/exif-orientation.md). |
 | `coding-agent/src/utils/footer-status.ts` | 20 | 0 | done | `crates/pi-coding-agent-base/src/utils/footer_status.rs` | Differential 26004; focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/frontmatter.ts` | 39 | 0 | done | `crates/pi-coding-agent-base/src/utils/frontmatter.rs` | Differential 26007; focused tests; re-run vs 4f9e6f8a4 pending |
 | `coding-agent/src/utils/fs-watch.ts` | 30 | 0 | done | `crates/pi-coding-agent-base/src/utils/fs_watch.rs` | Focused notify-backed tests; re-run vs 4f9e6f8a4 pending |
