@@ -7,7 +7,8 @@ use crate::node_error::{NativeErrorClass, NativeNodeError};
 pub struct FileUrl {
     host: String,
     path: String,
-    drive_root: bool,
+    query: Option<String>,
+    fragment: Option<String>,
 }
 
 impl FileUrl {
@@ -25,19 +26,22 @@ impl FileUrl {
         } else {
             (authority.to_owned(), remainder.to_owned())
         };
-        let end = path.find(['?', '#']).unwrap_or(path.len());
-        let path = normalize_file_path(&path[..end]);
-        let first = path[1..].split('/').next().unwrap_or("");
-        let drive_root = is_drive_letter(first);
-        Self { host, path, drive_root }
+        let (path, fragment) = split_suffix(&path, '#');
+        let (path, query) = split_suffix(path, '?');
+        Self {
+            host,
+            path: normalize_file_path(path),
+            query: query.map(str::to_owned),
+            fragment: fragment.map(str::to_owned),
+        }
     }
 
     pub fn host(&self) -> &str {
         &self.host
     }
 
-    pub fn into_posix_path(self, normalized_host: &str, input: &JsString) -> Result<JsString, NativeNodeError> {
-        if !self.drive_root && !matches!(normalized_host, "" | "localhost") {
+    pub fn into_posix_path(self, normalized_host: &str) -> Result<JsString, NativeNodeError> {
+        if !matches!(normalized_host, "" | "localhost") {
             return Err(node_type_error(
                 "ERR_INVALID_FILE_URL_HOST",
                 format!(
@@ -46,8 +50,56 @@ impl FileUrl {
                 ),
             ));
         }
-        decode_file_path(&self.path, input)
+        decode_file_path(&self.path, &self.serialized_url())
     }
+
+    fn serialized_url(&self) -> JsString {
+        let mut output = format!("file://{}", encode_url_component(&self.path, UrlComponent::Path));
+        if let Some(query) = &self.query {
+            output.push('?');
+            output.push_str(&encode_url_component(query, UrlComponent::Query));
+        }
+        if let Some(fragment) = &self.fragment {
+            output.push('#');
+            output.push_str(&encode_url_component(fragment, UrlComponent::Fragment));
+        }
+        output.into()
+    }
+}
+
+fn split_suffix(input: &str, separator: char) -> (&str, Option<&str>) {
+    input
+        .split_once(separator)
+        .map_or((input, None), |(head, tail)| (head, Some(tail)))
+}
+
+#[derive(Clone, Copy)]
+enum UrlComponent {
+    Path,
+    Query,
+    Fragment,
+}
+
+fn encode_url_component(input: &str, component: UrlComponent) -> String {
+    let mut output = String::new();
+    for byte in input.bytes() {
+        let common = byte <= 0x20 || byte >= 0x7f || matches!(byte, b'\"' | b'<' | b'>');
+        let encode = common
+            || match component {
+                UrlComponent::Path => matches!(byte, b'#' | b'?' | b'`' | b'{' | b'}'),
+                UrlComponent::Query => matches!(byte, b'#' | b'\''),
+                UrlComponent::Fragment => byte == b'`',
+            };
+        if encode {
+            const HEX: &[u8; 16] = b"0123456789ABCDEF";
+            output.push('%');
+            output.push(char::from(HEX[usize::from(byte >> 4)]));
+            output.push(char::from(HEX[usize::from(byte & 15)]));
+        } else {
+            output.push(char::from(byte));
+        }
+    }
+    output
 }
 
 fn normalize_file_path(input: &str) -> String {

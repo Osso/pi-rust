@@ -408,9 +408,12 @@ fn file_url_to_path(value: &JsString) -> Result<JsString, PathError> {
         PathError::from(
             NativeNodeError::from_constructor(pi_js_compat::node_error::NativeErrorClass::TypeError, "Invalid URL")
                 .with_property("code", pi_js_compat::js_json::JsValue::String("ERR_INVALID_URL".into()))
-                .with_property("input", pi_js_compat::js_json::JsValue::String(value.clone())),
+                .with_property(
+                    "input",
+                    pi_js_compat::js_json::JsValue::String(encode_node_utf8(value).into()),
+                ),
         )
     })?;
-    file.into_posix_path(url.host_str().unwrap_or(""), value)
+    file.into_posix_path(url.host_str().unwrap_or(""))
         .map_err(PathError::from)
 }

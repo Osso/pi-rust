@@ -4,7 +4,7 @@
 
 - Preserve Node POSIX `fileURLToPath` output and native error names, messages and properties for the literal `file://` input accepted by coding-agent `normalizePath`.
 - Apply WHATWG file-host and pathname states, separators, encoded dot segments, initial drive roots, query/fragment exclusion and strict UTF-8 percent decoding. Retain leading empty pathname segments.
-- Convert input to USVString only at the URL boundary; retain the original UTF-16 input in error properties.
+- Convert input to USVString only at the URL boundary; match the USVString input on invalid-URL errors and serialized URL on encoded-slash errors.
 - Keep one pathname authority in `pi_js_compat::node_url`. The base caller uses its existing `url::Url` dependency only for host validation/IDNA, never for pathname parsing. No new dependency.
 - Classify tested IDNA verdict differences as gaps under main's 2026-10-24 approval; do not add an IDNA implementation.
 

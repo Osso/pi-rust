@@ -123,6 +123,8 @@ fn file_url_adversarial_host_path_and_percent_matrix() {
         "/%253A/%257C",
         "/%2f",
         "/%2F/%",
+        "/é/%2f?é'`<>#é`<> ",
+        "/a b/{x}/%2f?query#fragment",
         "/%5c",
         "/%",
         "/%0",
