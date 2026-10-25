@@ -145,7 +145,7 @@ fn appends_a_restarted_notice_with_the_current_pid_after_an_exec_in_place_restar
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: session_file,
+            session_file,
             prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(current_pid),
         }),
@@ -171,7 +171,7 @@ fn appends_a_restarted_notice_with_the_old_and_new_pid_after_a_spawn_handoff() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: session_file,
+            session_file,
             prompt: Some(JsString::from("Restarted.")),
             old_pid: Some(1234),
         }),
@@ -231,7 +231,7 @@ fn skips_the_notice_without_a_prompt() {
     append_self_restart_notice(
         &mut session,
         Some(&SelfRestartHandoff {
-            session_file: session_file,
+            session_file,
             prompt: None,
             old_pid: None,
         }),

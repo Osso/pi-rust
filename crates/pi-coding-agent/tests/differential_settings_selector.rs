@@ -134,14 +134,14 @@ fn callbacks(events: &Events, preview: bool) -> Rc<SettingsCallbacks> {
     Rc::new(SettingsCallbacks {
         on_auto_compact_change: owned(events, "onAutoCompactChange", JsValue::Bool),
         on_show_images_change: owned(events, "onShowImagesChange", JsValue::Bool),
-        on_image_width_cells_change: owned(events, "onImageWidthCellsChange", |value| JsValue::Number(value)),
+        on_image_width_cells_change: owned(events, "onImageWidthCellsChange", JsValue::Number),
         on_auto_resize_images_change: owned(events, "onAutoResizeImagesChange", JsValue::Bool),
         on_block_images_change: owned(events, "onBlockImagesChange", JsValue::Bool),
         on_enable_skill_commands_change: owned(events, "onEnableSkillCommandsChange", JsValue::Bool),
         on_steering_mode_change: owned(events, "onSteeringModeChange", steering),
         on_follow_up_mode_change: owned(events, "onFollowUpModeChange", steering),
         on_transport_change: owned(events, "onTransportChange", enum_value::<Transport>),
-        on_http_idle_timeout_ms_change: owned(events, "onHttpIdleTimeoutMsChange", |value| JsValue::Number(value)),
+        on_http_idle_timeout_ms_change: owned(events, "onHttpIdleTimeoutMsChange", JsValue::Number),
         on_thinking_level_change: owned(events, "onThinkingLevelChange", enum_value::<ThinkingLevel>),
         on_theme_change: text(events, "onThemeChange"),
         on_theme_preview: preview.then(|| text(events, "onThemePreview")),
@@ -153,7 +153,7 @@ fn callbacks(events: &Events, preview: bool) -> Rc<SettingsCallbacks> {
         on_double_escape_action_change: owned(events, "onDoubleEscapeActionChange", double_escape),
         on_tree_filter_mode_change: owned(events, "onTreeFilterModeChange", tree_filter),
         on_show_hardware_cursor_change: owned(events, "onShowHardwareCursorChange", JsValue::Bool),
-        on_editor_padding_x_change: owned(events, "onEditorPaddingXChange", |value| JsValue::Number(value)),
+        on_editor_padding_x_change: owned(events, "onEditorPaddingXChange", JsValue::Number),
         on_output_pad_change: owned(events, "onOutputPadChange", |value| JsValue::Number(value as f64)),
         on_autocomplete_max_visible_change: owned(events, "onAutocompleteMaxVisibleChange", |value| {
             JsValue::Number(value)

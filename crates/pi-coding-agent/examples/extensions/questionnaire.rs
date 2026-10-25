@@ -12,7 +12,6 @@ use pi_coding_agent::{
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{
     Text,
@@ -209,7 +208,7 @@ impl Questionnaire {
     }
     fn render_submit(&self, lines: &mut Vec<JsString>, width: usize, state: &State) {
         let theme = &self.theme;
-        wrap_prefixed(lines, width, " ", theme.fg(C::Accent, &theme.bold("Ready to submit")));
+        wrap_prefixed(lines, width, " ", theme.fg(C::Accent, theme.bold("Ready to submit")));
         lines.push(JsString::default());
         for q in &self.questions {
             if let Some(answer) = state.answers.get(q["id"].as_string().unwrap()) {

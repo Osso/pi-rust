@@ -18,7 +18,6 @@ use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::tui::Component;
 use std::{rc::Rc, sync::Arc};
@@ -297,7 +296,7 @@ async fn edit_draft_and_replace(
     };
     let result = ctx
         .new_session(Some(NewSessionOptions {
-            parent_session: parent_session,
+            parent_session,
             with_session: Some(Arc::new(move |replacement| {
                 let edited = edited.clone();
                 Box::pin(async move {

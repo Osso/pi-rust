@@ -5,7 +5,6 @@ use pi_js_compat::date::{LocaleDateFormat, js_now_millis, to_locale_string};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_tui::{
     components::{r#box::BoxComponent, text::Text},
     tui::component,

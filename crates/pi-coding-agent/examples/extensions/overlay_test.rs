@@ -4,7 +4,6 @@ use pi_coding_agent::modes::interactive::theme::{Theme, ThemeColor};
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_tui::tui::CURSOR_MARKER;
 use pi_tui::{matches_key, visible_width};
 use std::sync::{

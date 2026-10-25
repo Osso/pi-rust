@@ -847,7 +847,7 @@ impl Component for GameOver {
         };
         let mut lines = vec![hr.clone(), "".into()];
         for text in [title, self.theme.fg(C::Dim, sub)] {
-            lines.push((JsString::from(" ".repeat(width.saturating_sub(visible_width(&text)) / 2)) + &text));
+            lines.push(JsString::from(" ".repeat(width.saturating_sub(visible_width(&text)) / 2)) + &text);
         }
         lines.push("".into());
         if let Some(d) = &self.details {

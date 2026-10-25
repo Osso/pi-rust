@@ -251,7 +251,7 @@ fn enqueue_stored_message(env: &TestEnv, body: &str, message_id: &str, recipient
             },
             store_ref: RuntimeMailboxStoreRef {
                 message_id: message_id.to_owned().into(),
-                session_path: session_path,
+                session_path,
             },
         },
     )
@@ -751,7 +751,7 @@ fn enqueue_stored_message_for(
             },
             store_ref: RuntimeMailboxStoreRef {
                 message_id: message_id.to_owned().into(),
-                session_path: session_path,
+                session_path,
             },
         },
     )

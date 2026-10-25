@@ -41,7 +41,7 @@ fn chalk_styling_matches_the_pinned_chalk_package() {
 
 #[test]
 fn native_chalk_styles_preserve_unmatched_units_and_reopen_lines() {
-    use pi_js_compat::js_json::{JsString, JsValue};
+    use pi_js_compat::js_json::JsValue;
     let mut oracle = oracle::TsOracle::spawn("chalk-oracle.ts", "node_modules/chalk/source/index.js");
     for level in [Level::Plain, Level::Basic, Level::Ansi256, Level::Ansi16m] {
         for wire in [

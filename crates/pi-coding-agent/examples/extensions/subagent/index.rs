@@ -452,7 +452,7 @@ async fn run_single(
     command
         .args(dispatch.invocation.prefix.iter().map(encode_node_utf8))
         .args(args.iter().map(encode_node_utf8))
-        .current_dir(encode_node_utf8(&item["cwd"].as_string().unwrap_or(&dispatch.cwd)))
+        .current_dir(encode_node_utf8(item["cwd"].as_string().unwrap_or(&dispatch.cwd)))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped());

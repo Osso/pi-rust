@@ -417,7 +417,7 @@ async fn finish_turn(
             }),
         )?;
         pi.send_user_message(
-            UserMessageContent::Text((&text).trim()),
+            UserMessageContent::Text(text.trim()),
             Some(SendUserMessageOptions {
                 deliver_as: Some(UserMessageDelivery::FollowUp),
                 ..Default::default()

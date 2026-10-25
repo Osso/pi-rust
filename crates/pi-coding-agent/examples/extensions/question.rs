@@ -11,7 +11,6 @@ use pi_coding_agent::{
 use pi_js_compat::js_format;
 use pi_js_compat::js_json as json;
 use pi_js_compat::js_json::JsString;
-use pi_js_compat::js_json::JsValue;
 use pi_js_compat::js_json::JsValue as Value;
 use pi_tui::{
     Text,
