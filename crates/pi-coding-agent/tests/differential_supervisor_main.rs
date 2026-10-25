@@ -77,12 +77,14 @@ fn opening_supervisor_session_prepares_and_removes_stale_files_like_frozen() {
 
 #[tokio::test]
 async fn authenticated_supervisor_model_selection_matches_frozen_requirements() {
-    for (providers, selected) in [
-        (vec![], None),
-        (vec!["openai-codex-gc"], Some("openai-codex-gc")),
+    for (providers, selected, configure_models) in [
+        (vec!["openai-codex"], None, false),
+        (vec![], None, true),
+        (vec!["openai-codex-gc"], Some("openai-codex-gc"), true),
         (
             vec!["openai-codex-team", "openai-codex-gc", "openai-codex"],
             Some("openai-codex"),
+            true,
         ),
     ] {
         let directory = tempfile::tempdir().unwrap();
@@ -105,11 +107,13 @@ async fn authenticated_supervisor_model_selection_matches_frozen_requirements() 
                 )
             })
             .collect::<pi_js_compat::js_json::JsObject>();
-        std::fs::write(
-            directory.path().join("models.json"),
-            pi_js_compat::js_json::stringify_lossless(&JsValue::object([("providers", JsValue::Object(models))])),
-        )
-        .unwrap();
+        if configure_models {
+            std::fs::write(
+                directory.path().join("models.json"),
+                pi_js_compat::js_json::stringify_lossless(&JsValue::object([("providers", JsValue::Object(models))])),
+            )
+            .unwrap();
+        }
         let auth_path = directory.path().join("auth.json");
         std::fs::write(
             &auth_path,
