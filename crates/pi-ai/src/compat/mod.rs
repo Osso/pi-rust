@@ -16,7 +16,7 @@ use crate::providers::all::{builtin_models, get_builtin_model, get_builtin_model
 use crate::providers::faux::{
     FauxCore, FauxProviderState, FauxResponseStep, RegisterFauxProviderOptions, create_faux_core,
 };
-use crate::request::{BoxFuture, CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions, error_stream};
+use crate::request::{CallbackError, ProviderStreams, SimpleStreamOptions, StreamOptions};
 use crate::types::{AssistantMessage, Context, Model};
 use crate::utils::event_stream::AssistantMessageEventStream;
 
