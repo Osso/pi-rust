@@ -328,3 +328,45 @@ async fn pyrun_dispose_terminates_inherited_process_group_members_like_frozen() 
     }
     process_env::clear();
 }
+
+#[tokio::test]
+async fn pyrun_progress_failure_rejects_only_its_queued_request_like_frozen() {
+    use pi_coding_agent::bundled_extensions::pyrun::runner::{
+        CanonicalPyrunEvalParams, PyrunRunnerClient, PyrunRunnerError, PyrunRunnerOptions,
+    };
+    let _environment = ENVIRONMENT.lock().await;
+    process_env::set("PI_PYRUN_RUNNER_ARGS", "[]");
+    let script = "import sys,json,time\nsys.stdin.readline()\nsys.stdin.readline()\nprint(json.dumps({'type':'console','text':'progress'}),flush=True)\nprint(json.dumps({'type':'completed','value':42}),flush=True)\ntime.sleep(0.2)";
+    let mut oracle = oracle::TsOracle::spawn(
+        "pyrun-runner-queue-oracle.ts",
+        "packages/coding-agent/extensions/pyrun/src/runner.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"options":{"command":"python3","args":["-u","-c",script]}}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    let runner = PyrunRunnerClient::new(PyrunRunnerOptions {
+        command: Some("python3".into()),
+        args: Some(vec!["-u".into(), "-c".into(), script.into()]),
+        ..Default::default()
+    });
+    let first: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"first"})).unwrap();
+    let second: CanonicalPyrunEvalParams = json::from_value(&json!({"code":"second"})).unwrap();
+    let (first, second) = tokio::join!(
+        runner.evaluate(
+            first,
+            Some(std::sync::Arc::new(|_| Err(PyrunRunnerError::new("progress rejected")))),
+            None,
+            None
+        ),
+        runner.evaluate(second, None, None, None)
+    );
+    let actual = [first, second]
+        .into_iter()
+        .map(|result| match result {
+            Ok(result) => json!({"result":result}),
+            Err(error) => json!({"error":error.message()}),
+        })
+        .collect::<Vec<_>>();
+    runner.dispose();
+    assert_eq!(json!(actual), expected["output"]);
+    process_env::clear();
+}

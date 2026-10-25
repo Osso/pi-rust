@@ -179,3 +179,13 @@ supervisor. They still assert the exact returned terminal revision, not just exi
 success. Four complete fixture option literals gained `inherited_process_group_id: None`.
 Windows taskkill is a platform gap; uncommon signal/proc filesystem fault identity
 and races follow the repository runtime-fault gap policy.
+
+## Re-pin runner FIFO failure isolation
+
+Two outstanding requests in one live runner exposed a realistic mismatch: native
+progress failure rejected both; frozen rejects only the request whose callback
+failed, then delivers the next terminal result to the second request. Native
+pending entries now carry internal request IDs (the source uses object identity),
+so stdin errors, abort, parse and callback failures reject that entry only; process
+exit still rejects the generation. Actual frozen/native two-request RED/GREEN:
+`/tmp/bundled3-pyrun-queue-{red,green}.log`.
