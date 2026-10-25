@@ -124,11 +124,13 @@ impl Session {
         assert_eq!(
             self.normalizer.normalize(expected),
             self.normalizer.normalize(actual),
-            "captured contexts source={} native={}",
+            "captured contexts source={} native={}\nsource events={}\nnative events={}",
             std::fs::read_to_string(&self.context_logs[0])
                 .unwrap_or_else(|error| format!("capture unavailable: {error}")),
             std::fs::read_to_string(&self.context_logs[1])
-                .unwrap_or_else(|error| format!("capture unavailable: {error}"))
+                .unwrap_or_else(|error| format!("capture unavailable: {error}")),
+            self.ts.collected.join("\n"),
+            self.rust.collected.join("\n")
         );
     }
 }
