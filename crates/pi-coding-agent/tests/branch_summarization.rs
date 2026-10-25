@@ -62,8 +62,6 @@ fn tool_result_message(tool_call_id: &str, text: &str) -> AgentMessage {
         tool_name: "read".to_owned(),
         content: vec![pi_ai::types::TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 0.0,
     })
@@ -426,11 +424,14 @@ async fn returns_no_content_when_there_are_no_messages() {
         result.summary.as_ref(),
         Some(&JsString::from("No content to summarize"))
     );
-    assert_eq!(result.usage, None);
+    assert_eq!(
+        serde_json::to_value(&result).unwrap(),
+        json!({"summary": "No content to summarize"})
+    );
 }
 
 #[tokio::test]
-async fn generates_a_preambled_summary_with_usage_and_file_lists() {
+async fn generates_a_preambled_summary_with_file_lists() {
     let mut factory = EntryFactory::new();
     let entries = vec![
         factory.message(&user("explore")),
@@ -450,7 +451,7 @@ async fn generates_a_preambled_summary_with_usage_and_file_lists() {
             "The user explored a different conversation branch before returning here.\nSummary of that exploration:\n\n## Goal\nExplore\n\n<modified-files>\nsrc/a.ts\n</modified-files>"
         )).map(JsString::from).as_ref()
     );
-    assert_eq!(result.usage.expect("usage").total_tokens, 7.0);
+    assert!(serde_json::to_value(&result).unwrap().get("usage").is_none());
     assert_eq!(result.read_files, Some(Vec::new()));
     assert_eq!(result.modified_files, Some(vec![JsString::from("src/a.ts")]));
 

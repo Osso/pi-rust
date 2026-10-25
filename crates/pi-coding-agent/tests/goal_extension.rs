@@ -38,6 +38,7 @@ use pi_js_compat::js_json::JsValue as Value;
 
 #[derive(Default)]
 struct Records {
+    fail_notification: bool,
     user_messages: Vec<UserMessageContent>,
     messages: Vec<CustomMessagePayload>,
     entries: Vec<(JsString, Option<Value>)>,
@@ -56,11 +57,11 @@ impl ExtensionUiContext for TestUi {
         message: &JsString,
         notify_type: Option<NotifyType>,
     ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
-        self.records
-            .lock()
-            .unwrap()
-            .notifications
-            .push((message.to_owned(), notify_type));
+        let mut records = self.records.lock().unwrap();
+        if records.fail_notification {
+            return Err(pi_js_compat::callback_error::CallbackError::new("notification failed"));
+        }
+        records.notifications.push((message.to_owned(), notify_type));
         Ok(())
     }
 
@@ -145,6 +146,7 @@ fn context_actions() -> ExtensionContextActions {
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: None,
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: None,
         get_multi_agent_requires_agent_id: None,
         get_multi_agent_store: None,
@@ -536,6 +538,7 @@ async fn registers_manage_goal_and_goal_command_without_budget_fields() {
     let harness = harness(
         "register",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -561,6 +564,7 @@ async fn sets_goal_from_command_and_continues_when_idle() {
     let harness = harness(
         "command-set",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -594,6 +598,7 @@ async fn rejects_bare_and_reserved_objectives() {
     let harness = harness(
         "reject",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -619,6 +624,7 @@ async fn rejects_objectives_longer_than_ten_thousand_utf16_units() {
     let harness = harness(
         "long",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -644,6 +650,7 @@ async fn injects_the_running_objective_into_the_system_prompt() {
     let harness = harness(
         "inject",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -671,6 +678,7 @@ async fn continues_after_agent_end_with_supervisor_instructions() {
     let harness = harness(
         "agent-end",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "Continue working toward this objective until it is achieved: Ship it"
                 .to_owned()
                 .into(),
@@ -701,6 +709,7 @@ async fn pause_requires_reason_and_resume_clears_paused_state() {
     let harness = harness(
         "pause",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -730,6 +739,7 @@ async fn completion_requires_a_report_and_marks_the_goal_complete() {
     let harness = harness(
         "complete",
         GoalSupervisorResponse::Complete {
+            display_id: None,
             reason: "verified".to_owned().into(),
         },
     )
@@ -754,6 +764,7 @@ async fn review_evidence_accumulates_and_is_sent_to_completion_review() {
     let harness = harness(
         "evidence",
         GoalSupervisorResponse::Complete {
+            display_id: None,
             reason: "verified".to_owned().into(),
         },
     )
@@ -807,6 +818,7 @@ async fn status_and_clear_report_and_remove_the_goal() {
     let harness = harness(
         "status-clear",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -836,6 +848,7 @@ async fn session_start_restores_running_goal_and_requests_continuation() {
     let harness = harness(
         "session-start",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -859,6 +872,7 @@ async fn idle_review_with_wait_schedules_a_five_minute_review_status() {
     let harness = harness(
         "wait",
         GoalSupervisorResponse::Wait {
+            display_id: None,
             reason: "agents running".to_owned().into(),
         },
     )
@@ -888,6 +902,7 @@ async fn emits_abort_and_error_skips_without_reviewing() {
     let harness = harness(
         "abort",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -910,6 +925,7 @@ async fn does_not_continue_when_session_continuation_is_set() {
     let harness = harness(
         "continuation",
         GoalSupervisorResponse::Continue {
+            display_id: None,
             instructions: "continue".to_owned().into(),
             reason: "work remains".to_owned().into(),
         },
@@ -926,4 +942,74 @@ async fn does_not_continue_when_session_continuation_is_set() {
     harness.runner.emit(&mut event).await;
     assert!(harness.records.lock().unwrap().messages.is_empty());
     assert_eq!(harness.stored_goal().unwrap().continuation_turns, Some(0.0));
+}
+
+#[tokio::test]
+async fn goal_commands_propagate_notification_errors() {
+    for args in ["", "pause", "resume", "clear", "set Ship it", "--invalid"] {
+        let harness = harness(
+            "command-errors",
+            GoalSupervisorResponse::Complete {
+                reason: "ok".into(),
+                display_id: None,
+            },
+        )
+        .await;
+        harness.records.lock().unwrap().fail_notification = true;
+        let command = harness.runner.get_command("goal").unwrap();
+        let error = (command.handler)(args.into(), harness.runner.create_command_context())
+            .await
+            .expect_err(args);
+        assert_eq!(error.message, "notification failed");
+    }
+}
+
+#[path = "support/oracle.rs"]
+mod management_oracle;
+
+#[tokio::test]
+async fn goal_management_outputs_match_frozen_without_extra_notifications() {
+    let cases = json!([
+        {"params":{"action":"status"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"pause"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"pause","reason":"blocked"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"resume"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"clear"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"complete","reason":"verified"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"continue","reason":"more work","instructions":"check logs","displayId":"group"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"pause","reason":"blocked","displayId":"group"}},
+        {"params":{"action":"complete","completionReport":"tests pass"}, "decision":{"kind":"error","reason":"unavailable","displayId":"group"}},
+        {"params":{"action":"set","objective":"Ship it"}, "decision":{"kind":"error","reason":"unavailable"}},
+        {"params":{"action":"set","objective":"Ship it"}, "decision":{"kind":"set","objective":"Ship it","reason":"approved"}}
+    ]);
+    let mut oracle = management_oracle::TsOracle::spawn(
+        "goal-management-oracle.ts",
+        "packages/coding-agent/extensions/goal/src/index.ts",
+    );
+    let expected = oracle.request(&json!({"id":1,"cases":cases}));
+    assert_eq!(expected["ok"], json!(true), "{expected:?}");
+    for (index, case) in cases.as_array().unwrap().iter().enumerate() {
+        let decision = pi_js_compat::js_json::from_value(&case["decision"]).unwrap();
+        let harness = harness("management-matrix", decision).await;
+        harness.run_command("set Ship it").await;
+        *harness.records.lock().unwrap() = Records::default();
+        let result = harness.run_tool(case["params"].clone()).await;
+        let records = harness.records.lock().unwrap();
+        let messages = records
+            .messages
+            .iter()
+            .map(|message| {
+                let id = &message.details.as_ref().unwrap()["displayId"];
+                assert_eq!(id, &records.entries.last().unwrap().1.as_ref().unwrap()["displayId"]);
+                let id = pi_js_compat::js_json::encode_node_utf8(id.as_string().unwrap());
+                assert_eq!(id.split('-').map(str::len).collect::<Vec<_>>(), [8, 4, 4, 4, 12]);
+                assert!(id.bytes().all(|byte| byte.is_ascii_hexdigit() || byte == b'-'));
+                let mut message = json::to_value(message).unwrap();
+                message["details"] = json!({"displayId":"<review-id>"});
+                message
+            })
+            .collect::<Vec<_>>();
+        let actual = json!({"result":{"content":result.content,"details":result.details},"notifications":records.notifications.iter().map(|(message, _)|json!([message,"info"])).collect::<Vec<_>>(),"messages":messages,"entries":records.entries.iter().filter_map(|(_, data)| data.as_ref().map(|data|data["message"].clone())).collect::<Vec<_>>()});
+        assert_eq!(actual, expected["output"][index], "case {index}");
+    }
 }

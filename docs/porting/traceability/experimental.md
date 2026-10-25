@@ -12,3 +12,7 @@ Parent approved the cross-lane removal on 2026-10-25. `pi-ai` types are unchange
 RED: `/tmp/settings-models-experimental-red-final.log` fails for `PI_EXPERIMENTAL=1`: all three native tools returned json_schema/prefer instead of frozen null. The public wrapped factories already returned null, so the regression exercises the concrete native tools, not only wrappers. GREEN and targeted clippy are recorded in the lane proof ledger after the commit.
 
 No semantic deviations. Pathological environment/runtime faults remain outside the user-observable parity bar.
+
+GREEN: `/tmp/settings-models-experimental-green.log` at 556c3d54a. Targeted warning-mode clippy passes at 02e7c6033 with no warnings on changed lines; strict dependency warnings are deferred by parent to the final gate. Manual changed-code readability audit found no violations.
+
+2026-10-25: process-isolated env-gate test now imports actual frozen core/experimental.ts and compares its boolean directly. Removed calls/assertions for source-absent constrained-sampling tool metadata; the seven env values and native child-process lifetime remain tested.

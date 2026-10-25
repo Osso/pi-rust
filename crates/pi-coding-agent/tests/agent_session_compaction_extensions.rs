@@ -61,6 +61,9 @@ fn settings(compaction: serde_json::Value) -> Settings {
 struct Captured {
     before: Vec<SessionBeforeCompactEvent>,
     compaction: Vec<CompactionEvent>,
+    background: Vec<&'static str>,
+    background_start_gate: Option<Arc<tokio::sync::Notify>>,
+    background_end_gate: Option<Arc<tokio::sync::Notify>>,
 }
 
 impl Captured {
@@ -68,6 +71,9 @@ impl Captured {
         Arc::new(Mutex::new(Self {
             before: Vec::new(),
             compaction: Vec::new(),
+            background: Vec::new(),
+            background_start_gate: None,
+            background_end_gate: None,
         }))
     }
 }
@@ -91,7 +97,6 @@ fn extension_result(
             model: "faux-1".to_owned(),
             endpoint: None,
         }),
-        usage: None,
         provider_native: None,
         details: Some(JsValue::from(json!({"origin": "extension"}))),
     }
@@ -122,6 +127,34 @@ fn seed_compactable_session(manager: &mut SessionManager) {
             faux_assistant_message("assistant response to compact", FauxAssistantMessageOptions::default()),
         )))
         .expect("older assistant message");
+    for index in 0..4 {
+        manager
+            .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+                role: pi_ai::UserRole::Tag,
+                content: pi_ai::UserContent::Text(format!("newer request {index}").into()),
+                input_source: None,
+                provider_native: None,
+                timestamp: f64::from(index + 1),
+            }))
+            .expect("newer user");
+    }
+    manager
+        .append_message(pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(
+            faux_assistant_message("latest answer", Default::default()),
+        )))
+        .expect("latest answer");
+}
+
+fn append_usage_anchor(session: &AgentSession, tokens: f64) -> pi_ai::AssistantMessage {
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = tokens;
+    anchor.usage.total_tokens = tokens;
+    let message = pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(anchor.clone()));
+    let identity = session.agent().append_message(message.clone());
+    let mut manager = session.session_manager();
+    let id = manager.append_message(message).expect("anchor");
+    manager.bind_message_identity(&id, identity).expect("anchor identity");
+    anchor
 }
 
 type BeforeHook = Arc<dyn Fn(&SessionBeforeCompactEvent) -> Option<SessionBeforeCompactResult> + Send + Sync>;
@@ -152,9 +185,12 @@ async fn env_with(
     let captured = Captured::new();
     let before_capture = Arc::clone(&captured);
     let compaction_capture = Arc::clone(&captured);
+    let background_capture = Arc::clone(&captured);
     let factory = Arc::new(move |api: &pi_coding_agent::core::extensions::ExtensionApi| {
         let before_capture = Arc::clone(&before_capture);
         let compaction_capture = Arc::clone(&compaction_capture);
+        let background_start_capture = Arc::clone(&background_capture);
+        let background_end_capture = Arc::clone(&background_capture);
         let before = before.clone();
         let compaction_hook = compaction_hook.clone();
         let registered = (|| -> Result<(), String> {
@@ -185,6 +221,34 @@ async fn env_with(
                         'static,
                         Result<Option<CompactionEventResult>, HandlerError>,
                     >
+            })?;
+            api.on_background_compaction_start(move |_event, _ctx| {
+                let captured = Arc::clone(&background_start_capture);
+                Box::pin(async move {
+                    let gate = {
+                        let mut captured = captured.lock().unwrap();
+                        captured.background.push("background_compaction_start");
+                        captured.background_start_gate.clone()
+                    };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
+            })?;
+            api.on_background_compaction_end(move |_event, _ctx| {
+                let captured = Arc::clone(&background_end_capture);
+                Box::pin(async move {
+                    let gate = {
+                        let mut captured = captured.lock().unwrap();
+                        captured.background.push("background_compaction_end");
+                        captured.background_end_gate.clone()
+                    };
+                    if let Some(gate) = gate {
+                        gate.notified().await;
+                    }
+                    Ok(None)
+                }) as pi_ai::request::BoxFuture<'static, Result<Option<()>, HandlerError>>
             })?;
             Ok(())
         })();
@@ -443,35 +507,379 @@ async fn manual_compaction_uses_the_compaction_hook_and_marks_from_hook() {
 }
 
 #[tokio::test]
-async fn manual_compaction_preflight_overrides_and_forwards_custom_instructions() {
+async fn manual_compaction_preflight_only_cancels_and_forwards_custom_instructions() {
     let env = env_with(
-        json!({"keepRecentTokens": 1}),
+        json!({"enabled": false, "keepRecentTokens": 1}),
         Some(Arc::new(|event: &SessionBeforeCompactEvent| {
             assert_eq!(
                 event.custom_instructions.as_ref(),
                 Some(&JsString::from("keep decisions"))
             );
-            Some(SessionBeforeCompactResult {
-                cancel: None,
-                compaction: Some(extension_result("preflight summary", &event.preparation)),
-            })
+            Some(
+                serde_json::from_value(json!({
+                    "compaction": extension_result("obsolete preflight summary", &event.preparation)
+                }))
+                .expect("preflight result"),
+            )
         })),
         None,
     )
     .await;
 
-    let result = env
-        .session
-        .compact(Some(&JsString::from("keep decisions")))
-        .await
-        .expect("compact");
-    assert_eq!(result.summary, "preflight summary");
-    let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
-        compaction_entry(&env.session)
-    else {
-        panic!("expected a compaction entry");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "preflight-compaction", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"error": DISABLED_MESSAGE}}));
+    let instructions = JsString::from("keep decisions");
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        env.session.compact(Some(&instructions)),
+    )
+    .await
+    .expect("compaction must settle without a continuation");
+    let actual = match result {
+        Ok(result) => json!({"summary": result.summary}),
+        Err(error) => json!({"error": error.message()}),
     };
-    assert_eq!(entry.from_hook, Some(true));
+    assert_eq!(actual, expected["value"]);
+    assert!(
+        !env.session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+    );
+}
+
+#[tokio::test]
+async fn resumed_manual_compaction_releases_turn_start_for_streaming_input() {
+    use pi_coding_agent::core::agent_session::{PromptOptions, StreamingBehavior};
+    let env = env_with(
+        json!({"keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    env.session
+        .session_manager()
+        .append_message(pi_agent_core::agent::types::AgentMessage::User(pi_ai::UserMessage {
+            role: pi_ai::UserRole::Tag,
+            content: pi_ai::UserContent::Text("unfinished request".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 1.0,
+        }))
+        .expect("unfinished request");
+    let started = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    let (start_provider, release_provider) = (Arc::clone(&started), Arc::clone(&release));
+    env.faux
+        .set_responses(vec![pi_ai::providers::faux::FauxResponseStep::Factory(Arc::new(
+            move |_, _, _, _| {
+                let (started, release) = (Arc::clone(&start_provider), Arc::clone(&release_provider));
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(faux_assistant_message("resumed answer", Default::default()))
+                })
+            },
+        ))]);
+    let session = env.session.clone();
+    let compact = tokio::spawn(async move { session.compact(None).await });
+    tokio::time::timeout(std::time::Duration::from_secs(5), started.notified())
+        .await
+        .expect("resumed provider started");
+    let input = tokio::time::timeout(
+        std::time::Duration::from_millis(100),
+        env.session.prompt(
+            "new input",
+            PromptOptions {
+                streaming_behavior: Some(StreamingBehavior::FollowUp),
+                ..Default::default()
+            },
+        ),
+    )
+    .await;
+    release.notify_one();
+    env.session.abort().await.expect("abort resumed turn");
+    tokio::time::timeout(std::time::Duration::from_secs(5), compact)
+        .await
+        .expect("compact settled")
+        .expect("compact task")
+        .expect("saved compaction");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "compaction-lock", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": true}));
+    assert!(
+        matches!(input, Ok(Ok(()))),
+        "streaming prompt must be accepted while compact awaits resumed turn: {input:?}"
+    );
+}
+
+#[tokio::test]
+async fn overflow_recovery_resets_when_the_next_user_request_starts_like_frozen() {
+    use pi_coding_agent::core::agent_session::PromptOptions;
+    let env = env_with(
+        json!({"enabled": false, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    env.faux.set_responses(
+        [
+            "maximum context length exceeded",
+            "fatal",
+            "maximum context length exceeded",
+            "fatal",
+        ]
+        .into_iter()
+        .map(|message| {
+            faux_assistant_message(
+                "",
+                FauxAssistantMessageOptions {
+                    stop_reason: Some(pi_ai::StopReason::Error),
+                    error_message: Some(message.into()),
+                    timestamp: Some(0.0),
+                    ..Default::default()
+                },
+            )
+            .into()
+        })
+        .collect(),
+    );
+    env.session
+        .prompt("first overflow request", PromptOptions::default())
+        .await
+        .expect("first request");
+    env.session
+        .prompt("second overflow request", PromptOptions::default())
+        .await
+        .expect("second request");
+    let compactions = env.captured.lock().unwrap().compaction.len();
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "repeat-overflow", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(expected, json!({"ok": true, "value": {"compactions": 2}}));
+    assert_eq!(json!({"compactions": compactions}), expected["value"]);
+}
+
+#[tokio::test]
+async fn percentage_threshold_counts_messages_after_the_usage_anchor_like_frozen() {
+    use pi_coding_agent::core::agent_session::PromptOptions;
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    env.session.set_auto_retry_enabled(false);
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = 400.0;
+    anchor.usage.total_tokens = 400.0;
+    let message = pi_agent_core::agent::types::AgentMessage::Assistant(Box::new(anchor));
+    let identity = env.session.agent().append_message(message.clone());
+    {
+        let mut manager = env.session.session_manager();
+        let entry_id = manager.append_message(message).expect("anchor");
+        manager
+            .bind_message_identity(&entry_id, identity)
+            .expect("anchor identity");
+    }
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("trailing custom");
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    let before_run = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+    let recorded = Arc::clone(&before_run);
+    let captured = Arc::clone(&env.captured);
+    env.session
+        .prompt(
+            "next request",
+            PromptOptions {
+                preflight_result: Some(Arc::new(move |accepted| {
+                    if accepted {
+                        recorded.store(
+                            captured.lock().unwrap().compaction.len(),
+                            std::sync::atomic::Ordering::SeqCst,
+                        );
+                    }
+                })),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("prompt");
+    let compactions = env.captured.lock().unwrap().compaction.len();
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({
+        "operation": "threshold-trailing", "dir": env._dir.path().join("oracle").display().to_string()
+    }));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"compactions": 1, "beforeRun": 1}})
+    );
+    assert_eq!(
+        json!({"compactions": compactions, "beforeRun": before_run.load(std::sync::atomic::Ordering::SeqCst)}),
+        expected["value"]
+    );
+}
+
+#[tokio::test]
+async fn next_turn_refresh_compacts_percentage_context_before_returning_snapshot_like_frozen() {
+    use pi_agent_core::agent::types::{AgentContext, AgentMessage, PrepareNextTurnContext};
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0, "keepRecentTokens": 1}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let mut anchor = faux_assistant_message("anchor", Default::default());
+    anchor.usage.input = 600.0;
+    anchor.usage.total_tokens = 600.0;
+    let message = AgentMessage::Assistant(Box::new(anchor.clone()));
+    let identity = env.session.agent().append_message(message.clone());
+    {
+        let mut manager = env.session.session_manager();
+        let id = manager.append_message(message).expect("anchor");
+        manager.bind_message_identity(&id, identity).expect("anchor identity");
+    }
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("trailing custom");
+    let hook = env
+        .session
+        .agent()
+        .prepare_next_turn_with_context_hook()
+        .expect("installed hook");
+    let state = env.session.state();
+    let update = hook(
+        PrepareNextTurnContext {
+            message: anchor,
+            tool_results: Vec::new(),
+            new_messages: Vec::new(),
+            context: AgentContext {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: Some(state.tools),
+            },
+        },
+        None,
+    )
+    .await
+    .expect("hook result")
+    .expect("snapshot");
+    let actual = json!({
+        "compactions": env.captured.lock().unwrap().compaction.len(),
+        "hasSummary": update.context.expect("context").messages.iter().any(|message| message.has_role("compactionSummary")),
+    });
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "next-turn-threshold", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"compactions": 1, "hasSummary": true}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[test]
+fn background_compaction_event_wire_tags_match_actual_frozen_emission() {
+    use pi_coding_agent::core::extensions::types::ExtensionEvent;
+    let dir = tempfile::tempdir().expect("fixture dir");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(&json!({"operation": "background-events", "dir": dir.path().display().to_string()}));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": ["background_compaction_start", "compaction", "background_compaction_end"]})
+    );
+    for name in ["background_compaction_start", "background_compaction_end"] {
+        let wire = json!({"type": name});
+        let event: ExtensionEvent = serde_json::from_value(wire.clone()).expect("frozen event must be representable");
+        assert_eq!(event.event_type(), name);
+        assert_eq!(serde_json::to_value(event).expect("event serialization"), wire);
+    }
+}
+
+#[tokio::test]
+async fn background_compaction_handler_registration_and_dispatch_preserve_order() {
+    let env = env_with(json!({"enabled": false}), None, None).await;
+    let runner = env.session.extension_runner();
+    for name in ["background_compaction_start", "background_compaction_end"] {
+        assert!(runner.has_handlers(name));
+        let mut event = serde_json::from_value(json!({"type": name})).expect("background event");
+        runner.emit(&mut event).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background,
+        ["background_compaction_start", "background_compaction_end"]
+    );
 }
 
 #[tokio::test]
@@ -479,10 +887,7 @@ async fn manual_compaction_preflight_cancel_reports_cancelled() {
     let env = env_with(
         json!({"keepRecentTokens": 1}),
         Some(Arc::new(|_: &SessionBeforeCompactEvent| {
-            Some(SessionBeforeCompactResult {
-                cancel: Some(true),
-                compaction: None,
-            })
+            Some(SessionBeforeCompactResult { cancel: Some(true) })
         })),
         None,
     )
@@ -637,18 +1042,24 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     .await;
 
     env.faux.set_responses(vec![
-        faux_assistant_message("first", FauxAssistantMessageOptions::default()).into(),
-    ]);
-    env.session
-        .prompt(
-            &"x".repeat(320_000),
-            pi_coding_agent::core::agent_session::PromptOptions::default(),
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
         )
+        .into(),
+    ]);
+    append_usage_anchor(&env.session, 80000.0);
+    env.session
+        .prompt("first", pi_coding_agent::core::agent_session::PromptOptions::default())
         .await
         .expect("first prompt");
 
     for _ in 0..100 {
-        if env.captured.lock().expect("captured").compaction.len() == 1 {
+        if env.captured.lock().expect("captured").background.last() == Some(&"background_compaction_end") {
             break;
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -656,18 +1067,32 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     assert_eq!(env.captured.lock().expect("captured").compaction.len(), 1);
 
     env.faux.set_responses(vec![
-        faux_assistant_message("second", FauxAssistantMessageOptions::default()).into(),
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
     ]);
     env.session
-        .prompt(
-            &"y".repeat(160_000),
-            pi_coding_agent::core::agent_session::PromptOptions::default(),
-        )
+        .prompt("second", pi_coding_agent::core::agent_session::PromptOptions::default())
         .await
         .expect("second prompt");
 
     let captured = env.captured.lock().expect("captured");
     assert_eq!(captured.compaction.len(), 1, "the cache must not regenerate");
+    assert_eq!(
+        captured.before.len(),
+        1,
+        "ready-cache installation runs foreground preflight once"
+    );
+    assert_eq!(
+        captured.background,
+        ["background_compaction_start", "background_compaction_end"]
+    );
     let SessionEntry::Known(pi_coding_agent::core::session_manager::KnownSessionEntry::Compaction(entry)) =
         compaction_entry(&env.session)
     else {
@@ -675,6 +1100,356 @@ async fn background_compaction_cache_uses_the_compaction_hook() {
     };
     assert_eq!(entry.summary, "background extension summary");
     assert_eq!(entry.from_hook, Some(true));
+}
+
+#[tokio::test]
+async fn cancelled_background_compaction_still_emits_the_final_end_event() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|_| {
+            Some(CompactionEventResult {
+                cancel: Some(true),
+                compaction: None,
+            })
+        })),
+    )
+    .await;
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let captured = env.captured.lock().unwrap();
+    assert_eq!(captured.compaction.len(), 1, "one background compaction handler");
+    assert!(
+        captured.before.is_empty(),
+        "background generation must skip foreground preflight"
+    );
+    assert_eq!(
+        captured.background,
+        ["background_compaction_start", "background_compaction_end"],
+        "preflight count={}, reasons={:?}",
+        captured.before.len(),
+        captured.compaction.iter().map(|event| event.reason).collect::<Vec<_>>()
+    );
+    assert!(
+        !env.session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+    );
+}
+
+#[tokio::test]
+async fn disabled_background_generation_without_extension_result_never_calls_provider_like_frozen() {
+    let env = env_with(json!({"enabled": false, "reserveTokens": 0}), None, None).await;
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let actual = json!({"events": env.captured.lock().unwrap().background,
+        "providerCalls": env.faux.state().lock().unwrap().call_count.checked_sub(1).expect("foreground provider call")});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-disabled", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"events": ["background_compaction_start", "background_compaction_end"], "providerCalls": 0}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn cancelling_background_compaction_waits_for_final_handler_settlement_like_frozen() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|_| {
+            Some(CompactionEventResult {
+                cancel: Some(true),
+                compaction: None,
+            })
+        })),
+    )
+    .await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    env.captured.lock().unwrap().background_end_gate = Some(Arc::clone(&gate));
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_end") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background.last(),
+        Some(&"background_compaction_end")
+    );
+    let session = env.session.clone();
+    let mut compact = tokio::spawn(async move { session.compact(None).await });
+    let early = tokio::time::timeout(std::time::Duration::from_millis(100), &mut compact).await;
+    let completed_before_end = early.is_ok();
+    gate.notify_one();
+    let settled = match early {
+        Ok(result) => result,
+        Err(_) => tokio::time::timeout(std::time::Duration::from_secs(5), compact)
+            .await
+            .expect("compaction settled after background release"),
+    }
+    .expect("manual compaction task")
+    .expect_err("extension cancels manual compaction");
+    assert_eq!(settled.message(), "Compaction cancelled");
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-cancel-wait", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(expected, json!({"ok": true, "value": {"completedBeforeEnd": false}}));
+    assert_eq!(json!({"completedBeforeEnd": completed_before_end}), expected["value"]);
+}
+
+#[tokio::test]
+async fn ready_background_cache_installs_from_an_ancestor_and_preserves_new_tail_like_frozen() {
+    let env = env_with(
+        json!({"enabled": false, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(|event| {
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved background summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    let gate = Arc::new(tokio::sync::Notify::new());
+    env.captured.lock().unwrap().background_start_gate = Some(Arc::clone(&gate));
+    append_usage_anchor(&env.session, 80000.0);
+    env.faux.set_responses(vec![
+        faux_assistant_message(
+            "",
+            FauxAssistantMessageOptions {
+                stop_reason: Some(pi_ai::StopReason::Error),
+                error_message: Some("fatal".into()),
+                ..Default::default()
+            },
+        )
+        .into(),
+    ]);
+    env.session.prompt("first", Default::default()).await.expect("prompt");
+    for _ in 0..100 {
+        if env.captured.lock().unwrap().background.last() == Some(&"background_compaction_start") {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        env.captured.lock().unwrap().background.last(),
+        Some(&"background_compaction_start")
+    );
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("status while pending".into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("tail");
+    gate.notify_one();
+    for _ in 0..100 {
+        if env
+            .session
+            .session_manager()
+            .get_entries()
+            .iter()
+            .any(|entry| entry.entry_type() == "compaction")
+        {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    let actual = json!({
+        "installed": env.session.session_manager().get_entries().iter().any(|entry| entry.entry_type() == "compaction"),
+        "tailPresent": env.session.messages().iter().any(|message| matches!(message,
+            pi_agent_core::agent::types::AgentMessage::Custom(value) if value.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("tail")))),
+        "tailText": env.session.messages().iter().find_map(|message| match message {
+            pi_agent_core::agent::types::AgentMessage::Custom(value) if value.get("customType").and_then(JsValue::as_string) == Some(&JsString::from("tail")) => value.get("content").and_then(JsValue::as_string).cloned(),
+            _ => None,
+        }),
+    });
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle.request(
+        &json!({"operation": "background-ancestor", "dir": env._dir.path().join("oracle").display().to_string()}),
+    );
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"installed": true, "tailPresent": true, "tailText": "status while pending"}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn runner_identity_preserves_aliases_but_distinguishes_new_instances_like_frozen() {
+    use pi_coding_agent::core::extensions::ExtensionRunner;
+    let env = env_with(json!({"enabled": false}), None, None).await;
+    let runner = env.session.extension_runner();
+    let alias = env.session.extension_runner();
+    let fresh = ExtensionRunner::new(
+        Vec::new(),
+        env.session.resource_loader().get_extensions().runtime,
+        env.session.cwd().clone(),
+        env.session.session_manager_handle(),
+        Arc::new(env.session.model_registry().clone()),
+        Some(env.session.settings_manager_handle()),
+    );
+    let actual = json!({"aliasSame": runner.same_instance(&alias), "freshSame": runner.same_instance(&fresh)});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected = oracle
+        .request(&json!({"operation": "runner-identity", "dir": env._dir.path().join("oracle").display().to_string()}));
+    assert_eq!(
+        expected,
+        json!({"ok": true, "value": {"aliasSame": true, "freshSame": false}})
+    );
+    assert_eq!(actual, expected["value"]);
+}
+
+async fn assert_auto_compaction_hook_matches_frozen(operation: &str) {
+    use pi_agent_core::agent::types::{AgentContext, PrepareNextTurnContext};
+    let abort = operation == "auto-abort-hook";
+    let target: Arc<Mutex<Option<AgentSession>>> = Arc::new(Mutex::new(None));
+    let hook_target = Arc::clone(&target);
+    let env = env_with(
+        json!({"enabled": false, "thresholdPercent": 50, "reserveTokens": 0}),
+        None,
+        Some(Arc::new(move |event| {
+            if abort {
+                hook_target
+                    .lock()
+                    .unwrap()
+                    .as_ref()
+                    .expect("session")
+                    .abort_compaction();
+            } else {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+            }
+            Some(CompactionEventResult {
+                cancel: None,
+                compaction: Some(extension_result("saved summary", &event.preparation)),
+            })
+        })),
+    )
+    .await;
+    *target.lock().unwrap() = Some(env.session.clone());
+    let mut model = env.session.model();
+    model.context_window = 1000.0;
+    model.auto_compaction_threshold = Some(900.0);
+    env.session.agent().set_model(model);
+    let anchor = append_usage_anchor(&env.session, 600.0);
+    env.session
+        .send_custom_message(
+            &"tail".into(),
+            pi_agent_core::harness::messages::CustomMessageContent::Text("x".repeat(800).into()),
+            false,
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("tail");
+    let state = env.session.state();
+    let hook = env.session.agent().prepare_next_turn_with_context_hook().expect("hook");
+    hook(
+        PrepareNextTurnContext {
+            message: anchor,
+            tool_results: Vec::new(),
+            new_messages: Vec::new(),
+            context: AgentContext {
+                system_prompt: state.system_prompt,
+                messages: state.messages,
+                tools: Some(state.tools),
+            },
+        },
+        None,
+    )
+    .await
+    .expect("next turn");
+    *target.lock().unwrap() = None;
+    let end = env.events.lock().unwrap().iter().rev().find_map(|event| match event {
+        AgentSessionEvent::CompactionEnd(end) => Some(json!({"aborted": end.aborted, "hasResult": end.result.is_some(),
+            "willRetry": end.will_retry, "durationPositive": end.result.as_ref().map(|result| result.duration_ms.is_some_and(|duration| duration >= 15.0))})),
+        _ => None,
+    }).expect("compaction end");
+    let actual = json!({"saved": env.session.session_manager().get_entries().iter().filter(|entry| entry.entry_type() == "compaction").count(), "end": end});
+    let mut oracle =
+        callbacks_oracle::TsOracle::spawn("agent-session-oracle.ts", "packages/coding-agent/src/core/sdk.ts");
+    let expected =
+        oracle.request(&json!({"operation": operation, "dir": env._dir.path().join("oracle").display().to_string()}));
+    let expected_value = if abort {
+        json!({"saved": 0, "end": {"aborted": true, "hasResult": false, "willRetry": false, "durationPositive": null}})
+    } else {
+        json!({"saved": 1, "end": {"aborted": false, "hasResult": true, "willRetry": false, "durationPositive": true}})
+    };
+    assert_eq!(expected, json!({"ok": true, "value": expected_value}));
+    assert_eq!(actual, expected["value"]);
+}
+
+#[tokio::test]
+async fn auto_compaction_hook_abort_discards_result_before_persistence_like_frozen() {
+    assert_auto_compaction_hook_matches_frozen("auto-abort-hook").await;
+}
+
+#[tokio::test]
+async fn auto_compaction_hook_duration_includes_extension_work_like_frozen() {
+    assert_auto_compaction_hook_matches_frozen("auto-duration-hook").await;
 }
 
 #[path = "support/scripted_registry.rs"]

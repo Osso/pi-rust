@@ -79,8 +79,6 @@ fn tool_result(tool_call_id: &str, tool_name: &str, timestamp: f64) -> Message {
         tool_name: tool_name.to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new("output"))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp,
     })
@@ -263,8 +261,6 @@ fn downgrades_images_for_text_only_models_and_collapses_consecutive_images() {
             tool_name: "read".to_owned(),
             content: vec![image],
             details: None,
-            usage: None,
-            added_tool_names: None,
             is_error: false,
             timestamp: 2.0,
         }),

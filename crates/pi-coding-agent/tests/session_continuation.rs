@@ -58,8 +58,6 @@ fn end_turn_result(is_error: bool) -> AgentMessage {
         details: None,
         is_error,
         timestamp: 2.0,
-        usage: None,
-        added_tool_names: None,
     })
 }
 

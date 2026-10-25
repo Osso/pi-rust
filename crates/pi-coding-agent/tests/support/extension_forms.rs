@@ -37,6 +37,7 @@ impl EditorFixedCell for OwnedCell {
 }
 struct Backend(Arc<std::sync::atomic::AtomicUsize>);
 impl ExtensionUiTuiBackend for Backend {
+    fn request_component_render(&self, _identity: usize) {}
     fn request_render_force(&self) {
         panic!("fixture does not force redraw")
     }
@@ -77,8 +78,8 @@ struct Ui {
     render_requests: Arc<std::sync::atomic::AtomicUsize>,
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
     fn custom<'a>(
         &'a self,
@@ -261,9 +262,6 @@ pub async fn compare(
         .map(|case| render_tool_result(&serde_json::from_value(case.clone()).unwrap()))
         .collect::<Vec<_>>();
     let actual = pi_js_compat::js_json!({"metadata":{"name":tool.name,"label":tool.label,"description":tool.description,"parameters":tool.parameters,"executionMode":tool.execution_mode.map(|mode| mode.as_str())},"result":result,"renders":*ui.renders.lock().unwrap(),"renderRequests":ui.render_requests.load(std::sync::atomic::Ordering::SeqCst),"renderCall":render_call,"renderResult":render_result,"fallback":fallback,"extraResults":extra_results});
-    if request["postPin"] == true {
-        return actual;
-    }
     let mut oracle = oracle::TsOracle::spawn(
         "example-forms-oracle.ts",
         &format!("packages/coding-agent/examples/extensions/{name}.ts"),

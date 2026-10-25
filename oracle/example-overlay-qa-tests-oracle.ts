@@ -56,7 +56,10 @@ async function run(request:any) {
   if(cloned)options.onHandle?.({...mainHandle,setHidden(value:boolean){calls.push(['hiddenClone',value]);}});
   const serial=(o:any)=>({...o,margin:typeof o.margin==='number'?{top:o.margin,right:o.margin,bottom:o.margin,left:o.margin}:o.margin,visible:o.visible?[o.visible(99,40),o.visible(100,40)]:undefined});
   calls.push(['options',serial(options.overlayOptions)]);
-  const snapshot=(width:number)=>calls.push(['frames',component.render(width),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:p.component.render(p.options.width??34)}))]);
+  const encodeLines = (lines: string[]) => script.rawUnitArrays
+   ? lines.map(line => Array.from({ length: line.length }, (_, index) => line.charCodeAt(index)))
+   : lines;
+  const snapshot=(width:number)=>calls.push(['frames',encodeLines(component.render(width)),panels.map(p=>({options:serial(p.options),hidden:p.hidden,lines:encodeLines(p.component.render(p.options.width??34))}))]);
   snapshot(script.width??60);
   for (const step of script.steps ?? []) {
    if (step.proc?.exitBeforeTail !== undefined) pendingTail = step.proc.exitBeforeTail;
@@ -78,7 +81,7 @@ async function run(request:any) {
    if (step.ms) advance(step.ms);
    if (step.key !== undefined || step.units) {
     const target = step.panel === undefined ? component : panels[step.panel].component;
-    target.handleInput((step.key ?? String.fromCharCode(...step.units)).toWellFormed());
+    target.handleInput(step.key ?? String.fromCharCode(...step.units));
    }
    snapshot(step.width ?? script.width ?? 60);
   }

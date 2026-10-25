@@ -11,6 +11,6 @@ Native: crates/pi-ai/src/providers/cloudflare_auth.rs.
 | :55 workers name/login and apiKey/baseUrl | CloudflareWorkersAiAuth | full auth + login differential |
 | :75 gateway name/login, null default-auth headers, scoped bearer/baseUrl | CloudflareAiGatewayAuth | full auth + login differential |
 
-No-model legacy status wrappers retain the separately approved [staging gap](../../specs/auth-resolution.md#approved-staging-gap-2026-10-22); actual request models never use a substitute.
+Legacy no-model status wrappers are consumers outside this module; their separate [status](../../specs/auth-resolution.md#approved-staging-gap-2026-10-22) is not proof or a blocker for these two model-aware auth constructors.
 
-The absent [old stream wrapper](providers-cloudflare-stream.md) is removed from both factories; actual API dispatch is direct. Full auth/dispatch GREEN and zero-warning shared workspace check are recorded in the [Q15 proof](../q15-sdk-provider-proof.md).
+The absent [old stream wrapper](providers-cloudflare-stream.md) is removed from both factories; actual API dispatch is direct. Historical integration is recorded in the [Q15 proof](../q15-sdk-provider-proof.md). Current whole-module proof at ac6fc9c47: actual-source auth/login differential1 (ten resolution cases plus login), native auth4 and lossless login1 GREEN; `/tmp/ai-auth-closure-cloudflare-*.log`. Required two-package all-target check remains current at unchanged Rust revisiond6dd70086. No production change or new gap; status done.

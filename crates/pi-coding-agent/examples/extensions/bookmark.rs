@@ -21,11 +21,7 @@ pub fn bookmark_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 } else {
                     trimmed.to_owned()
                 };
-                let entries = ctx
-                    .session_manager()?
-                    .lock()
-                    .map_err(|error| HandlerError::new(error.to_string()))?
-                    .get_entries();
+                let entries = ctx.session_manager()?.get_entries();
                 let id = entries.iter().rev().find_map(last_assistant_id);
                 let ui = ctx.ui()?;
                 if let Some(id) = id {
@@ -81,7 +77,6 @@ fn last_assistant_id(entry: &SessionEntry) -> Option<&JsString> {
 
 fn find_last_label(ctx: &ExtensionContext) -> Result<Option<(JsString, JsString)>, HandlerError> {
     let manager = ctx.session_manager()?;
-    let manager = manager.lock().map_err(|error| HandlerError::new(error.to_string()))?;
     Ok(manager.get_entries().iter().rev().find_map(|entry| {
         let id = entry.id()?;
         let label = manager.get_label(id).filter(|label| !label.is_empty())?;

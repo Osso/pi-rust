@@ -140,3 +140,31 @@ Q18 shared UTF-16 fields, argument parser and outbound-tree migration: [boundary
 ## Native union number decoding
 
 TextOrImageContent/AssistantContent/Message select their discriminators from JsValue and decode records directly; UserContent takes native text directly and decodes block arrays natively. No stringify/from_str bridge remains in these unions. [Shared numeric correction/proof](js-json.md#typed-union-and-checked-adapter-follow-up) covers nonfinite numbers, signed zero and unpaired human text without changing serialized wire semantics.
+
+2026-10-25: deleted the source-absent DeferredHandle, DeferredRequest/Window, DeferredFetch/CancelOptions, SimpleStreamOptions.deferred and ProviderStreams deferred methods. No native provider consumed them; only old-capability fixtures did. Constrained-sampling carrier removal waits for parent integration of coding-agent consumer cleanup.
+
+## Constrained-sampling carrier retirement (2026-10-25)
+
+Frozen types.ts:478–482 Tool has only name/description/parameters. After parent4eff32510 removed the coding-agent algorithms, deleted GrammarFormat/Variants, JsonSchemaStrictness, ConstrainedSamplingConfig/ConstrainedSampling, Tool.constrained_sampling, the AgentTool getter/loop forwarding and ToolDefinition field. Required declarations, constructor literals and fixtures were changed mechanically across lanes; real label/execution-mode/prepare metadata remains unchanged.
+
+Retired source-absent metadata-only fixtures: `old_strict_metadata_does_not_rewrite_frozen_tool_parameters`, `grammar_metadata_does_not_change_frozen_function_tools`, `ignores_old_strict_tool_metadata_and_keeps_plain_parameters`, and `frozen_wrappers_do_not_copy_old_constrained_sampling_metadata`. Existing complete payload/stream/provider tests stay enabled; the Codex fixture keeps its real parameter schema and assertions without the removed flag. Experimental gate proof now compares the actual frozen experimental.ts export directly, not invented null tool-metadata fields.
+
+Remaining known old-only carrier: ToolResultMessage.added_tool_names. Whole types.ts stays partial until its removal and the remaining public-type audit.
+
+Also retired the tools-index `tool_definitions_do_not_add_removed_experimental_sampling`/private `experimental_sampling_probe` pair: after deleting the artificial observer field, indexing the missing property on both snapshots would merely compare null to null. Full real definition/value comparisons remain enabled.
+
+## Tool-result field retirement (2026-10-25)
+
+Parent approved removal of ToolResultMessage.usage and added_tool_names: neither is declared by frozen types.ts:443–452. Removed both typed fields and constructor entries, without changing the existing raw session-record representation. New `old_rust_tool_result_usage_survives_lossless_disk_read_and_rewrite` reads a real old-format JSONL file, compares serialization with actual frozen session-manager.ts, rewrites through the existing lossless serializer and asserts byte identity. This preservation guard passed before deletion; it is not a claimed RED bug fix.
+
+The only production field read was in the source-absent, uncalled legacy get_usage_cost_breakdown export. Removed that export/type plus its `groups_usage_by_model_and_tool_bucket` and `uses_response_model_when_present` fixtures; retained the unchanged create/add arithmetic helpers used by the live footer on assistant usage. No visible footer stats algorithm changed. The reported-usage estimate fixture remains enabled with unchanged token assertions; its obsolete tool-name metadata alone was removed.
+
+Parent fdcb8f8fe was searched explicitly after field deletion (34 matching source/test paths; no missed parent-only file). The remaining extension test-name mention describes an actual serialized-output absence assertion, not a constructor field. Parent session_autoname.rs has neither carrier field nor stale constrained-sampling constructor. AssistantMessage.raw_stop_reason still requires separate cleanup.
+
+## Raw stop-reason field retirement (2026-10-25)
+
+Removed AssistantMessage.raw_stop_reason and None-only constructor entries. Frozen AI source has no rawStopReason declaration or use; native had no Some assignments. Existing six stop/error assertions now check actual serialized output has no rawStopReason key, rather than inspecting an obsolete optional Rust field. Real stopReason/errorMessage/diagnostics and generic raw session records are unchanged. Parent fdcb8f8fe was searched for all raw-stop references; no missed parent-only carrier constructor remains.
+
+Serialized-name audit found three stale fields in the generic typed round-trip fixtures (addedToolNames and two constrainedSampling inputs). The unchanged full-equality assertion reproduced the mismatch before fixture correction (`/tmp/ai-retired-types-fixture-red.log`). Fixtures now contain only frozen Tool/ToolResultMessage fields; legacy-data preservation remains separately asserted through raw session records. Print-mode fixed-order validation no longer permits the removed rawStopReason key, which strengthens its wire assertion. Provider differentials that deliberately send ignored legacy metadata remain unchanged.
+
+AssistantImages.timestamp now uses the existing f64/number serialization authority rather than rejecting normal fractional JSON timestamps. Source type witness and bidirectional12.75 value/wire proof accompany the change; [timestamp map](message-timestamps.md). Whole current-pin type audit remains open.

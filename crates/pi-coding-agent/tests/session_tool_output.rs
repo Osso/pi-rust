@@ -30,8 +30,6 @@ fn tool_result(text: &str) -> AgentMessage {
         tool_name: "bash".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })
@@ -72,7 +70,6 @@ fn assistant_message(text: &str) -> AgentMessage {
         usage: Usage::default(),
         stop_reason: StopReason::Stop,
         error_message: None,
-        raw_stop_reason: None,
         timestamp: 1.0,
     }))
 }

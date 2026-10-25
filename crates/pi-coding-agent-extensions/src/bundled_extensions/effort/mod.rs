@@ -2,6 +2,8 @@
 
 use std::sync::{Arc, Mutex};
 
+use indexmap::IndexSet;
+
 use pi_agent_core::harness::ThinkingLevel;
 use pi_js_compat::js_json::{JsString, JsValue};
 
@@ -10,7 +12,7 @@ use crate::core::extensions::types::{
     BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionApi, ExtensionCommandContext,
     ExtensionContext, HandlerError, NotifyType, SessionTreeEvent, ThinkingLevelSelectEvent,
 };
-use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
+use crate::core::session_manager::KnownSessionEntry;
 use crate::modes::interactive::theme::ThemeColor;
 
 const DELEGATION_MODE_ENTRY: &str = "multi-agent-mode";
@@ -19,26 +21,37 @@ const POLICY_START: &str = "<multi_agent_mode>";
 const POLICY_END: &str = "</multi_agent_mode>";
 
 const PROACTIVE_POLICY: &str = "Proactive multi-agent delegation is active. Use sub-agents when parallel work would materially improve speed or quality. This mode remains active until a later multi-agent mode message changes it.";
-const EXPLICIT_POLICY: &str = "Any earlier instruction enabling proactive multi-agent delegation no longer applies. Do not spawn sub-agents unless the user or applicable AGENTS.md/skill instructions explicitly ask for sub-agents, delegation, or parallel agent work.";
+const SUBAGENT_TOOLS: [&str; 10] = [
+    "spawn_agent",
+    "list_agents",
+    "attach_session_agent",
+    "wait_agent",
+    "close_agent",
+    "steer_agent",
+    "agent_viewer",
+    "send_agent_message",
+    "contact_parent",
+    "answer_question",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MultiAgentMode {
     Proactive,
-    Explicit,
+    Disabled,
 }
 
 impl MultiAgentMode {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Proactive => "proactive",
-            Self::Explicit => "explicit",
+            Self::Disabled => "disabled",
         }
     }
 
-    pub const fn policy(self) -> &'static str {
+    const fn display_name(self) -> &'static str {
         match self {
-            Self::Proactive => PROACTIVE_POLICY,
-            Self::Explicit => EXPLICIT_POLICY,
+            Self::Proactive => "active",
+            Self::Disabled => "disabled",
         }
     }
 }
@@ -46,12 +59,14 @@ impl MultiAgentMode {
 #[derive(Debug, Clone)]
 pub struct DelegationState {
     mode: Arc<Mutex<MultiAgentMode>>,
+    disabled_tools: Arc<Mutex<Vec<String>>>,
 }
 
 impl Default for DelegationState {
     fn default() -> Self {
         Self {
             mode: Arc::new(Mutex::new(MultiAgentMode::Proactive)),
+            disabled_tools: Arc::new(Mutex::new(Vec::new())),
         }
     }
 }
@@ -77,7 +92,7 @@ fn is_child_runtime(ctx: &ExtensionContext) -> Result<bool, HandlerError> {
 pub fn parse_multi_agent_mode(value: impl Into<JsString>) -> Option<MultiAgentMode> {
     match value.into() {
         value if value == "proactive" => Some(MultiAgentMode::Proactive),
-        value if value == "explicit" => Some(MultiAgentMode::Explicit),
+        value if value == "disabled" => Some(MultiAgentMode::Disabled),
         _ => None,
     }
 }
@@ -111,7 +126,7 @@ fn clear_editor(ctx: &ExtensionCommandContext) -> Result<(), HandlerError> {
 fn restore_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     state.set_mode(MultiAgentMode::Proactive);
     let session_manager = ctx.session_manager()?;
-    for entry in lock_session_manager(&session_manager).get_branch(None) {
+    for entry in session_manager.get_branch(None) {
         let known = entry.known();
         let Some(KnownSessionEntry::Custom(custom)) = known.as_deref() else {
             continue;
@@ -140,6 +155,49 @@ fn persist_delegation_mode(pi: &ExtensionApi, state: &DelegationState) -> Result
     )
 }
 
+fn update_delegation_tools(pi: &ExtensionApi, state: &DelegationState) -> Result<(), HandlerError> {
+    let active = pi.get_active_tools()?;
+    if state.mode() == MultiAgentMode::Disabled {
+        let removed: Vec<String> = active
+            .iter()
+            .filter(|name| SUBAGENT_TOOLS.contains(&name.as_str()))
+            .cloned()
+            .collect();
+        {
+            let mut disabled = state
+                .disabled_tools
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let union: IndexSet<String> = disabled.iter().cloned().chain(removed.iter().cloned()).collect();
+            *disabled = union.into_iter().collect();
+        }
+        if !removed.is_empty() {
+            pi.set_active_tools(
+                active
+                    .into_iter()
+                    .filter(|name| !SUBAGENT_TOOLS.contains(&name.as_str()))
+                    .collect(),
+            )?;
+        }
+        return Ok(());
+    }
+    let disabled = state
+        .disabled_tools
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    if !disabled.is_empty() {
+        let restored: IndexSet<String> = active.into_iter().chain(disabled).collect();
+        pi.set_active_tools(restored.into_iter().collect())?;
+        state
+            .disabled_tools
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
+    }
+    Ok(())
+}
+
 fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
     // `ctx.ui.theme` throws before `initTheme`; surface it like the source.
@@ -149,14 +207,18 @@ fn update_delegation_status(ctx: &ExtensionContext, state: &DelegationState) -> 
     ui.set_status(
         &DELEGATION_STATUS_KEY.into(),
         Some(crate::core::footer_data_provider::ExtensionStatus::Text(
-            prefix + state.mode().as_str(),
+            prefix + state.mode().display_name(),
         )),
     )?;
     Ok(())
 }
 
 pub fn policy_text(mode: MultiAgentMode) -> String {
-    format!("{POLICY_START}{}{POLICY_END}", mode.policy())
+    if mode == MultiAgentMode::Disabled {
+        String::new()
+    } else {
+        format!("{POLICY_START}{PROACTIVE_POLICY}{POLICY_END}")
+    }
 }
 
 #[cfg(test)]
@@ -194,6 +256,9 @@ pub fn remove_delegation_policy(system_prompt: &JsString) -> JsString {
 
 pub fn inject_delegation_policy(system_prompt: &JsString, mode: MultiAgentMode) -> JsString {
     let base_prompt = remove_delegation_policy(system_prompt);
+    if mode == MultiAgentMode::Disabled {
+        return base_prompt;
+    }
     let policy = JsString::from(policy_text(mode));
     if base_prompt.is_empty() {
         policy
@@ -210,6 +275,7 @@ fn apply_delegation_mode(
 ) -> Result<(), HandlerError> {
     state.set_mode(mode);
     persist_delegation_mode(pi, state)?;
+    update_delegation_tools(pi, state)?;
     update_delegation_status(ctx, state)
 }
 
@@ -219,12 +285,12 @@ fn set_delegation_mode(
     state: &DelegationState,
     mode: MultiAgentMode,
 ) -> Result<(), HandlerError> {
-    if mode == MultiAgentMode::Explicit && ctx.get_thinking_level()? == ThinkingLevel::Ultra {
+    if mode == MultiAgentMode::Disabled && ctx.get_thinking_level()? == ThinkingLevel::Ultra {
         ctx.set_thinking_level(ThinkingLevel::Max)?;
     }
     apply_delegation_mode(pi, ctx, state, mode)?;
     ctx.ui()?.notify(
-        &format!("Multi-agent mode: {}", mode.as_str()).into(),
+        &format!("Multi-agent mode: {}", mode.display_name()).into(),
         Some(NotifyType::Info),
     )?;
     clear_editor(ctx)
@@ -232,7 +298,7 @@ fn set_delegation_mode(
 
 fn show_invalid_mode(ctx: &ExtensionCommandContext, requested_mode: &JsString) -> Result<(), HandlerError> {
     ctx.ui()?.notify(
-        &(JsString::from("Invalid multi-agent mode \"") + requested_mode + "\". Available: proactive, explicit"),
+        &(JsString::from("Invalid multi-agent mode \"") + requested_mode + "\". Available: proactive, disabled"),
         Some(NotifyType::Warning),
     )?;
     clear_editor(ctx)
@@ -243,12 +309,18 @@ async fn select_delegation_mode(ctx: &ExtensionCommandContext) -> Result<Option<
         .ui()?
         .select(
             &"Select multi-agent mode".into(),
-            &["proactive".into(), "explicit".into()],
+            &["active".into(), "disabled".into()],
             None,
         )
         .await
         .map_err(HandlerError::from)?;
-    Ok(selected.and_then(parse_multi_agent_mode))
+    Ok(selected.and_then(|mode| {
+        if mode == "active" {
+            Some(MultiAgentMode::Proactive)
+        } else {
+            parse_multi_agent_mode(mode)
+        }
+    }))
 }
 
 pub async fn handle_delegation_command(
@@ -283,11 +355,16 @@ pub async fn handle_delegation_command(
     set_delegation_mode(pi, ctx, state, mode)
 }
 
-fn restore_and_update_delegation_mode(state: &DelegationState, ctx: &ExtensionContext) -> Result<(), HandlerError> {
+fn restore_and_update_delegation_mode(
+    pi: &ExtensionApi,
+    state: &DelegationState,
+    ctx: &ExtensionContext,
+) -> Result<(), HandlerError> {
     if is_child_runtime(ctx)? {
         return Ok(());
     }
     restore_delegation_mode(state, ctx)?;
+    update_delegation_tools(pi, state)?;
     update_delegation_status(ctx, state)
 }
 
@@ -303,7 +380,7 @@ fn set_effort(
     }
     ctx.set_thinking_level(effort)?;
     let label = if activates_proactive_delegation {
-        "ultra (max + proactive)".to_owned()
+        "ultra (max + active)".to_owned()
     } else {
         ctx.get_thinking_level()?.as_str().to_owned()
     };
@@ -403,10 +480,12 @@ fn register_delegation_control(pi: &ExtensionApi, state: DelegationState) -> Res
 
     pi.on_session_start({
         let state = state.clone();
+        let pi = pi.clone();
         move |_event, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let state = state.clone();
+            let pi = pi.clone();
             Box::pin(async move {
-                restore_and_update_delegation_mode(&state, &ctx)?;
+                restore_and_update_delegation_mode(&pi, &state, &ctx)?;
                 Ok(None)
             })
         }
@@ -415,10 +494,12 @@ fn register_delegation_control(pi: &ExtensionApi, state: DelegationState) -> Res
 
     pi.on_session_tree({
         let state = state.clone();
+        let pi = pi.clone();
         move |_event: SessionTreeEvent, ctx| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let state = state.clone();
+            let pi = pi.clone();
             Box::pin(async move {
-                restore_and_update_delegation_mode(&state, &ctx)?;
+                restore_and_update_delegation_mode(&pi, &state, &ctx)?;
                 Ok(None)
             })
         }

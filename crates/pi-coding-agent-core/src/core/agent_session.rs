@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
+use futures_util::FutureExt;
 use pi_agent_core::agent::types::{
     AfterToolCallContext, AfterToolCallResult, AgentError, AgentEvent, AgentMessage, AgentState, AgentTool,
     AgentToolCall, BeforeToolCallContext, PrepareNextTurnContext, ShouldStopAfterTurnContext,
@@ -35,7 +36,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::core::defaults::DEFAULT_THINKING_LEVEL;
-use crate::core::extensions::types::NoOpUiContext;
 use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
 use crate::core::model_resolver::{ScopedModel, find_exact_model_reference_match, resolve_model_scope};
 use crate::core::multi_agent_store::{AgentLifecycle, SteeringCheckpoint};
@@ -48,7 +48,7 @@ use crate::core::runtime_message_markers::{
 };
 use crate::core::session_control_db::RuntimeMailboxMessage;
 use crate::core::session_manager::{SessionEntry, SessionManager, SessionManagerError, get_latest_compaction_entry};
-use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, SettingsScope, lock_settings_manager};
+use crate::core::settings_manager::{SettingsManager, SettingsManagerGuard, lock_settings_manager};
 use crate::core::slash_commands::builtin_slash_commands;
 use crate::core::source_info::{SyntheticSourceInfoOptions, create_synthetic_source_info};
 use crate::core::system_prompt::{BuildSystemPromptOptions, build_system_prompt};
@@ -56,7 +56,6 @@ use crate::core::tool_detach_registry::ToolDetachRegistry;
 use crate::core::tools::bash::{BashBackgroundJobs, BashToolOptions};
 use crate::core::tools::read::ReadToolOptions;
 use crate::core::tools::{ToolsOptions, create_tool_definitions_for_available_executables};
-use crate::modes::interactive::theme::ThemeColor;
 use crate::utils::frontmatter::strip_frontmatter;
 
 const BUILT_IN_COMPACTION_DISABLED_MESSAGE: &str =
@@ -1021,7 +1020,7 @@ struct Inner {
     supervisor_review_cancellation_handler: Mutex<Option<Arc<dyn Fn() + Send + Sync>>>,
     retry_attempt: AtomicU64,
     retry_abort_controller: Mutex<Option<AbortController>>,
-    quota_fallback_attempted: AtomicBool,
+    quota_fallback_visited_providers: Mutex<HashSet<String>>,
     compaction_abort_controller: Mutex<Option<AbortController>>,
     auto_compaction_abort_controller: Mutex<Option<AbortController>>,
     compaction_summary_materialization_abort_controller: Mutex<Option<AbortController>>,
@@ -1087,6 +1086,7 @@ struct ActiveTool {
     started_at: String,
     tool_call_id: String,
     tool_name: String,
+    detail: Option<JsString>,
 }
 
 fn active_tool_activity(
@@ -1097,7 +1097,7 @@ fn active_tool_activity(
         started_at: tool.started_at.clone().into(),
         tool_call_id: tool.tool_call_id.clone().into(),
         tool_name: tool.tool_name.clone().into(),
-        detail: None,
+        detail: tool.detail.clone(),
     })
 }
 
@@ -1127,6 +1127,7 @@ struct BackgroundCompactionCache {
     compaction: Option<crate::core::compaction::CompactionResult>,
     from_extension: bool,
     generation_duration_ms: Option<i64>,
+    generation: futures_util::future::Shared<BoxFuture<'static, ()>>,
 }
 
 const BACKGROUND_COMPACTION_CONTEXT_RATIO: f64 = 0.7;
@@ -1445,7 +1446,7 @@ impl AgentSession {
             supervisor_review_cancellation_handler: Mutex::new(None),
             retry_attempt: AtomicU64::new(0),
             retry_abort_controller: Mutex::new(None),
-            quota_fallback_attempted: AtomicBool::new(false),
+            quota_fallback_visited_providers: Mutex::new(HashSet::new()),
             compaction_abort_controller: Mutex::new(None),
             auto_compaction_abort_controller: Mutex::new(None),
             compaction_summary_materialization_abort_controller: Mutex::new(None),
@@ -1573,6 +1574,44 @@ impl AgentSession {
         )));
     }
 
+    fn percentage_compaction_threshold_reached(&self) -> Result<bool, AgentSessionError> {
+        let settings = compaction_settings(&self.inner.settings_manager)?;
+        if settings.threshold_percent.is_none() {
+            return Ok(false);
+        }
+        let Some(usage) = self.get_context_usage() else {
+            return Ok(false);
+        };
+        crate::core::compaction::should_compact(
+            usage.tokens,
+            usage.context_window,
+            &crate::core::compaction::CompactionSettings {
+                enabled: true,
+                ..settings
+            },
+            self.model().auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))
+    }
+
+    async fn compact_for_next_turn(
+        &self,
+        mut turn: PrepareNextTurnContext,
+    ) -> Result<PrepareNextTurnContext, AgentSessionError> {
+        if self.percentage_compaction_threshold_reached()? {
+            let identity = self
+                .find_last_assistant_message_with_identity()
+                .map(|(_, identity)| identity);
+            self.check_compaction(&turn.message, identity.as_ref(), false).await?;
+        } else if self.has_ready_background_compaction()? {
+            self.run_auto_compaction("threshold", false, false).await?;
+        } else {
+            return Ok(turn);
+        }
+        turn.context.messages = self.messages();
+        Ok(turn)
+    }
+
     fn install_agent_next_turn_refresh(&self) {
         let previous_with_context = self.inner.agent.prepare_next_turn_with_context_hook();
         let previous_signal_only = self.inner.agent.prepare_next_turn_hook();
@@ -1583,11 +1622,14 @@ impl AgentSession {
                 let previous_with_context = previous_with_context.clone();
                 let previous_signal_only = previous_signal_only.clone();
                 Box::pin(async move {
-                    if let Some(inner) = weak.upgrade() {
-                        lock(&inner.settings_manager)
-                            .get_compaction_settings()
-                            .map_err(|failure| AgentError::new(failure.message().clone()))?;
-                    }
+                    let turn = if let Some(inner) = weak.upgrade() {
+                        AgentSession { inner }
+                            .compact_for_next_turn(turn)
+                            .await
+                            .map_err(|failure| AgentError::new(failure.message().clone()))?
+                    } else {
+                        turn
+                    };
                     let previous_snapshot = if let Some(hook) = previous_with_context {
                         hook(turn.clone(), signal.clone()).await?
                     } else if let Some(hook) = previous_signal_only {
@@ -3578,6 +3620,7 @@ impl AgentSession {
             tool_call_id,
             tool_name,
             started_at,
+            args,
             ..
         } = event
         {
@@ -3587,6 +3630,7 @@ impl AgentSession {
                     started_at: crate::utils::iso_time::format_iso_millis(*started_at as i64),
                     tool_call_id: tool_call_id.clone(),
                     tool_name: tool_name.clone(),
+                    detail: crate::core::agent_activity_detail::summarize_tool_arguments(args),
                 },
             ));
         }
@@ -3747,7 +3791,9 @@ impl AgentSession {
                 ..settings
             },
             model.auto_compaction_threshold,
-        ) {
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             return Ok(());
         }
         self.start_background_compaction(context_tokens, context_window)
@@ -3777,6 +3823,15 @@ impl AgentSession {
         };
         static NEXT_BACKGROUND_COMPACTION_TOKEN: AtomicU64 = AtomicU64::new(1);
         let token = NEXT_BACKGROUND_COMPACTION_TOKEN.fetch_add(1, Ordering::SeqCst);
+        let weak = Arc::downgrade(&self.inner);
+        let generation = async move {
+            let Some(inner) = weak.upgrade() else {
+                return;
+            };
+            AgentSession { inner }.generate_background_compaction(token).await;
+        }
+        .boxed()
+        .shared();
         let cache = BackgroundCompactionCache {
             token,
             state: BackgroundCompactionState::Pending,
@@ -3795,34 +3850,39 @@ impl AgentSession {
             compaction: None,
             from_extension: false,
             generation_duration_ms: None,
+            generation: generation.clone(),
         };
         *lock(&self.inner.background_compaction_cache) = Some(cache);
-        let weak = Arc::downgrade(&self.inner);
-        tokio::spawn(async move {
-            let Some(inner) = weak.upgrade() else {
-                return;
-            };
-            AgentSession { inner }.generate_background_compaction(token).await;
-        });
+        tokio::spawn(generation);
         Ok(())
     }
 
     async fn generate_background_compaction(&self, token: u64) {
-        let Some((preparation, branch_entries, abort, runner, model)) = lock(&self.inner.background_compaction_cache)
+        let Some(cache) = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .filter(|cache| cache.token == token)
-            .map(|cache| {
-                (
-                    cache.preparation.clone(),
-                    cache.branch_entries.clone(),
-                    cache.abort.signal(),
-                    cache.runner.clone(),
-                    self.inner.agent.model(),
-                )
-            })
+            .cloned()
         else {
             return;
         };
+        let model = self.inner.agent.model();
+        let runner = cache.runner.clone();
+        let mut start = ExtensionEvent::BackgroundCompactionStart(
+            crate::core::extensions::types::BackgroundCompactionStartEvent {},
+        );
+        runner.emit(&mut start).await;
+        self.generate_background_compaction_inner(cache, model).await;
+        let mut end =
+            ExtensionEvent::BackgroundCompactionEnd(crate::core::extensions::types::BackgroundCompactionEndEvent {});
+        runner.emit(&mut end).await;
+    }
+
+    async fn generate_background_compaction_inner(&self, cache: BackgroundCompactionCache, model: Model) {
+        let token = cache.token;
+        let preparation = cache.preparation;
+        let branch_entries = cache.branch_entries;
+        let abort = cache.abort.signal();
+        let runner = cache.runner;
         let started_at = now_millis();
         let extension_compaction =
             match emit_compaction_event(&runner, &preparation, &branch_entries, None, "threshold", false, &abort).await
@@ -3834,6 +3894,7 @@ impl AgentSession {
         let from_extension = extension_compaction.is_some();
         let generated = match extension_compaction {
             Some(compaction) => Ok(compaction),
+            None if !cache.settings.enabled => return,
             None => match self.get_compaction_request_auth(&model).await {
                 Ok(auth) => self.run_local_compaction(&preparation, &auth, None, &abort).await,
                 Err(error) => Err(error),
@@ -3884,7 +3945,7 @@ impl AgentSession {
             signal: Some(abort.clone()),
         });
         match runner.emit(&mut event).await {
-            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, result.compaction),
+            EmitResult::SessionBeforeCompact(result) => compaction_extension_decision(result.cancel, None),
             _ => CompactionExtensionDecision::None,
         }
     }
@@ -3935,15 +3996,11 @@ impl AgentSession {
             }
             return Ok(());
         }
-        let session_advanced = lock(&self.inner.session_manager).get_leaf_id().cloned()
-            != lock(&self.inner.background_compaction_cache)
-                .as_ref()
-                .map(|cache| cache.snapshot_leaf_id.clone());
         let agent_run_needs_post_processing = self.is_streaming() || lock(&self.inner.last_assistant_message).is_some();
         let ready = lock(&self.inner.background_compaction_cache)
             .as_ref()
             .is_some_and(|cache| cache.token == token && cache.state == BackgroundCompactionState::Ready);
-        if !ready || session_advanced || agent_run_needs_post_processing {
+        if !ready || agent_run_needs_post_processing {
             return Ok(());
         }
         self.run_auto_compaction("threshold", false, false).await?;
@@ -3970,6 +4027,7 @@ impl AgentSession {
             && cache.model_api == model.api
             && cache.thinking_level == self.thinking_level()
             && cache.system_prompt == self.inner.agent.state().system_prompt
+            && cache.runner.same_instance(&self.runner())
             && cache.settings.enabled == settings.enabled
             && cache.settings.reserve_tokens == settings.reserve_tokens
             && cache.settings.keep_recent_tokens == settings.keep_recent_tokens)
@@ -3991,27 +4049,30 @@ impl AgentSession {
     }
 
     async fn cancel_background_compaction(&self) {
-        let abort = lock(&self.inner.background_compaction_cache)
+        let pending = lock(&self.inner.background_compaction_cache)
             .as_ref()
-            .map(|cache| cache.abort.clone());
-        let Some(abort) = abort else {
+            .map(|cache| (cache.token, cache.abort.clone(), cache.generation.clone()));
+        let Some((token, abort, generation)) = pending else {
             return;
         };
         abort.abort(None);
-        *lock(&self.inner.background_compaction_cache) = None;
+        generation.await;
+        let mut cache = lock(&self.inner.background_compaction_cache);
+        if cache.as_ref().is_some_and(|cache| cache.token == token) {
+            *cache = None;
+        }
     }
 
     async fn take_background_compaction(&self) -> Result<Option<BackgroundCompactionCache>, AgentSessionError> {
-        let (token, state, abort) = {
+        let (token, state) = {
             let guard = lock(&self.inner.background_compaction_cache);
             let Some(cache) = guard.as_ref() else {
                 return Ok(None);
             };
-            (cache.token, cache.state, cache.abort.clone())
+            (cache.token, cache.state)
         };
         if state == BackgroundCompactionState::Pending {
-            abort.abort(None);
-            *lock(&self.inner.background_compaction_cache) = None;
+            self.cancel_background_compaction().await;
             return Ok(None);
         }
         if state != BackgroundCompactionState::Ready || !self.background_compaction_matches_current_session(token)? {
@@ -4047,7 +4108,9 @@ impl AgentSession {
                 if !is_internal {
                     self.reset_duplicate_turn_guard();
                 }
-                self.inner.quota_fallback_attempted.store(false, Ordering::SeqCst);
+                self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+                self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
+                lock(&self.inner.quota_fallback_visited_providers).clear();
                 let text = user_message_text(&user.content);
                 if text.is_empty() {
                     return;
@@ -4081,8 +4144,11 @@ impl AgentSession {
         self.write_last_assistant_control_message(message);
         let mut message = message.clone();
         self.track_duplicate_assistant_turn(&mut message);
-        if message.stop_reason == StopReason::Error || message.stop_reason == StopReason::Length {
-            // Overflow/length recovery flags are cleared below, matching the source.
+        if message.stop_reason != StopReason::Error {
+            self.inner.overflow_recovery_attempted.store(false, Ordering::SeqCst);
+        }
+        if message.stop_reason != StopReason::Length {
+            self.inner.length_recovery_attempted.store(false, Ordering::SeqCst);
         }
         if message.stop_reason == StopReason::Error {
             return;
@@ -4207,12 +4273,21 @@ impl AgentSession {
     }
 
     fn find_last_assistant_message(&self) -> Option<AssistantMessage> {
-        self.inner
+        self.find_last_assistant_message_with_identity()
+            .map(|(message, _)| message)
+    }
+
+    fn find_last_assistant_message_with_identity(
+        &self,
+    ) -> Option<(AssistantMessage, pi_agent_core::agent::AgentMessageIdentity)> {
+        let (message, identity) = self
+            .inner
             .agent
-            .messages()
-            .iter()
-            .rev()
-            .find_map(|message| message.as_assistant().cloned())
+            .find_last_message_with_identity(|message| message.as_assistant().is_some())?;
+        let AgentMessage::Assistant(message) = message else {
+            return None;
+        };
+        Some((*message, identity))
     }
 
     fn remove_trailing_interrupted_assistant(&self, remove_tool_use_assistant: bool) {
@@ -4435,8 +4510,8 @@ impl AgentSession {
             return Ok(());
         }
         self.validate_model_authentication().await?;
-        if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await?;
+        if let Some((last_assistant, identity)) = self.find_last_assistant_message_with_identity() {
+            self.check_compaction(&last_assistant, Some(&identity), false).await?;
         }
         if self.is_streaming() {
             return Err(error(
@@ -4468,7 +4543,6 @@ impl AgentSession {
             ));
         }
         let result = self.prompt_turn(text, options, guard, None).await;
-        self.complete_runtime_mailbox_steering_turn(&self.messages())?;
         if result.is_ok() {
             self.drain_runtime_coordination_messages(DrainCoordinationOptions {
                 checkpoint: None,
@@ -4501,7 +4575,9 @@ impl AgentSession {
                     preflight(true);
                 }
                 drop(guard);
-                self.run_agent_prompt(messages).await
+                let result = self.run_agent_prompt(messages).await;
+                self.complete_runtime_mailbox_steering_turn(&self.messages())?;
+                result
             }
             Ok(None) => {
                 if let Some(preflight) = &preflight {
@@ -4642,8 +4718,8 @@ impl AgentSession {
     async fn prepare_prompt_turn(&self) -> Result<(), AgentSessionError> {
         self.flush_pending_bash_messages();
         self.validate_model_authentication().await?;
-        if let Some(last_assistant) = self.find_last_assistant_message() {
-            self.check_compaction(&last_assistant, false).await?;
+        if let Some((last_assistant, identity)) = self.find_last_assistant_message_with_identity() {
+            self.check_compaction(&last_assistant, Some(&identity), false).await?;
         }
         Ok(())
     }
@@ -4778,9 +4854,12 @@ impl AgentSession {
         self.validate_model_authentication().await?;
         self.queue_steer(&expanded, images, None).await;
         drop(guard);
-        if let Err(error) = self.run_agent_continuation().await {
-            eprintln!("Failed to continue idle steering: {error}");
-        }
+        let session = self.clone();
+        tokio::spawn(async move {
+            if let Err(error) = session.run_agent_continuation().await {
+                eprintln!("Failed to continue idle steering: {error}");
+            }
+        });
         Ok(())
     }
 
@@ -5083,10 +5162,19 @@ impl AgentSession {
         model: Model,
         thinking_level: Option<ThinkingLevel>,
     ) -> Result<(), AgentSessionError> {
+        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
+        self.select_model(model, ModelSelectSource::Set, thinking_level).await
+    }
+
+    async fn select_model(
+        &self,
+        model: Model,
+        source: ModelSelectSource,
+        thinking_level: ThinkingLevel,
+    ) -> Result<(), AgentSessionError> {
         if !self.inner.model_registry.has_configured_auth(&model)? {
             return Err(error(format!("No API key for {}/{}", model.provider, model.id)));
         }
-        let thinking_level = self.get_thinking_level_for_model_switch(thinking_level);
         let effective = thinking_level_from_model(pi_ai::models::clamp_thinking_level(
             &model,
             model_thinking_level(thinking_level),
@@ -5102,8 +5190,7 @@ impl AgentSession {
                 .set_default_model_and_provider(&model.provider, &model.id);
         }
         self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&model, Some(&previous_model), ModelSelectSource::Set)
-            .await;
+        self.emit_model_select(&model, Some(&previous_model), source).await;
         Ok(())
     }
 
@@ -5131,9 +5218,11 @@ impl AgentSession {
 
     async fn filter_narrow_model_scope(&self, models: Vec<ScopedModel>) -> Result<Vec<ScopedModel>, AgentSessionError> {
         let available_models = self.inner.model_registry.get_available()?;
-        let covers_every_model = available_models
-            .iter()
-            .all(|model| models.iter().any(|scoped| &scoped.model == model));
+        let covers_every_model = available_models.iter().all(|model| {
+            models
+                .iter()
+                .any(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(model)))
+        });
         if covers_every_model {
             return Ok(Vec::new());
         }
@@ -5145,19 +5234,8 @@ impl AgentSession {
         direction: CycleDirection,
         models: &[ScopedModel],
     ) -> Result<Option<ModelCycleResult>, AgentSessionError> {
-        let available_ids: HashSet<String> = self
-            .inner
-            .model_registry
-            .get_available()?
-            .iter()
-            .map(|model| format!("{}\0{}", model.provider, model.id))
-            .collect();
-        let available_scoped: Vec<&ScopedModel> = models
-            .iter()
-            .filter(|scoped| available_ids.contains(&format!("{}\0{}", scoped.model.provider, scoped.model.id)))
-            .collect();
         let mut authed = Vec::new();
-        for scoped in available_scoped {
+        for scoped in models {
             if self.inner.model_registry.has_configured_auth(&scoped.model)? {
                 authed.push(scoped.clone());
             }
@@ -5168,7 +5246,7 @@ impl AgentSession {
         let current_model = self.inner.agent.model();
         let mut current_index = authed
             .iter()
-            .position(|scoped| scoped.model == current_model)
+            .position(|scoped| pi_ai::models::models_are_equal(Some(&scoped.model), Some(&current_model)))
             .unwrap_or(0);
         let length = authed.len();
         current_index = match direction {
@@ -5177,16 +5255,8 @@ impl AgentSession {
         };
         let next = authed[current_index].clone();
         let thinking_level = self.get_thinking_level_for_model_switch(next.thinking_level);
-        let previous_model = self.inner.agent.model();
-        self.inner.agent.set_model(next.model.clone());
-        lock(&self.inner.session_manager)
-            .set_session_model(&JsString::from(&next.model.provider), &JsString::from(&next.model.id))
-            .map_err(AgentSessionError::from)?;
-        lock_settings_manager(&self.inner.settings_manager)
-            .set_default_model_and_provider(&next.model.provider, &next.model.id);
-        self.set_thinking_level(thinking_level)?;
-        self.emit_model_select(&next.model, Some(&previous_model), ModelSelectSource::Cycle)
-            .await;
+        self.select_model(next.model.clone(), ModelSelectSource::Cycle, thinking_level)
+            .await?;
         Ok(Some(ModelCycleResult {
             model: next.model,
             thinking_level: self.thinking_level(),
@@ -5322,41 +5392,44 @@ impl AgentSession {
         &self,
         message: &AssistantMessage,
     ) -> Result<Option<Model>, pi_js_compat::node_error::NativeNodeError> {
-        if self.inner.quota_fallback_attempted.load(Ordering::SeqCst) || message.stop_reason != StopReason::Error {
-            return Ok(None);
-        }
-        let Some(error_message) = message.error_message.as_ref() else {
-            return Ok(None);
-        };
-        if !quota_exhaustion(error_message) {
+        use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
+
+        if !is_quota_exhaustion_error(message) {
             return Ok(None);
         }
         let current_model = self.inner.agent.model();
         if message.provider != current_model.provider || message.model != current_model.id {
             return Ok(None);
         }
-        let Some(paired) = codex_provider_pair(&message.provider) else {
+        let Some((_, providers)) = CODEX_FALLBACK_PROVIDERS
+            .iter()
+            .find(|(provider, _)| *provider == message.provider)
+        else {
             return Ok(None);
         };
-        let Some(fallback) = self.inner.model_registry.find(paired, &message.model) else {
-            return Ok(None);
-        };
-        Ok(self
-            .inner
-            .model_registry
-            .has_configured_auth(&fallback)?
-            .then_some(fallback))
+        for provider in providers {
+            if lock(&self.inner.quota_fallback_visited_providers).contains(*provider) {
+                continue;
+            }
+            if let Some(fallback) = self.inner.model_registry.find(*provider, &message.model)
+                && self.inner.model_registry.has_configured_auth(&fallback)?
+            {
+                return Ok(Some(fallback));
+            }
+        }
+        Ok(None)
     }
 
     async fn prepare_quota_fallback(&self, message: &AssistantMessage) -> Result<bool, AgentSessionError> {
         let Some(fallback_model) = self.find_quota_fallback_model(message)? else {
             return Ok(false);
         };
-        self.inner.quota_fallback_attempted.store(true, Ordering::SeqCst);
+        lock(&self.inner.quota_fallback_visited_providers).insert(message.provider.clone());
         let messages = self.inner.agent.messages();
         if matches!(messages.last(), Some(AgentMessage::Assistant(_))) {
             self.inner.agent.truncate_messages(messages.len() - 1);
         }
+        let previous_model = self.inner.agent.model();
         self.inner.agent.set_model(fallback_model.clone());
         lock(&self.inner.session_manager)
             .set_session_model(
@@ -5364,6 +5437,8 @@ impl AgentSession {
                 &JsString::from(&fallback_model.id),
             )
             .map_err(AgentSessionError::from)?;
+        self.emit_model_select(&fallback_model, Some(&previous_model), ModelSelectSource::Fallback)
+            .await;
         Ok(true)
     }
 
@@ -5525,6 +5600,7 @@ fn compaction_settings(
         .get_compaction_settings()
         .map_err(|failure| error(failure.message().clone()))?;
     Ok(crate::core::compaction::CompactionSettings {
+        threshold_percent: view.threshold_percent,
         enabled: view.enabled,
         reserve_tokens: view.reserve_tokens,
         keep_recent_tokens: view.keep_recent_tokens,
@@ -5784,33 +5860,6 @@ fn validate_multi_agent_runtime_role(
     Ok(())
 }
 
-fn codex_provider_pair(provider: &str) -> Option<&'static str> {
-    match provider {
-        "openai-codex" => Some("openai-codex-gc"),
-        "openai-codex-gc" => Some("openai-codex"),
-        _ => None,
-    }
-}
-
-fn quota_exhaustion(message: &JsString) -> bool {
-    let lowercase = message.to_lowercase();
-    const NEEDLES: [&str; 7] = [
-        "gousagelimiterror",
-        "freeusagelimiterror",
-        "usage limit",
-        "available balance",
-        "insufficient_quota",
-        "out of budget",
-        "quota exceeded",
-    ];
-    if NEEDLES.iter().any(|needle| lowercase.contains(*needle)) {
-        return true;
-    }
-    lowercase.contains("billing limit")
-        || lowercase.contains("billing quota")
-        || lowercase.contains("billing exhausted")
-}
-
 // =============================================================================
 // State access
 // =============================================================================
@@ -5843,49 +5892,9 @@ impl AgentSession {
         profile: Option<SandboxProfileName>,
         scope: SandboxProfileScope,
     ) -> Result<(), AgentSessionError> {
-        if scope == SandboxProfileScope::Session {
-            let persisted = self.session_manager().set_session_sandbox_profile(profile)?;
-            if !persisted {
-                return Err(error("Session sandbox profiles require a persisted session"));
-            }
-            self.settings_manager().set_session_sandbox_profile(profile);
-        } else {
-            let Some(profile) = profile else {
-                return Err(error("Only session sandbox profiles can inherit configured settings"));
-            };
-            let settings_scope = match scope {
-                SandboxProfileScope::Global => SettingsScope::Global,
-                SandboxProfileScope::Project => SettingsScope::Project,
-                SandboxProfileScope::Session => unreachable!(),
-            };
-            self.settings_manager()
-                .set_sandbox_profile(profile, settings_scope)
-                .map_err(|failure| error(failure.message().clone()))?;
-        }
-
-        let effective_profile = self.settings_manager().get_explicit_sandbox_profile();
-        let full_access = effective_profile.is_none() || effective_profile == Some(SandboxProfileName::FullAccess);
-        let status_text = if full_access {
-            "bwrap: full access".to_owned()
-        } else {
-            format!("bwrap: {}", effective_profile.expect("checked above").as_str())
-        };
-        let ui = lock(&self.inner.extension_ui_context)
-            .clone()
-            .unwrap_or_else(|| Arc::new(NoOpUiContext));
-        let color = if full_access {
-            ThemeColor::Muted
-        } else {
-            ThemeColor::Accent
-        };
-        let theme = crate::modes::interactive::theme::try_current_theme()
-            .map_err(|theme_error| error(theme_error.message()))?;
-        let styled = theme.fg(color, &status_text);
-        ui.set_status(
-            &"bwrap".into(),
-            Some(crate::core::footer_data_provider::ExtensionStatus::Text(styled)),
-        )?;
-        Ok(())
+        self.extension_runner()
+            .set_sandbox_profile(profile, scope)
+            .map_err(|error| AgentSessionError::from(pi_ai::request::CallbackError::from(error)))
     }
 
     pub fn auth_storage(&self) -> &crate::core::auth_storage::AuthStorage {
@@ -6078,14 +6087,13 @@ impl AgentSession {
         custom_instructions: Option<&JsString>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let guard = self.inner.turn_start_lock.lock().await;
-        let result = self.compact_inner(custom_instructions).await;
-        drop(guard);
-        result
+        self.compact_inner(custom_instructions, guard).await
     }
 
     async fn compact_inner(
         &self,
         custom_instructions: Option<&JsString>,
+        guard: tokio::sync::MutexGuard<'_, ()>,
     ) -> Result<crate::core::compaction::CompactionResult, AgentSessionError> {
         let was_running_agent_turn = self.is_streaming();
         let compaction_started_during_tool_execution =
@@ -6126,7 +6134,8 @@ impl AgentSession {
                 })));
                 self.reconnect_to_agent();
                 if should_continue {
-                    self.continue_after_manual_compaction(was_running_agent_turn).await?;
+                    self.continue_after_manual_compaction(was_running_agent_turn, guard)
+                        .await?;
                 }
                 Ok(compaction_result)
             }
@@ -6147,14 +6156,22 @@ impl AgentSession {
         }
     }
 
-    async fn continue_after_manual_compaction(&self, remove_tool_use_assistant: bool) -> Result<(), AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
+    async fn continue_after_manual_compaction(
+        &self,
+        remove_tool_use_assistant: bool,
+        guard: tokio::sync::MutexGuard<'_, ()>,
+    ) -> Result<(), AgentSessionError> {
+        let result = if self.is_streaming() {
+            Err(error(
                 "Agent is already processing. Wait for completion before continuing.",
-            ));
-        }
-        self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
-        self.run_agent_continuation().await
+            ))
+        } else {
+            self.remove_trailing_interrupted_assistant(remove_tool_use_assistant);
+            drop(guard);
+            self.run_agent_continuation().await
+        };
+        self.flush_pending_bash_messages();
+        result
     }
 
     /// Runs the `session_before_compact` preflight and the `compaction` provider
@@ -6505,6 +6522,7 @@ impl AgentSession {
     async fn check_compaction(
         &self,
         assistant_message: &AssistantMessage,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
         post_run_check: bool,
     ) -> Result<bool, AgentSessionError> {
         let settings = compaction_settings(&self.inner.settings_manager)?;
@@ -6516,7 +6534,17 @@ impl AgentSession {
         let same_model = assistant_message.provider == model.provider && assistant_message.model == model.id;
         let branch = lock(&self.inner.session_manager).get_branch(None);
         let compaction_entry = get_latest_compaction_entry(&branch).cloned();
+        let assistant_entry_id =
+            identity.and_then(|identity| lock(&self.inner.session_manager).message_entry_id(identity).cloned());
+        let assistant_index =
+            assistant_entry_id.and_then(|id| branch.iter().rposition(|entry| entry.id() == Some(&id)));
         let assistant_is_before_compaction = compaction_entry.as_ref().is_some_and(|entry| {
+            if let Some(assistant_index) = assistant_index {
+                return branch
+                    .iter()
+                    .rposition(|candidate| candidate.id() == entry.id())
+                    .is_some_and(|compaction_index| assistant_index < compaction_index);
+            }
             let compaction_timestamp = entry.timestamp().and_then(parse_timestamp_millis);
             compaction_timestamp.is_some_and(|timestamp| assistant_message.timestamp <= timestamp as f64)
         });
@@ -6559,8 +6587,7 @@ impl AgentSession {
         }
 
         let direct_context_tokens = crate::core::compaction::calculate_context_tokens(&assistant_message.usage);
-        let mut context_tokens = direct_context_tokens;
-        if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
+        let context_tokens = if assistant_message.stop_reason == StopReason::Error || direct_context_tokens == 0.0 {
             let messages = self.inner.agent.messages();
             let estimate = crate::core::compaction::estimate_context_tokens(&messages);
             let Some(last_usage_index) = estimate.last_usage_index else {
@@ -6574,8 +6601,10 @@ impl AgentSession {
             {
                 return Ok(false);
             }
-            context_tokens = estimate.tokens;
-        }
+            estimate.tokens
+        } else {
+            self.estimate_threshold_context_tokens(identity, direct_context_tokens, settings.threshold_percent)
+        };
         if crate::core::compaction::should_compact(
             context_tokens,
             context_window,
@@ -6583,8 +6612,10 @@ impl AgentSession {
                 enabled: true,
                 ..settings
             },
-            None,
-        ) {
+            model.auto_compaction_threshold,
+        )
+        .map_err(|failure| error(failure.message().clone()))?
+        {
             let turn_was_truncated = assistant_message.stop_reason == StopReason::Length;
             let will_retry =
                 post_run_check && turn_was_truncated && !self.inner.length_recovery_attempted.load(Ordering::SeqCst);
@@ -6598,6 +6629,32 @@ impl AgentSession {
         }
         self.start_background_compaction(context_tokens, context_window)?;
         Ok(false)
+    }
+
+    fn estimate_threshold_context_tokens(
+        &self,
+        identity: Option<&pi_agent_core::agent::AgentMessageIdentity>,
+        direct_context_tokens: f64,
+        threshold_percent: Option<f64>,
+    ) -> f64 {
+        if threshold_percent.is_none() {
+            return direct_context_tokens;
+        }
+        let Some(identity) = identity else {
+            return direct_context_tokens;
+        };
+        let snapshot = self.inner.agent.identity_snapshot(|_| true);
+        let Some(index) = snapshot
+            .message_tokens()
+            .iter()
+            .position(|candidate| candidate == identity)
+        else {
+            return direct_context_tokens;
+        };
+        let messages = self.messages();
+        messages.get(index + 1..).map_or(direct_context_tokens, |trailing| {
+            direct_context_tokens + estimate_messages_tokens(trailing)
+        })
     }
 
     async fn run_auto_compaction(
@@ -6685,11 +6742,13 @@ impl AgentSession {
             }
         }
         let result = match extension_compaction {
+            Some(_) if abort.aborted() => Err(error("Compaction cancelled")),
             Some(compaction) => {
                 let duration_ms = cached
                     .as_ref()
-                    .map(|cache| cache.generation_duration_ms.unwrap_or_default() as f64)
-                    .unwrap_or_default();
+                    .and_then(|cache| cache.generation_duration_ms)
+                    .map(|duration| duration as f64)
+                    .unwrap_or_else(|| (now_millis() - started_at) as f64);
                 self.append_compaction_result(compaction, Some(from_extension), duration_ms)
                     .map(|result| (result, false))
             }
@@ -7091,11 +7150,6 @@ impl AgentSession {
         target_id: &JsString,
         options: NavigateTreeOptions,
     ) -> Result<NavigateTreeResult, AgentSessionError> {
-        if self.is_streaming() {
-            return Err(error(
-                "Wait for the current response to finish before navigating the session tree.",
-            ));
-        }
         let (old_leaf_id, target_entry, entries_to_summarize, common_ancestor_id) = {
             let manager = lock(&self.inner.session_manager);
             let old_leaf_id = manager.get_leaf_id().cloned();
@@ -7182,9 +7236,8 @@ impl AgentSession {
         let mut from_extension = false;
         if options.summarize == Some(true) && !entries_to_summarize.is_empty() && extension_summary.is_none() {
             let model = self.inner.agent.model();
-            let auth = self.get_compaction_request_auth(&model).await.map_err(|error| {
+            let auth = self.get_required_request_auth(&model).await.inspect_err(|_| {
                 *lock(&self.inner.branch_summary_abort_controller) = None;
-                error
             })?;
             let reserve_tokens = lock(&self.inner.settings_manager)
                 .get_branch_summary_settings()
@@ -7259,6 +7312,8 @@ impl AgentSession {
             _ => (Some(target_id.to_owned()), None),
         };
 
+        let summary_text = summary_text.filter(|text| !text.is_empty());
+        let label = label.filter(|label| !label.is_empty());
         let mut summary_entry = None;
         let had_summary = summary_text.is_some();
         {
@@ -7449,8 +7504,13 @@ impl AgentSession {
             crate::utils::paths::resolve_path(output_path.unwrap_or(&default_name), "", &Default::default())
                 .map_err(|path_error| error(path_error.message()))?;
         let parent = crate::utils::paths::node_dirname(&file_path);
-        std::fs::create_dir_all(encode_node_utf8(&parent))
-            .map_err(|io_error| error(format!("Failed to create export directory: {io_error}")))?;
+        if !std::path::Path::new(&encode_node_utf8(&parent)).exists() {
+            std::fs::create_dir_all(encode_node_utf8(&parent)).map_err(|failure| {
+                pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                    &failure, "mkdir", &parent,
+                ))
+            })?;
+        }
         let (session_id, cwd, branch_entries) = {
             let manager = lock(&self.inner.session_manager);
             (
@@ -7485,8 +7545,16 @@ impl AgentSession {
             previous_id = entry.id().cloned();
             lines.push(pi_js_compat::js_json::stringify_lossless(&value));
         }
-        std::fs::write(encode_node_utf8(&file_path), format!("{}\n", lines.join("\n")))
-            .map_err(|io_error| error(format!("Failed to write session export: {io_error}")))?;
+        let mut file = std::fs::File::create(encode_node_utf8(&file_path)).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_fs_error_record(
+                &failure, "open", &file_path,
+            ))
+        })?;
+        std::io::Write::write_all(&mut file, format!("{}\n", lines.join("\n")).as_bytes()).map_err(|failure| {
+            pi_js_compat::node_error::NativeNodeError::from(pi_js_compat::node_fs::node_file_write_error_record(
+                &failure,
+            ))
+        })?;
         Ok(file_path)
     }
 
@@ -7587,7 +7655,6 @@ fn extension_tool_definition_for_html(definition: ToolDefinition) -> crate::core
         approval_required: Some(definition.approval_required),
         approval_kind: definition.approval_kind,
         parameters: definition.parameters,
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,
@@ -8652,6 +8719,15 @@ fn extension_context_actions(weak: Weak<Inner>) -> ExtensionContextActions {
                     .and_then(|inner| inner.multi_agent_parent_session_id.clone())
             }
         })),
+        register_supervisor_review_cancellation: Some(Arc::new({
+            let weak = weak.clone();
+            move |handler| match weak.upgrade() {
+                Some(inner) => Ok(AgentSession { inner }.register_supervisor_review_cancellation(handler)),
+                None => Err(pi_js_compat::callback_error::CallbackError::new(
+                    "Agent session is no longer available",
+                )),
+            }
+        })),
         get_no_supervisor: Some(Arc::new({
             let weak = weak.clone();
             move || weak.upgrade().is_some_and(|inner| inner.no_supervisor)
@@ -8872,6 +8948,8 @@ fn parse_timestamp_millis(text: &JsString) -> Option<i64> {
 
 #[cfg(test)]
 mod supervisor_project_failure_tests {
+    use crate::core::settings_manager::SettingsScope;
+
     mod scripted_registry {
         use crate as pi_coding_agent;
         include!(concat!(

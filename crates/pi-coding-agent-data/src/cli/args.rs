@@ -145,6 +145,8 @@ pub struct Args {
     pub no_extensions: Option<bool>,
     pub print: Option<bool>,
     pub export: Option<String>,
+    pub export_terminal: Option<String>,
+    pub export_columns: Option<u64>,
     pub no_skills: Option<bool>,
     pub skills: Option<Vec<String>>,
     pub prompt_templates: Option<Vec<String>>,
@@ -316,6 +318,32 @@ pub fn parse_args(args: &[String]) -> Args {
                     index += 1;
                 }
             }
+            "--export-terminal" => {
+                if let Some(value) = next.filter(|value| !value.is_empty() && !value.starts_with('-')) {
+                    result.export_terminal = Some(value.to_owned());
+                    index += 1;
+                } else {
+                    result
+                        .diagnostics
+                        .push(error("--export-terminal requires a session file or ID"));
+                }
+            }
+            "--export-columns" => {
+                if next.is_some_and(|value| !value.starts_with("--")) {
+                    index += 1;
+                }
+                let columns = next
+                    .filter(|value| !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_digit()))
+                    .and_then(|value| value.trim_start_matches('0').parse::<u64>().ok())
+                    .filter(|columns| *columns > 0 && *columns <= 9_007_199_254_740_991);
+                if let Some(columns) = columns {
+                    result.export_columns = Some(columns);
+                } else {
+                    result
+                        .diagnostics
+                        .push(error("--export-columns requires a positive integer"));
+                }
+            }
             "--export" if next.is_some() => {
                 result.export = next.map(str::to_owned);
                 index += 1;
@@ -386,7 +414,40 @@ pub fn parse_args(args: &[String]) -> Args {
     result
         .diagnostics
         .extend(collect_standalone_worker_diagnostics(&result));
+    if is_terminal_export_invocation(args) {
+        result.diagnostics.extend(collect_terminal_export_diagnostics(&result));
+    }
     result
+}
+
+/// Detects terminal-export intent even when equals syntax was captured as an unknown flag.
+pub fn is_terminal_export_invocation(args: &[String]) -> bool {
+    args.iter()
+        .any(|arg| matches!(arg.split('=').next(), Some("--export-terminal" | "--export-columns")))
+}
+
+fn collect_terminal_export_diagnostics(parsed: &Args) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    if parsed.export_terminal.is_none() {
+        diagnostics.push(error(
+            "--export-columns requires --export-terminal <session-file-or-id>",
+        ));
+    }
+    if parsed.export_columns.is_none() {
+        diagnostics.push(error("--export-terminal requires --export-columns <positive integer>"));
+    }
+    let mut incompatible = parsed.clone();
+    incompatible.export_terminal = None;
+    incompatible.export_columns = None;
+    incompatible.session_dir = None;
+    incompatible.offline = None;
+    incompatible.diagnostics.clear();
+    if incompatible != Args::default() {
+        diagnostics.push(error(
+            "--export-terminal accepts only --export-columns, --session-dir, and --offline",
+        ));
+    }
+    diagnostics
 }
 
 fn collect_standalone_worker_diagnostics(parsed: &Args) -> Vec<Diagnostic> {

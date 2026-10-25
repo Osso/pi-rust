@@ -375,6 +375,21 @@ async fn build_harness_with_runtime_observer(
 }
 
 #[tokio::test]
+async fn missing_import_preserves_the_frozen_error_name_and_file_path() {
+    mod oracle {
+        include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
+    }
+    let harness = build_harness(false, false).await;
+    let path = JsString::from(harness._temp.path().join("missing.jsonl").to_str().unwrap());
+    let mut source = oracle::TsOracle::spawn("runtime-import-error-oracle.mts", "packages/coding-agent/src");
+    let expected = source.request(&json!({"path":path}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    let error = harness.runtime.import_from_jsonl(&path, None).await.unwrap_err();
+    let actual = error.thrown_value().as_error().unwrap().value();
+    assert_eq!(actual, JsValue::from(&expected["output"]));
+}
+
+#[tokio::test]
 async fn continue_recovers_deleted_session_cwd_before_empty_transcript_returns() {
     mod oracle {
         include!(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/support/oracle.rs"));
@@ -1328,16 +1343,17 @@ async fn session_replacement_rebinds_the_shared_extension_handle() {
     assert!(!Arc::ptr_eq(&original_handle, &live_handle));
     let context = session.extension_runner().create_context();
     let extension_handle = context.session_manager().expect("session manager");
-    assert!(Arc::ptr_eq(&extension_handle, &live_handle));
-    let extension_session_id = lock_session_manager(&extension_handle).get_session_id().to_owned();
+    assert_eq!(
+        extension_handle.get_session_file(),
+        lock_session_manager(&live_handle).get_session_file().cloned()
+    );
+    let extension_session_id = extension_handle.get_session_id();
     assert_eq!(extension_session_id, session.session_id());
 
-    {
-        let mut manager = lock_session_manager(&extension_handle);
-        manager
-            .set_session_name(Some(&JsString::from("renamed-by-extension")))
-            .expect("set session name");
-    }
+    session
+        .set_session_name(&JsString::from("renamed-by-extension"))
+        .expect("set session name through the API action");
+    assert_eq!(extension_handle.get_session_name(), Some("renamed-by-extension".into()));
     assert_eq!(
         session.session_manager().get_session_name().as_ref(),
         Some(&JsString::from("renamed-by-extension"))

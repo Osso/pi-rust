@@ -17,7 +17,6 @@ fn assert_type_paths() {
     type_of::<pi_ai::GoogleThinkingLevel>(None);
     type_of::<pi_ai::GoogleVertexOptions>(None);
     type_of::<pi_ai::LazyApi>(None);
-    type_of::<pi_ai::LazyApiCapabilities>(None);
     type_of::<pi_ai::MistralOptions>(None);
     type_of::<pi_ai::OpenAICodexResponsesOptions>(None);
     type_of::<pi_ai::OpenAICodexWebSocketDebugStats>(None);
@@ -42,7 +41,6 @@ fn assert_type_paths() {
     type_of::<pi_ai::DiagnosticCode>(None);
     type_of::<pi_ai::StreamFailure>(None);
     type_of::<pi_ai::JsonParseError>(None);
-    type_of::<pi_ai::RetryPolicy>(None);
     type_of::<pi_ai::ValidationError>(None);
     type_of::<pi_ai::StringEnumOptions>(None);
 }
@@ -92,10 +90,9 @@ fn crate_root_reexports_are_usable() {
     let _ = pi_ai::create_faux_core(pi_ai::RegisterFauxProviderOptions::default());
     let _ = pi_ai::default_provider_auth_context();
     let _ = pi_ai::InMemoryCredentialStore::default();
-    let _ = pi_ai::lazy_api(
-        Arc::new(|| Box::pin(async { Err(pi_ai::CallbackError::new("unused")) })),
-        Default::default(),
-    );
+    let _ = pi_ai::lazy_api(Arc::new(|| {
+        Box::pin(async { Err(pi_ai::CallbackError::new("unused")) })
+    }));
     let _ = pi_ai::env_api_key_auth("key", &["KEY"]);
     let _ = pi_ai::lazy_oauth(pi_ai::LazyOAuthInput {
         name: "oauth".into(),

@@ -9,7 +9,7 @@ use pi_js_compat::abort::AbortSignal;
 use serde_json::{Map, Value};
 
 use crate::api::github_copilot_headers::{build_copilot_dynamic_headers, has_copilot_vision_input};
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     OpenAIResponsesStreamOptions, convert_responses_messages, convert_responses_tools, process_responses_stream,
@@ -38,8 +38,7 @@ const OPENAI_TOOL_CALL_PROVIDERS: [&str; 3] = ["openai", "openai-codex", "openco
 pub struct OpenAIResponsesOptions {
     pub reasoning_effort: Option<String>,
     pub reasoning_summary: Option<String>,
-    pub service_tier: Option<String>,
-    pub tool_choice: Option<Value>,
+    pub service_tier: Option<Value>,
 }
 
 impl OpenAIResponsesOptions {
@@ -47,8 +46,7 @@ impl OpenAIResponsesOptions {
         Self {
             reasoning_effort: string_field(&options.extra, "reasoningEffort"),
             reasoning_summary: string_field(&options.extra, "reasoningSummary"),
-            service_tier: string_field(&options.extra, "serviceTier"),
-            tool_choice: options.extra.get("toolChoice").cloned(),
+            service_tier: options.extra.get("serviceTier").cloned(),
         }
     }
 }
@@ -158,7 +156,7 @@ pub fn build_params(
     options: &OpenAIResponsesOptions,
     stream_options: &StreamOptions,
     compat: &ResolvedCompat,
-) -> Result<JsValue, String> {
+) -> Result<JsValue, JsString> {
     let messages = convert_responses_messages(
         model,
         context,
@@ -191,13 +189,10 @@ pub fn build_params(
         params.insert("temperature".into(), js_number_value(temperature).into());
     }
     if let Some(service_tier) = &options.service_tier {
-        params.insert("service_tier".into(), JsValue::String(service_tier.clone().into()));
+        params.insert("service_tier".into(), service_tier.clone().into());
     }
     if let Some(tools) = context.tools.as_deref().filter(|tools| !tools.is_empty()) {
         params.insert("tools".into(), convert_responses_tools(tools, None));
-    }
-    if let Some(tool_choice) = &options.tool_choice {
-        params.insert("tool_choice".into(), tool_choice.clone().into());
     }
 
     if model.reasoning {
@@ -229,11 +224,6 @@ pub fn build_params(
         }
     }
 
-    if let Some(sampling_params) = &stream_options.sampling_params {
-        for (key, value) in sampling_params {
-            params.insert(key.clone().into(), value.clone().into());
-        }
-    }
     Ok(JsValue::Object(params))
 }
 
@@ -289,7 +279,7 @@ fn create_client(
         build_copilot_dynamic_headers(&context.messages, has_images)
     });
     let mut headers = merge_provider_headers(model.headers.as_ref(), dynamic, None);
-    if let Some(session_id) = session_id {
+    if let Some(session_id) = session_id.filter(|session_id| !session_id.is_empty()) {
         if compat.send_session_id_header {
             headers.insert("session_id".to_owned(), Some(session_id.clone()));
         }
@@ -331,7 +321,7 @@ fn retry_options(options: &ProviderRequestOptions) -> ProviderRetryOptions {
             .filter(|retries| *retries > 0.0)
             .map(|retries| retries as usize)
             .unwrap_or(0),
-        max_retry_delay_ms: options.max_retry_delay_ms,
+        max_retry_delay_ms: Some(0.0),
         signal: options.signal.clone(),
     }
 }
@@ -361,9 +351,12 @@ async fn run_stream(
 
     let mut params = params;
     if let Some(on_payload) = &stream_options.request.on_payload
-        && let Some(next_params) = on_payload(params.clone(), model.clone())
-            .await
-            .map_err(|error| Failure::Message(error.message))?
+        && let Some(next_params) = on_payload(params.clone(), model.clone()).await.map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("OpenAI API error"),
+            ))
+        })?
     {
         params = next_params;
     }
@@ -392,7 +385,12 @@ async fn run_stream(
             model.clone(),
         )
         .await
-        .map_err(|error| Failure::Message(error.message))?;
+        .map_err(|error| {
+            Failure::Message(super::openai_sdk::format_callback_error(
+                &error,
+                Some("OpenAI API error"),
+            ))
+        })?;
     }
     sender.push(crate::types::AssistantMessageEvent::Start {
         partial: output.clone(),
@@ -400,7 +398,7 @@ async fn run_stream(
 
     let mut stream = response.stream;
     let stream_options_for_shared = OpenAIResponsesStreamOptions {
-        service_tier: options.service_tier.clone(),
+        service_tier: options.service_tier.as_ref().and_then(Value::as_str).map(str::to_owned),
         apply_service_tier_pricing: Some(Arc::new({
             let model_id = model.id.clone();
             move |usage: &mut Usage, service_tier: Option<&str>| {
@@ -491,14 +489,14 @@ pub fn stream_simple(
     model: Model,
     context: Context,
     options: SimpleStreamOptions,
-) -> crate::utils::event_stream::AssistantMessageEventStream {
+) -> Result<crate::utils::event_stream::AssistantMessageEventStream, CallbackError> {
     let api_key = match get_client_api_key(
         &model.provider,
         options.stream.request.api_key.as_ref(),
         options.stream.request.headers.as_ref(),
     ) {
         Ok(api_key) => api_key,
-        Err(message) => return crate::request::error_stream(&model, &message),
+        Err(message) => return Err(CallbackError::new(message)),
     };
     let base = build_base_options(&model, &context, Some(&options), Some(&api_key));
     let clamped_reasoning = options
@@ -511,7 +509,7 @@ pub fn stream_simple(
             .extra
             .insert("reasoningEffort".to_owned(), Value::String(reasoning_effort));
     }
-    run_and_emit(&model, &context, stream_options)
+    Ok(run_and_emit(&model, &context, stream_options))
 }
 
 /// `ProviderStreams` adapter for `openAIResponsesApi()`.
@@ -534,19 +532,16 @@ impl ProviderStreams for OpenAIResponsesApi {
         context: Context,
         options: SimpleStreamOptions,
     ) -> Result<crate::utils::event_stream::AssistantMessageEventStream, crate::request::CallbackError> {
-        Ok(stream_simple(model, context, options))
+        stream_simple(model, context, options)
     }
 }
 
 /// `openAIResponsesApi()` from `openai-responses.lazy.ts`.
 pub fn open_ai_responses_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| {
-            Box::pin(async { Ok(Arc::new(OpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
-                as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
-        }),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(OpenAIResponsesApi) as Arc<dyn ProviderStreams>) })
+            as BoxFuture<'static, Result<Arc<dyn ProviderStreams>, CallbackError>>
+    }))
 }
 
 #[cfg(test)]

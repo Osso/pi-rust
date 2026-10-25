@@ -3,8 +3,7 @@ use pi_agent_core::{AgentError, AgentMessage, StreamFn};
 use pi_ai::providers::faux::{RegisterFauxProviderOptions, faux_provider};
 use pi_coding_agent::core::compaction::branch_summarization::{GenerateBranchSummaryOptions, generate_branch_summary};
 use pi_coding_agent::core::compaction::{
-    GenerateSummaryWithUsageOptions, MaterializeCompactionSummaryOptions, generate_summary,
-    materialize_compaction_summary,
+    GenerateSummaryOptions, MaterializeCompactionSummaryOptions, generate_summary, materialize_compaction_summary,
 };
 use pi_coding_agent::core::session_manager::SessionEntry;
 use pi_js_compat::js_json::JsString;
@@ -36,7 +35,7 @@ async fn summary_and_materialization_propagate_acquisition_failure_without_retry
     let attempts = Arc::new(AtomicUsize::new(0));
     let stream = failing_stream(attempts.clone());
     let user: AgentMessage = serde_json::from_str(r#"{"role":"user","content":"summarize","timestamp":1}"#).unwrap();
-    let failure = generate_summary(&GenerateSummaryWithUsageOptions {
+    let failure = generate_summary(&GenerateSummaryOptions {
         current_messages: &[user],
         model: &model,
         reserve_tokens: 2000.0,

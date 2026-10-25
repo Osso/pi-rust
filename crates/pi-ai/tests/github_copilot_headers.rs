@@ -43,8 +43,6 @@ fn tool_result(blocks: Vec<TextOrImageContent>) -> Message {
         tool_name: "read".to_owned(),
         content: blocks,
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })

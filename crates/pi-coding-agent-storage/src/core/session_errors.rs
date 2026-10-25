@@ -12,8 +12,7 @@ pub struct SessionImportFileNotFoundError {
 impl SessionImportFileNotFoundError {
     /// The source error's `name`.
     pub const NAME: &'static str = "SessionImportFileNotFoundError";
-    /// Display prefix; callers that only receive the message use it to detect
-    /// this error type.
+    /// Source message prefix; identity is retained separately from display text.
     pub const MESSAGE_PREFIX: &'static str = "File not found: ";
 
     pub fn new(file_path: impl Into<JsString>) -> Self {
@@ -24,6 +23,14 @@ impl SessionImportFileNotFoundError {
 
     pub fn message(&self) -> JsString {
         JsString::from(Self::MESSAGE_PREFIX) + &self.file_path
+    }
+
+    pub fn into_callback(self) -> pi_ai::request::CallbackError {
+        let native = pi_js_compat::node_error::NativeNodeError::new(Self::NAME, self.message()).with_property(
+            "filePath",
+            pi_js_compat::js_json::JsValue::String(self.file_path.clone()),
+        );
+        pi_ai::request::CallbackError::from(native).with_original(std::sync::Arc::new(self))
     }
 }
 

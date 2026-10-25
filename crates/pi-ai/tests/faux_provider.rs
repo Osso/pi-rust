@@ -122,13 +122,6 @@ fn event_types(events: &[AssistantMessageEvent]) -> Vec<&'static str> {
 }
 
 #[test]
-fn faux_core_has_no_deferred_capabilities_at_frozen_pin() {
-    let core = create_faux_core(RegisterFauxProviderOptions::default());
-    assert!(!pi_ai::request::ProviderStreams::supports_fetch_deferred(&core));
-    assert!(!pi_ai::request::ProviderStreams::supports_cancel_deferred(&core));
-}
-
-#[test]
 fn faux_empty_model_list_and_empty_requested_id_use_default_model() {
     let core = create_faux_core(RegisterFauxProviderOptions {
         models: Some(vec![]),
@@ -452,8 +445,6 @@ async fn faux_provider_estimates_prompt_and_output_tokens_from_serialized_contex
                 tool_name: "echo".to_owned(),
                 content: vec![TextOrImageContent::Text(TextContent::new("tool out"))],
                 details: None,
-                usage: None,
-                added_tool_names: None,
                 is_error: false,
                 timestamp: 2.0,
             }),

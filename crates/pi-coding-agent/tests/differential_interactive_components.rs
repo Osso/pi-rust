@@ -701,7 +701,6 @@ fn assistant_fixture(content: Vec<AssistantContent>, stop_reason: StopReason) ->
         image_generation_result: None,
         diagnostics: None,
         error_message: None,
-        raw_stop_reason: None,
     }
 }
 
@@ -1745,7 +1744,6 @@ fn custom_tool_definition(call: &'static str, result: &'static str, shell: Rende
         approval_required: None,
         approval_kind: None,
         parameters: json!({"type": "object", "properties": {}}),
-        constrained_sampling: None,
         render_shell: Some(shell),
         prepare_arguments: None,
         prepare_execution: None,
@@ -1779,13 +1777,18 @@ fn tool_execution_case(
     definition: Option<ToolDefinition>,
     definition_json: Value,
     args: Value,
-    events: Vec<Value>,
+    mut events: Vec<Value>,
     width: usize,
 ) -> (Value, Value) {
     use pi_coding_agent::modes::interactive::components::tool_execution::{
         ToolExecutionComponent, ToolExecutionOptions, ToolExecutionResult,
     };
 
+    for event in &mut events {
+        if event["type"] == "result" {
+            event["finishedAt"] = json!(1_767_225_600_000.0);
+        }
+    }
     let request = json!({
         "id": id,
         "module": "modes/interactive/components/tool-execution.ts",
@@ -1826,7 +1829,7 @@ fn tool_execution_case(
                         is_error: result.get("isError").and_then(Value::as_bool) == Some(true),
                     },
                     event.get("isPartial").and_then(Value::as_bool) == Some(true),
-                    None,
+                    event.get("finishedAt").and_then(Value::as_f64),
                 );
             }
             _ => {}
@@ -2148,12 +2151,6 @@ fn footer_cases() -> Vec<(Value, Value)> {
                             tool_name: "read".to_owned(),
                             content: vec![],
                             details: None,
-                            usage: Some(pi_ai::types::Usage {
-                                input: 500.0,
-                                output: 100.0,
-                                ..Default::default()
-                            }),
-                            added_tool_names: None,
                             is_error: false,
                             timestamp: 0.0,
                         },

@@ -1,5 +1,7 @@
 # `tui/src/components/editor.ts` traceability
 
+Baseline raw-editor repair (2026-10-25): `raw-tui-oracle.ts` now selects the same approved editor-scroll-width delta with HEAD/hash verification for both editor capture operations. Narrow-scroll snapshots compare exact raw UTF-16 frames; no frozen bytes or assertions were changed.
+
 ## Approved bottom-indicator delta (2026-10-24)
 
 User approved matching bottom truncation to the existing top border. Standalone TS fix `88751b9de03a564e01edf00423f9bf1138b77a02`, based directly on common pin4f9e6f8a4, changes only editor.ts:883-893. [Delta lock](../delta-lock.json) records checkout and SHA256 `47bca9a925fbcf4e4f7f4ce1c14c33eaeb3d45e3c262d2e49174493824f3f976`; common-pin bytes remain untouched. `editor-oracle.mts` exclusively selects the approved editor module through the hash/HEAD-checked delta selector, never an old frozen editor substitute.

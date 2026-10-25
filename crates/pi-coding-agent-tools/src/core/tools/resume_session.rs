@@ -28,7 +28,7 @@ use crate::core::session_archive_storage::is_archived_session_file;
 use crate::core::session_control_db::{
     SessionMetadata, find_active_session_metadata_by_id, find_active_session_metadata_by_name,
 };
-use crate::core::session_manager::{SessionInfo, SessionManager, lock_session_manager};
+use crate::core::session_manager::{SessionInfo, SessionManager};
 use crate::core::session_transcript::read_session_transcript_path;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::paths::{PathInputOptions, process_cwd, resolve_path};
@@ -190,23 +190,23 @@ fn merge_by_path(groups: Vec<Vec<SessionInfo>>) -> Vec<SessionInfo> {
 }
 
 fn list_local_and_session_dir_sessions(
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<Vec<SessionInfo>, ToolError> {
     let local = SessionManager::list(
-        session.get_cwd(),
-        Some(session.get_session_dir()),
+        &session.get_cwd(),
+        Some(&session.get_session_dir()),
         None,
         control_db_path,
     )
     .map_err(|error| ToolError::new(error.message()))?;
-    let session_dir = SessionManager::list_all(Some(session.get_session_dir()), None, control_db_path)
+    let session_dir = SessionManager::list_all(Some(&session.get_session_dir()), None, control_db_path)
         .map_err(|error| ToolError::new(error.message()))?;
     Ok(merge_by_path(vec![local, session_dir]))
 }
 
 fn list_all_resolvable_sessions(
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<Vec<SessionInfo>, ToolError> {
     let scoped = list_local_and_session_dir_sessions(session, control_db_path)?;
@@ -237,9 +237,9 @@ fn resolvable_session_from_metadata(metadata: &SessionMetadata) -> ResolvableSes
 
 fn sessions_in_current_directory(
     sessions: Vec<ResolvableSession>,
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
 ) -> Result<Vec<ResolvableSession>, ToolError> {
-    let prefix = resolve_session_path(session.get_session_dir())? + "/";
+    let prefix = resolve_session_path(&session.get_session_dir())? + "/";
     let mut scoped = Vec::new();
     for session in sessions {
         if resolve_session_path(&session.path)?.starts_with(&prefix) {
@@ -292,7 +292,7 @@ fn unique_name_match(sessions: Vec<&ResolvableSession>, label: &JsString) -> Res
 fn resolve_resume_session_file(
     params: &ResumeSessionParams,
     cwd: &JsString,
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<JsString, ToolError> {
     if let Some(path) = &params.path {
@@ -336,7 +336,7 @@ fn resolve_resume_session_file(
 /// `findSessionFileById`.
 pub fn find_session_file_by_id(
     id: &JsString,
-    session: &SessionManager,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
     control_db_path: Option<&JsString>,
 ) -> Result<JsString, ToolError> {
     let params = ResumeSessionParams {
@@ -365,9 +365,12 @@ pub fn find_session_file_by_id(
     assert_resume_session_path(&matched.path)
 }
 
-fn assert_resume_target_is_different(session_path: &JsString, session: &SessionManager) -> Result<(), ToolError> {
+fn assert_resume_target_is_different(
+    session_path: &JsString,
+    session: &crate::core::readonly_session_manager::ReadonlySessionManager,
+) -> Result<(), ToolError> {
     if let Some(current_session_path) = session.get_session_file()
-        && resolve_session_path(session_path)? == resolve_session_path(current_session_path)?
+        && resolve_session_path(session_path)? == resolve_session_path(&current_session_path)?
     {
         return Err(ToolError::new("resume_session cannot resume the current session"));
     }
@@ -438,7 +441,7 @@ impl ContextTool<Option<ExtensionContext>> for ResumeSessionTool {
                 .map_err(|error| ToolError::new(error.message))?;
             let resume_params = normalize_resume_session_params(&params)?;
             let session_path = {
-                let manager = lock_session_manager(&session);
+                let manager = session;
                 let session_path =
                     resolve_resume_session_file(&resume_params, &cwd, &manager, control_db_path.as_ref())?;
                 assert_resume_target_is_different(&session_path, &manager)?;
@@ -557,7 +560,9 @@ mod lossless_name_tests {
         let input = json::parse_lossless(r#"{"name":" \ud800\udfff\ud800 "}"#).unwrap();
         let params = normalize_resume_session_params(&input).unwrap();
         assert_eq!(params.name.as_ref().unwrap().units(), &[0xd800, 0xdfff, 0xd800]);
-        let session = SessionManager::in_memory(None, None).unwrap();
+        let session = crate::core::readonly_session_manager::create_readonly_session_manager(std::sync::Arc::new(
+            std::sync::Mutex::new(SessionManager::in_memory(None, None).unwrap()),
+        ));
         let error = resolve_resume_session_file(&params, &"/tmp".into(), &session, None).unwrap_err();
         assert!(error.message.contains(params.name.unwrap()));
     }

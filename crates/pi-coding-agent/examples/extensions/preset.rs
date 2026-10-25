@@ -156,11 +156,7 @@ pub(crate) fn register_with_logger(pi: &ExtensionApi, logger: Logger) -> Result<
                         )?;
                     }
                 }
-                let entries = ctx
-                    .session_manager()?
-                    .lock()
-                    .map_err(|e| HandlerError::new(e.to_string()))?
-                    .get_entries();
+                let entries = ctx.session_manager()?.get_entries();
                 let saved = entries
                     .iter()
                     .rev()
@@ -296,7 +292,11 @@ fn status(shared: &Shared, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let name = shared.lock().unwrap().active.clone();
     let text = name
         .filter(|s| !s.is_empty())
-        .map(|name| ui.theme().fg(ThemeColor::Accent, &js_format!("preset:{}", name)));
+        .map(|name| {
+            ui.theme()
+                .map(|theme| theme.fg(ThemeColor::Accent, &js_format!("preset:{}", name)))
+        })
+        .transpose()?;
     ui.set_status(&JsString::from("preset"), text.map(ExtensionStatus::Text))?;
     Ok(())
 }

@@ -113,7 +113,6 @@ pub fn register_manage_goal_tool(
         approval_required: Some(false),
         approval_kind: None,
         parameters: manage_goal_parameters(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

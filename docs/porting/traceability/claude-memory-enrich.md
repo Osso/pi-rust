@@ -1,24 +1,21 @@
-# claude-memory-enrich traceability
+# claude-memory-enrich re-pin traceability
 
-Source: `packages/coding-agent/extensions/claude-memory-enrich/src/index.ts` (162 lines).
+Source: `packages/coding-agent/extensions/claude-memory-enrich/src/index.ts` at `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` (299 lines).
 Rust: `crates/pi-coding-agent-extensions/src/bundled_extensions/claude_memory_enrich.rs`.
-Tests: `crates/pi-coding-agent/tests/bundled_extensions_context.rs` (fake `PI_CLAUDE_MEMORY` scripts).
 
-| Source symbol / branch | Rust item | Proof |
-| --- | --- | --- |
-| `isHookOutput` | `is_hook_output` | differential invalid-shape step |
-| `resolveClaudeMemoryCommand` (env then default path) | `resolve_claude_memory_command` | differential env steps |
-| `parseAdditionalContext` (trim/JSON.parse/shape/trim context) | `parse_additional_context` | differential ok/empty/invalid steps |
-| `runEnrich` spawn, stdin payload, stdout/stderr, timeout, exit code | `run_enrich` | differential ok/failing steps; timeout branch implemented |
-| `appendEnrichment` (skip existing section) | `append_enrichment` | differential step 6 |
-| `before_agent_start` empty prompt / missing command | handler early returns | differential empty-prompt step |
-| error logging (`console.error`) | `eprintln!` | observed in test output |
+| Frozen symbols / branches | Rust / proof |
+|---|---|
+| constants, `isHookOutput`, `parseAdditionalContext` | Exact 75000ms timeout, 1000ms kill grace; shape/trim/JSON through lossless carrier. `claude_memory_enrich_matches_typescript` tests ok, empty, invalid shape and failed exit. |
+| `resolveClaudeMemoryCommand` | Nonempty env then existing default; empty env no longer spawns empty command. Differential fake executable selection. |
+| runtime/active-process state, `queueEnrich` | Per-extension FIFO mutex and permanent shutdown signal. Real-child `queues_enrichment_and_shutdown_waits_for_graceful_close` proves serialization and two successive context injections. |
+| `requestEnrichTermination`, resource cleanup, settlement, abort registration, close interpretation | SIGTERM then SIGKILL after grace, wait for output/close before queue release; pre-aborted Error reason preserved; running abort text `operation aborted`; timeout text exact. Real-child shutdown proves SIGTERM, delayed close, no injection. Kill escalation and 75s timeout implemented but not separately timed in integration proof. |
+| `runEnrich`, output capture | `enrich` argv, inherited env, JSON newline stdin, concurrent pipe capture, error and exit handling; differential scripts and real-child integration. |
+| `shutdownEnrichRuntime`, default registration | Shutdown signal blocks new/queued starts and waits on active queue. Oracle asserts exact handler registration; real-child test asserts no post-shutdown child. |
+| `appendEnrichment`, before-start guard, stderr | Empty prompt/empty enrichment no-op, section idempotence, exact framing; oracle compares results. `enrichment_json_and_prompt_injection_retain_raw_units` proves raw units. |
 
-Gaps / discrepancies:
-- Timeout kills with SIGKILL (source sends SIGTERM) after the same 15000 ms bound.
-- Abort maps to Node's `The operation was aborted`; source spawn receives the
-  AbortSignal directly.
-- `JSON.parse` errors use `utils::js_json::parse` (V8 text); no differential case
-  asserts the message.
-- Handler errors are logged to stderr; the oracle cannot capture that stream, so
-  tests compare the returned `null` behavior.
+## Gaps
+
+- Adversarial wrong-typed/exotic JSON, OS pipe/signal failures and scheduling races follow the approved user-observable parity bar. No new carrier for these cases.
+- Error logs use stderr; the existing oracle checks return values, not captured stderr. Frozen literal messages are retained.
+
+The obsolete 15s/SIGKILL-only/Node-spawn-abort gaps are removed. Runtime is native, not a JS promise/object identity port. Proof: [lane ledger](../bundled-ext-b-proof.md).

@@ -60,7 +60,6 @@ pub fn command_context_actions(switch_session: SwitchSessionCallback) -> Extensi
     ExtensionCommandContextActions {
         show_approval_selector: Arc::new(|| Ok(())),
         show_sandbox_selector: Arc::new(|| Ok(())),
-        set_sandbox_profile: Arc::new(|_, _| Ok(())),
         wait_for_idle: Arc::new(|| Box::pin(async {})),
         new_session: Arc::new(|_| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
         fork: Arc::new(|_, _| Box::pin(async { Ok(SessionTransitionResult { cancelled: false }) })),
@@ -282,6 +281,7 @@ fn context_actions(
         get_context_usage: Arc::new(|| None),
         get_multi_agent_agent_id: Some(Arc::new(move || agent_id.clone())),
         get_multi_agent_parent_session_id: None,
+        register_supervisor_review_cancellation: None,
         get_no_supervisor: Some(Arc::new(move || no_supervisor)),
         get_multi_agent_requires_agent_id: Some(Arc::new(move || requires_agent_id)),
         get_multi_agent_store: None,

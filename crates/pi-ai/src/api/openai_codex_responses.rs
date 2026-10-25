@@ -23,7 +23,7 @@ use tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode;
 use tokio_tungstenite::tungstenite::protocol::{CloseFrame, Message};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
-use crate::api::lazy::{LazyApi, LazyApiCapabilities, lazy_api};
+use crate::api::lazy::{LazyApi, lazy_api};
 use crate::api::openai_prompt_cache::clamp_openai_prompt_cache_key;
 use crate::api::openai_responses_shared::{
     ConvertResponsesMessagesOptions, ConvertResponsesToolsOptions, OpenAIResponsesStreamOptions, ResponsesEventSource,
@@ -325,10 +325,9 @@ impl ProviderStreams for OpenAICodexResponsesApi {
 
 /// `openAICodexResponsesApi()`: the lazy module wrapper.
 pub fn openai_codex_responses_api() -> LazyApi {
-    lazy_api(
-        Arc::new(|| Box::pin(async { Ok(Arc::new(OpenAICodexResponsesApi) as Arc<dyn ProviderStreams>) })),
-        LazyApiCapabilities::default(),
-    )
+    lazy_api(Arc::new(|| {
+        Box::pin(async { Ok(Arc::new(OpenAICodexResponsesApi) as Arc<dyn ProviderStreams>) })
+    }))
 }
 
 async fn run_stream(
@@ -539,7 +538,7 @@ fn build_request_body(
             include_system_prompt: Some(false),
         }),
     )
-    .map_err(|error| CodexStreamError::Transport(error.into()))?;
+    .map_err(CodexStreamError::Transport)?;
 
     let mut body = JsObject::new();
     body.insert("model".into(), JsValue::String(model.id.clone().into()));
@@ -2498,7 +2497,7 @@ fn save_websocket_continuation(
     let Some(response_id) = output.response_id.as_ref().filter(|id| !id.is_empty()) else {
         return Ok(());
     };
-    let items = convert_response_items(model, output).map_err(|error| CodexStreamError::Transport(error.into()))?;
+    let items = convert_response_items(model, output).map_err(CodexStreamError::Transport)?;
     cache_entry_mutex(entry).continuation = Some(CachedWebSocketContinuationState {
         last_request_body: body.clone(),
         last_response_id: response_id.clone(),
@@ -2540,7 +2539,7 @@ fn spread_payload_properties(body: &JsValue) -> JsObject {
     frame
 }
 
-fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, String> {
+fn convert_response_items(model: &Model, output: &AssistantMessage) -> Result<Vec<JsValue>, JsString> {
     let response_context = Context {
         system_prompt: None,
         messages: vec![ChatMessage::Assistant(Box::new(output.clone()))],

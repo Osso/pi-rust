@@ -34,7 +34,7 @@ use super::runner::{
 
 pub const DETACHED_PYRUN_RUNNER_MODE: &str = "--internal-detached-pyrun-runner";
 const DETACHED_PYRUN_LAUNCH_VERSION: f64 = 3.0;
-const CONTROL_POLL_MS: u64 = 25;
+const CONTROL_POLL_MS: u64 = 1_000;
 const LAUNCH_MANIFEST_POLL_MS: u64 = 10;
 const LAUNCH_MANIFEST_TIMEOUT_MS: u64 = 30_000;
 
@@ -291,6 +291,7 @@ pub async fn run_detached_pyrun_runner(manifest_path: &JsString) -> Result<Optio
         retain_control_db_connection(&manifest.data.control_db_path).map_err(|error| error.message().clone())?;
     let runner_options = PyrunRunnerOptions {
         detached: Some(false),
+        inherited_process_group_id: Some(std::process::id()),
         ..manifest.data.runner_options.clone()
     };
     let runner = PyrunRunnerClient::new(runner_options);
@@ -304,8 +305,11 @@ async fn run_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     runner: &PyrunRunnerClient,
 ) -> Result<Option<i64>, JsString> {
-    let settlement = wait_for_detached_pyrun_settlement(manifest, runner).await?;
-    append_pyrun_settlement_record(manifest, &settlement)?;
+    let output = Arc::new(Mutex::new(super::detached_output::PyrunArtifactWriter::new(
+        manifest.data.artifacts.output_path.clone(),
+    )));
+    let settlement = wait_for_detached_pyrun_settlement(manifest, runner, output.clone()).await?;
+    append_pyrun_settlement_record(&output, &settlement)?;
     let identity = match settlement.identity.clone() {
         Some(identity) => Some(identity),
         None => wait_for_pyrun_ownership_decision(manifest).await?,
@@ -332,6 +336,7 @@ async fn wait_for_detached_pyrun_launch_manifest(path: &JsString) -> Result<Deta
 async fn wait_for_detached_pyrun_settlement(
     manifest: &DetachedPyrunLaunchManifest,
     runner: &PyrunRunnerClient,
+    output: Arc<Mutex<super::detached_output::PyrunArtifactWriter>>,
 ) -> Result<PyrunSettlement, JsString> {
     let abort = pi_js_compat::abort::AbortController::new();
     let control = Arc::new(Mutex::new(ControlState {
@@ -368,13 +373,14 @@ async fn wait_for_detached_pyrun_settlement(
             future
         })
     };
-    let manifest_for_progress = manifest.clone();
     let settled = runner.evaluate(
         manifest.data.params.clone(),
         Some(Arc::new(move |update: CanonicalPyrunProgressUpdate| {
-            let record = pi_js_compat::js_json!({"kind": "progress", "update": update.raw});
-            append_artifact_record(&manifest_for_progress.data.artifacts.output_path, &record)
-                .map_err(|error| super::runner::PyrunRunnerError::new(JsString::from(error.to_string())))
+            output
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .append_progress(&update)
+                .map_err(super::runner::PyrunRunnerError::new)
         })),
         Some(abort.signal()),
         Some(dispatch_pi_request),
@@ -567,7 +573,7 @@ pub(crate) fn claim_foreground_bridge_request(directory: &JsString, request_id: 
 }
 
 fn append_pyrun_settlement_record(
-    manifest: &DetachedPyrunLaunchManifest,
+    output: &Mutex<super::detached_output::PyrunArtifactWriter>,
     settlement: &PyrunSettlement,
 ) -> Result<(), JsString> {
     let record = match (&settlement.result, &settlement.error) {
@@ -577,8 +583,10 @@ fn append_pyrun_settlement_record(
             "kind": "error"
         }),
     };
-    append_artifact_record(&manifest.data.artifacts.output_path, &record)
-        .map_err(|error| JsString::from(error.to_string()))
+    output
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .finish(&record)
 }
 
 async fn wait_for_pyrun_ownership_decision(

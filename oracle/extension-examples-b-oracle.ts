@@ -43,7 +43,13 @@ async function run(request: any) {
    if(fixture.error) throw new Error(fixture.error);
    return fauxModule.fauxAssistantMessage(fixture.content ?? [{type:"text",text:"fixture answer"}],{stopReason:fixture.stopReason ?? "stop",timestamp:0});
   }));
-  utils.getModelRuntime(registry).registerNativeProvider(faux.provider);
+  registry.registerProvider(model.provider, {
+   api: faux.api,
+   baseUrl: model.baseUrl,
+   apiKey: "fixture-key",
+   models: faux.models,
+   streamSimple: faux.provider.streamSimple.bind(faux.provider),
+  });
  }
  const manager = session.SessionManager.inMemory(cwd);
  const runner = new runnerModule.ExtensionRunner([extension], runtime, cwd, manager, registry);

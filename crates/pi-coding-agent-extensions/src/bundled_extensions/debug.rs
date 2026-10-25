@@ -5,7 +5,6 @@ use pi_js_compat::js_json::JsString;
 use std::sync::Arc;
 
 use crate::core::extensions::types::{BoxFuture, ExtensionApi, HandlerError, NotifyType};
-use crate::core::session_manager::lock_session_manager;
 
 /// `DebugReplController` from the extension source.
 pub trait DebugReplController: Send + Sync {
@@ -37,9 +36,7 @@ pub fn debug_extension(pi: &ExtensionApi, get_controller: DebugReplControllerPro
                     return Ok(());
                 }
 
-                let session_id = lock_session_manager(&ctx.session_manager()?)
-                    .get_session_id()
-                    .to_owned();
+                let session_id = ctx.session_manager()?.get_session_id().to_owned();
                 debug_repl.enable(&session_id).await?;
                 ctx.ui()?.notify(
                     &js_format!("Debug REPL enabled: pi debug attach {}", session_id),

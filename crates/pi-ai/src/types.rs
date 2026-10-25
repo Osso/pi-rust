@@ -596,28 +596,6 @@ pub enum ErrorReason {
     Error,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DeferredHandle {
-    pub provider: String,
-    pub model_id: String,
-    pub api: String,
-    /// Provider token, such as a response id or batch id plus row id.
-    pub id: String,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "js_number::serialize_option"
-    )]
-    pub expires_at: Option<f64>,
-    #[serde(
-        skip_serializing_if = "Option::is_none",
-        serialize_with = "js_number::serialize_option"
-    )]
-    pub poll_after_ms: Option<f64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Value>,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InputSource {
@@ -672,8 +650,6 @@ pub struct AssistantMessage {
     pub diagnostics: Option<Vec<AssistantMessageDiagnostic>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<pi_js_compat::js_json::JsString>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub raw_stop_reason: Option<String>,
 }
 
 impl AssistantMessage {
@@ -697,7 +673,6 @@ impl AssistantMessage {
             usage: Usage::default(),
             stop_reason: StopReason::Stop,
             error_message: None,
-            raw_stop_reason: None,
             timestamp,
         }
     }
@@ -716,12 +691,6 @@ pub struct ToolResultMessage {
         deserialize_with = "pi_js_compat::js_json::deserialize_present"
     )]
     pub details: Option<JsValue>,
-    /// Usage from the tool execution itself; not part of main context accounting.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub usage: Option<Usage>,
-    /// Names from `Context::tools` that became available after this result.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub added_tool_names: Option<Vec<String>>,
     pub is_error: bool,
     /// Unix timestamp in milliseconds, retaining JavaScript fractional/nonfinite numbers.
     #[serde(serialize_with = "serialize_message_timestamp")]
@@ -764,60 +733,9 @@ pub struct AssistantImages {
     pub stop_reason: ImagesStopReason,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error_message: Option<pi_js_compat::js_json::JsString>,
-    /// Unix timestamp in milliseconds.
-    pub timestamp: i64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum GrammarFormat {
-    OpenaiLark,
-    OpenaiRegex,
-}
-
-pub type GrammarVariants = IndexMap<GrammarFormat, String>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum JsonSchemaStrictness {
-    Prefer,
-    Require,
-}
-
-/// Provider-side constrained sampling for a tool.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum ConstrainedSamplingConfig {
-    JsonSchema { strict: JsonSchemaStrictness },
-    Grammar { variants: GrammarVariants },
-}
-
-/// `false | ConstrainedSamplingConfig`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ConstrainedSampling {
-    Disabled,
-    Config(ConstrainedSamplingConfig),
-}
-
-impl Serialize for ConstrainedSampling {
-    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            Self::Disabled => serializer.serialize_bool(false),
-            Self::Config(config) => config.serialize(serializer),
-        }
-    }
-}
-
-impl<'de> Deserialize<'de> for ConstrainedSampling {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        let value = Value::deserialize(deserializer)?;
-        match value {
-            Value::Bool(false) => Ok(Self::Disabled),
-            other => serde_json::from_value(other)
-                .map(Self::Config)
-                .map_err(D::Error::custom),
-        }
-    }
+    /// Unix timestamp in milliseconds, retaining JavaScript fractional numbers.
+    #[serde(serialize_with = "serialize_message_timestamp")]
+    pub timestamp: f64,
 }
 
 /// A JSON Schema built with the TypeBox-equivalent builder (`Type.*` /
@@ -857,8 +775,6 @@ pub struct Tool {
     /// Enumerable AgentTool override; AI adapters do not interpret it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_mode: Option<JsString>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub constrained_sampling: Option<ConstrainedSampling>,
     /// Whether `parameters` was built with TypeBox. TypeScript's
     /// `Value.Convert` only converts schemas carrying the hidden `~kind`
     /// marker; plain JSON schemas (MCP/extension tools) skip that pass.
@@ -875,7 +791,6 @@ impl Tool {
             description: description.into(),
             parameters,
             execution_mode: None,
-            constrained_sampling: None,
             typebox_kind: false,
         }
     }
@@ -888,7 +803,6 @@ impl Tool {
             description: description.into(),
             parameters: parameters.into_value(),
             execution_mode: None,
-            constrained_sampling: None,
             typebox_kind: true,
         }
     }

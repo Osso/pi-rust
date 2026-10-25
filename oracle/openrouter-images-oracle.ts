@@ -10,6 +10,7 @@ interface FixtureResponse {
 	status: number;
 	headers?: Record<string, string>;
 	body: string;
+	bodyDelayMs?: number;
 }
 
 interface Request {
@@ -20,8 +21,12 @@ interface Request {
 		apiKey?: string;
 		headers?: Record<string, string>;
 		timeoutMs?: number;
+		maxRetries?: number;
 		aborted?: boolean;
 		response?: FixtureResponse;
+		replacePayload?: unknown;
+		payloadError?: unknown;
+		responseError?: unknown;
 	};
 }
 
@@ -62,7 +67,7 @@ function normalizeHeaders(headers: unknown): Record<string, string> {
 					: {};
 	return Object.fromEntries(
 		Object.entries(record).filter(
-			([name]) => name !== "user-agent" && !name.startsWith("x-stainless-"),
+			([name]) => name !== "user-agent" && (!name.startsWith("x-stainless-") || name === "x-stainless-retry-count"),
 		),
 	);
 }
@@ -90,7 +95,15 @@ async function execute(
 		recorded.headers = normalizeHeaders(init?.headers);
 		recorded.body = typeof init?.body === "string" ? init.body : null;
 		if (init?.signal?.aborted) throw new Error("This operation was aborted");
-		return new Response(response.body, {
+		const body = response.bodyDelayMs === undefined ? response.body : new ReadableStream({
+			start(controller) {
+				setTimeout(() => {
+					controller.enqueue(new TextEncoder().encode(response.body));
+					controller.close();
+				}, response.bodyDelayMs);
+			},
+		});
+		return new Response(body, {
 			status: response.status,
 			headers: response.headers ?? {},
 		});
@@ -100,7 +113,15 @@ async function execute(
 	try {
 		const output = await api.generateImages(request.model, request.context, {
 			apiKey: request.options.apiKey,
+			maxRetries: request.options.maxRetries,
 			headers: request.options.headers,
+			onPayload: () => {
+				if (Object.hasOwn(request.options, "payloadError")) throw request.options.payloadError;
+				return request.options.replacePayload;
+			},
+			onResponse: () => {
+				if (Object.hasOwn(request.options, "responseError")) throw request.options.responseError;
+			},
 			...(request.options.timeoutMs === undefined
 				? {}
 				: { timeoutMs: request.options.timeoutMs }),

@@ -364,7 +364,6 @@ fn assert_native_assistant_fields(expected: &JsValue, actual: &JsValue) {
         "imageGenerationResult",
         "diagnostics",
         "errorMessage",
-        "rawStopReason",
     ];
     let present_order: Vec<_> = fixed_order
         .iter()

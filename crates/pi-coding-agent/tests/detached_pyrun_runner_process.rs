@@ -181,6 +181,7 @@ fn manifest(
             detached: Some(false),
             env: Some(environment()),
             inherit_env: Some(true),
+            inherited_process_group_id: None,
         },
         runner_process_identity: test_process_identity("runner-2"),
         session_path: fixture.session_path.clone().into(),
@@ -251,7 +252,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": res
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
+        async move { run_runner_child(&manifest_path).await }
     });
 
     let supervisor_address = RuntimeMailboxAddress {
@@ -377,7 +378,7 @@ print(json.dumps({"executed": request["code"], "type": "completed", "value": 42}
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
+        async move { run_runner_child(&manifest_path).await }
     });
     wait_for(
         || Path::new(&encode_node_utf8(&data.artifacts.output_path)).exists(),
@@ -486,7 +487,7 @@ while True:
 
     let runner = tokio::spawn({
         let manifest_path = manifest_path.clone();
-        async move { run_detached_pyrun_runner(&JsString::from(&manifest_path)).await }
+        async move { run_runner_child(&manifest_path).await }
     });
     wait_for(
         || {
@@ -547,6 +548,26 @@ while True:
     assert_eq!(agent.revision, cancelling_agent.revision + 1);
 }
 
+async fn run_runner_child(manifest_path: &str) -> Result<Option<i64>, JsString> {
+    let output =
+        tokio::process::Command::new(std::env::current_exe().map_err(|error| JsString::from(error.to_string()))?)
+            .args(["--exact", "detached_runner_process_entry", "--nocapture"])
+            .env(TEST_RUNNER_ENV, manifest_path)
+            .process_group(0)
+            .output()
+            .await
+            .map_err(|error| JsString::from(error.to_string()))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).into_owned().into());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let revision = stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("PyrunRevision:"))
+        .ok_or_else(|| JsString::from("runner child omitted terminal revision"))?;
+    serde_json::from_str(revision).map_err(|error| JsString::from(error.to_string()))
+}
+
 #[test]
 fn detached_runner_process_entry() {
     let Ok(manifest_path) = std::env::var(TEST_RUNNER_ENV) else {
@@ -556,9 +577,10 @@ fn detached_runner_process_entry() {
         .enable_all()
         .build()
         .expect("runtime");
-    runtime
+    let revision = runtime
         .block_on(run_detached_pyrun_runner(&JsString::from(&manifest_path)))
         .expect("runner process");
+    println!("PyrunRevision:{}", serde_json::to_string(&revision).unwrap());
 }
 
 #[tokio::test]

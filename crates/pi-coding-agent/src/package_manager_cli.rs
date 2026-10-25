@@ -28,8 +28,7 @@ use crate::core::settings_manager::{SettingsManager, SettingsManagerCreateOption
 use crate::core::trust_manager::{ProjectTrustStore, has_trust_requiring_project_resources};
 use crate::utils::chalk::Chalk;
 use crate::utils::version_check::{
-    LatestPiRelease, LatestPiReleaseOptions, format_version_check_error, get_latest_pi_release,
-    is_newer_package_version,
+    LatestPiRelease, LatestPiReleaseOptions, get_latest_pi_release, is_newer_package_version,
 };
 
 /// `PackageCommand`.
@@ -851,31 +850,31 @@ pub async fn get_self_update_plan(
     current_version: &JsString,
     force: bool,
 ) -> Result<(SelfUpdatePlan, Option<JsString>), JsString> {
-    let release = get_latest_pi_release(
-        fetch,
-        current_version,
-        &LatestPiReleaseOptions {
-            retry: true,
-            ..Default::default()
-        },
-    )
-    .await;
-    match release {
-        Some(release) => Ok(self_update_plan(force, &release, current_version)),
-        None => Err(pi_js_compat::js_format!(
-            "Could not determine latest {} version.",
-            config::package_config().app_name
-        )),
-    }
+    let release = fetch_latest_release(fetch, current_version)
+        .await
+        .map_err(|error| error.message)?;
+    Ok(self_update_plan(force, &release, current_version))
 }
 
-/// Release lookup failure text used by the command path.
-pub fn self_update_release_error(error: &crate::utils::version_check::VersionCheckError) -> JsString {
-    pi_js_compat::js_format!(
-        "Could not determine latest {} version: {}",
-        config::package_config().app_name,
-        format_version_check_error(error)
-    )
+async fn fetch_latest_release(
+    fetch: &dyn pi_ai::request::Fetch,
+    current_version: &JsString,
+) -> Result<LatestPiRelease, CallbackError> {
+    match get_latest_pi_release(fetch, current_version, &LatestPiReleaseOptions::default()).await {
+        Ok(Some(release)) => Ok(release),
+        Ok(None) => Err(CallbackError::new(pi_js_compat::js_format!(
+            "Could not determine latest {} version.",
+            config::package_config().app_name
+        ))),
+        Err(error) => {
+            let message = error.error_or_string_message()?;
+            Err(CallbackError::new(pi_js_compat::js_format!(
+                "Could not determine latest {} version: {}",
+                config::package_config().app_name,
+                message
+            )))
+        }
+    }
 }
 
 /// `printSelfUpdateUnavailable` stderr lines.
@@ -1481,21 +1480,9 @@ impl PackageCommandEffects for DefaultPackageCommandEffects {
 
     fn latest_release<'a>(&'a self) -> LocalBoxFuture<'a, Result<LatestPiRelease, JsString>> {
         Box::pin(async move {
-            get_latest_pi_release(
-                self.fetch.as_ref(),
-                &config::package_config().version.clone().into(),
-                &LatestPiReleaseOptions {
-                    retry: true,
-                    ..Default::default()
-                },
-            )
-            .await
-            .ok_or_else(|| {
-                pi_js_compat::js_format!(
-                    "Could not determine latest {} version.",
-                    config::package_config().app_name
-                )
-            })
+            fetch_latest_release(self.fetch.as_ref(), &config::package_config().version)
+                .await
+                .map_err(|error| error.message)
         })
     }
 

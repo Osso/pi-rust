@@ -15,7 +15,7 @@ use crate::core::footer_data_provider::{BranchChangeSubscription, FooterDataProv
 use crate::core::multi_agent_store::{
     AgentLifecycle, AgentSnapshot, MultiAgentStore, is_active_lifecycle, lifecycle_name,
 };
-use crate::core::session_manager::{KnownSessionEntry, lock_session_manager};
+use crate::core::session_manager::KnownSessionEntry;
 use crate::modes::interactive::components::footer::{format_cwd_for_footer, format_tokens};
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 use crate::utils::footer_status::{format_extension_status_text_lines, sanitize_footer_status_text};
@@ -59,15 +59,10 @@ fn footer_session(input: &DefaultFooterComponentInput) -> Result<FooterSessionOv
         return Ok(session_override);
     }
     let session_manager = input.ctx.session_manager()?;
-    let cwd = {
-        let manager = lock_session_manager(&session_manager);
-        manager.get_cwd().to_owned()
-    };
+    let cwd = session_manager.get_cwd();
     Ok(FooterSessionOverride {
         cwd,
-        session_manager: Some(crate::core::readonly_session_manager::create_readonly_session_manager(
-            session_manager,
-        )),
+        session_manager: Some(session_manager),
         model: input.ctx.model()?,
         thinking_level: input.ctx.get_thinking_level()?.as_str().into(),
         context_usage: input
@@ -417,15 +412,55 @@ fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore
     )
 }
 
+fn set_background_compaction_status(ctx: &ExtensionContext, text: Option<&str>) -> Result<(), HandlerError> {
+    let ui = ctx.ui()?;
+    ui.set_status(
+        &"background-compaction".into(),
+        text.map(|text| crate::core::footer_data_provider::ExtensionStatus::Text(text.into())),
+    )?;
+    ui.request_render();
+    Ok(())
+}
+
+fn register_background_compaction_status(pi: &ExtensionApi) -> Result<(), HandlerError> {
+    pi.on_background_compaction_start(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, Some("compacting context"))?;
+                Ok(None)
+            })
+        },
+    )?;
+    pi.on_background_compaction_end(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
+                Ok(None)
+            })
+        },
+    )?;
+    pi.on_session_shutdown(
+        |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
+                Ok(None)
+            })
+        },
+    )?;
+    Ok(())
+}
+
 pub fn default_footer_extension(
     pi: &ExtensionApi,
     options: &DefaultFooterExtensionOptions,
 ) -> Result<(), HandlerError> {
     let store = options.multi_agent_store.clone();
+    register_background_compaction_status(pi)?;
     pi.on_session_start(
         move |_event, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let store = store.clone();
             Box::pin(async move {
+                set_background_compaction_status(&ctx, None)?;
                 let factory = build_footer_factory(ctx.clone(), store);
                 ctx.ui()?.set_default_footer(Some(factory));
                 Ok(None)

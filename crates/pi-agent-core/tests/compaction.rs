@@ -94,8 +94,6 @@ fn tool_result_message(tool_call_id: &str, tool_name: &str, text: &str) -> Agent
         tool_name: tool_name.to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })
@@ -560,8 +558,6 @@ fn estimates_tokens_and_context_usage_across_supported_message_roles() {
             TextOrImageContent::Image(pi_ai::types::ImageContent::new("abc", "image/png")),
         ],
         details: None,
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     });

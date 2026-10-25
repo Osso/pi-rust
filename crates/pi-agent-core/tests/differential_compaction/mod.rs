@@ -103,8 +103,6 @@ fn tool_result_message(text: &str, details: Option<Value>) -> AgentMessage {
         tool_name: "read".to_owned(),
         content: vec![TextOrImageContent::Text(TextContent::new(text))],
         details: details.map(JsValue::from),
-        usage: None,
-        added_tool_names: None,
         is_error: false,
         timestamp: 1.0,
     })

@@ -8,8 +8,10 @@ use pi_js_compat::js_format;
 use pi_js_compat::js_json::{JsString, encode_node_utf8};
 
 use crate::config::{get_agent_dir, get_user_state_root};
+use crate::core::session_archive_storage::archive_persisted_session;
 use crate::core::session_control_db::{
-    WritableSessionMetadata, archive_sessions_older_than, get_control_db_path, write_session_metadata,
+    SessionMetadata, WritableSessionMetadata, archive_sessions_older_than, get_control_db_path,
+    list_archived_session_metadata, write_session_metadata,
 };
 use crate::core::session_manager::{SessionInfo, SessionManager};
 use crate::core::session_tool_output::{ToolResultSessionMigrationReport, migrate_tool_result_session_files};
@@ -77,7 +79,27 @@ pub trait SessionsCommandDependencies {
     }
 
     fn archive_older_than(&self, control_db_path: &JsString, cutoff_iso: &str) -> Result<Vec<JsString>, JsString> {
-        archive_sessions_older_than(control_db_path, cutoff_iso).map_err(|error| error.message().clone())
+        archive_sessions_older_than(control_db_path, cutoff_iso)
+            .map_err(|error| error.message().clone())?
+            .iter()
+            .map(|path| archive_persisted_session(control_db_path, path).map_err(|error| error.message().clone()))
+            .collect()
+    }
+
+    fn control_db_path(&self) -> Result<JsString, CallbackError> {
+        default_control_db_path()
+    }
+
+    fn list_archived_sessions(&self, control_db_path: &JsString) -> Result<Vec<SessionMetadata>, CallbackError> {
+        list_archived_session_metadata(control_db_path).map_err(CallbackError::from)
+    }
+
+    fn compress_archived_session(
+        &self,
+        control_db_path: &JsString,
+        path: &JsString,
+    ) -> Result<JsString, CallbackError> {
+        archive_persisted_session(control_db_path, path).map_err(CallbackError::from)
     }
 
     fn agent_dir(&self) -> Result<JsString, CallbackError> {
@@ -129,6 +151,7 @@ pub async fn handle_sessions_command(
     match args.get(1).map(String::as_str) {
         Some("truncate-tool-output") => handle_truncate(args, dependencies),
         Some("archive") => handle_archive(args, dependencies).await,
+        Some("compress-archived") => handle_compress(&args[2..], dependencies),
         _ => {
             let help = matches!(args.get(1).map(String::as_str), Some("--help" | "-h"));
             print_sessions_help(dependencies, help);
@@ -171,7 +194,7 @@ async fn handle_archive(
         return Ok(SessionsCommandOutcome::failed());
     };
 
-    let control_db_path = default_control_db_path()?;
+    let control_db_path = dependencies.control_db_path()?;
     dependencies.refresh_metadata(&control_db_path).await?;
     let cutoff = dependencies.now_millis() as f64 - days * MILLISECONDS_PER_DAY;
     let archived = dependencies.archive_older_than(&control_db_path, &format_iso_millis(cutoff.trunc() as i64))?;
@@ -185,6 +208,94 @@ async fn handle_archive(
         day_suffix
     ));
     Ok(SessionsCommandOutcome::handled())
+}
+
+fn handle_compress(
+    args: &[String],
+    dependencies: &dyn SessionsCommandDependencies,
+) -> Result<SessionsCommandOutcome, CallbackError> {
+    let dry_run = match args {
+        [] => false,
+        [flag] if flag == "--dry-run" => true,
+        _ => {
+            print_sessions_help(dependencies, false);
+            return Ok(SessionsCommandOutcome::failed());
+        }
+    };
+    let db = dependencies.control_db_path()?;
+    let sessions = dependencies.list_archived_sessions(&db)?;
+    let (candidates, skipped): (Vec<_>, Vec<_>) = sessions.iter().partition(|session| should_compress(session));
+    let (migrated, failures) = compress_candidates(&db, &candidates, dry_run, dependencies);
+    print_compression_report(dry_run, &migrated, &skipped, &failures, dependencies);
+    Ok(if failures.is_empty() {
+        SessionsCommandOutcome::handled()
+    } else {
+        SessionsCommandOutcome::failed()
+    })
+}
+
+fn should_compress(session: &SessionMetadata) -> bool {
+    if !session.session_path.ends_with(".jsonl") || session.id == "supervisor" || session.id == "architect" {
+        return false;
+    }
+    let has_resident_directory = session.session_path.split('/').any(|part| {
+        part.split('\\')
+            .any(|segment| segment == "supervisor-sessions" || segment == "architect-sessions")
+    });
+    !has_resident_directory
+}
+
+fn compress_candidates(
+    db: &JsString,
+    candidates: &[&SessionMetadata],
+    dry_run: bool,
+    dependencies: &dyn SessionsCommandDependencies,
+) -> (Vec<JsString>, Vec<JsString>) {
+    if dry_run {
+        return (
+            candidates.iter().map(|session| session.session_path.clone()).collect(),
+            Vec::new(),
+        );
+    }
+    let mut migrated = Vec::new();
+    let mut failures = Vec::new();
+    for session in candidates {
+        match dependencies.compress_archived_session(db, &session.session_path) {
+            Ok(path) => migrated.push(path),
+            Err(error) => failures.push(js_format!("{}: {}", session.session_path, error.message)),
+        }
+    }
+    (migrated, failures)
+}
+
+fn print_compression_report(
+    dry_run: bool,
+    migrated: &[JsString],
+    skipped: &[&SessionMetadata],
+    failures: &[JsString],
+    dependencies: &dyn SessionsCommandDependencies,
+) {
+    let action = if dry_run { "Would migrate" } else { "Migrated" };
+    dependencies.stdout(&js_format!(
+        "{} {} archived session{}. Skipped {}. Failed {}.\n",
+        action,
+        migrated.len(),
+        plural_suffix(migrated.len()),
+        skipped.len(),
+        failures.len()
+    ));
+    if !migrated.is_empty() {
+        dependencies.stdout(&js_format!("{}:\n{}\n", action, JsString::join(migrated.iter(), "\n")));
+    }
+    if !skipped.is_empty() {
+        let paths = JsString::join(skipped.iter().map(|session| &session.session_path), "\n");
+        dependencies.stdout(&js_format!("Skipped:\n{}\n", paths));
+    }
+    if !failures.is_empty() {
+        let failures = JsString::join(failures.iter(), "\n");
+        dependencies.stderr(&js_format!("Archived-session migration failures:\n{}\n", failures));
+        dependencies.stdout(&js_format!("Failed:\n{}\n", failures));
+    }
 }
 
 fn parse_days(args: &[String]) -> Option<f64> {
@@ -220,7 +331,7 @@ fn format_truncate_tool_output_report(report: &ToolResultSessionMigrationReport)
 }
 
 fn print_sessions_help(dependencies: &dyn SessionsCommandDependencies, to_stdout: bool) {
-    let help = "Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions truncate-tool-output\n\nCommands:\n  archive                  Archive sessions older than the cutoff (default: 5 days).\n  truncate-tool-output    Rewrite oversized persisted tool results under the agent directory.\n                           Changed files receive a .tool-output-backup-* copy.\n";
+    let help = "Usage:\n  pi sessions archive [--older-than <days>]\n  pi sessions compress-archived [--dry-run]\n  pi sessions truncate-tool-output\n\nCommands:\n  archive                  Archive sessions older than the cutoff (default: 5 days).\n  compress-archived       Compress existing archived .jsonl sessions as .jsonl.zst.\n  truncate-tool-output    Rewrite oversized persisted tool results under the agent directory.\n                           Changed files receive a .tool-output-backup-* copy.\n";
     let help = JsString::from(help);
     if to_stdout {
         dependencies.stdout(&help);

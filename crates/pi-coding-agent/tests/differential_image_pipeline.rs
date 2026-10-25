@@ -34,13 +34,18 @@ struct Cases {
 #[test]
 fn image_pipeline_matches_the_pinned_typescript_source() {
     let mut oracle = oracle::TsOracle::spawn("coding-agent-image-pipeline-oracle.ts", SOURCE_MODULE);
-    compare_exif_orientation(&mut oracle);
     compare_convert_to_png(&mut oracle);
     compare_convert_bytes_to_png(&mut oracle);
     compare_resize_in_process(&mut oracle);
     compare_resize_in_worker(&mut oracle);
     compare_dimension_notes(&mut oracle);
     compare_process_image(&mut oracle);
+}
+
+#[test]
+fn exif_orientation_matches_common_pin() {
+    let mut oracle = oracle::TsOracle::spawn("coding-agent-image-pipeline-oracle.ts", SOURCE_MODULE);
+    compare_exif_orientation(&mut oracle);
 }
 
 fn request(cases: &Cases) -> Value {

@@ -1,5 +1,6 @@
 //! Agent cancellation and steering (`extensions/agents-core/src/control-runtime.ts`).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -12,13 +13,15 @@ use crate::core::lifecycle_coordinator::{
     DetachedCancellationCommandInput, OwnedLifecycleCommandInput, SteeringCommandInput, SteeringCommandResult,
 };
 use crate::core::multi_agent_store::{
-    AgentLifecycle, AgentMailboxMessage, AgentSnapshot, MultiAgentStore, SteeringCheckpoint, is_active_lifecycle,
+    AgentLifecycle, AgentMailboxMessage, AgentSnapshot, AgentWorkerAdapterKind, MultiAgentStore, SteeringCheckpoint,
+    is_active_lifecycle,
 };
 use crate::core::runtime_process::is_process_identity_alive;
-use crate::core::session_control_db::{MultiAgentRuntimeOwnership, read_multi_agent_runtime_ownership};
-use crate::core::session_manager::lock_session_manager;
+use crate::core::session_control_db::{
+    MultiAgentRuntimeOwnership, read_multi_agent_runtime_ownership, read_multi_agent_state,
+};
 
-use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot};
+use super::lifecycle_runtime::create_lifecycle_coordinator;
 use super::mailbox_runtime::current_message_sender_id;
 use super::runtime::MultiAgentRuntimeHandles;
 use super::runtime_utils::{abort_agent_handle_safely, create_failed_mailbox_message};
@@ -133,13 +136,22 @@ pub async fn cancel_owned_agent_runtime(
         .map(|agent| agent.id)
         .collect();
     descendants.reverse();
+    let detached_runtime_ids = read_detached_runtime_agent_ids(store, &descendants)?;
     for descendant in descendants {
-        let cancelled = cancel_one_owned_agent_runtime(store, runtime_handles, &descendant, reason).await?;
+        let suppress_terminal_notification = Some(detached_runtime_ids.contains(&descendant));
+        let cancelled = cancel_one_owned_agent_runtime(
+            store,
+            runtime_handles,
+            &descendant,
+            reason,
+            suppress_terminal_notification,
+        )
+        .await?;
         if let CancelReservedAgentResult::Err { .. } = cancelled {
             return Ok(cancelled);
         }
     }
-    cancel_one_owned_agent_runtime(store, runtime_handles, agent_id, reason).await
+    cancel_one_owned_agent_runtime(store, runtime_handles, agent_id, reason, None).await
 }
 
 pub async fn cancel_agent(
@@ -239,7 +251,9 @@ pub fn request_agent_steering(
         .map_err(|error| HandlerError::new(error.message()))?;
     match steered {
         SteeringCommandResult::Ok { agent, message } => {
-            store.publish_lifecycle_coordinator_steering(&agent, &message);
+            store
+                .publish_lifecycle_coordinator_steering(&agent, &message)
+                .map_err(|error| HandlerError::from(pi_ai::request::CallbackError::from(error)))?;
             if let Some(runtime_handles) = runtime_handles {
                 runtime_handles
                     .wait_wake_listeners
@@ -281,9 +295,7 @@ pub fn steer_agent(
     let Some(sender_id) = sender_id else {
         return Ok(steering_identity_unavailable(params));
     };
-    let session_id = lock_session_manager(&ctx.session_manager()?)
-        .get_session_id()
-        .to_owned();
+    let session_id = ctx.session_manager()?.get_session_id().to_owned();
     let steered = request_agent_steering(
         store,
         &AgentSteeringRequest {
@@ -330,6 +342,7 @@ async fn cancel_one_owned_agent_runtime(
     runtime_handles: &MultiAgentRuntimeHandles,
     agent_id: &JsString,
     reason: Option<&JsString>,
+    suppress_terminal_notification: Option<bool>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let Some(current) = store.get_agent(agent_id) else {
         return Ok(CancelReservedAgentResult::Err {
@@ -344,7 +357,12 @@ async fn cancel_one_owned_agent_runtime(
         .get(agent_id)
         .cloned();
     let Some(reserved_runtime) = reserved_runtime else {
-        return cancel_persisted_detached_runtime(store, &current, reason);
+        return request_persisted_detached_runtime_cancellation(
+            store,
+            &current,
+            reason,
+            suppress_terminal_notification,
+        );
     };
     let cancelling = reserved_runtime
         .coordinator
@@ -373,17 +391,23 @@ async fn cancel_one_owned_agent_runtime(
         .get(agent_id)
         .cloned();
     if let Some(dispatch) = dispatch {
-        let _ = tokio::time::timeout(Duration::from_millis(CANCELLATION_SETTLEMENT_TIMEOUT_MS), dispatch).await;
+        let timeout_ms = runtime_handles
+            .cancellation_settlement_timeout_ms
+            .unwrap_or(CANCELLATION_SETTLEMENT_TIMEOUT_MS);
+        if let Ok(settled) = tokio::time::timeout(Duration::from_millis(timeout_ms), dispatch).await {
+            settled.map_err(HandlerError::new)?;
+        }
     }
     Ok(CancelReservedAgentResult::Ok {
         agent: store.get_agent(agent_id).unwrap_or(cancelling_agent),
     })
 }
 
-fn cancel_persisted_detached_runtime(
+pub fn request_persisted_detached_runtime_cancellation(
     store: &Arc<MultiAgentStore>,
     agent: &AgentSnapshot,
     reason: Option<&JsString>,
+    suppress_terminal_notification: Option<bool>,
 ) -> Result<CancelReservedAgentResult, HandlerError> {
     let Some(authority) = read_detached_cancellation_authority(store, agent)? else {
         return Ok(CancelReservedAgentResult::Err {
@@ -398,12 +422,14 @@ fn cancel_persisted_detached_runtime(
             ownership: authority.ownership,
             output_label: authority.output_label,
             reason: reason.cloned(),
-            suppress_terminal_notification: None,
+            suppress_terminal_notification,
         })
         .map_err(|error| HandlerError::new(error.message()))?;
     match cancelled {
         crate::core::lifecycle_coordinator::LifecycleCommandResult::Ok { agent } => {
-            publish_coordinator_snapshot(store, &agent).map_err(HandlerError::from)?;
+            store
+                .publish_lifecycle_coordinator_snapshot(&agent)
+                .map_err(|error| HandlerError::new(error.message))?;
             Ok(CancelReservedAgentResult::Ok { agent: *agent })
         }
         crate::core::lifecycle_coordinator::LifecycleCommandResult::Err { .. } => Ok(CancelReservedAgentResult::Err {
@@ -443,8 +469,7 @@ fn read_detached_cancellation_authority(
 }
 
 fn detached_runtime_output_label(agent: &AgentSnapshot) -> Option<JsString> {
-    let is_detached_runtime = agent.agent_type == "background" && agent.worker.is_some();
-    if !is_detached_runtime {
+    if agent.agent_type != "background" {
         return None;
     }
     agent
@@ -456,6 +481,69 @@ fn detached_runtime_output_label(agent: &AgentSnapshot) -> Option<JsString> {
         .filter_map(|file_ref| file_ref.label.as_ref())
         .find(|label| is_detached_runtime_output_label(label))
         .cloned()
+}
+
+pub fn is_detached_runtime_agent(agent: &AgentSnapshot) -> bool {
+    let runtime_worker = agent
+        .worker
+        .as_ref()
+        .is_some_and(|worker| worker.adapter == AgentWorkerAdapterKind::Runtime);
+    agent.detached == Some(true) && runtime_worker && detached_runtime_output_label(agent).is_some()
+}
+
+fn read_authoritative_agent_snapshots(store: &MultiAgentStore) -> Result<Vec<AgentSnapshot>, HandlerError> {
+    let Some(persistence) = store.get_persistence_target() else {
+        return Ok(store.list_agents());
+    };
+    let state = read_multi_agent_state(&persistence.control_db_path, &persistence.session_path)
+        .map_err(|error| HandlerError::new(error.message()))?
+        .ok_or_else(|| {
+            HandlerError::new(js_format!(
+                "Could not read persisted multi-agent state for {}",
+                persistence.session_path
+            ))
+        })?;
+    state
+        .agents
+        .iter()
+        .map(|agent| pi_js_compat::js_json::from_value(agent).map_err(|error| HandlerError::new(error.to_string())))
+        .collect()
+}
+
+pub fn read_detached_runtime_agent_ids(
+    store: &MultiAgentStore,
+    agent_ids: &[JsString],
+) -> Result<HashSet<JsString>, HandlerError> {
+    let candidates: HashSet<_> = agent_ids.iter().collect();
+    Ok(read_authoritative_agent_snapshots(store)?
+        .into_iter()
+        .filter(|agent| candidates.contains(&agent.id))
+        .filter(|agent| is_active_lifecycle(agent.lifecycle) && is_detached_runtime_agent(agent))
+        .map(|agent| agent.id)
+        .collect())
+}
+
+pub fn request_direct_detached_runtime_cancellations(
+    store: &Arc<MultiAgentStore>,
+    parent_agent_id: &JsString,
+    reason: &JsString,
+) -> Result<(), HandlerError> {
+    let agents = read_authoritative_agent_snapshots(store)?;
+    for agent in agents
+        .into_iter()
+        .filter(|agent| agent.parent_id.as_ref() == Some(parent_agent_id))
+        .filter(|agent| is_active_lifecycle(agent.lifecycle) && is_detached_runtime_agent(agent))
+    {
+        let result = request_persisted_detached_runtime_cancellation(store, &agent, Some(reason), Some(true))?;
+        if let CancelReservedAgentResult::Err { error, .. } = result {
+            return Err(HandlerError::new(js_format!(
+                "Could not cancel detached runtime {} during subagent terminal cleanup: {}",
+                agent.id,
+                error.as_str()
+            )));
+        }
+    }
+    Ok(())
 }
 
 fn is_detached_runtime_output_label(label: &JsString) -> bool {

@@ -20,12 +20,11 @@ use crate::core::extensions::types::{
     ExtensionApi, ExtensionCommandContext, ExtensionContext, HandlerError, NotifyType, ToolDefinition,
 };
 use crate::core::multi_agent_store::{AgentSnapshot, MultiAgentStore, MultiAgentStoreOptions, is_active_lifecycle};
-use crate::core::session_manager::{KnownSessionEntry, SessionEntry, lock_session_manager};
+use crate::core::session_manager::{KnownSessionEntry, SessionEntry};
 
 use super::control_runtime::OwnedAgentRuntime;
 use super::dispatch_runtime::WaitingDesktopNotificationHandles;
 use super::mailbox_runtime::{OnSessionMessageSent, RuntimeLifecycleMirror};
-use super::parent_agent_journal::JournalWriter;
 use super::shared::{
     AttachedSessionFactory, CHILD_ORCHESTRATION_UNAVAILABLE_MESSAGE, ChildAgentSession, ChildAgentSessionFactory,
     WaitWakeListener, WaitWakeListeners,
@@ -34,6 +33,40 @@ use super::viewer::AgentViewerParams;
 
 pub const MAIN_THREAD_AGENT_ID: &str = "main";
 const MESSAGE_CONTENT_LIMIT: usize = 2000;
+
+struct StoreArtifactRoot {
+    store: std::sync::Weak<MultiAgentStore>,
+    root: JsString,
+}
+
+static ARTIFACT_ROOTS_BY_STORE: Mutex<Vec<StoreArtifactRoot>> = Mutex::new(Vec::new());
+
+pub(super) fn remember_store_artifact_root(store: Option<&Arc<MultiAgentStore>>, root: Option<&JsString>) {
+    let (Some(store), Some(root)) = (store, root.filter(|root| !root.is_empty())) else {
+        return;
+    };
+    let mut roots = ARTIFACT_ROOTS_BY_STORE.lock().expect("artifact roots");
+    roots.retain(|entry| entry.store.strong_count() > 0);
+    let identity = Arc::downgrade(store);
+    if let Some(entry) = roots.iter_mut().find(|entry| entry.store.ptr_eq(&identity)) {
+        entry.root = root.clone();
+    } else {
+        roots.push(StoreArtifactRoot {
+            store: identity,
+            root: root.clone(),
+        });
+    }
+}
+
+pub(super) fn artifact_root_for_store(store: &Arc<MultiAgentStore>) -> Option<JsString> {
+    let identity = Arc::downgrade(store);
+    ARTIFACT_ROOTS_BY_STORE
+        .lock()
+        .expect("artifact roots")
+        .iter()
+        .find(|entry| entry.store.ptr_eq(&identity))
+        .map(|entry| entry.root.clone())
+}
 
 static DEFAULT_BROWSER_AGENT_CONFIG_ROOT: std::sync::OnceLock<
     Result<JsString, pi_js_compat::node_error::NativeNodeError>,
@@ -68,6 +101,7 @@ pub type SharedDispatch = Shared<BoxFuture<'static, Result<AgentSnapshot, pi_js_
 
 #[derive(Clone, Default)]
 pub struct MultiAgentRuntimeHandles {
+    pub cancellation_settlement_timeout_ms: Option<u64>,
     pub latest_model_request_started_at: Arc<Mutex<Option<i64>>>,
     pub dispatches: Arc<Mutex<HashMap<JsString, SharedDispatch>>>,
     pub ownerships: Arc<Mutex<HashMap<JsString, Arc<OwnedAgentRuntime>>>>,
@@ -239,7 +273,7 @@ pub fn deliver_terminal_outbox_for_store(
     };
     crate::core::terminal_outbox_delivery::deliver_terminal_outbox_projections(
         &crate::core::terminal_outbox_delivery::DeliverTerminalOutboxOptions {
-            artifact_root: None,
+            artifact_root: artifact_root_for_store(store),
             claim_id: pi_ai::utils::random_uuid::random_uuid()?.into(),
             control_db_path: persistence.control_db_path,
             now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),
@@ -281,7 +315,6 @@ pub struct MultiAgentPiRequestHandler {
 struct PiRequestRuntime {
     desktop_notifier: Arc<dyn DesktopNotifier>,
     options: MultiAgentExtensionOptions,
-    pi: Option<JournalWriter>,
     runtime_handles: MultiAgentRuntimeHandles,
     store: Arc<MultiAgentStore>,
     waiting_desktop_notifications: WaitingDesktopNotificationHandles,
@@ -357,7 +390,6 @@ impl MultiAgentPiRequestHandler {
                         handles: Some(Arc::clone(&self.runtime.runtime_handles.sessions)),
                         ownerships: Arc::clone(&self.runtime.runtime_handles.ownerships),
                         params,
-                        pi: self.runtime.pi.clone(),
                         store: Arc::clone(&self.runtime.store),
                         waiting_desktop_notifications: Arc::clone(&self.runtime.waiting_desktop_notifications),
                         _marker: std::marker::PhantomData,
@@ -409,7 +441,7 @@ impl MultiAgentPiRequestHandler {
             }
             Ok("messages.last") => {
                 let session_manager = ctx.session_manager()?;
-                let manager = lock_session_manager(&session_manager);
+                let manager = session_manager;
                 Ok(find_last_session_message(&manager.get_branch(None)))
             }
             Ok("messages.send") => {
@@ -428,10 +460,7 @@ impl MultiAgentPiRequestHandler {
     }
 }
 
-pub fn create_multi_agent_pi_request_handler(
-    options: &MultiAgentExtensionOptions,
-    pi: Option<JournalWriter>,
-) -> MultiAgentPiRequestHandler {
+pub fn create_multi_agent_pi_request_handler(options: &MultiAgentExtensionOptions) -> MultiAgentPiRequestHandler {
     let store = resolve_multi_agent_store(options);
     let runtime_handles = options
         .runtime_handles
@@ -445,7 +474,6 @@ pub fn create_multi_agent_pi_request_handler(
                 .clone()
                 .unwrap_or_else(|| Arc::new(NoopDesktopNotifier)),
             options: options.clone(),
-            pi,
             runtime_handles,
             store,
             waiting_desktop_notifications: Arc::new(Mutex::new(HashMap::new())),
@@ -656,7 +684,6 @@ pub fn register_agent_viewer_tools(
         approval_required: Some(false),
         approval_kind: None,
         parameters: agent_viewer_schema(),
-        constrained_sampling: None,
         render_shell: None,
         prepare_arguments: None,
         prepare_execution: None,

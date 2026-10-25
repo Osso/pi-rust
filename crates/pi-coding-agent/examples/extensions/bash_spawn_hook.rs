@@ -1,6 +1,6 @@
 //! Opt-in native port of `bash-spawn-hook.ts`; register explicitly.
 use pi_coding_agent::core::extensions::{ExtensionApi, HandlerError};
-use pi_coding_agent::core::tools::bash::{BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION, BashToolOptions, create_bash_tool};
+use pi_coding_agent::core::tools::bash::{BashToolOptions, create_bash_tool};
 use pi_coding_agent::core::tools::tool_definition_wrapper::create_tool_definition_from_agent_tool;
 use pi_js_compat::js_format;
 use std::sync::Arc;
@@ -18,14 +18,6 @@ pub fn bash_spawn_hook_extension(pi: &ExtensionApi) -> Result<(), HandlerError> 
             ..Default::default()
         },
     );
-    let mut definition = create_tool_definition_from_agent_tool(tool);
-    definition.prompt_snippet = Some(BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION.snippet.into());
-    definition.prompt_guidelines = Some(
-        BASH_TOOL_SYSTEM_PROMPT_CONTRIBUTION
-            .guidelines
-            .iter()
-            .map(|line| (*line).into())
-            .collect(),
-    );
+    let definition = create_tool_definition_from_agent_tool(tool);
     pi.register_tool(definition)
 }

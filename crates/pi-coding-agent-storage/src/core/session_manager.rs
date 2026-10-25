@@ -179,11 +179,16 @@ impl From<pi_js_compat::date::InvalidTimeValue> for SessionManagerError {
     }
 }
 
+fn filesystem_error(cause: std::io::Error, syscall: &str, path: &JsString) -> SessionManagerError {
+    let record = pi_js_compat::node_fs::node_fs_error_record(&cause, syscall, path);
+    Box::new(pi_js_compat::node_error::NativeNodeError::from(record)).into()
+}
+
 fn format_session_error(cause: impl std::fmt::Display) -> SessionManagerError {
     error(cause.to_string())
 }
 
-fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManagerError {
+pub(super) fn control_db_error(cause: crate::core::sqlite::ControlDbError) -> SessionManagerError {
     SessionManagerError {
         name: cause
             .native_error()
@@ -1748,10 +1753,10 @@ pub fn load_entries_from_file(file_path: &JsString) -> Result<Vec<FileEntry>, Se
         return Ok(Vec::new());
     }
     super::session_transcript_spool::with_seekable_session_transcript(&source, |plain| {
-        let file = File::open(encode_node_utf8(&plain)).map_err(format_session_error)?;
+        let file = File::open(encode_node_utf8(&plain)).map_err(|cause| filesystem_error(cause, "open", plain))?;
         let mut entries = Vec::new();
         for line in BufReader::with_capacity(SESSION_READ_BUFFER_SIZE, file).split(b'\n') {
-            let line = line.map_err(format_session_error)?;
+            let line = line.map_err(|cause| filesystem_error(cause, "read", plain))?;
             if let Some(entry) = parse_session_entry_line(&decode_utf8_lossy(&line)) {
                 entries.push(entry);
             }
@@ -2446,7 +2451,7 @@ fn write_new_session_header(path: &JsString, header: &SessionHeader) -> Result<(
         .write(true)
         .create_new(true)
         .open(encode_node_utf8(path))
-        .map_err(|error| SessionManagerError::new(error.to_string()))?;
+        .map_err(|cause| filesystem_error(cause, "open", path))?;
     let line = serde_json::to_string(header).map_err(|error| SessionManagerError::new(error.to_string()))?;
     writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))
 }
@@ -2735,7 +2740,7 @@ impl SessionManager {
         };
         if persist && !manager.session_dir.is_empty() && !Path::new(&encode_node_utf8(&manager.session_dir)).exists() {
             fs::create_dir_all(encode_node_utf8(&manager.session_dir))
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+                .map_err(|cause| filesystem_error(cause, "mkdir", &manager.session_dir))?;
         }
         match session_file {
             Some(path) => manager.set_session_file(path)?,
@@ -2852,7 +2857,9 @@ impl SessionManager {
             Some(dir) => normalize(dir)?,
             None => get_default_session_dir(&resolved_target_cwd, None)?,
         };
-        fs::create_dir_all(encode_node_utf8(&dir)).map_err(|error| SessionManagerError::new(error.to_string()))?;
+        if !Path::new(&encode_node_utf8(&dir)).exists() {
+            fs::create_dir_all(encode_node_utf8(&dir)).map_err(|cause| filesystem_error(cause, "mkdir", &dir))?;
+        }
 
         let options = options.unwrap_or_default();
         if let Some(id) = options.id.as_ref() {
@@ -2882,10 +2889,8 @@ impl SessionManager {
     /// Switch to a different session file (resume and branching).
     pub fn set_session_file(&mut self, session_file: &JsString) -> Result<(), SessionManagerError> {
         let source = read_session_transcript_path(&resolve(session_file)?);
-        if self.persist {
-            assert_unarchived_session_file(&source)?;
-        }
-        self.session_file = Some(source);
+        self.session_file = Some(source.clone());
+        assert_unarchived_session_file(&source)?;
         self.reset_session_name_state();
         let Some(current) = self.session_file.clone() else {
             return Ok(());
@@ -3057,7 +3062,7 @@ impl SessionManager {
         }
         let mut file = options
             .open(encode_node_utf8(file_path))
-            .map_err(|error| SessionManagerError::new(error.to_string()))?;
+            .map_err(|cause| filesystem_error(cause, "open", file_path))?;
         for entry in &self.file_entries {
             let line = serialize_session_entry_for_persistence(entry)?;
             writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
@@ -3084,8 +3089,9 @@ impl SessionManager {
                 let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()))?;
                 let mut file = OpenOptions::new()
                     .append(true)
+                    .create(true)
                     .open(encode_node_utf8(&session_file))
-                    .map_err(|error| SessionManagerError::new(error.to_string()))?;
+                    .map_err(|cause| filesystem_error(cause, "open", &session_file))?;
                 writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
             } else {
                 self.flushed = false;
@@ -3099,8 +3105,9 @@ impl SessionManager {
             let line = serialize_session_entry_for_persistence(&FileEntry::Entry(entry.clone()))?;
             let mut file = OpenOptions::new()
                 .append(true)
+                .create(true)
                 .open(encode_node_utf8(&session_file))
-                .map_err(|error| SessionManagerError::new(error.to_string()))?;
+                .map_err(|cause| filesystem_error(cause, "open", &session_file))?;
             writeln!(file, "{line}").map_err(|error| SessionManagerError::new(error.to_string()))?;
         }
         Ok(())
@@ -3179,7 +3186,8 @@ impl SessionManager {
         let Some(control_db_path) = self.metadata_control_db_path.as_ref().filter(|path| !path.is_empty()) else {
             return Ok(None);
         };
-        read_session_goal(control_db_path, resolve(session_file)?).map_err(control_db_error)
+        read_session_goal(control_db_path, read_session_transcript_path(&resolve(session_file)?))
+            .map_err(control_db_error)
     }
 
     /// `setSessionGoalJson`.
@@ -3258,11 +3266,10 @@ impl SessionManager {
         &mut self,
         profile: Option<SandboxProfileName>,
     ) -> Result<bool, SessionManagerError> {
-        let (Some(control_db_path), Some(session_file)) =
-            (self.metadata_control_db_path.clone(), self.session_file.clone())
-        else {
+        let Some((control_db_path, session_file)) = self.metadata_target() else {
             return Ok(false);
         };
+        let (control_db_path, session_file) = (control_db_path.clone(), session_file.clone());
         self.persist_for_recovery()?;
         self.write_metadata_snapshot()?;
         match profile {

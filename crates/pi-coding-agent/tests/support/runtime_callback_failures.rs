@@ -165,6 +165,8 @@ async fn extension_setup_and_replacement_rejections_preserve_frozen_order_state_
                 move |manager| {
                     events.lock().unwrap().push("setup".into());
                     manager
+                        .lock()
+                        .unwrap()
                         .append_custom_message_entry(
                             &"setup_visible".into(),
                             pi_agent_core::harness::messages::CustomMessageContent::Text("setup payload".into()),
@@ -221,5 +223,138 @@ async fn extension_setup_and_replacement_rejections_preserve_frozen_order_state_
             ]));
             assert_eq!(actual, expected, "{operation}/{kind}");
         }
+    }
+}
+
+#[tokio::test]
+async fn setup_writes_across_await_keep_live_state_and_sync_only_on_success_like_frozen() {
+    use pi_coding_agent::core::extensions::types::{HandlerError, NewSessionOptions as ExtensionNewSessionOptions};
+    let mut source = oracle::TsOracle::spawn("agent-session-runtime-callback-oracle.mts", "packages/coding-agent/src");
+    for operation in ["asyncSetup", "asyncSetupReject"] {
+        let calls = Arc::new(Mutex::new(Vec::<String>::new()));
+        let events = calls.clone();
+        let harness = build_harness_with_runtime_observer(
+            false,
+            false,
+            false,
+            Some(Arc::new(move |request| {
+                if request.session_start_reason != "startup" {
+                    events.lock().unwrap().push("create".into());
+                }
+            })),
+        )
+        .await;
+        let root = harness._temp.path().join("source-async-setup");
+        std::fs::create_dir(&root).unwrap();
+        let value = JsValue::String("setup rejected after await".into());
+        let expected = source.request(&JsValue::Object(JsObject::from([
+            ("root".into(), JsValue::String(root.to_str().unwrap().into())),
+            ("operation".into(), JsValue::String(operation.into())),
+            ("kind".into(), JsValue::String("raw".into())),
+            ("value".into(), value.clone()),
+        ])));
+        let events = calls.clone();
+        harness.runtime.set_before_session_invalidate(Some(Arc::new(move || {
+            events.lock().unwrap().push("teardown".into());
+            Ok(())
+        })));
+        let events = calls.clone();
+        harness.runtime.set_rebind_session(Some(Arc::new(move |_| {
+            events.lock().unwrap().push("rebind".into());
+            Box::pin(async { Ok(()) })
+        })));
+        let events = calls.clone();
+        let setup: pi_coding_agent::core::extensions::types::SessionSetupCallback = Arc::new(move |manager| {
+            events.lock().unwrap().push("setup".into());
+            manager
+                .lock()
+                .unwrap()
+                .append_custom_message_entry(
+                    &"setup_visible".into(),
+                    pi_agent_core::harness::messages::CustomMessageContent::Text("setup payload".into()),
+                    true,
+                    None,
+                )
+                .unwrap();
+            let events = events.clone();
+            let failure = HandlerError::from(rejection("raw", &value));
+            Box::pin(async move {
+                tokio::task::yield_now().await;
+                events.lock().unwrap().push("afterAwait".into());
+                manager
+                    .lock()
+                    .unwrap()
+                    .append_custom_message_entry(
+                        &"setup_after_await".into(),
+                        pi_agent_core::harness::messages::CustomMessageContent::Text("after await".into()),
+                        true,
+                        None,
+                    )
+                    .unwrap();
+                if operation == "asyncSetupReject" {
+                    Err(failure)
+                } else {
+                    Ok(())
+                }
+            })
+        });
+        let events = calls.clone();
+        let actions = pi_coding_agent::modes::extension_actions::command_context_actions(
+            Arc::new(Mutex::new(harness.runtime.session())),
+            harness.runtime.clone(),
+        );
+        let result = (actions.new_session)(Some(ExtensionNewSessionOptions {
+            parent_session: None,
+            setup: Some(setup),
+            with_session: Some(Arc::new(move |_| {
+                events.lock().unwrap().push("withSession".into());
+                Box::pin(async { Ok(()) })
+            })),
+        }))
+        .await;
+        let error = match result {
+            Ok(result) => {
+                assert!(!result.cancelled);
+                JsValue::Object(JsObject::from([("kind".into(), JsValue::String("value".into()))]))
+            }
+            Err(error) => error_wire(&CallbackError::from(error)),
+        };
+        let current = harness.runtime.session();
+        let entries = current
+            .session_manager()
+            .get_entries()
+            .iter()
+            .filter_map(|entry| entry.as_custom_message())
+            .map(|entry| {
+                JsValue::Object(JsObject::from([
+                    ("customType".into(), JsValue::String(entry.custom_type.clone())),
+                    (
+                        "content".into(),
+                        pi_js_compat::js_json::to_value(&entry.content).unwrap(),
+                    ),
+                ]))
+            })
+            .collect::<Vec<_>>();
+        let actual = JsValue::Object(JsObject::from([
+            (
+                "calls".into(),
+                pi_js_compat::js_json::to_value(&*calls.lock().unwrap()).unwrap(),
+            ),
+            ("error".into(), error),
+            (
+                "setupVisible".into(),
+                JsValue::Bool(
+                    entries
+                        .iter()
+                        .any(|entry| entry.get("customType") == Some(&JsValue::String("setup_visible".into()))),
+                ),
+            ),
+            (
+                "agentMessageCount".into(),
+                JsValue::Number(current.messages().len() as f64),
+            ),
+            ("setupEntries".into(), JsValue::Array(entries)),
+        ]));
+        assert_eq!(actual, expected, "{operation}");
     }
 }

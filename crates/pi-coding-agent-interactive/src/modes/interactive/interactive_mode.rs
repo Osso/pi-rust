@@ -21,6 +21,7 @@ use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
 use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
+use pi_js_compat::abort::AbortReason;
 use pi_js_compat::date::js_now_millis;
 use pi_js_compat::js_format;
 use pi_js_compat::js_regex::JsRegex as Regex;
@@ -1326,6 +1327,12 @@ impl InteractiveTuiHandle {
         }
     }
 
+    pub fn request_component_render(&self, component: &ComponentRef) -> Result<bool, CallbackError> {
+        match self.renderer() {
+            Renderer::Main(tui) => tui.request_component_render(component),
+        }
+    }
+
     pub fn render_now(&self) -> Result<(), CallbackError> {
         match self.renderer() {
             Renderer::Main(tui) => TuiExt::render_now(tui.as_ref(), true),
@@ -1669,8 +1676,9 @@ impl Component for SharedBorderedLoader {
     }
 
     fn handle_input(&mut self, data: &JsString) {
-        if let Ok(mut loader) = self.0.try_borrow_mut() {
-            loader.handle_input(data);
+        let on_abort = self.0.borrow().abort_for_input(data);
+        if let Some(on_abort) = on_abort {
+            on_abort();
         }
     }
 
@@ -1825,7 +1833,6 @@ enum ModeAction {
     Dequeue,
     CycleModel(CycleDirection),
     NewSession,
-    Copy,
 }
 
 /// Shared, thread-safe counters used by the extension UI bridge.
@@ -1884,6 +1891,7 @@ enum UiRequest {
         notify_type: Option<NotifyType>,
     },
     RequestRender,
+    RequestComponentRender(usize),
     RequestRenderForce,
     SetStatus {
         key: JsString,
@@ -2321,8 +2329,9 @@ impl ExtensionUiContext for InteractiveUiContext {
         self.send(UiRequest::SetToolsExpanded(expanded));
     }
 
-    fn theme(&self) -> Arc<Theme> {
-        crate::modes::interactive::theme::current_theme()
+    fn theme(&self) -> Result<Arc<Theme>, CallbackError> {
+        crate::modes::interactive::theme::try_current_theme()
+            .map_err(|error| CallbackError::from_error(error.message(), error))
     }
 }
 
@@ -2365,6 +2374,10 @@ impl ExtensionUiTuiBackend for InteractiveUiTuiBackend {
 
     fn request_render(&self) {
         let _ = self.sender.send(UiRequest::RequestRender);
+    }
+
+    fn request_component_render(&self, component_identity: usize) {
+        let _ = self.sender.send(UiRequest::RequestComponentRender(component_identity));
     }
 
     fn request_render_force(&self) {
@@ -5200,8 +5213,6 @@ impl InteractiveMode {
         let themes = loader.get_themes();
         let agents_files = loader.get_agents_files();
         let rules_files = loader.get_rules_files();
-        let system_prompt_source = loader.get_system_prompt_source();
-        let append_sources = loader.get_append_system_prompt_sources();
         let extensions = loader.get_extensions();
         let active_tools: Vec<JsString> = session
             .get_active_tool_names()
@@ -5233,12 +5244,7 @@ impl InteractiveMode {
         let cwd = self.cwd();
 
         if show_listing {
-            let mut context_files: Vec<JsString> = Vec::new();
-            if let Some(source) = &system_prompt_source {
-                context_files.push(source.path.clone());
-            }
-            context_files.extend(append_sources.iter().map(|source| source.path.clone()));
-            context_files.extend(agents_files.agents_files.iter().map(|file| file.path.clone()));
+            let context_files: Vec<JsString> = agents_files.agents_files.iter().map(|file| file.path.clone()).collect();
 
             if !context_files.is_empty() || !rules_files.rules_files.is_empty() {
                 self.loaded_resources_container
@@ -5849,9 +5855,40 @@ impl InteractiveMode {
         }
     }
 
+    fn request_extension_component_render(&self, identity: usize) -> Result<(), CallbackError> {
+        let above = self.extension_widgets_above.borrow();
+        let below = self.extension_widgets_below.borrow();
+        let target = above.values().chain(below.values()).find_map(|widget| {
+            let ExtensionWidget::Component(component) = widget else {
+                return None;
+            };
+            let mut widget = component.borrow_mut();
+            let adapter = widget.as_any_mut()?.downcast_mut::<ExtensionComponentAdapter>()?;
+            (adapter.inner.render_identity() == identity).then(|| Rc::clone(component))
+        });
+        if let Some(target) = target {
+            self.ui.request_component_render(&target)?;
+        } else {
+            self.ui.request_render();
+        }
+        Ok(())
+    }
+
+    fn remove_extension_widget(&self, key: &JsString) {
+        for widgets in [&self.extension_widgets_above, &self.extension_widgets_below] {
+            let component = match widgets.borrow().get(key) {
+                Some(ExtensionWidget::Component(component)) => Some(Rc::clone(component)),
+                _ => None,
+            };
+            if let Some(component) = component {
+                component.borrow_mut().dispose();
+            }
+            widgets.borrow_mut().shift_remove(key);
+        }
+    }
+
     fn add_extension_widget(&self, key: &JsString, content: Option<ExtensionWidget>, placement: WidgetPlacement) {
-        self.extension_widgets_above.borrow_mut().shift_remove(key);
-        self.extension_widgets_below.borrow_mut().shift_remove(key);
+        self.remove_extension_widget(key);
         let Some(content) = content else {
             self.render_widgets();
             self.ui.request_render();
@@ -5877,6 +5914,19 @@ impl InteractiveMode {
     }
 
     fn clear_extension_widgets(&self) {
+        for widgets in [&self.extension_widgets_above, &self.extension_widgets_below] {
+            let components: Vec<_> = widgets
+                .borrow()
+                .values()
+                .filter_map(|widget| match widget {
+                    ExtensionWidget::Component(component) => Some(Rc::clone(component)),
+                    ExtensionWidget::Lines(_) => None,
+                })
+                .collect();
+            for component in components {
+                component.borrow_mut().dispose();
+            }
+        }
         self.extension_widgets_above.borrow_mut().clear();
         self.extension_widgets_below.borrow_mut().clear();
         self.render_widgets();
@@ -6189,7 +6239,10 @@ impl InteractiveMode {
     /// `handleFatalRuntimeError`: report, stop the TUI on the transcript, and
     /// exit 1. The TypeScript signature returns `Promise<never>`.
     fn handle_fatal_runtime_error(&self, prefix: &JsString, error: impl Into<CallbackError>) -> ! {
-        let error = error.into().message;
+        let error = error
+            .into()
+            .error_or_string_message()
+            .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         self.show_error(&js_format!("{}: {}", prefix, error));
         crate::modes::interactive::theme::stop_theme_watcher();
         self.stop()
@@ -6773,12 +6826,6 @@ impl InteractiveMode {
             }),
         );
         self.default_editor.borrow_mut().on_action(
-            "app.message.copy",
-            action(self, |mode| {
-                mode.actions.borrow_mut().push_back(ModeAction::Copy);
-            }),
-        );
-        self.default_editor.borrow_mut().on_action(
             "app.message.followUp",
             action(self, |mode| {
                 mode.actions.borrow_mut().push_back(ModeAction::FollowUp);
@@ -7079,14 +7126,6 @@ impl InteractiveMode {
                     Ok(())
                 })
             },
-            set_sandbox_profile: {
-                let session = session.clone();
-                Arc::new(move |profile, scope| {
-                    session
-                        .set_sandbox_profile(profile, scope)
-                        .map_err(|error| HandlerError::new(error.to_string()))
-                })
-            },
             wait_for_idle: {
                 let session = session.clone();
                 Arc::new(move || {
@@ -7372,12 +7411,6 @@ impl InteractiveMode {
                         mode.handle_clear_command().await;
                     });
                 }
-                ModeAction::Copy => {
-                    let mode = Rc::clone(self);
-                    tokio::task::spawn_local(async move {
-                        mode.handle_copy_command().await;
-                    });
-                }
                 ModeAction::CycleModel(direction) => {
                     let mode = Rc::clone(self);
                     tokio::task::spawn_local(async move {
@@ -7554,7 +7587,7 @@ impl InteractiveMode {
                 self.handle_export_command(js_format!("/export {}", args)).await;
             }
             value if value == "import" => {
-                self.handle_import_command(js_format!("/import {}", args)).await;
+                self.handle_import_command(js_format!("/import {}", args)).await?;
             }
             value if value == "share" => {
                 self.handle_share_command().await;
@@ -8814,38 +8847,120 @@ impl InteractiveMode {
 
     async fn handle_export_command(&self, text: JsString) {
         let path = Self::path_command_argument(&text, &JsString::from("/export"));
-        match self.session().export_to_html(path.as_ref()).await {
-            Ok(path) => self.show_status(&js_format!("Exported session to {}", path)),
-            Err(error) => self.show_error(error.message()),
+        let result = if path.as_ref().is_some_and(|path| path.ends_with(".jsonl")) {
+            self.session().export_to_jsonl(path.as_ref())
+        } else {
+            self.session().export_to_html(path.as_ref()).await
+        };
+        match result {
+            Ok(path) => self.show_status(&js_format!("Session exported to: {}", path)),
+            Err(error) => {
+                let message = match CallbackError::from(error).thrown_value() {
+                    AbortReason::Error(error) | AbortReason::DomException(error) => error.message.clone(),
+                    AbortReason::Value(_) => "Unknown error".into(),
+                };
+                self.show_error(&js_format!("Failed to export session: {}", message));
+            }
         }
     }
 
-    async fn handle_import_command(&self, text: JsString) {
-        let Some(path) = Self::path_command_argument(&text, &JsString::from("/import")) else {
+    async fn handle_import_command(&self, text: JsString) -> Result<(), CallbackError> {
+        let path = Self::path_command_argument(&text, &JsString::from("/import"));
+        let Some(path) = path.filter(|path| !path.is_empty()) else {
             self.show_error("Usage: /import <path.jsonl>");
-            return;
+            return Ok(());
         };
-        let runtime = self.runtime.clone();
-        match runtime.import_from_jsonl(&path, None).await {
-            Ok(_) => {
-                self.show_status("Session imported");
-            }
-            Err(error) => {
-                if error
-                    .message
-                    .starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX)
-                {
-                    self.show_error(&js_format!("Failed to import session: {}", error.message));
-                } else {
-                    self.handle_fatal_runtime_error(&JsString::from("Failed to import session"), error);
-                }
-            }
+        let confirmed = self
+            .show_extension_confirm(
+                &"Import session".into(),
+                &js_format!("Replace current session with {}?", path),
+            )
+            .await;
+        if !confirmed {
+            self.show_status("Import cancelled");
+            return Ok(());
         }
+        self.clear_import_status();
+        match self.runtime.import_from_jsonl(&path, None).await {
+            Ok(result) => self.show_import_result(&path, result.cancelled),
+            Err(error) => self.handle_import_rejection(&path, error).await?,
+        }
+        Ok(())
+    }
+
+    fn clear_import_status(&self) {
+        if let Some(loader) = self.loading_animation.borrow_mut().take()
+            && let Some(loader) = loader
+                .borrow_mut()
+                .as_any_mut()
+                .and_then(|view| view.downcast_mut::<Loader>())
+        {
+            loader.stop();
+        }
+        self.status_container.borrow_mut().clear();
+    }
+
+    fn show_import_result(&self, path: &JsString, cancelled: bool) {
+        if cancelled {
+            self.show_status("Import cancelled");
+        } else {
+            self.show_status(&js_format!("Session imported from: {}", path));
+        }
+    }
+
+    async fn handle_import_rejection(&self, path: &JsString, error: CallbackError) -> Result<(), CallbackError> {
+        let issue = error
+            .original
+            .as_ref()
+            .and_then(|source| source.downcast_ref::<crate::core::session_cwd::MissingSessionCwdError>())
+            .map(|error| error.issue.clone());
+        if let Some(issue) = issue {
+            self.retry_import_in_current_cwd(path, &issue).await?;
+        } else if error
+            .original
+            .as_ref()
+            .is_some_and(|source| source.is::<crate::core::session_errors::SessionImportFileNotFoundError>())
+        {
+            self.show_error(&js_format!("Failed to import session: {}", error.message));
+        } else {
+            self.handle_fatal_runtime_error(&"Failed to import session".into(), error);
+        }
+        Ok(())
+    }
+
+    async fn retry_import_in_current_cwd(
+        &self,
+        path: &JsString,
+        issue: &crate::core::session_cwd::SessionCwdIssue,
+    ) -> Result<(), CallbackError> {
+        let confirmed = self
+            .show_extension_confirm(
+                &"Session cwd not found".into(),
+                &crate::core::session_cwd::format_missing_session_cwd_prompt(issue),
+            )
+            .await;
+        if !confirmed || issue.fallback_cwd.is_empty() {
+            self.show_status("Import cancelled");
+            return Ok(());
+        }
+        let result = self.runtime.import_from_jsonl(path, Some(&issue.fallback_cwd)).await?;
+        self.show_import_result(path, result.cancelled);
+        Ok(())
     }
 
     fn path_command_argument(text: &JsString, command: &JsString) -> Option<JsString> {
-        let rest = text.strip_prefix(command)?.trim();
-        if rest.is_empty() { None } else { Some(rest.to_owned()) }
+        let rest = text.strip_prefix(js_format!("{} ", command))?.trim_start();
+        let first = *rest.units().first()?;
+        if first == u16::from(b'\"') || first == u16::from(b'\'') {
+            let closing = rest.units()[1..].iter().position(|unit| *unit == first)? + 1;
+            return Some(rest.slice(1, closing));
+        }
+        let end = rest
+            .units()
+            .iter()
+            .position(|unit| pi_js_compat::string::is_js_whitespace_unit(*unit))
+            .unwrap_or(rest.len());
+        Some(rest.slice(0, end))
     }
 
     async fn handle_share_command(&self) {
@@ -8859,16 +8974,9 @@ impl InteractiveMode {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
-        match auth {
-            Err(_) => {
-                self.show_error("GitHub CLI (gh) is not installed. Install it from https://cli.github.com/");
-                return;
-            }
-            Ok(status) if !status.success() => {
-                self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
-                return;
-            }
-            Ok(_) => {}
+        if !auth.is_ok_and(|status| status.success()) {
+            self.show_error("GitHub CLI is not logged in. Run 'gh auth login' first.");
+            return;
         }
 
         let tmp_path = node_join(pi_js_compat::node_os::tmpdir(), "session.html");
@@ -8906,7 +9014,7 @@ impl InteractiveMode {
             if child_pid != 0
                 && let Some(child_pid) = rustix::process::Pid::from_raw(child_pid as i32)
             {
-                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::KILL);
+                let _ = rustix::process::kill_process(child_pid, rustix::process::Signal::TERM);
             }
             if let Some(loader) = abort_loader.upgrade() {
                 loader.borrow_mut().dispose();
@@ -8963,7 +9071,7 @@ impl InteractiveMode {
 
     async fn handle_copy_command(&self) {
         let Some(text) = self.session().get_last_assistant_text() else {
-            self.show_error("No assistant message to copy");
+            self.show_error("No agent messages to copy yet.");
             return;
         };
         match crate::utils::clipboard::copy_to_clipboard(
@@ -8976,7 +9084,7 @@ impl InteractiveMode {
             Ok(()) => {
                 self.show_status("Copied last agent message to clipboard");
             }
-            Err(error) => self.show_error(&js_format!("Failed to copy: {}", error.message())),
+            Err(error) => self.show_error(error.message()),
         }
     }
 
@@ -11064,6 +11172,7 @@ impl InteractiveMode {
                 Some(NotifyType::Info) | None => self.show_status(&message),
             },
             UiRequest::RequestRender => self.ui.request_render(),
+            UiRequest::RequestComponentRender(identity) => self.request_extension_component_render(identity)?,
             UiRequest::RequestRenderForce => self.ui.request_render_force(),
             UiRequest::SetStatus { key, text } => {
                 self.footer_data_provider.set_extension_status(&key, text);
@@ -11097,6 +11206,7 @@ impl InteractiveMode {
                 content,
                 placement,
             } => {
+                self.remove_extension_widget(&key);
                 let widget = content.map(|factory| {
                     let component_ref = component(ExtensionComponentAdapter {
                         inner: factory(self.extension_factory_context()).into(),
@@ -12955,6 +13065,14 @@ mod ui_tests {
 
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_path_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_transfer_commands.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_startup.rs"
     ));
     include!(concat!(
@@ -13254,6 +13372,7 @@ mod ui_tests {
         steer_multi_agent: Option<SteerMultiAgent>,
         model_registry: Option<ModelRegistry>,
         cwd: Option<String>,
+        runtime_factory_failure: Option<Arc<Mutex<Option<CallbackError>>>>,
     }
 
     async fn build_mode_with_extra_providers(
@@ -13325,6 +13444,7 @@ mod ui_tests {
             let loader = Arc::clone(&loader);
             let settings = Arc::new(Mutex::new(settings));
             let observer = setup.runtime_request_observer.clone();
+            let failure = setup.runtime_factory_failure.clone();
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
                 if let Some(observer) = &observer {
                     observer(&request);
@@ -13334,16 +13454,21 @@ mod ui_tests {
                 let loader = Arc::clone(&loader);
                 let settings = Arc::clone(&settings);
                 let initial_active_tool_names = initial_active_tool_names.clone();
+                let failure = failure.clone();
                 Box::pin(async move {
+                    if let Some(failure) = failure.as_ref().and_then(|failure| failure.lock().unwrap().clone()) {
+                        return Err(failure);
+                    }
                     let model = faux.get_model(None).expect("faux model");
                     let stream_provider = Arc::clone(&faux.provider);
+                    let messages = request.session_manager.build_session_context().messages;
                     let agent = Agent::new(AgentOptions {
                         initial_state: Some(AgentInitialState {
                             model: Some(model),
                             system_prompt: Some(JsString::default()),
                             thinking_level: Some(ThinkingLevel::Off),
                             tools: Some(Vec::new()),
-                            messages: None,
+                            messages: Some(messages),
                         }),
                         stream_fn: Some(Arc::new(
                             move |model: Model, context: Context, options: SimpleStreamOptions| {
@@ -13406,7 +13531,7 @@ mod ui_tests {
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
-            let session_dir = temp.path().join("sessions").display().to_string();
+            let session_dir = Path::new(&cwd).join("sessions").display().to_string();
             SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
                 .expect("persisted session manager")
         } else {
@@ -13844,8 +13969,28 @@ mod ui_tests {
         }).await;
     }
 
+    #[test]
+    fn header_startup_and_registration_frames_match_frozen_expandability() {
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--ignored",
+                "--exact",
+                "modes::interactive::interactive_mode::ui_tests::header_render_process_child",
+                "--nocapture",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "header child failed:\n{}\n{}",
+            String::from_utf8(output.stdout).unwrap(),
+            String::from_utf8(output.stderr).unwrap()
+        );
+    }
+
     #[tokio::test]
-    async fn header_startup_and_registration_frames_match_frozen_expandability() {
+    #[ignore = "invoked by header_startup_and_registration_frames_match_frozen_expandability"]
+    async fn header_render_process_child() {
         mod oracle {
             include!(concat!(
                 concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
@@ -15588,6 +15733,114 @@ mod ui_tests {
     }
 
     #[tokio::test(flavor = "current_thread")]
+    async fn extension_widget_replacement_disposes_before_constructing_new_widget() {
+        struct Widget(Arc<Mutex<Vec<&'static str>>>);
+        impl ExtensionUiComponent for Widget {
+            fn render(&self, _width: usize) -> Vec<JsString> {
+                vec!["widget".into()]
+            }
+            fn dispose(&self) {
+                self.0.lock().unwrap().push("disposed");
+            }
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, _temp) = build_mode().await;
+                let log = Arc::new(Mutex::new(Vec::new()));
+                for _ in 0..2 {
+                    let events = Arc::clone(&log);
+                    mode.ui_sender
+                        .send(UiRequest::SetWidgetComponent {
+                            key: "lifetime".into(),
+                            placement: WidgetPlacement::AboveEditor,
+                            content: Some(Arc::new(move |_| {
+                                events.lock().unwrap().push("constructed");
+                                Box::new(Widget(Arc::clone(&events)))
+                            })),
+                        })
+                        .unwrap();
+                    mode.handle_ui_requests().await;
+                }
+                assert_eq!(*log.lock().unwrap(), vec!["constructed", "disposed", "constructed"]);
+                mode.clear_extension_widgets();
+                assert_eq!(
+                    *log.lock().unwrap(),
+                    vec!["constructed", "disposed", "constructed", "disposed"]
+                );
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn extension_component_targeted_refresh_preserves_unrelated_render_state() {
+        struct Widget(Arc<Mutex<(JsString, usize)>>);
+        impl ExtensionUiComponent for Widget {
+            fn render(&self, _width: usize) -> Vec<JsString> {
+                let mut state = self.0.lock().unwrap();
+                state.1 += 1;
+                vec![state.0.clone()]
+            }
+            fn render_identity(&self) -> usize {
+                Arc::as_ptr(&self.0) as usize
+            }
+        }
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, terminal, _faux, _temp) = build_mode().await;
+                let changed = Arc::new(Mutex::new((JsString::from("widget before"), 0)));
+                let unrelated = Arc::new(Mutex::new((JsString::from("unrelated row"), 0)));
+                for (key, state) in [("target", Arc::clone(&changed)), ("other", Arc::clone(&unrelated))] {
+                    mode.ui_sender
+                        .send(UiRequest::SetWidgetComponent {
+                            key: key.into(),
+                            content: Some(Arc::new(move |_| Box::new(Widget(Arc::clone(&state))))),
+                            placement: WidgetPlacement::AboveEditor,
+                        })
+                        .unwrap();
+                }
+                mode.handle_ui_requests().await;
+                let widgets: Vec<_> = mode
+                    .extension_widgets_above
+                    .borrow()
+                    .values()
+                    .filter_map(|widget| match widget {
+                        ExtensionWidget::Component(component) => Some(Rc::clone(component)),
+                        _ => None,
+                    })
+                    .collect();
+                mode.ui.clear();
+                for widget in &widgets {
+                    mode.ui.add_child(Rc::clone(widget));
+                }
+                mode.ui.start().unwrap();
+                mode.ui.flush_pending().unwrap();
+                let region = mode.ui.create_render_region(Rc::clone(&widgets[0])).unwrap();
+                region.place(pi_tui::tui::RenderRegionRect {
+                    row: 0,
+                    col: 0,
+                    width: 80,
+                    height: 1,
+                });
+                let before = unrelated.lock().unwrap().1;
+                changed.lock().unwrap().0 = "widget changed".into();
+                terminal.borrow_mut().writes.clear();
+                mode.extension_factory_context()
+                    .tui
+                    .request_component_render(Arc::as_ptr(&changed) as usize);
+                mode.handle_ui_requests().await;
+                mode.ui.flush_pending().unwrap();
+                assert_eq!(
+                    unrelated.lock().unwrap().1,
+                    before,
+                    "target refresh must not render another component"
+                );
+                assert!(JsString::join(terminal.borrow().writes.clone(), "\n").contains("widget changed"));
+                mode.ui.stop().unwrap();
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
     async fn set_theme_object_installs_the_instance() {
         let local = tokio::task::LocalSet::new();
         local
@@ -16677,7 +16930,7 @@ mod ui_tests {
     fn test_store() -> Arc<MultiAgentStore> {
         Arc::new(MultiAgentStore::new(
             crate::core::multi_agent_store::MultiAgentStoreOptions {
-                now: Some(Arc::new(|| "2026-06-27T00:00:00.000Z".to_owned())),
+                now: Some(Arc::new(|| Ok("2026-06-27T00:00:00.000Z".into()))),
             },
         ))
     }
@@ -16690,6 +16943,7 @@ mod ui_tests {
         model: Option<crate::core::multi_agent_store::AgentModel>,
     ) -> JsString {
         let agent = AgentSnapshot {
+            key_order: Vec::new(),
             id: store.allocate_agent_id_for_lifecycle_coordinator("agent").unwrap(),
             parent_id: None,
             display_name: JsString::from(name.to_owned()),
@@ -16975,7 +17229,6 @@ mod ui_tests {
             compacted_result_tokens: None,
             compacted_result_bytes: None,
             source,
-            usage: None,
             provider_native: None,
             details: None,
         }
@@ -18801,8 +19054,6 @@ mod ui_tests {
                         "replayed tool output",
                     ))],
                     details: None,
-                    usage: None,
-                    added_tool_names: None,
                     is_error: false,
                     timestamp: 0.0,
                 };

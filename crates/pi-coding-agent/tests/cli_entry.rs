@@ -199,12 +199,13 @@ async fn cli_entry_propagates_main_errors() {
 
 #[test]
 fn cli_process_env_matches_the_typescript_entry_point() {
-    assert_eq!(CLI_PROCESS_ENV, [("PI_CODING_AGENT", "true"), ("AI_AGENT", "pi")]);
+    assert_eq!(CLI_PROCESS_ENV, [("PI_CODING_AGENT", "true")]);
 }
 
 #[tokio::test]
 async fn run_cli_main_exports_the_typescript_process_environment_to_children() {
     pi_js_compat::process_env::clear();
+    pi_js_compat::process_env::set("AI_AGENT", "inherited-agent");
     let argv = args(&[]);
     let main: CliMain<'_> = Box::new(|_args: &[String]| Box::pin(async { Ok(0) }));
     assert_eq!(run_cli_main(&argv, main).await.expect("cli main"), 0);
@@ -216,11 +217,17 @@ async fn run_cli_main_exports_the_typescript_process_environment_to_children() {
     )
     .expect("child process");
     assert!(output.error.is_none());
-    assert_eq!(String::from_utf8_lossy(output.stdout.as_deref().unwrap()), "true|pi");
+    assert_eq!(
+        String::from_utf8(output.stdout.unwrap()).unwrap(),
+        "true|inherited-agent"
+    );
     assert_eq!(
         pi_js_compat::process_env::get("PI_CODING_AGENT").as_deref(),
         Some("true")
     );
-    assert_eq!(pi_js_compat::process_env::get("AI_AGENT").as_deref(), Some("pi"));
+    assert_eq!(
+        pi_js_compat::process_env::get("AI_AGENT").as_deref(),
+        Some("inherited-agent")
+    );
     pi_js_compat::process_env::clear();
 }

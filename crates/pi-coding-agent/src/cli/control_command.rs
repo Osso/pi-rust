@@ -59,7 +59,10 @@ pub trait ControlCommandDependencies {
     fn signal_process(&self, pid: u32) -> Result<(), String> {
         let pid = i32::try_from(pid).map_err(|error| error.to_string())?;
         let pid = Pid::from_raw(pid).ok_or_else(|| "invalid pid".to_owned())?;
-        kill_process(pid, Signal::HUP).map_err(|error| error.to_string())
+        kill_process(pid, Signal::HUP).map_err(|error| {
+            let code = pi_js_compat::node_fs::node_error_code(&std::io::Error::from(error));
+            format!("kill {code}")
+        })
     }
 }
 
@@ -98,7 +101,15 @@ fn send(
     args: &[String],
     dependencies: &dyn ControlCommandDependencies,
 ) -> Result<ControlCommandOutcome, CallbackError> {
-    let Some(parsed) = parse_send_command(&args[2..]) else {
+    let send_args = &args[2..];
+    if send_args.iter().any(|arg| matches!(arg.as_str(), "--help" | "-h")) {
+        print_control_help(dependencies, true);
+        return Ok(ControlCommandOutcome {
+            handled: true,
+            exit_code: Some(0),
+        });
+    }
+    let Some(parsed) = parse_send_command(send_args) else {
         print_control_help(dependencies, false);
         return Ok(ControlCommandOutcome::failed());
     };

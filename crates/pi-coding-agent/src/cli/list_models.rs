@@ -47,7 +47,7 @@ pub async fn list_models(
     io: &dyn ListModelsIo,
 ) -> Result<(), pi_js_compat::node_error::NativeNodeError> {
     if let Some(error) = runtime.get_error().filter(|error| !error.is_empty()) {
-        let warning = Chalk::stderr().yellow(JsString::from("Warning: errors loading models.json:\n") + error);
+        let warning = Chalk::stdout().yellow(JsString::from("Warning: errors loading models.json:\n") + error);
         io.stderr(&(warning + "\n"));
     }
     let models = runtime.get_available()?;

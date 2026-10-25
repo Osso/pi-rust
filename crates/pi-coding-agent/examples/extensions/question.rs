@@ -25,7 +25,7 @@ pub fn question_extension(api: &ExtensionApi) -> Result<(), HandlerError> {
         name:"question".into(),label:"Question".into(),
         description:"Ask the user a question and let them pick from options. Use when you need user input to proceed.".into(),
         parameters:serde_json::json!({"type":"object","properties":{"question":{"type":"string","description":"The question to ask the user"},"options":{"type":"array","description":"Options for the user to choose from","items":{"type":"object","properties":{"label":{"type":"string","description":"Display label for the option"},"description":{"type":"string","description":"Optional description shown below label"}},"required":["label"]}}},"required":["question","options"]}),
-        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,constrained_sampling:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
+        prompt_snippet:None,prompt_guidelines:None,approval_required:None,approval_kind:None,render_shell:None,prepare_arguments:None,prepare_execution:None,execution_mode:Some(ToolExecutionMode::Sequential),
         execute:Arc::new(|_,params,_,_,ctx| Box::pin(async move { execute(params,pi_coding_agent::core::extensions::types::require_extension_context(ctx)?).await })),
         render_call:Some(infallible_render_call(|args,theme,_| text(render_call(args,theme)))),
         render_result:Some(infallible_render_result(|result,_,theme,_|text(render_result(result,theme)))),

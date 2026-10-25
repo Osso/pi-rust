@@ -17,6 +17,12 @@ Oracle imports actual ModelRegistry.inMemory/AuthStorage, not retired model-runt
 
 Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirectoryRelocation`; native now factors the same method and exposes it to afterTurn recovery. Callback is cloned outside the live-state guard, awaited first, then prepared is set only on success. Missing target still returns without a callback. Two actual-frozen/native preparation scenarios and a real provider-turn prepare→activate case are GREEN in the [4b matrix](agent-session-runtime.md#4b-recovery-checkpoint-2026-10-23); existing prepared target is retained without reacquiring its held permit. No whole-runner acceptance inferred.
 
+## Readonly context boundary (2026-10-25)
+
+`createContext` now supplies the existing readonly façade through `ExtensionContext::session_manager`, matching frozen runner's `sessionManagerReadView`. Native readers no longer acquire a core mutex. Goal state helpers accept the façade and keep only the two allowed setters, matching frozen `extensions/goal/src/goal-state.ts:20,110`. No production unrestricted writer remained after the typed getter migration. Test harness fixture writers retain their own explicit core authority; runtime rename uses the bound session action rather than a context write. Core history traversal accepts the branch/file inputs directly, without changing traversal logic.
+
+RED: extension-facing direct snapshot/goal methods did not compile because the getter returned a mutable Arc (`/tmp/ext-api-readonly-red.log`). GREEN: new snapshot/live/goal/stale-context test, existing persisted goal/live-view test and real runtime replacement/rebind/name-read test, all focused (`/tmp/ext-api-readonly-{green,core,rebind}.log`). Workspace/all-target compilation passed (`/tmp/ext-api-readonly-all4.*`); its sole unused test import was subsequently removed. No broad test suite run. Parent integration `cad6ade44` was merged before the getter slice.
+
 ## Symbols → Rust
 
 | Source | Rust | Tests |
@@ -48,7 +54,7 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 | `onError`, `emitError` | same (ordered listeners, unsubscribe) | differential `errors` |
 | `hasHandlers` | same (typed event-name match) | `session_shutdown_helper_reports_handler_presence` |
 | `hasApprovalReviewers`, `hasToolGates` | same | compile-time |
-| `getMessageRenderer`, `getMarkdownTransformers`, `getEntryRenderer` | same | `collects_renderers_and_transformers_in_load_order` |
+| `getMessageRenderer`, `getEntryRenderer` | same | `collects_renderers_in_load_order` |
 | `resolveRegisteredCommands`, `getRegisteredCommands`, `getCommand`, `getPromptCommand` | same suffix/collision algorithm, internal source info | differential `commands` |
 | `shutdown`, `getActiveTools` | same | runner tests |
 | `createContext` | `create_context` (shared `ExtensionContextState`) | differential `context_live`, `context_members_read_live_runner_state` |
@@ -70,9 +76,7 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
 
 ## Gaps
 
-- None. `setSandboxProfile` is bound through
-  `ExtensionCommandContextActions::set_sandbox_profile` (the session persists it
-  and updates the bwrap status); `relocate`/`relocateAfterToolResult` are
+- None. `setSandboxProfile` uses constructor-provided settings/session state directly and updates the current UI's bwrap status; `relocate`/`relocateAfterToolResult` are
   callbacks with the source default errors; `getDetachedJobLifecycle` is bound
   through `ExtensionRunner::bind_detached_job_lifecycle`.
 
@@ -96,12 +100,24 @@ Frozen :497–506 delivers a queued tool relocation through `prepareWorkingDirec
   not no-return mutation.
 - `emitInput` compares images by value, not reference.
 
+## Sandbox setter audit (2026-10-25)
+
+Frozen runner.ts:949–973 owns the sandbox setter independently of command-action binding. Native had incorrectly put the algorithm on AgentSession behind a native-only command-action callback. Moved the existing persistence/status algorithm into the runner/context authority; AgentSession delegates there. Removed the native-only callback field and its mechanical host/fixture initializers. Uses the current UI theme, source scope errors and unsupported-platform status; resets of command bindings do not remove settings capability. Runner instance identity and background-event variants are untouched.
+
+Actual frozen/native constructor-settings global/session/reset matrix RED `/tmp/ext-api2-sandbox-red.log`: all native calls incorrectly reported missing settings. GREEN `/tmp/ext-api2-sandbox-green2.log`. [Contract](../../specs/extension-sandbox-profile.md). The approval-controls command matrix retains every original argument/registration assertion but now compares actual frozen runner settings, errors and UI status/notifications instead of a mock setSandboxProfile logger that bypassed all persistence/validation. This is fixture fallout from removing the native-only callback seam; no frozen command case is dropped.
+
+## Frozen context/error audit (2026-10-25)
+
+Actual frozen/native boundary tests found two mismatches. `createContext` captures the current `getModel` callback (frozen :822), unlike its other live callback-backed properties; native now captures that callback while still reading its current model value and asserting stale state. The earlier native-only pre-bind model assertions contradicted frozen and are replaced with exact frozen before-bind/after-bind/rebind behavior; mutable values behind a captured callback remain tested. This is literal frozen behavior, not an approved semantic fix.
+
+Runner diagnostics, mailbox error reports, project-trust reports and factory-load diagnostics now use Error.message/String(rejection) through one HandlerError helper, preserving original rejections for propagation. Plain strings, objects, numbers, null and native UTF-16 strings previously emitted empty diagnostics. RED `/tmp/ext-api2-runner-boundary-red2.log`; GREEN pending. Exotic String-coercion failure routes to the existing shared uncaught authority (pathological-input gap); no new carrier or catch/panic mechanism added.
+
 ## Representation
 
 - Runner-owned context values live in `ExtensionContextState` behind a mutex
   shared by the runner and every context it creates. Context members are
-  fallible methods that assert the runner is active and read live state, so
-  rebinding, UI-mode changes, cwd updates, and callback-backed values are
+  fallible methods that assert the runner is active and read live state (except the frozen captured model callback), so
+  UI-mode changes, cwd updates, and other callback-backed values are
   observed after `createContext()`, matching the TypeScript getters.
 - `set_cwd` is a Rust-only runner setter used to express the live-cwd scenario;
   the TypeScript oracle assigns the private `runner.cwd` field at runtime.
@@ -116,7 +132,7 @@ Live array iteration includes handlers appended during the same emission;
 `emitRuntimeMailbox` retains its explicit gather-before-dispatch semantics.
 
 Proof: `runtime_registration_from_command_is_visible_to_runner` covers late tools,
-commands, flags, shortcuts, renderers, transformers, handlers, gates, and reviewers;
+commands, flags, shortcuts, renderers, handlers, gates, and reviewers;
 `handlers_appended_during_dispatch_run_in_the_same_event` covers live appends.
 [Dynamic-tools proof](extension-example-dynamic-tools.md) covers the actual pinned
 example and real AgentSession refresh/execution/deactivation timing.

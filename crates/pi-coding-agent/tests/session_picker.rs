@@ -48,6 +48,30 @@ fn paths(sessions: &[SessionInfo]) -> Vec<&JsString> {
 }
 
 #[tokio::test]
+async fn hides_resident_sessions_from_current_and_archived_lists() {
+    let mut supervisor = session("/s/canonical.jsonl", Some("Supervisor"), 90, false);
+    supervisor.id = "supervisor".into();
+    let mut architect = session("/s/archived-canonical.jsonl", Some("Architect"), 100, true);
+    architect.id = "architect".into();
+    let loader = loader(vec![
+        supervisor,
+        architect,
+        session("/s/supervisor-sessions/renamed.jsonl", Some("Renamed"), 80, false),
+        session("/s/architect-sessions/old.jsonl", Some("Old"), 70, true),
+        session("/s/current.jsonl", Some("Current"), 10, false),
+        session("/s/archive.jsonl", None, 20, true),
+    ]);
+    assert_eq!(
+        paths(&load_sessions(&loader, None, false).await.unwrap()),
+        ["/s/current.jsonl"]
+    );
+    assert_eq!(
+        paths(&load_sessions(&loader, None, true).await.unwrap()),
+        ["/s/archive.jsonl"]
+    );
+}
+
+#[tokio::test]
 async fn filters_by_archive_flag_and_forwards_progress() {
     let loader = loader(vec![
         session("/s/current.jsonl", None, 10, false),

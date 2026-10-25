@@ -21,7 +21,6 @@ pub fn git_checkpoint_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
             let state = tool_state.clone();
             Box::pin(async move {
                 let manager = ctx.session_manager()?;
-                let manager = manager.lock().map_err(|e| HandlerError::new(e.to_string()))?;
                 if let Some(leaf) = manager.get_leaf_entry() {
                     state
                         .lock()

@@ -2,6 +2,8 @@
 
 #[path = "support/env_probe.rs"]
 mod env_probe;
+#[path = "support/oracle.rs"]
+mod oracle;
 
 use pi_js_compat::js_json::JsString;
 use pi_js_compat::js_json::JsValue;
@@ -24,26 +26,38 @@ use std::sync::Mutex;
 
 struct ScriptedTerminal {
     keys: Mutex<Vec<String>>,
+    output: Vec<JsString>,
+    active: bool,
+    wait_started: Option<std::time::Instant>,
 }
 
 impl ScriptedTerminal {
     fn new(keys: Vec<String>) -> Self {
-        Self { keys: Mutex::new(keys) }
+        Self {
+            keys: Mutex::new(keys),
+            output: Vec::new(),
+            active: false,
+            wait_started: None,
+        }
     }
 }
 
 impl Terminal for ScriptedTerminal {
     fn start(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        self.active = true;
         Ok(())
     }
 
     fn stop(&mut self) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+        self.active = false;
         Ok(())
     }
 
     fn drain_input(&mut self, _max_ms: u64, _idle_ms: u64) {}
 
-    fn write(&mut self, _data: &JsString) {}
+    fn write(&mut self, data: &JsString) {
+        self.output.push(data.clone());
+    }
 
     fn columns(&self) -> usize {
         80
@@ -76,6 +90,19 @@ impl Terminal for ScriptedTerminal {
     fn poll_events(&mut self) -> Vec<TerminalEvent> {
         let mut keys = self.keys.lock().unwrap();
         if keys.is_empty() {
+            return Vec::new();
+        }
+        if keys[0] == "WAIT_FOR_PICKER_ERROR" {
+            let visible = JsString::join(self.output.iter(), "").to_utf8().unwrap();
+            if !visible.contains("Selection blocked once") {
+                let started = self.wait_started.get_or_insert_with(std::time::Instant::now);
+                assert!(
+                    started.elapsed() < std::time::Duration::from_secs(2),
+                    "picker error not rendered: {visible}"
+                );
+                return Vec::new();
+            }
+            keys.remove(0);
             return Vec::new();
         }
         vec![TerminalEvent::Input(JsString::from(keys.remove(0)))]
@@ -123,6 +150,35 @@ fn resource(path: &str, enabled: bool) -> ResolvedResource {
             base_dir: None,
         },
     }
+}
+
+#[test]
+fn first_time_setup_environment_truthiness_matches_frozen() {
+    let directory = tempfile::tempdir().unwrap();
+    let missing = directory.path().join("missing.json");
+    let existing = directory.path().join("exists.json");
+    fs::write(&existing, "{}").unwrap();
+    let mut cases = Vec::new();
+    let mut actual = Vec::new();
+    for experimental in [None, Some(""), Some("0"), Some("1"), Some("true")] {
+        for agent in [None, Some(""), Some("/custom-agent")] {
+            for path in [&missing, &existing] {
+                let mut environment = BTreeMap::new();
+                if let Some(value) = experimental {
+                    environment.insert("PI_EXPERIMENTAL".into(), value.into());
+                }
+                if let Some(value) = agent {
+                    environment.insert(config::env_agent_dir(), value.into());
+                }
+                cases.push(json!({"experimental": experimental, "agentDir": agent, "settingsPath": path}));
+                actual.push(should_run_first_time_setup(path, &environment));
+            }
+        }
+    }
+    let mut source = oracle::TsOracle::spawn("startup-ui-oracle.ts", "packages/coding-agent/src/cli/startup-ui.ts");
+    let expected = source.request(&json!({"id": 1, "operation": "setup", "cases": cases}));
+    assert_eq!(expected["ok"], true, "{expected}");
+    assert_eq!(json!(actual), expected["output"]);
 }
 
 #[test]
@@ -223,6 +279,111 @@ fn in_memory_settings() -> SettingsManager {
             project_trusted: Some(false),
         },
     )
+}
+
+#[test]
+fn session_picker_validation_retry_and_cancel_reach_the_terminal_boundary() {
+    let output = env_probe::run_probe(
+        "session_picker_ui_probe_child",
+        &[(
+            "PI_PACKAGE_DIR",
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).into_os_string(),
+        )],
+    );
+    assert!(String::from_utf8(output.stdout).unwrap().contains("PICKER_UI_PROOF:ok"));
+}
+
+#[test]
+#[ignore = "child process probe"]
+fn session_picker_ui_probe_child() {
+    if !env_probe::in_probe() {
+        return;
+    }
+    use pi_coding_agent::cli::session_picker::{
+        SelectSessionOptions, SelectSessionOutcome, SessionListFuture, SessionListProgress, SessionLoader,
+        select_session,
+    };
+    use pi_coding_agent::core::session_manager::SessionInfo;
+    use std::sync::Arc;
+    struct Loader;
+    impl SessionLoader for Loader {
+        fn load<'a>(
+            &'a self,
+            _: Option<SessionListProgress<'a>>,
+        ) -> SessionListFuture<'a, Result<Vec<SessionInfo>, JsString>> {
+            Box::pin(async {
+                Ok(vec![SessionInfo {
+                    path: "/sessions/selected.jsonl".into(),
+                    id: "selected".into(),
+                    cwd: "/work".into(),
+                    name: Some("Selectable session".into()),
+                    is_archived: Some(false),
+                    parent_session_path: None,
+                    created: 0.0,
+                    modified: 0.0,
+                    message_count: 1,
+                    first_message: "message".into(),
+                }])
+            })
+        }
+    }
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    for (keys, expected) in [
+        (
+            vec!["", "", "\r", "WAIT_FOR_PICKER_ERROR", "\r", "\u{1b}"],
+            SelectSessionOutcome::Selected("/sessions/selected.jsonl".into()),
+        ),
+        (vec!["\u{1b}"], SelectSessionOutcome::Cancelled),
+        (vec!["\u{3}"], SelectSessionOutcome::Cancelled),
+    ] {
+        let mut settings = in_memory_settings();
+        settings.set_theme(&JsString::from("dark"));
+        let terminal = Rc::new(RefCell::new(ScriptedTerminal::new(
+            keys.into_iter().map(str::to_owned).collect(),
+        )));
+        let terminal_interface: Rc<RefCell<dyn Terminal>> = terminal.clone();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let seen = Arc::clone(&attempts);
+        let validate = Arc::new(move |path: &JsString| {
+            assert_eq!(path, "/sessions/selected.jsonl");
+            if seen.fetch_add(1, std::sync::atomic::Ordering::SeqCst) == 0 {
+                Err(JsString::from("Selection blocked once"))
+            } else {
+                Ok(())
+            }
+        });
+        let selected = runtime
+            .block_on(select_session(
+                Arc::new(Loader),
+                Arc::new(Loader),
+                SelectSessionOptions {
+                    settings_manager: &settings,
+                    terminal: terminal_interface,
+                    env: &env(&[("COLORFGBG", "0;15")]),
+                    control_db_path: None,
+                    archived_sessions_loader: None,
+                    validate_selection: Some(validate),
+                },
+            ))
+            .unwrap();
+        assert_eq!(
+            selected,
+            expected,
+            "attempts={}, terminal={}",
+            attempts.load(std::sync::atomic::Ordering::SeqCst),
+            pi_js_compat::js_json::encode_node_utf8(&JsString::join(terminal.borrow().output.iter(), ""))
+        );
+        assert!(!terminal.borrow().active);
+        if matches!(selected, SelectSessionOutcome::Selected(_)) {
+            let output = JsString::join(terminal.borrow().output.iter(), "");
+            assert!(output.to_utf8().unwrap().contains("Selection blocked once"));
+            assert_eq!(attempts.load(std::sync::atomic::Ordering::SeqCst), 2);
+        }
+    }
+    println!("PICKER_UI_PROOF:ok");
 }
 
 fn run_selector_probe(key: &str) -> String {

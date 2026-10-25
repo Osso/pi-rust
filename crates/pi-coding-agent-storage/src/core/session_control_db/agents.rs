@@ -2574,8 +2574,9 @@ pub fn update_multi_agent_agent_activity(
     session_path: impl Into<JsString>,
     agent_id: &JsString,
     last_activity: Option<&JsValue>,
-    updated_at: &str,
+    updated_at: impl Into<JsString>,
 ) -> Result<Option<JsValue>, ControlDbError> {
+    let updated_at: &JsString = &updated_at.into();
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
@@ -2591,10 +2592,11 @@ pub fn update_multi_agent_agent_current_activity(
     session_path: impl Into<JsString>,
     agent_id: &JsString,
     current_activity: Option<&JsValue>,
-    updated_at: &str,
+    updated_at: impl Into<JsString>,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
     model: Option<&JsValue>,
 ) -> Result<Option<JsValue>, ControlDbError> {
+    let updated_at: &JsString = &updated_at.into();
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
@@ -2621,9 +2623,10 @@ pub fn update_multi_agent_agent_model(
     session_path: impl Into<JsString>,
     agent_id: &JsString,
     model: &JsValue,
-    updated_at: &str,
+    updated_at: impl Into<JsString>,
     ownership: &crate::core::multi_agent_store::AgentCurrentActivityOwner,
 ) -> Result<Option<JsValue>, ControlDbError> {
+    let updated_at: &JsString = &updated_at.into();
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
@@ -2644,8 +2647,9 @@ pub fn update_multi_agent_agent_slot(
     session_path: impl Into<JsString>,
     agent_id: &JsString,
     slot: Option<&JsValue>,
-    updated_at: &str,
+    updated_at: impl Into<JsString>,
 ) -> Result<Option<JsValue>, ControlDbError> {
+    let updated_at: &JsString = &updated_at.into();
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
@@ -2659,8 +2663,9 @@ pub fn update_multi_agent_agent_transcript(
     session_path: impl Into<JsString>,
     agent_id: &JsString,
     transcript: Option<&JsValue>,
-    updated_at: &str,
+    updated_at: impl Into<JsString>,
 ) -> Result<Option<JsValue>, ControlDbError> {
+    let updated_at: &JsString = &updated_at.into();
     let session_path: &JsString = &session_path.into();
     let control_db_path = control_db_path.into();
     let mut metadata = JsObject::new();
@@ -2673,7 +2678,7 @@ fn update_multi_agent_agent_metadata(
     session_path: &JsString,
     agent_id: &JsString,
     metadata: &JsObject,
-    updated_at: &str,
+    updated_at: &JsString,
     activity_ownership: Option<&crate::core::multi_agent_store::AgentCurrentActivityOwner>,
 ) -> Result<Option<JsValue>, ControlDbError> {
     with_control_db(control_db_path, |db| {
@@ -2743,7 +2748,7 @@ fn read_metadata_agent(
     Ok(Some(agent))
 }
 
-fn apply_metadata_patch(agent: &mut JsObject, metadata: &JsObject, updated_at: &str) {
+fn apply_metadata_patch(agent: &mut JsObject, metadata: &JsObject, updated_at: &JsString) {
     for (key, value) in metadata {
         if value.is_null() {
             agent.shift_remove(key);
@@ -2751,14 +2756,14 @@ fn apply_metadata_patch(agent: &mut JsObject, metadata: &JsObject, updated_at: &
             agent.insert(key.clone(), value.clone());
         }
     }
-    agent.insert("updatedAt".into(), JsValue::String(updated_at.into()));
+    agent.insert("updatedAt".into(), JsValue::String(updated_at.clone()));
 }
 
 struct MetadataUpdate<'a> {
     data: &'a str,
     row_updated_at: &'a str,
     serialized: &'a str,
-    updated_at: &'a str,
+    updated_at: &'a JsString,
     activity_ownership: Option<&'a crate::core::multi_agent_store::AgentCurrentActivityOwner>,
 }
 

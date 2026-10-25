@@ -33,10 +33,6 @@ impl AgentTool for StubTool {
         "stub label".into()
     }
 
-    fn constrained_sampling(&self) -> Option<pi_ai::types::ConstrainedSampling> {
-        Some(pi_ai::types::ConstrainedSampling::Disabled)
-    }
-
     fn prepare_execution(&self) -> Option<pi_agent_core::agent::types::AgentToolPrepareExecution> {
         Some(Arc::new(|_, _| {
             Box::pin(async { Err(ToolError::new("prepare rejected")) })
@@ -252,20 +248,6 @@ async fn wrapped_agent_tools_forward_prepare_execution_failure() {
         .await
         .expect_err("prepare must be forwarded");
     assert_eq!(error.message, "prepare rejected");
-}
-
-#[test]
-fn frozen_wrappers_do_not_copy_old_constrained_sampling_metadata() {
-    let tool: Arc<dyn AgentTool> = Arc::new(StubTool {
-        parameters: serde_json::json!({}),
-        result: text_result("done".into()),
-    });
-    assert!(
-        create_tool_definition_from_agent_tool(Arc::clone(&tool))
-            .constrained_sampling
-            .is_none()
-    );
-    assert!(wrap_agent_tool(tool).constrained_sampling().is_none());
 }
 
 #[test]

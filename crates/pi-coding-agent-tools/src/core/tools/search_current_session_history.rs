@@ -21,7 +21,7 @@ use crate::core::extensions::types::{
     ExtensionContext, ToolDefinition, ToolRenderContext, ToolRenderResultOptions, infallible_render_call,
     infallible_render_result,
 };
-use crate::core::session_manager::{SessionEntry, lock_session_manager};
+use crate::core::session_manager::SessionEntry;
 use crate::modes::interactive::theme::{Theme, ThemeColor};
 
 const DEFAULT_LIMIT: usize = 20;
@@ -240,7 +240,7 @@ fn require_persisted_session(context: &ExtensionContext) -> Result<(), ToolError
     let session = context
         .session_manager()
         .map_err(|error| ToolError::new(error.message))?;
-    if lock_session_manager(&session).get_session_file().is_none() {
+    if session.get_session_file().is_none() {
         return Err(ToolError::new(
             "search_current_session_history requires a persisted current session",
         ));
@@ -285,7 +285,7 @@ impl ContextTool<Option<ExtensionContext>> for SearchCurrentSessionHistoryTool {
             let session = context
                 .session_manager()
                 .map_err(|error| ToolError::new(error.message))?;
-            let manager = lock_session_manager(&session);
+            let manager = session;
             let params: SearchCurrentSessionHistoryParams =
                 pi_js_compat::js_json::from_value(&params).map_err(|error| ToolError::new(error.to_string()))?;
             let query = params.query.trim();
@@ -293,9 +293,12 @@ impl ContextTool<Option<ExtensionContext>> for SearchCurrentSessionHistoryTool {
                 return Err(ToolError::new("search_current_session_history query must not be empty"));
             }
 
-            let mut history = crate::core::session_history::read_session_history_reverse(&manager)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|cause| ToolError::new(cause.message()))?;
+            let mut history = crate::core::session_history::read_session_history_reverse(
+                manager.get_branch(None),
+                manager.get_session_file(),
+            )
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|cause| ToolError::new(cause.message()))?;
             history.reverse();
             let searchable_entries: Vec<SearchableSessionEntry> = history.iter().filter_map(searchable_entry).collect();
             let normalized_query = query.to_lowercase();

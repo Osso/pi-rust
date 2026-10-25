@@ -7,8 +7,8 @@ The frozen terminal-outbox-delivery module claims persisted terminal projections
 - [x] Preserve f64 cleanup cadence and shared Date/toISOString retention thresholds, including fractional and invalid/nonfinite numbers.
 - [x] Skip the clock when no persistence target exists; preserve throwable clock Error/non-Error values and invalid-date errors before claiming.
 - [x] Keep registered commands before terminal coordination; normal prompt coordination must not mutate outbox attempts before agent_start.
-- [ ] Prove reciprocal TS/native terminal-row claim, publication, acknowledgement, retry/poison, original-error propagation and cleanup-finally behavior.
-- [ ] Remove the temporary reserved-finalize native bool/error sink after the stage4 Result listener migration; apply frozen's store-local listener catch/log.
+- [x] Prove reciprocal TS/native terminal-row claim, publication, acknowledgement, retry/poison, original-error propagation and cleanup-finally behavior.
+- [x] Remove the temporary reserved-finalize native bool/error sink after the stage4 Result listener migration; apply frozen's store-local listener catch/log.
 
 ## How it works
 
@@ -24,12 +24,13 @@ The frozen terminal-outbox-delivery module claims persisted terminal projections
 ## Tests asserting this spec
 
 - `crates/pi-coding-agent/tests/repin_storage_terminal_outbox.rs`
+- `crates/pi-coding-agent/tests/repin_storage_terminal_matrix.rs` (module in `suite_session_1`) — real reciprocal terminal rows, claim conflict, retries/poison and artifact deletion.
 - `crates/pi-coding-agent/tests/terminal_outbox_delivery.rs`
 - `crates/pi-coding-agent/tests/agent_session.rs::registered_commands_precede_terminal_outbox_drain_and_normal_prompt_coordinates_afterward`
 
 ## Known gaps (current cycle)
 
-- [ ] Whole module remains partial until the unchecked proof/dependency items above close; no semantic waiver covers them.
+The current realistic-branch matrix passes. Whole control/store integration acceptance remains separate.
 
 ## Out of scope
 
