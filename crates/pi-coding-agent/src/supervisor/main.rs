@@ -8,10 +8,10 @@ use std::collections::VecDeque;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use crate::core::codex_quota_fallback::CODEX_FALLBACK_PROVIDERS;
+use crate::core::codex_quota_fallback::{CODEX_FALLBACK_PROVIDERS, is_quota_exhaustion_error};
 use pi_agent_core::agent::AgentMessage;
 use pi_agent_core::harness::types::BeforeToolCallResult;
-use pi_ai::request::BoxFuture;
+use pi_ai::request::{BoxFuture, ProviderRequestOptions, SimpleStreamOptions, StreamOptions, now_millis};
 use pi_ai::session_resources::cleanup_session_resources;
 use pi_ai::types::{AssistantContent, Model, StopReason};
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -24,7 +24,8 @@ use crate::core::extensions::types::{
     CustomMessageContent, CustomMessagePayload, ExtensionContext, HandlerError, ToolCallEvent, ToolCallEventResult,
     ToolGateHandle,
 };
-use crate::core::model_registry::ModelRegistry;
+use crate::core::model_registry::{ModelRegistry, ResolvedRequestAuth};
+use crate::core::provider_attribution::merge_provider_attribution_headers;
 use crate::core::resident_console_transport::{
     ResidentConsoleHost, ResidentConsoleServer, ResidentConsoleServerOptions, ResidentConsoleService,
     ResidentConsoleSnapshot, Unsubscribe,
@@ -44,8 +45,8 @@ use crate::supervisor::request_wake::{SupervisorRequestWakeServer, notify_superv
 use crate::supervisor::response_tool::{SUPERVISOR_RESPONSE_TOOL_NAME, create_supervisor_response_tool};
 use crate::supervisor::service::{
     RunSupervisorRequestInput, SupervisorEvaluator, SupervisorInstructionReviewDecision,
-    parse_supervisor_instruction_review_decision, parse_supervisor_response, run_supervisor_request,
-    supervisor_instruction_rejection_feedback,
+    build_supervisor_instruction_review_context, parse_supervisor_instruction_review_decision,
+    parse_supervisor_response, run_supervisor_request, supervisor_instruction_rejection_feedback,
 };
 use crate::utils::paths::{node_basename, node_dirname, node_join, node_resolve};
 use pi_js_compat::js_format;
@@ -54,7 +55,8 @@ use pi_js_compat::js_json::encode_node_utf8;
 pub const SUPERVISOR_SESSION_ID: &str = "supervisor";
 pub const SUPERVISOR_COMPACTION_PERCENT: f64 = 75.0;
 pub const GENERIC_GOAL_CONTINUATION: &str = "Continue working toward the active goal.";
-pub type SupervisorInstructionEvaluator = SupervisorEvaluator;
+pub type SupervisorInstructionEvaluator =
+    Arc<dyn Fn(JsString, AbortSignal) -> BoxFuture<'static, Result<Option<JsValue>, JsString>> + Send + Sync>;
 pub type SupervisorInstructionReviewer = Arc<
     dyn Fn(JsString, AbortSignal) -> BoxFuture<'static, Result<Option<SupervisorInstructionReviewDecision>, JsString>>
         + Send
@@ -69,7 +71,12 @@ pub fn create_supervisor_instruction_reviewer(
             return Box::pin(async { Ok(None) });
         }
         let evaluation = evaluate(instructions, signal);
-        Box::pin(async move { Ok(parse_supervisor_instruction_review_decision(&evaluation.await?)) })
+        Box::pin(async move {
+            Ok(evaluation
+                .await?
+                .as_ref()
+                .and_then(parse_supervisor_instruction_review_decision))
+        })
     })
 }
 pub const SUPERVISOR_TOOL_NAMES: [&str; 3] = ["read", "edit", "write"];
@@ -114,6 +121,125 @@ fn require_supervisor_models(registry: &ModelRegistry) -> Result<Vec<Model>, JsS
         ));
     }
     Ok(models)
+}
+
+pub fn create_supervisor_instruction_evaluator(
+    agent_dir: &JsString,
+) -> Result<SupervisorInstructionEvaluator, JsString> {
+    let auth = crate::core::auth_storage::AuthStorage::create(Some(&node_join(agent_dir, "auth.json")))
+        .map_err(|error| error.message().clone())?;
+    let registry =
+        ModelRegistry::create(auth, Some(node_join(agent_dir, "models.json"))).map_err(|error| error.message)?;
+    let models = require_supervisor_models(&registry)?;
+    let settings = Arc::new(Mutex::new(create_supervisor_settings_manager()));
+    Ok(Arc::new(move |instructions, signal| {
+        let registry = registry.clone();
+        let models = models.clone();
+        let settings = settings.clone();
+        Box::pin(async move {
+            for model in models {
+                if signal.aborted() {
+                    return Ok(None);
+                }
+                let response = evaluate_supervisor_instruction_with_model(
+                    model,
+                    &registry,
+                    &settings,
+                    &instructions,
+                    signal.clone(),
+                )
+                .await?;
+                if signal.aborted() {
+                    return Ok(None);
+                }
+                if !is_quota_exhaustion_error(&response) {
+                    return Ok(read_supervisor_instruction_review_text(&response).map(JsValue::String));
+                }
+            }
+            Ok(None)
+        })
+    }))
+}
+
+async fn evaluate_supervisor_instruction_with_model(
+    model: Model,
+    registry: &ModelRegistry,
+    settings: &Mutex<SettingsManager>,
+    instructions: &JsString,
+    signal: AbortSignal,
+) -> Result<pi_ai::types::AssistantMessage, JsString> {
+    let auth = registry
+        .get_api_key_and_headers(&model)
+        .await
+        .map_err(|error| error.message)?;
+    let options = supervisor_instruction_stream_options(
+        &model,
+        &settings.lock().unwrap_or_else(std::sync::PoisonError::into_inner),
+        auth,
+        signal,
+    )?;
+    let context = build_supervisor_instruction_review_context(instructions, now_millis() as f64);
+    pi_ai::compat::stream_simple(model, context, options)
+        .map_err(|error| error.message)?
+        .result()
+        .await
+        .map_err(|error| error.message().clone())
+}
+
+fn supervisor_instruction_stream_options(
+    model: &Model,
+    settings: &SettingsManager,
+    auth: ResolvedRequestAuth,
+    signal: AbortSignal,
+) -> Result<SimpleStreamOptions, JsString> {
+    let (api_key, headers, env) = match auth {
+        ResolvedRequestAuth::Ok { api_key, headers, env } => (api_key, headers, env),
+        ResolvedRequestAuth::Err { error } => return Err(error),
+    };
+    let retry = settings.get_provider_retry_settings();
+    let idle_timeout = settings
+        .get_http_idle_timeout_ms()
+        .map_err(|error| error.message().clone())?;
+    let effective_idle_timeout = if idle_timeout == 0 {
+        i32::MAX as f64
+    } else {
+        idle_timeout as f64
+    };
+    Ok(SimpleStreamOptions {
+        reasoning: Some(pi_ai::types::ThinkingLevel::Low),
+        stream: StreamOptions {
+            request: ProviderRequestOptions {
+                api_key,
+                env,
+                headers: merge_provider_attribution_headers(model, settings, None, &[headers]),
+                max_retries: retry.max_retries,
+                max_retry_delay_ms: Some(retry.max_retry_delay_ms),
+                signal: Some(signal),
+                timeout_ms: Some(retry.timeout_ms.unwrap_or(effective_idle_timeout)),
+                ..Default::default()
+            },
+            websocket_connect_timeout_ms: settings
+                .get_websocket_connect_timeout_ms()
+                .map_err(|error| error.message().clone())?
+                .map(|timeout| timeout as f64),
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+}
+
+fn read_supervisor_instruction_review_text(message: &pi_ai::types::AssistantMessage) -> Option<JsString> {
+    if message.stop_reason != StopReason::Stop {
+        return None;
+    }
+    let text = JsString::join(
+        message.content.iter().filter_map(|part| match part {
+            AssistantContent::Text(text) => Some(&text.text),
+            _ => None,
+        }),
+        "",
+    );
+    (!text.is_empty()).then_some(text)
 }
 
 const SUPERVISOR_COMPACTION_INSTRUCTIONS: &str = "Preserve Supervisor decisions, project-specific policies, instruction-veto policy feedback, and reusable approval rationale.";
