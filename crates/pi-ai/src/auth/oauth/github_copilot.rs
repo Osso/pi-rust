@@ -147,7 +147,7 @@ fn get_github_copilot_base_url(token: Option<&JsString>, enterprise_domain: Opti
 }
 
 /// `parseAvailableCopilotModelIds`.
-pub fn parse_available_copilot_model_ids(raw: &Value, allow_policy_fallback: bool) -> Result<Vec<String>, String> {
+pub fn parse_available_copilot_model_ids(raw: &Value) -> Result<Vec<String>, String> {
     let data = raw
         .as_object()
         .and_then(|raw| raw.get("data"))
@@ -155,7 +155,6 @@ pub fn parse_available_copilot_model_ids(raw: &Value, allow_policy_fallback: boo
         .ok_or_else(|| "Invalid Copilot models response".to_owned())?;
 
     let mut picker_ids = Vec::new();
-    let mut policy_enabled_ids = Vec::new();
     for raw_item in data {
         let Some(item) = raw_item.as_object() else { continue };
         let Some(id) = item.get("id").and_then(Value::as_str) else {
@@ -177,15 +176,8 @@ pub fn parse_available_copilot_model_ids(raw: &Value, allow_policy_fallback: boo
         if item.get("model_picker_enabled") == Some(&Value::Bool(true)) && policy_state != Some("disabled") {
             picker_ids.push(id.to_owned());
         }
-        if policy_state == Some("enabled") {
-            policy_enabled_ids.push(id.to_owned());
-        }
     }
-    if picker_ids.is_empty() && allow_policy_fallback {
-        Ok(policy_enabled_ids)
-    } else {
-        Ok(picker_ids)
-    }
+    Ok(picker_ids)
 }
 
 struct DeviceCodeResponse {
@@ -438,7 +430,6 @@ async fn fetch_available_model_ids(
     enterprise_domain: Option<&str>,
 ) -> Result<Vec<String>, CallbackError> {
     let base_url = get_github_copilot_base_url(Some(copilot_token), enterprise_domain);
-    let allow_policy_fallback = base_url == DEFAULT_BASE_URL;
     let mut headers = vec![
         ("Accept".to_owned(), "application/json".to_owned()),
         (
@@ -455,7 +446,7 @@ async fn fetch_available_model_ids(
         None,
     );
     let raw = fetch_json_with_timeout(runtime, request).await?;
-    parse_available_copilot_model_ids(&raw, allow_policy_fallback).map_err(CallbackError::new)
+    parse_available_copilot_model_ids(&raw).map_err(CallbackError::new)
 }
 
 async fn enable_github_copilot_model(

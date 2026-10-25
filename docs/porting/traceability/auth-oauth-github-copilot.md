@@ -64,3 +64,7 @@ Tests: `crates/pi-ai/tests/github_copilot_oauth.rs`,
 - None.
 
 Q18 native auth integration and bounded proof status: [lossless auth](lossless-auth.md).
+
+## 2026-10-25 pinned availability repair
+
+Frozen `parseAvailableCopilotModelIds` requires `model_picker_enabled === true`, policy not disabled, and tool calls not false. Removed the old-only individual-account policy fallback and its public flag. Existing actual-source refresh differential reproduced native `["gpt-5.4"]` versus frozen `[]`; unchanged six refresh scenarios and four toAuth scenarios are the proof. Native fixtures now assert the frozen no-picker exclusion for both individual and business accounts. Whole-module status remains partial: login policy scheduling and remaining flow/error audit are not covered by this repair.
