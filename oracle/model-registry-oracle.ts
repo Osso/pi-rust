@@ -387,6 +387,55 @@ async function main(): Promise<void> {
 			registry.unregisterProvider(side);
 			return { mode: request.mode, first, second, calls };
 		}
+		if (request.operation === "registration_stream_throw") {
+			const provider = "registry-stream-throw";
+			const api = "registry-stream-throw-api";
+			const thrown =
+				request.kind === "error"
+					? Object.assign(new TypeError(request.value as string), {
+							code: "E_STREAM",
+							detail: { method: request.method },
+						})
+					: request.value;
+			let callbackCount = 0;
+			registry.registerProvider(provider, {
+				...(request.config as Record<string, unknown>),
+				api,
+				apiKey: "config-key",
+				streamSimple: () => {
+					callbackCount++;
+					throw thrown;
+				},
+			});
+			const model = registry.find(provider, "one");
+			const dispatch = await import(
+				new URL("../../../ai/src/compat.ts", source).href
+			);
+			let rejection: unknown = null;
+			try {
+				dispatch[request.method as "stream" | "streamSimple"](
+					model,
+					{ messages: [] },
+					{ apiKey: "stream-key" },
+				);
+			} catch (error) {
+				rejection =
+					error instanceof Error
+						? {
+								kind: "error",
+								value: {
+									name: error.name,
+									message: error.message,
+									...Object.fromEntries(
+										Object.entries(error).filter(([key]) => key !== "stack"),
+									),
+								},
+							}
+						: { kind: "value", value: error };
+			}
+			registry.unregisterProvider(provider);
+			return { callbackCount, rejection };
+		}
 		if (request.operation === "clear_alias_snapshot") {
 			if (
 				typeof request.command !== "string" ||
