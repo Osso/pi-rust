@@ -2,7 +2,7 @@
 
 ## Authorized scope
 
-User-observable `interactive-mode.ts` startup/render/events and command/session-transition slices, `agent-session-runtime.ts`, `self-restart.ts` and `keybindings.ts`, against common pin `4f9e6f8a4`. Keep existing lossless carriers. Mechanical cross-lane adapters are cleared; semantic deviations/dependencies/TS deltas still need approval. No agents, full-suite runs, push, merge, deploy or live providers. Parent owns integration and independent verification.
+User-observable `interactive-mode.ts` startup/render/events and command/session-transition slices, `agent-session-runtime.ts`, `self-restart.ts` and `keybindings.ts`, against common pin `4f9e6f8a4`. Keep existing lossless carriers. Mechanical cross-lane adapters are cleared; semantic deviations/dependencies/TS deltas still need approval. No agents, full-suite runs, push, deploy or live providers. Parent owns integration and independent verification. The current merge train requires a compiling workspace/all-targets tip before each commit and permits periodic parent-tip merges.
 
 ## Baseline repair checkpoint (2026-10-25)
 
@@ -83,6 +83,18 @@ Transfer behavior through `092fb53a3`: [full source/RED/GREEN/gate ledger](trace
 ## Help/notices checkpoint
 
 `9819acb69` closes the bounded help/notices group:17 actual-source cases, including full-file changelog instead of cached startup excerpt, empty-version/empty-notice truthiness and PI_OFFLINE empty-string behavior. Default/custom hotkeys and extension descriptions match unchanged helpers; only the classified User-Agent runtime token is adapted. [Full ledger](traceability/interactive-mode.md#help-and-startup-notices-2026-10-25). Required pre-commit workspace -j3 all-targets0/0, TS/Biome/fmt pass, clippy0 owned findings. Whole interactive-mode remains partial.
+
+## Interleaved event display checkpoint
+
+The bounded [event-display contract](../specs/interactive-event-display.md) now has twelve actual-source/native event steps and24 complete three-surface frames at widths25/120. RED reproduces premature tool rows/final-order changes, empty retry/compaction truthiness errors and missing provider retry/fallback details. GREEN preserves complete UTF-16 frames and terminal-progress calls. This does not close the event table or message replay.
+
+| Command / current event patch | Result | Artifact |
+|---|---|---|
+| Focused interactive lib `interleaved_text_tool_and_retry_compaction_frames_match_frozen` | 1/1, twelve steps at both widths | `event-frames-final.log`; earlier `event-frames-red-expanded.log` |
+| `cargo check -j3 --workspace --all-targets --message-format=json` | PASS before commit | `event-workspace.log` |
+| `cargo fmt --all --check`; source inventory | PASS;686/186679;634 done/25 gap/18 partial/9 todo | Current checkpoint |
+
+Strict TS passed on the unmodified common pin with the approved target/lib ES2024. Final post-commit type/style/clippy/readability proof is recorded after the code checkpoint. No carrier, dependency, TS delta or adjacent lane algorithm changes.
 
 ## Next work
 

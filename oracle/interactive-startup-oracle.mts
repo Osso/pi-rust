@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
 import type { Model } from "@pi-oracle-source/ai/src/types.ts";
+import type { AgentSessionEvent } from "@pi-oracle-source/coding-agent/src/core/agent-session.ts";
 import type { CreateAgentSessionRuntimeFactory } from "@pi-oracle-source/coding-agent/src/core/agent-session-runtime.ts";
 import type { ExtensionAPI } from "@pi-oracle-source/coding-agent/src/core/extensions/types.ts";
 import type { Terminal } from "@pi-oracle-source/tui/src/terminal.ts";
@@ -49,7 +50,10 @@ class CaptureTerminal implements Terminal {
 	setTitle(title: string) {
 		this.titles.push(title);
 	}
-	setProgress() {}
+	progress: boolean[] = [];
+	setProgress(active: boolean) {
+		this.progress.push(active);
+	}
 }
 
 interface Request {
@@ -78,6 +82,7 @@ interface Request {
 		| "factory-string"
 		| "factory-object";
 	importPath?: string;
+	events?: AgentSessionEvent[];
 }
 
 async function captureStartup(request: Request) {
@@ -200,8 +205,25 @@ async function captureStartup(request: Request) {
 		await mode.init();
 		if (request.importFailure)
 			await captureImportFailure(mode, runtime, terminal, request);
-		const render = (container: { render(width: number): string[] }) =>
-			container.render(120).map(units);
+		const render = (
+			container: { render(width: number): string[] },
+			width = 120,
+		) => container.render(width).map(units);
+		const eventFrames = [];
+		for (const event of request.events ?? []) {
+			await mode.handleEvent(event);
+			eventFrames.push({
+				chat: render(mode.chatContainer),
+				tail: render(mode.transcriptTailContainer),
+				status: render(mode.statusContainer),
+				narrow: {
+					chat: render(mode.chatContainer, 25),
+					tail: render(mode.transcriptTailContainer, 25),
+					status: render(mode.statusContainer, 25),
+				},
+				progress: [...terminal.progress],
+			});
+		}
 		const output = {
 			header: render(mode.headerContainer),
 			resources: render(mode.loadedResourcesContainer),
@@ -213,6 +235,7 @@ async function captureStartup(request: Request) {
 				.getSkills()
 				.skills.map((skill: { name: string }) => skill.name),
 		};
+		if (request.events) Object.assign(output, { eventFrames });
 		if (request.watchChanges) {
 			Object.assign(output, {
 				changes: await captureChanges(mode, terminal, request),

@@ -11886,27 +11886,6 @@ impl InteractiveMode {
                     {
                         component_value.update_content((**assistant).clone());
                     }
-                    for content in &assistant.content {
-                        if let pi_ai::types::AssistantContent::ToolCall(call) = content {
-                            let existing = self.pending_tools.borrow().contains_key(&call.id);
-                            if existing {
-                                if let Some(component_ref) = self.pending_tools.borrow().get(&call.id).cloned()
-                                    && let Some(component_value) = component_ref
-                                        .borrow_mut()
-                                        .as_any_mut()
-                                        .and_then(|any| any.downcast_mut::<ToolExecutionComponent>())
-                                {
-                                    component_value.update_args(JsValue::Object(call.arguments.clone()));
-                                }
-                            } else {
-                                self.ensure_tool_component(
-                                    &call.name,
-                                    &call.id,
-                                    JsValue::Object(call.arguments.clone()),
-                                );
-                            }
-                        }
-                    }
                     self.ui.request_render();
                 }
             }
@@ -12185,7 +12164,7 @@ impl InteractiveMode {
                     self.rebuild_chat_after_compaction(result);
                     self.footer.borrow_mut().invalidate();
                     self.show_status(&source_log_message);
-                } else if let Some(error) = &event.error_message {
+                } else if let Some(error) = event.error_message.as_ref().filter(|error| !error.is_empty()) {
                     let source_hint = self.auto_compaction_source_hint.borrow().clone();
                     let failure_message =
                         format_compaction_failure_message(error, &JsString::from(&event.reason), source_hint.as_ref());
@@ -12259,15 +12238,19 @@ impl InteractiveMode {
                     self.show_error(&js_format!(
                         "Retry failed after {} attempts: {}",
                         event.attempt,
-                        event.final_error.as_ref().unwrap_or(&JsString::from("Unknown error"))
+                        event
+                            .final_error
+                            .as_ref()
+                            .filter(|error| !error.is_empty())
+                            .unwrap_or(&JsString::from("Unknown error"))
                     ));
                 }
                 self.ui.request_render();
             }
             AgentSessionEvent::ProviderStreamRetry(event) => {
-                let retry = &event.retry;
+                let message = Self::format_provider_stream_retry_message(&event.retry);
                 self.chat_container.borrow_mut().add_child(component(Text::new(
-                    with_theme(|theme| theme.fg(ThemeColor::Warning, &js_format!("provider retry: {}", retry.reason))),
+                    with_theme(|theme| theme.fg(ThemeColor::Warning, &message)),
                     1,
                     0,
                 )));
@@ -12298,6 +12281,29 @@ impl InteractiveMode {
             AgentSessionEvent::Agent(AgentEvent::TurnEnd { .. }) => {}
             AgentSessionEvent::Message(_) => {}
         }
+    }
+
+    fn format_provider_stream_retry_message(retry: &pi_ai::types::ProviderRetryEvent) -> JsString {
+        use pi_js_compat::number::js_number_to_string;
+        let attempts = retry.max_attempts.map_or_else(
+            || js_format!(" (attempt {})", js_number_to_string(retry.attempt)),
+            |max| js_format!(" ({}/{})", js_number_to_string(retry.attempt), js_number_to_string(max)),
+        );
+        let delay = retry
+            .delay_ms
+            .map(|delay| js_format!(" in {}s", js_number_to_string((delay / 1000.0).ceil())))
+            .unwrap_or_default();
+        let fallback_transport = retry.fallback_transport.map(|transport| match transport {
+            pi_ai::types::Transport::Sse => "SSE",
+            pi_ai::types::Transport::Websocket => "WEBSOCKET",
+            pi_ai::types::Transport::WebsocketCached => "WEBSOCKET-CACHED",
+            pi_ai::types::Transport::Auto => "AUTO",
+        });
+        let action = fallback_transport.map_or_else(
+            || js_format!("provider retry{}{}", attempts, delay),
+            |transport| js_format!("falling back to {}", transport),
+        );
+        js_format!("{}: {}", action, retry.reason)
     }
 
     fn ensure_tool_component(&self, tool_name: &str, tool_call_id: &str, args: JsValue) {
@@ -13128,6 +13134,10 @@ mod ui_tests {
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
         "/tests/support/interactive_help_notices.rs"
+    ));
+    include!(concat!(
+        concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),
+        "/tests/support/interactive_event_display.rs"
     ));
     include!(concat!(
         concat!(env!("CARGO_MANIFEST_DIR"), "/../pi-coding-agent"),

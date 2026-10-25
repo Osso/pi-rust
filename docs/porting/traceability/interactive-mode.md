@@ -2,6 +2,12 @@
 
 Ported to `crates/pi-coding-agent-interactive/src/modes/interactive/interactive_mode.rs`.
 
+## Interleaved event display checkpoint (2026-10-25)
+
+[Contract](../../specs/interactive-event-display.md). The actual frozen/native initialized modes consume twelve matching event steps: assistant start, invisible tool-call start, visible text with an interleaved tool snapshot, completed tool-use message; empty retry failure; compaction start/manual cancellation; compaction start/empty error; and three provider retry/fallback records. Complete chat/tail/status frames at widths25/120 and cumulative terminal-progress calls are compared, with real component renderers and private sessions. This is handler-boundary proof, not an agent-loop or whole-mode differential.
+
+`event-frames-red-expanded.log` reproduces premature tool rows and wrong final order, missing empty-retry default text, a spurious empty-compaction error, and lost provider retry counters/delay/fallback text. Native message updates no longer mutate tool rows; retry/compaction guards use frozen string truthiness; the private provider-message formatter retains the exact source text and shared JS number conversion. `interleaved_text_tool_and_retry_compaction_frames_match_frozen` passes all24 width-specific frames in `event-frames-final.log`; required pre-commit workspace/all-targets checking and formatting also pass. Full event routing, message replay, editor/input and remaining transition audits stay open.
+
 ## Parallel fixture stream ownership (2026-10-25)
 
 The two baseline stalls (`hidden_coordination_queue_keeps_user_input_and_delivery_intact`, `reload_while_streaming_matches_frozen_warning`) pass alone. Their fixture dispatched through the process-global `faux` API, which another fixture registration or registry refresh replaces. The blocked test then waits for a factory that was never called. `fixture_streams_keep_their_responses_across_other_registry_refreshes` reproduces this deterministically: first session receives the second session's answer. The fixture now captures its own provider in the existing Agent stream injection seam, as the session tests already do; production registry behavior is unchanged. The regression uses real complete `end_turn` responses (frozen agent-loop.ts continues otherwise), not a timeout, global lock or weakened assertion. RED/GREEN logs: `/tmp/repin-interactive-2-proof/fixture-completed-{red,green}.log`. Full parallel targeted regression evidence is pending the startup-assertion corrections below.

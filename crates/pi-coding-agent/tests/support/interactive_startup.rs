@@ -344,11 +344,21 @@ async fn startup_capture_child() {
             return;
         }
         let render = |container: &mut dyn Component| container.render(120).into_iter().map(|line| line.units().to_vec()).collect::<Vec<_>>();
+        let mut event_frames = Vec::new();
+        if let Some(case) = request["eventCase"].as_str() {
+            let events = build_display_fixture_events(case);
+            request["events"] = serde_json::to_value(&events).unwrap();
+            for event in events {
+                mode.handle_event(event).await;
+                event_frames.push(capture_event_display_frame(&mode, &terminal));
+            }
+        }
         let mut output = serde_json::json!({
             "header":render(&mut *mode.header_container.borrow_mut()),"resources":render(&mut *mode.loaded_resources_container.borrow_mut()),"chat":render(&mut *mode.chat_container.borrow_mut()),
             "count":mode.footer_data_provider.get_available_provider_count(),"titles":terminal.borrow().titles.iter().map(|title|title.units().to_vec()).collect::<Vec<_>>(),"console":[],
             "skills":loader.get_skills().skills.iter().map(|skill|skill.name.clone()).collect::<Vec<_>>()
         });
+        if request["eventCase"].is_string() { output["eventFrames"] = serde_json::json!(event_frames); }
         if request["watchChanges"].as_bool().unwrap() {
             mode.ui.flush_pending().unwrap();
             terminal.borrow_mut().writes.clear();
