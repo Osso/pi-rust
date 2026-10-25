@@ -3,6 +3,9 @@
 //! Port of `core/extensions/index.ts`. Extensions are Rust-native; the
 //! TypeScript module loader is an approved deviation (see traceability).
 
+#[cfg(test)]
+mod native_identity_tests;
+
 pub mod extension_runtime;
 pub mod loader;
 pub mod runner;

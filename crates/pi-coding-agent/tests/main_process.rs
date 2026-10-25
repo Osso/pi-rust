@@ -167,6 +167,43 @@ fn run_typescript(lock: &SourceLock, fixture: &Fixture, args: &[&str]) -> Proces
 }
 
 #[test]
+fn native_unknown_extension_keeps_frozen_diagnostic_and_exit_one() {
+    let temp = tempfile::tempdir().unwrap();
+    let agent = temp.path().join("agent");
+    std::fs::create_dir_all(&agent).unwrap();
+    let extension = temp.path().join("unknown.ts");
+    std::fs::write(&extension, "export default () => {};").unwrap();
+    std::fs::write(
+        agent.join("settings.json"),
+        serde_json::to_vec(&serde_json::json!({
+            "extensions": [extension],
+        }))
+        .unwrap(),
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_pi"))
+        .args(["--print", "--no-session", "hello"])
+        .current_dir(temp.path())
+        .env("HOME", temp.path())
+        .env("PI_CODING_AGENT_DIR", &agent)
+        .env("PI_CODING_AGENT_STATE_DIR", temp.path().join("state"))
+        .env("PI_OFFLINE", "1")
+        .env("NO_COLOR", "1")
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(1), "{:?}", output);
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(
+        stderr.contains(&format!(
+            "Extension does not export a valid factory function: {}",
+            extension.display()
+        )),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn startup_sweeps_missing_empty_sessions_before_name_validation_unless_standalone() {
     use pi_coding_agent::core::session_control_db::{
         WritableSessionMetadata, get_control_db_path, read_session_metadata, write_session_metadata,

@@ -10,7 +10,7 @@ use std::sync::Arc;
 use indexmap::IndexMap;
 use pi_js_compat::{
     js_format,
-    js_json::{JsString, JsValue, encode_node_utf8},
+    js_json::{JsString, JsValue, encode_node_utf8, parse_lossless},
 };
 
 use crate::config::package_config;
@@ -64,6 +64,7 @@ impl ExtensionRegistry {
     }
 
     /// Register a factory omitted from the startup extension list.
+    /// Native user ports use `<native:IDENTITY>` and load only through filesystem paths.
     pub fn register_hidden(&mut self, id: impl Into<JsString>, factory: ExtensionFactory) {
         let id = id.into();
         self.entries.insert(
@@ -84,7 +85,7 @@ impl ExtensionRegistry {
         self.entries.keys().cloned().collect()
     }
 
-    /// Load every registered factory whose id is not disabled, in registration order.
+    /// Load registered factories except path-only native ports and disabled ids, in registration order.
     pub async fn load_registered(
         &self,
         disabled_extensions: &[JsString],
@@ -95,7 +96,8 @@ impl ExtensionRegistry {
         let mut extensions = Vec::new();
         let mut errors = Vec::new();
         for entry in self.entries.values() {
-            if is_extension_factory_disabled(disabled_extensions, &entry.id) {
+            let is_native = entry.id.starts_with("<native:") && entry.id.ends_with('>');
+            if is_native || is_extension_factory_disabled(disabled_extensions, &entry.id) {
                 continue;
             }
             match load_extension_from_factory(
@@ -394,6 +396,34 @@ pub fn is_extension_factory_disabled(disabled_extensions: &[JsString], extension
         .any(|candidate| disabled.contains(&candidate))
 }
 
+/// Read the nearest package name from at most three directories, or use the entry stem.
+fn read_native_extension_id(resolved_path: &JsString) -> JsString {
+    const MAX_PACKAGE_DIRECTORIES: usize = 3;
+    let mut directory = node_dirname(resolved_path);
+    for _ in 0..MAX_PACKAGE_DIRECTORIES {
+        let manifest_path = node_join(&directory, "package.json");
+        if Path::new(&encode_node_utf8(&manifest_path)).exists() {
+            let name = std::fs::read(encode_node_utf8(&manifest_path))
+                .ok()
+                .and_then(|bytes| parse_lossless(String::from_utf8_lossy(&bytes).as_ref()).ok())
+                .and_then(|manifest| manifest.get("name").and_then(JsValue::as_string).cloned());
+            if let Some(name) = name.filter(|name| !name.is_empty()) {
+                return js_format!("<native:{}>", name);
+            }
+            break;
+        }
+        directory = node_dirname(&directory);
+    }
+    let filename = node_basename(resolved_path);
+    let stem_end = filename
+        .units()
+        .iter()
+        .rposition(|unit| *unit == u16::from(b'.'))
+        .unwrap_or(filename.len());
+    let stem = filename.slice(0, stem_end);
+    js_format!("<native:{}>", stem)
+}
+
 impl ExtensionRegistry {
     async fn load_extension(
         &self,
@@ -403,7 +433,14 @@ impl ExtensionRegistry {
         event_bus: Arc<dyn EventBus>,
         runtime: ExtensionRuntime,
     ) -> Result<Extension, ExtensionLoadError> {
-        let Some(factory) = self.get(resolved_path).or_else(|| self.get(extension_path)).cloned() else {
+        let factory = self
+            .get(resolved_path)
+            .or_else(|| self.get(extension_path))
+            .or_else(|| {
+                let native_id = read_native_extension_id(resolved_path);
+                self.get(&native_id)
+            });
+        let Some(factory) = factory.cloned() else {
             return Err(ExtensionLoadError {
                 path: extension_path.to_owned(),
                 error: js_format!("Extension does not export a valid factory function: {}", extension_path),
