@@ -26,7 +26,7 @@ const WATCH_DEBOUNCE_MS: u64 = 500;
 /// Poll interval for `HEAD` and `reftable/tables.list`.
 const GIT_FILE_POLL_INTERVAL_MS: u64 = 1_000;
 
-type BranchChangeCallback = (usize, Arc<dyn Fn() + Send + Sync>);
+type BranchChangeCallback = (usize, Arc<dyn Fn() -> Result<(), CallbackError> + Send + Sync>);
 
 fn lock<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
@@ -274,7 +274,7 @@ struct FooterState {
 }
 
 impl FooterState {
-    fn notify_branch_change(&self) {
+    fn notify_branch_change(&self) -> Result<(), CallbackError> {
         let mut previous = None;
         loop {
             let next = lock(&self.branch_change_callbacks)
@@ -282,10 +282,10 @@ impl FooterState {
                 .find(|(id, _)| previous.is_none_or(|previous| *id > previous))
                 .cloned();
             let Some((id, callback)) = next else {
-                return;
+                return Ok(());
             };
             previous = Some(id);
-            callback();
+            callback()?;
         }
     }
 
@@ -396,7 +396,10 @@ impl FooterDataProvider {
     }
 
     /// Subscribes to branch changes; dropping the subscription unsubscribes.
-    pub fn on_branch_change(&self, callback: impl Fn() + Send + Sync + 'static) -> BranchChangeSubscription {
+    pub fn on_branch_change(
+        &self,
+        callback: impl Fn() -> Result<(), CallbackError> + Send + Sync + 'static,
+    ) -> BranchChangeSubscription {
         let id = self.state.next_callback_id.fetch_add(1, Ordering::SeqCst);
         lock(&self.state.branch_change_callbacks).push((id, Arc::new(callback)));
         BranchChangeSubscription {
@@ -443,12 +446,12 @@ impl FooterDataProvider {
             .store(count.to_bits(), Ordering::SeqCst);
     }
 
-    pub fn set_cwd(&self, cwd: impl Into<JsString>) {
+    pub fn set_cwd(&self, cwd: impl Into<JsString>) -> Result<(), CallbackError> {
         let cwd = cwd.into();
         {
             let mut current = lock(&self.state.cwd);
             if *current == cwd {
-                return;
+                return Ok(());
             }
             *current = cwd.clone();
         }
@@ -459,7 +462,7 @@ impl FooterDataProvider {
         *lock(&self.state.cached_branch) = None;
         *lock(&self.state.git_paths) = find_git_paths(&cwd);
         self.setup_git_watcher();
-        self.state.notify_branch_change();
+        self.state.notify_branch_change()
     }
 
     pub fn dispose(&self) {
@@ -484,35 +487,38 @@ impl FooterDataProvider {
         let handle = self.runtime.spawn(async move {
             tokio::time::sleep(Duration::from_millis(WATCH_DEBOUNCE_MS)).await;
             *lock(&provider.state.refresh_timer) = None;
-            provider.refresh_git_branch_async().await;
+            provider
+                .refresh_git_branch_async()
+                .await
+                .unwrap_or_else(|error| crate::utils::uncaught::throw_callback_uncaught(error));
         });
         *timer = Some(handle);
     }
 
-    async fn refresh_git_branch_async(&self) {
+    async fn refresh_git_branch_async(&self) -> Result<(), CallbackError> {
         if self.state.disposed.load(Ordering::SeqCst) {
-            return;
+            return Ok(());
         }
         if self.state.refresh_in_flight.swap(true, Ordering::SeqCst) {
             self.state.refresh_pending.store(true, Ordering::SeqCst);
-            return;
+            return Ok(());
         }
         let next_branch = self.state.resolve_branch_async().await;
         if self.state.disposed.load(Ordering::SeqCst) {
             self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-            return;
+            return Ok(());
         }
-        let previous = lock(&self.state.cached_branch).clone();
-        *lock(&self.state.cached_branch) = Some(next_branch.clone());
+        let previous = lock(&self.state.cached_branch).replace(next_branch.clone());
         self.state.refresh_in_flight.store(false, Ordering::SeqCst);
-        if let Some(previous) = previous
-            && previous != next_branch
-        {
-            self.state.notify_branch_change();
-        }
+        let result = if previous.is_some_and(|previous| previous != next_branch) {
+            self.state.notify_branch_change()
+        } else {
+            Ok(())
+        };
         if self.state.refresh_pending.swap(false, Ordering::SeqCst) && !self.state.disposed.load(Ordering::SeqCst) {
             self.schedule_refresh();
         }
+        result
     }
 
     fn clear_git_watchers(&self) {

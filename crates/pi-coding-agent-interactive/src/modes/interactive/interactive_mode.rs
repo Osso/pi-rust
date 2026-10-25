@@ -8507,7 +8507,7 @@ impl InteractiveMode {
         self.footer
             .borrow_mut()
             .set_auto_compact_enabled(self.session().auto_compaction_enabled());
-        self.footer_data_provider.set_cwd(self.cwd());
+        self.footer_data_provider.set_cwd(self.cwd())?;
         self.hide_thinking_block
             .set(self.settings(|settings| settings.get_hide_thinking_block()));
         self.ui

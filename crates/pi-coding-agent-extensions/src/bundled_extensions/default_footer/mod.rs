@@ -322,7 +322,7 @@ pub struct DefaultFooterComponent {
 
 impl DefaultFooterComponent {
     fn new(input: DefaultFooterComponentInput) -> Self {
-        let subscription = input.footer_data.on_branch_change(|| {});
+        let subscription = input.footer_data.on_branch_change(|| Ok(()));
         Self {
             input,
             subscriptions: std::sync::Mutex::new(vec![subscription]),
@@ -390,7 +390,10 @@ fn build_footer_factory(ctx: ExtensionContext, store: Option<Arc<MultiAgentStore
     Arc::new(
         move |footer: ExtensionUiFooterContext| -> Box<dyn ExtensionUiComponent> {
             let tui = footer.tui.clone();
-            let unsubscribe = footer.footer_data.on_branch_change(move || tui.request_render());
+            let unsubscribe = footer.footer_data.on_branch_change(move || {
+                tui.request_render();
+                Ok(())
+            });
             let get_agent_counts = store.clone().map(|store| {
                 let store = Arc::clone(&store);
                 Arc::new(move || Some(count_default_footer_agents(&store)))

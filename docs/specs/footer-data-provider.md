@@ -9,4 +9,4 @@ Frozen `core/footer-data-provider.ts` at the [common pin](../porting/source-lock
 - Session overrides expose the readonly live session view with isolated object reads and only the allowed goal mutators.
 - Available provider count is a JavaScript number, including fractional/negative/nonfinite/negative-zero values, not an integer count restriction.
 
-Current proof is incremental: readonly missing-API/override compile RED→GREEN; numeric domain compile RED and live callback actual-source ordering RED. Watcher/error/final module acceptance remains open. No new semantic deviation, fallback or dependency is authorized.
+Current proof is incremental: readonly missing-API/override compile RED→GREEN; numeric domain compile RED→GREEN and live callback actual-source ordering RED→GREEN. Original branch-callback error API compile RED; Result propagation is now implemented with caller adapters. Watcher/refresh-finally/final module acceptance remains open. No new semantic deviation, fallback or dependency is authorized.

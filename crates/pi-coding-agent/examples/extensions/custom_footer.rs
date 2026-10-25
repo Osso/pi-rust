@@ -93,7 +93,10 @@ pub fn custom_footer_extension(pi: &ExtensionApi) -> Result<(), HandlerError> {
                 if enabled {
                     ui.set_footer(Some(Arc::new(move |context| {
                         let tui = context.tui;
-                        let subscription = context.footer_data.on_branch_change(move || tui.request_render());
+                        let subscription = context.footer_data.on_branch_change(move || {
+                            tui.request_render();
+                            Ok(())
+                        });
                         Box::new(CustomFooter {
                             ctx: ctx.clone(),
                             theme: context.theme,

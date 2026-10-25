@@ -255,6 +255,7 @@ async fn does_not_notify_listeners_when_reftable_updates_keep_the_same_branch() 
     let counter = Arc::clone(&notifications);
     let _unsubscribe = provider.on_branch_change(move || {
         counter.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     });
 
     fs::write(fixture.reftable_dir.join("tables.list"), "1\n").unwrap();
@@ -306,6 +307,7 @@ async fn updates_the_cached_branch_when_the_reftable_directory_changes() {
     let counter = Arc::clone(&notifications);
     let _unsubscribe = provider.on_branch_change(move || {
         counter.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     });
 
     fs::write(fixture.reftable_dir.join("tables.list"), "1\n").unwrap();
@@ -337,9 +339,12 @@ async fn set_cwd_recomputes_the_branch_and_notifies() {
     let counter = Arc::clone(&notifications);
     let _unsubscribe = provider.on_branch_change(move || {
         counter.fetch_add(1, Ordering::SeqCst);
+        Ok(())
     });
 
-    provider.set_cwd(JsString::from((&second).to_str().expect("fixture path must be UTF-8")));
+    provider
+        .set_cwd(JsString::from((&second).to_str().expect("fixture path must be UTF-8")))
+        .unwrap();
     assert_eq!(provider.get_git_branch().as_ref(), Some(&JsString::from("other")));
     assert_eq!(notifications.load(Ordering::SeqCst), 1);
     provider.dispose();
