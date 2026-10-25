@@ -87,15 +87,17 @@ pub struct RuleFile {
 }
 
 /// Loads non-empty `.md` rule files in locale order.
-pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<RuleFile>> {
+pub fn load_rules_files_from_dir(dir_path: &JsString) -> Result<Vec<RuleFile>, JsString> {
     let encoded = encode_node_utf8(dir_path);
     let path = Path::new(&encoded);
     if !path.exists() || !path.is_dir() {
         return Ok(Vec::new());
     }
     let mut names = Vec::new();
-    for entry in fs::read_dir(path)? {
-        let entry = entry?;
+    for entry in
+        fs::read_dir(path).map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?
+    {
+        let entry = entry.map_err(|error| pi_js_compat::node_fs::node_fs_error(&error, "scandir", dir_path))?;
         let name = JsString::from(entry.file_name().to_string_lossy().as_ref());
         if name.ends_with(".md") {
             names.push(name);
@@ -105,7 +107,9 @@ pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<Rul
     let mut files = Vec::new();
     for name in names {
         let file_path = node_join(dir_path, name);
-        let content = read_text_file(&file_path)?.trim();
+        let content = read_text_file(&file_path)
+            .map_err(|error| pi_js_compat::node_fs::node_read_error(&error, &file_path))?
+            .trim();
         if !content.is_empty() {
             files.push(RuleFile {
                 path: file_path,
@@ -117,7 +121,7 @@ pub fn load_rules_files_from_dir(dir_path: &JsString) -> std::io::Result<Vec<Rul
 }
 
 /// Joins the non-empty rule files with a blank line.
-pub fn load_rules_from_dir(dir_path: &JsString) -> std::io::Result<Option<JsString>> {
+pub fn load_rules_from_dir(dir_path: &JsString) -> Result<Option<JsString>, JsString> {
     let contents: Vec<JsString> = load_rules_files_from_dir(dir_path)?
         .into_iter()
         .map(|file| file.content)
@@ -567,6 +571,7 @@ pub struct DefaultResourceLoaderOptions {
     pub append_system_prompt_override: Option<AppendSystemPromptOverride>,
 }
 
+#[derive(Clone)]
 struct ResourceLoaderState {
     extensions_result: LoadExtensionsResult,
     skills: Vec<Skill>,
@@ -817,21 +822,33 @@ impl DefaultResourceLoader {
         let pre_trust_extensions = self.load_pre_trust_extensions(resolve_project_trust).await?;
         self.settings().reload();
         let mut resource_sets = self.resolve_resource_sets().await?;
-        let mut state = ResourceLoaderState::default();
+        let mut state = self.state().clone();
+        state.extension_skill_source_infos.clear();
+        state.extension_prompt_source_infos.clear();
+        state.extension_theme_source_infos.clear();
+        *self.state() = state.clone();
 
-        self.load_extensions_into(&mut state, &resource_sets, pre_trust_extensions)
-            .await?;
+        let extensions = self
+            .load_extensions_into(&mut state, &resource_sets, pre_trust_extensions)
+            .await;
+        self.publish_reload_step(extensions, &state)?;
         state.resource_metadata_by_path = std::mem::take(&mut resource_sets.metadata_by_path);
-        self.load_skills_into(&mut state, &resource_sets)?;
-        self.load_prompts_into(&mut state, &resource_sets)?;
-        self.load_themes_into(&mut state, &resource_sets)?;
+        self.publish_reload_step(self.load_skills_into(&mut state, &resource_sets), &state)?;
+        self.publish_reload_step(self.load_prompts_into(&mut state, &resource_sets), &state)?;
+        self.publish_reload_step(self.load_themes_into(&mut state, &resource_sets), &state)?;
         self.load_agents_files_into(&mut state);
-        self.load_rules_into(&mut state)?;
+        *self.state() = state.clone();
+        self.publish_reload_step(self.load_rules_into(&mut state), &state)?;
         self.load_system_prompts_into(&mut state);
 
         state.loaded = true;
         *self.state() = state;
         Ok(())
+    }
+
+    fn publish_reload_step(&self, result: Result<(), JsString>, state: &ResourceLoaderState) -> Result<(), JsString> {
+        *self.state() = state.clone();
+        result
     }
 
     async fn load_pre_trust_extensions(
@@ -1799,14 +1816,11 @@ enum PathCheck {
 }
 
 fn load_rule_scope_files(shared_dir: &JsString, scope: RulesScope) -> Result<Vec<RuleFile>, JsString> {
-    let mut files = load_rules_files_from_dir(shared_dir).map_err(|error| JsString::from(error.to_string()))?;
+    let mut files = load_rules_files_from_dir(shared_dir)?;
     if scope == RulesScope::Shared {
         return Ok(files);
     }
-    files.extend(
-        load_rules_files_from_dir(&node_join(shared_dir, scope.as_str()))
-            .map_err(|error| JsString::from(error.to_string()))?,
-    );
+    files.extend(load_rules_files_from_dir(&node_join(shared_dir, scope.as_str()))?);
     Ok(files)
 }
 

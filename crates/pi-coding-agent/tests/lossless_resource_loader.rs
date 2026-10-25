@@ -38,6 +38,75 @@ fn frozen_context_loading_ignores_override_files() {
     assert_eq!(contents, expected_contents);
 }
 
+#[tokio::test]
+async fn reload_publishes_resources_in_frozen_order_and_keeps_updates_before_rule_failure() {
+    use pi_coding_agent::core::resource_loader::{DefaultResourceLoader, DefaultResourceLoaderOptions};
+    use pi_coding_agent::core::settings_manager::SettingsManager;
+    use serde_json::json;
+    use std::sync::{Arc, Mutex};
+    let source_root = tempfile::tempdir().unwrap();
+    let native_root = tempfile::tempdir().unwrap();
+    let mut oracle = oracle::TsOracle::spawn(
+        "resource-loader-lifecycle-oracle.ts",
+        "packages/coding-agent/src/core/resource-loader.ts",
+    );
+    let expected = oracle.request(&json!({"id":2,"root":source_root.path()}));
+    let skill = native_root.path().join("skill");
+    std::fs::create_dir(&skill).unwrap();
+    let write_skill = |name: &str| {
+        std::fs::write(
+            skill.join("SKILL.md"),
+            format!("---\nname: {name}\ndescription: fixture\n---\n{name} body\n"),
+        )
+        .unwrap()
+    };
+    write_skill("first");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let loader_ref: Arc<Mutex<Option<Arc<DefaultResourceLoader>>>> = Arc::new(Mutex::new(None));
+    let from_override = Arc::clone(&loader_ref);
+    let seen_override = Arc::clone(&seen);
+    let loader = Arc::new(
+        DefaultResourceLoader::new(DefaultResourceLoaderOptions {
+            cwd: native_root.path().to_str().unwrap().into(),
+            agent_dir: native_root.path().to_str().unwrap().into(),
+            settings_manager: Some(Arc::new(Mutex::new(SettingsManager::in_memory(
+                Default::default(),
+                Default::default(),
+            )))),
+            no_extensions: true,
+            no_skills: true,
+            no_prompt_templates: true,
+            no_themes: true,
+            no_context_files: true,
+            additional_skill_paths: vec![skill.to_str().unwrap().into()],
+            prompts_override: Some(Arc::new(move |base| {
+                let loader = from_override.lock().unwrap().clone().unwrap();
+                seen_override.lock().unwrap().push(
+                    loader
+                        .get_skills()
+                        .skills
+                        .into_iter()
+                        .map(|skill| skill.name)
+                        .collect::<Vec<_>>(),
+                );
+                base
+            })),
+            ..Default::default()
+        })
+        .unwrap(),
+    );
+    *loader_ref.lock().unwrap() = Some(Arc::clone(&loader));
+    loader.reload().await.unwrap();
+    write_skill("second");
+    std::fs::create_dir_all(native_root.path().join("rules/bad.md")).unwrap();
+    let error = loader.reload().await.unwrap_err();
+    assert_eq!(
+        json!({"id":2,"seen":seen.lock().unwrap().clone(),"skills":loader.get_skills().skills.into_iter().map(|skill|skill.name).collect::<Vec<_>>(),"error":error}),
+        expected
+    );
+    loader_ref.lock().unwrap().take();
+}
+
 #[test]
 fn extension_resources_propagate_invalid_path_errors() {
     use pi_coding_agent::core::package_manager::{MetadataOrigin, PathMetadata, SourceScope};

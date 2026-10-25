@@ -109,6 +109,10 @@ discarding them. AgentSession forwards the error from resource discovery through
 reload/bind_extensions. Invalid file-URL fixture asserts an observable failure;
 written but unexecuted. These are source-drift removals, not approved deviations.
 
+## Reload publication and rule-read audit (2026-10-25)
+
+Actual frozen reload publishes extension/skill/prompt/theme/context stages in order, and earlier successful updates remain visible after a later failure. Native previously built an atomic replacement snapshot: prompt overrides saw the old skill set, and a rule-read error discarded new skills. Reload now publishes each stage without retaining state locks across callbacks. Rule reads report Node scandir/read text instead of Rust OS Display text. RED `/tmp/ext-api2-resource-state-red.log`: callback observations `[[],[first]]` and retained first differ from frozen `[[first],[second]]` and retained second; native EISDIR text also differs. Focused GREEN pending.
+
 ## Constructor error carrier
 
 [Contract](../../specs/resource-loader-constructor-errors.md). Frozen :302–311 resolves cwd/agentDir and constructs settings/package manager without flattening errors. Native `DefaultResourceLoader::new` now returns CallbackError, resolves constructor paths fallibly without the old unresolved-input fallback, and preserves settings and package-manager error sources. SDK/services/supervisor and project-trust/create-settings adapters forward the same carrier. Other loader helpers are not revalidated by this constructor slice.
