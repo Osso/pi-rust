@@ -1,7 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { runAgentSessionScenario } from "./agent-session-scenarios.ts";
 import { dirname, join, resolve } from "node:path";
 import { installAssistantSnapshots } from "./assistant-snapshots.ts";
-import { fauxAssistantMessage, fauxText, fauxToolCall } from "@earendil-works/pi-ai/compat";
+import {
+	fauxAssistantMessage,
+	fauxText,
+	fauxToolCall,
+} from "@earendil-works/pi-ai/compat";
 
 const sdkPath = process.argv[2];
 const packagesRoot = resolve(dirname(sdkPath), "../../..");
@@ -9,14 +14,28 @@ const packagesRoot = resolve(dirname(sdkPath), "../../..");
 async function loadModules() {
 	await installAssistantSnapshots(`${packagesRoot}/ai/src`);
 	const sdkModule = await import(sdkPath);
-	const { SessionManager } = await import(`${packagesRoot}/coding-agent/src/core/session-manager.ts`);
-	const { SettingsManager } = await import(`${packagesRoot}/coding-agent/src/core/settings-manager.ts`);
-	const { AuthStorage } = await import(`${packagesRoot}/coding-agent/src/core/auth-storage.ts`);
-	const { ModelRegistry } = await import(`${packagesRoot}/coding-agent/src/core/model-registry.ts`);
-	const { createExtensionRuntime, ExtensionRunner } = await import(`${packagesRoot}/coding-agent/src/core/extensions/index.ts`);
+	const { SessionManager } = await import(
+		`${packagesRoot}/coding-agent/src/core/session-manager.ts`
+	);
+	const { SettingsManager } = await import(
+		`${packagesRoot}/coding-agent/src/core/settings-manager.ts`
+	);
+	const { AuthStorage } = await import(
+		`${packagesRoot}/coding-agent/src/core/auth-storage.ts`
+	);
+	const { ModelRegistry } = await import(
+		`${packagesRoot}/coding-agent/src/core/model-registry.ts`
+	);
+	const { createExtensionRuntime, ExtensionRunner } = await import(
+		`${packagesRoot}/coding-agent/src/core/extensions/index.ts`
+	);
 	const { Agent } = await import(`${packagesRoot}/agent-core/src/index.ts`);
-	const { createFauxCore } = await import(`${packagesRoot}/ai/src/providers/faux.ts`);
-	const { AgentSession } = await import(`${packagesRoot}/coding-agent/src/core/agent-session.ts`);
+	const { createFauxCore } = await import(
+		`${packagesRoot}/ai/src/providers/faux.ts`
+	);
+	const { AgentSession } = await import(
+		`${packagesRoot}/coding-agent/src/core/agent-session.ts`
+	);
 	return {
 		sdkModule,
 		SessionManager,
@@ -34,7 +53,11 @@ async function loadModules() {
 let modules;
 
 function createResourceLoader() {
-	const extensionsResult = { extensions: [], errors: [], runtime: modules.createExtensionRuntime() };
+	const extensionsResult = {
+		extensions: [],
+		errors: [],
+		runtime: modules.createExtensionRuntime(),
+	};
 	return {
 		getExtensions: () => extensionsResult,
 		getSkills: () => ({ skills: [], diagnostics: [] }),
@@ -54,38 +77,73 @@ function createResourceLoader() {
 
 function messageSummary(message) {
 	const text = Array.isArray(message.content)
-		? message.content.filter((part) => part.type === "text").map((part) => part.text).join("")
+		? message.content
+				.filter((part) => part.type === "text")
+				.map((part) => part.text)
+				.join("")
 		: typeof message.content === "string"
 			? message.content
 			: "";
 	const summary = { role: message.role, text };
 	if (message.stopReason !== undefined) summary.stopReason = message.stopReason;
-	if (message.errorMessage !== undefined) summary.errorMessage = message.errorMessage;
+	if (message.errorMessage !== undefined)
+		summary.errorMessage = message.errorMessage;
 	return summary;
 }
 
 async function run(request) {
-	const { SessionManager, SettingsManager, AuthStorage, ModelRegistry, Agent, createFauxCore, AgentSession } = modules;
+	const {
+		SessionManager,
+		SettingsManager,
+		AuthStorage,
+		ModelRegistry,
+		Agent,
+		createFauxCore,
+		AgentSession,
+	} = modules;
 	const dir = request.dir;
 	const agentDir = join(dir, "agent");
 	mkdirSync(agentDir, { recursive: true });
-	writeFileSync(join(agentDir, "auth.json"), JSON.stringify({ faux: { type: "api_key", key: "faux-key" } }));
-	writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: {} }));
+	writeFileSync(
+		join(agentDir, "auth.json"),
+		JSON.stringify({ faux: { type: "api_key", key: "faux-key" } }),
+	);
+	writeFileSync(
+		join(agentDir, "models.json"),
+		JSON.stringify({ providers: {} }),
+	);
 	const core = createFauxCore({
 		provider: request.operation === "quota-fallback" ? "openai-codex" : "faux",
 		api: "faux",
-		models: [{ id: "faux-1", name: "Faux Model", reasoning: true, contextWindow: 100000, maxTokens: 4096 }],
+		models: [
+			{
+				id: "faux-1",
+				name: "Faux Model",
+				reasoning: true,
+				contextWindow: 100000,
+				maxTokens: 4096,
+			},
+		],
 		tokenSize: { min: 1, max: 1 },
 		tokensPerSecond: 1_000_000,
 	});
 	core.setResponses([
-		fauxAssistantMessage([fauxText("world"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
-		fauxAssistantMessage([fauxText("again"), fauxToolCall("end_turn", { reason: "done" })], { stopReason: "toolUse" }),
+		fauxAssistantMessage(
+			[fauxText("world"), fauxToolCall("end_turn", { reason: "done" })],
+			{ stopReason: "toolUse" },
+		),
+		fauxAssistantMessage(
+			[fauxText("again"), fauxToolCall("end_turn", { reason: "done" })],
+			{ stopReason: "toolUse" },
+		),
 	]);
 	const model = core.getModel();
 	const authStorage = AuthStorage.inMemory();
 	authStorage.set(model.provider, { type: "api_key", key: "faux-key" });
-	const modelRegistry = ModelRegistry.create(authStorage, join(dir, "models.json"));
+	const modelRegistry = ModelRegistry.create(
+		authStorage,
+		join(dir, "models.json"),
+	);
 	modelRegistry.registerProvider(model.provider, {
 		apiKey: "faux-key",
 		baseUrl: model.baseUrl,
@@ -108,26 +166,61 @@ async function run(request) {
 		for (const provider of ["openai-codex-gc", "openai-codex-team"]) {
 			authStorage.set(provider, { type: "api_key", key: "faux-key" });
 			modelRegistry.registerProvider(provider, {
-				apiKey: "faux-key", baseUrl: model.baseUrl, api: model.api,
+				apiKey: "faux-key",
+				baseUrl: model.baseUrl,
+				api: model.api,
 				models: [{ ...model, provider }],
 			});
 		}
-
 	}
 	const sessionDir = join(dir, "sessions");
 	const sessionManager = SessionManager.create(dir, sessionDir);
-	const settingsManager = ["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)
-		? SettingsManager.inMemory({ compaction: { enabled: false, keepRecentTokens: 1, ...(["threshold-trailing", "next-turn-threshold"].includes(request.operation) ? { thresholdPercent: 50, reserveTokens: 0 } : {}) } })
+	const settingsManager = [
+		"preflight-compaction",
+		"compaction-lock",
+		"repeat-overflow",
+		"threshold-trailing",
+		"next-turn-threshold",
+		"auto-abort-hook",
+		"auto-duration-hook",
+		"background-events",
+		"background-disabled",
+		"background-cancel-wait",
+		"background-ancestor",
+	].includes(request.operation)
+		? SettingsManager.inMemory({
+				compaction: {
+					enabled: false,
+					keepRecentTokens: 1,
+					...([
+						"threshold-trailing",
+						"next-turn-threshold",
+						"auto-abort-hook",
+						"auto-duration-hook",
+					].includes(request.operation)
+						? { thresholdPercent: 50, reserveTokens: 0 }
+						: {}),
+				},
+			})
 		: SettingsManager.create(dir, agentDir);
 	const requestedProviders = [];
-	if (request.operation === "quota-fallback") settingsManager.setRetryEnabled(false);
+	if (request.operation === "quota-fallback")
+		settingsManager.setRetryEnabled(false);
 	const agent = new Agent({
 		initialState: { systemPrompt: "", model, thinkingLevel: "off", tools: [] },
 		streamFn: (requestModel, context, options) => {
 			requestedProviders.push(requestModel.provider);
 			if (request.operation === "quota-fallback") {
-				const account = createFauxCore({ provider: requestModel.provider, api: "faux" });
-				account.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "usage limit" })]);
+				const account = createFauxCore({
+					provider: requestModel.provider,
+					api: "faux",
+				});
+				account.setResponses([
+					fauxAssistantMessage([], {
+						stopReason: "error",
+						errorMessage: "usage limit",
+					}),
+				]);
 				return account.streamSimple(requestModel, context, options);
 			}
 			return core.streamSimple(requestModel, context, options);
@@ -149,273 +242,39 @@ async function run(request) {
 		modelRegistry,
 		initialActiveToolNames: [],
 	});
-	if (request.operation === "runner-identity") {
-		const runner = session.extensionRunner;
-		const alias = session.extensionRunner;
-		const fresh = new modules.ExtensionRunner([], session.resourceLoader.getExtensions().runtime, dir, sessionManager, modelRegistry, settingsManager);
-		session.dispose();
-		return { aliasSame: runner === alias, freshSame: runner === fresh };
+	if (request.operation !== undefined) {
+		return runAgentSessionScenario(request, {
+			session,
+			agent,
+			sessionManager,
+			settingsManager,
+			model,
+			core,
+			requestedProviders,
+			dir,
+			modules,
+			modelRegistry,
+		});
 	}
-	if (request.operation === "export-error") {
-		try {
-			session.exportToJsonl(request.outputPath);
-			return { success: true };
-		} catch (error) {
-			return { name: error.name, message: error.message, ...Object.fromEntries(Object.entries(error).filter(([key]) => key !== "stack")) };
-		} finally {
-			session.dispose();
-		}
-	}
-	if (request.operation === "navigation-empty-summary") {
-		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
-		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
-		agent.state.messages = sessionManager.buildSessionContext().messages;
-		const runner = session.extensionRunner;
-		const emit = runner.emit.bind(runner);
-		runner.hasHandlers = (type) => type === "session_before_tree";
-		runner.emit = async (event) => event.type === "session_before_tree" ? { summary: { summary: "" }, label: "" } : emit(event);
-		const result = await session.navigateTree(first, { summarize: true, label: "" });
-		const entries = sessionManager.getEntries();
-		session.dispose();
-		return {
-			hasSummary: result.summaryEntry !== undefined,
-			atRoot: sessionManager.getLeafId() === null,
-			summaries: entries.filter((entry) => entry.type === "branch_summary").length,
-			labels: entries.filter((entry) => entry.type === "label").length,
-		};
-	}
-	if (request.operation === "navigation-auth") {
-		const first = sessionManager.appendMessage({ role: "user", content: "first request", timestamp: 0 });
-		sessionManager.appendMessage(fauxAssistantMessage("old answer"));
-		agent.state.model = { ...model, provider: "unconfigured-provider" };
-		agent.state.messages = sessionManager.buildSessionContext().messages;
-		try {
-			await session.navigateTree(first, { summarize: true });
-			return { success: true };
-		} catch (error) {
-			return { error: error.message };
-		} finally {
-			session.dispose();
-		}
-	}
-	if (["preflight-compaction", "compaction-lock", "repeat-overflow", "threshold-trailing", "next-turn-threshold", "background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
-		sessionManager.appendMessage({ role: "user", content: "older message to compact", timestamp: 0 });
-		sessionManager.appendMessage(fauxAssistantMessage("assistant response to compact"));
-		for (let i = 0; i < 4; i++) {
-			sessionManager.appendMessage({ role: "user", content: `newer request ${i}`, timestamp: i + 1 });
-		}
-		sessionManager.appendMessage(fauxAssistantMessage("latest answer"));
-		agent.state.messages = sessionManager.buildSessionContext().messages;
-		settingsManager.setCompactionEnabled(false);
-		const runner = session.extensionRunner;
-		const emit = runner.emit.bind(runner);
-		if (["background-events", "background-disabled", "background-cancel-wait", "background-ancestor"].includes(request.operation)) {
-			const events = [];
-			let finish;
-			let release;
-			let markStarted;
-			const started = new Promise((resolve) => { markStarted = resolve; });
-			const gate = new Promise((resolve) => { release = resolve; });
-			const settled = new Promise((resolve) => { finish = resolve; });
-			runner.hasHandlers = (type) => type === "compaction";
-			runner.emit = async (event) => {
-				events.push(event.type);
-				if (event.type === "background_compaction_start" && request.operation === "background-ancestor") {
-					markStarted();
-					await gate;
-				}
-				if (event.type === "compaction" && request.operation === "background-ancestor") return {
-					compaction: { summary: "saved background summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
-				};
-				if (event.type === "compaction" && request.operation === "background-cancel-wait") return { cancel: true };
-				if (event.type === "background_compaction_end") {
-					finish();
-					if (request.operation === "background-cancel-wait") await gate;
-				}
-			};
-			session._startBackgroundCompaction(80000, 100000);
-			if (request.operation === "background-ancestor") {
-				await started;
-				await session.sendCustomMessage({ customType: "tail", content: "status while pending", display: false });
-				release();
-			}
-			await settled;
-			if (request.operation === "background-ancestor") {
-				for (let i = 0; i < 100 && !sessionManager.getEntries().some((entry) => entry.type === "compaction"); i++) await new Promise((resolve) => setTimeout(resolve, 10));
-				const result = {
-					installed: sessionManager.getEntries().some((entry) => entry.type === "compaction"),
-					tailPresent: session.messages.some((message) => message.role === "custom" && message.customType === "tail"),
-					tailText: session.messages.find((message) => message.role === "custom" && message.customType === "tail")?.content,
-				};
-				session.dispose();
-				return result;
-			}
-			if (request.operation === "background-cancel-wait") {
-				const cancelling = session._cancelBackgroundCompaction();
-				const completedBeforeEnd = await Promise.race([cancelling.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100))]);
-				release();
-				await cancelling;
-				session.dispose();
-				return { completedBeforeEnd };
-			}
-			session.dispose();
-			return request.operation === "background-disabled" ? {
-				events: events.filter((event) => event !== "compaction"), providerCalls: requestedProviders.length,
-			} : events;
-		}
-		if (["threshold-trailing", "next-turn-threshold"].includes(request.operation)) {
-			settingsManager.setRetryEnabled(false);
-			agent.state.model = { ...model, contextWindow: 1000, autoCompactionThreshold: 900 };
-			const anchor = fauxAssistantMessage("anchor");
-			anchor.usage.input = request.operation === "next-turn-threshold" ? 600 : 400;
-			anchor.usage.totalTokens = anchor.usage.input;
-			sessionManager.appendMessage(anchor);
-			agent.state.messages = sessionManager.buildSessionContext().messages;
-			await session.sendCustomMessage({ customType: "tail", content: "x".repeat(800), display: false });
-			let compactions = 0;
-			runner.hasHandlers = (type) => type === "compaction";
-			runner.emit = async (event) => {
-				if (event.type !== "compaction") return emit(event);
-				compactions++;
-				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
-			};
-			if (request.operation === "next-turn-threshold") {
-				const update = await agent.prepareNextTurnWithContext({
-					message: anchor, toolResults: [], newMessages: [],
-					context: { systemPrompt: agent.state.systemPrompt, messages: agent.state.messages.slice(), tools: agent.state.tools.slice() },
-				});
-				session.dispose();
-				return { compactions, hasSummary: update.context.messages.some((message) => message.role === "compactionSummary") };
-			}
-			core.setResponses([fauxAssistantMessage([], { stopReason: "error", errorMessage: "fatal" })]);
-			let beforeRun;
-			await session.prompt("next request", { preflightResult: (accepted) => { if (accepted) beforeRun = compactions; } });
-			session.dispose();
-			return { compactions, beforeRun };
-		}
-		if (request.operation === "repeat-overflow") {
-			settingsManager.setRetryEnabled(false);
-			let compactions = 0;
-			runner.hasHandlers = (type) => type === "compaction";
-			runner.emit = async (event) => {
-				if (event.type !== "compaction") return emit(event);
-				compactions++;
-				return { compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 } };
-			};
-			core.setResponses(["maximum context length exceeded", "fatal", "maximum context length exceeded", "fatal"].map((errorMessage) =>
-				fauxAssistantMessage([], { stopReason: "error", errorMessage, timestamp: 0 })));
-			await session.prompt("first overflow request");
-			await session.prompt("second overflow request");
-			session.dispose();
-			return { compactions };
-		}
-		if (request.operation === "compaction-lock") {
-			sessionManager.appendMessage({ role: "user", content: "unfinished request", timestamp: 10 });
-			agent.state.messages = sessionManager.buildSessionContext().messages;
-			settingsManager.setRetryEnabled(false);
-			runner.hasHandlers = (type) => type === "compaction";
-			runner.emit = async (event) => event.type === "compaction" ? {
-				compaction: { summary: "saved summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
-			} : emit(event);
-			let release;
-			let markStarted;
-			const gate = new Promise((resolve) => { release = resolve; });
-			const started = new Promise((resolve) => { markStarted = resolve; });
-			core.setResponses([async () => {
-				markStarted();
-				await gate;
-				return fauxAssistantMessage("resumed answer");
-			}]);
-			const compacting = session.compact();
-			await started;
-			const accepted = await Promise.race([
-				session.prompt("new input", { streamingBehavior: "followUp" }).then(() => true),
-				new Promise((resolve) => setTimeout(() => resolve(false), 100)),
-			]);
-			release();
-			await session.abort();
-			await compacting;
-			session.dispose();
-			return accepted;
-		}
-		runner.hasHandlers = (type) => type === "session_before_compact";
-		runner.emit = async (event) => event.type === "session_before_compact" ? {
-			compaction: { summary: "obsolete preflight summary", firstKeptEntryId: event.preparation.firstKeptEntryId, tokensBefore: 1 },
-		} : emit(event);
-		try {
-			const result = await session.compact("keep decisions");
-			return { summary: result.summary };
-		} catch (error) {
-			return { error: error.message };
-		} finally {
-			session.dispose();
-		}
-	}
-	if (["idle-steer", "navigation-streaming"].includes(request.operation)) {
-		sessionManager.appendMessage({ role: "user", content: "earlier request", timestamp: 0 });
-		agent.state.messages = sessionManager.buildSessionContext().messages;
-		let release;
-		let markStarted;
-		const gate = new Promise((resolve) => { release = resolve; });
-		const started = new Promise((resolve) => { markStarted = resolve; });
-		core.setResponses([async () => {
-			markStarted();
-			await gate;
-			return fauxAssistantMessage("steered");
-		}]);
-		const steering = session.steer("idle steer");
-		await started;
-		let navigation;
-		if (request.operation === "navigation-streaming") {
-			try {
-				navigation = await session.navigateTree(sessionManager.getLeafId());
-			} catch (error) {
-				navigation = { error: error.message };
-			}
-		}
-		const returnedBeforeResponse = await Promise.race([
-			steering.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 100)),
-		]);
-		release();
-		await steering;
-		await session.abort();
-		session.dispose();
-		return request.operation === "navigation-streaming" ? navigation : returnedBeforeResponse;
-	}
-	if (request.operation === "quota-fallback") {
-		await session.prompt("quota test");
-		const result = { requestedProviders, provider: session.model.provider };
-		session.dispose();
-		return result;
-	}
-	if (request.operation === "cycle-models") {
-		session.setScopedModels(request.scopes.map((scope) => ({
-			model: { ...model, ...scope },
-			thinkingLevel: "high",
-		})));
-		const results = [];
-		for (const direction of request.directions) {
-			const result = await session.cycleModel(direction);
-			results.push(result ? {
-				id: result.model.id,
-				name: result.model.name,
-				thinkingLevel: result.thinkingLevel,
-				isScoped: result.isScoped,
-			} : null);
-		}
-		session.dispose();
-		return results;
-	}
+	return runBaselineSessionScenario(session, sessionManager, dir);
+}
+
+async function runBaselineSessionScenario(session, sessionManager, dir) {
 	const events = [];
 	session.subscribe((rawEvent) => {
 		const event = structuredClone(rawEvent);
 		const entry = { type: event.type };
 		if (event.type === "agent_end") entry.willRetry = event.willRetry;
 		if (event.type === "thinking_level_changed") entry.level = event.level;
-		if (event.type === "message_start" || event.type === "message_update" || event.type === "message_end") {
+		if (
+			event.type === "message_start" ||
+			event.type === "message_update" ||
+			event.type === "message_end"
+		) {
 			entry.message = messageSummary(event.message);
 		}
-		if (event.type === "message_update") entry.assistantMessageEvent = event.assistantMessageEvent;
+		if (event.type === "message_update")
+			entry.assistantMessageEvent = event.assistantMessageEvent;
 		if (event.type === "queue_update") {
 			entry.steering = event.steering;
 			entry.followUp = event.followUp;
@@ -436,14 +295,22 @@ async function run(request) {
 	});
 	const statsAfterBash = session.getSessionStats();
 	const exportPath = session.exportToJsonl(join(dir, "export.jsonl"));
-	const exportLines = readFileSync(exportPath, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const exportLines = readFileSync(exportPath, "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
 	const firstUserEntry = sessionManager
 		.getEntries()
 		.find((entry) => entry.type === "message" && entry.message.role === "user");
-	const navigation = await session.navigateTree(firstUserEntry.id, { summarize: false });
+	const navigation = await session.navigateTree(firstUserEntry.id, {
+		summarize: false,
+	});
 	const stats = session.getSessionStats();
 	const sessionFile = session.sessionFile;
-	const lines = readFileSync(sessionFile, "utf8").trim().split("\n").map((line) => JSON.parse(line));
+	const lines = readFileSync(sessionFile, "utf8")
+		.trim()
+		.split("\n")
+		.map((line) => JSON.parse(line));
 	session.setSessionName("Named session");
 	await session.abort();
 	session.dispose();
@@ -491,7 +358,9 @@ async function main() {
 				const value = await run(request);
 				process.stdout.write(`${JSON.stringify({ ok: true, value })}\n`);
 			} catch (error) {
-				process.stdout.write(`${JSON.stringify({ ok: false, error: String(error?.stack ?? error) })}\n`);
+				process.stdout.write(
+					`${JSON.stringify({ ok: false, error: String(error?.stack ?? error) })}\n`,
+				);
 			}
 		}
 	}

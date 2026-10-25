@@ -28,7 +28,6 @@ use super::dispatch_runtime::{
     dispatch_attached_session_agent, release_ownership_after_dispatch, run_agent_session, start_tool_dispatch,
 };
 use super::lifecycle_runtime::{create_lifecycle_coordinator, publish_coordinator_snapshot, runtime_process_identity};
-use super::parent_agent_journal::read_active_parent_agent_ids as read_journal_ids;
 use super::session_factories::{
     is_production_child_session_factory, spawn_prompt_validation_message, validate_goal_objective,
 };
@@ -827,25 +826,11 @@ pub struct RecoverAgentsInput {
 }
 
 pub fn recover_agents(input: &RecoverAgentsInput) -> Result<(), HandlerError> {
-    let active_parent_agent_ids = Some(read_journal_ids(&input.ctx)?);
     let active_agents = query_recovery_targets(input)?;
     for agent in order_recovery_agents(active_agents) {
-        let admitted = active_parent_agent_ids.as_ref().is_none_or(|ids| {
-            agent.transcript.as_ref().and_then(|t| t.path.as_ref()).is_none() || ids.contains(&agent.id)
-        });
-        if admitted {
-            recover_agent(input, &agent)?;
-        } else {
-            recover_and_publish_dead_agent(input, &agent)?;
-        }
+        recover_agent(input, &agent)?;
     }
     Ok(())
-}
-
-pub fn read_active_parent_agent_ids(
-    ctx: &ExtensionContext,
-) -> Result<std::collections::HashSet<JsString>, HandlerError> {
-    read_journal_ids(ctx)
 }
 
 fn query_recovery_targets(input: &RecoverAgentsInput) -> Result<Vec<AgentSnapshot>, HandlerError> {

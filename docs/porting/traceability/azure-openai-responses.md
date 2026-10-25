@@ -1,44 +1,30 @@
-# azure-openai-responses traceability
+# Azure OpenAI Responses traceability
 
-## Q4 common-pin status
+Frozen: `packages/ai/src/api/azure-openai-responses.ts` at [source lock](../source-lock.json),297 lines. Native: `crates/pi-ai/src/api/azure_openai_responses.rs`, shared SDK and [Responses algorithms](openai-responses-shared.md).
 
-Partial. Corrected global-fetch oracle now drives frozen SDK requests. SDK header6.26.0 restored; removed output floor and source-absent shared rawStopReason/strict-schema rewriting. Original9 recorded scenarios pass after shared incomplete-event handling correction (`responses-incomplete-cache-green.log`). Added actual SDK429→success retry scenario9: native retry header0 versus frozen1 RED (`azure-retry-red.log`); retry construction now supplies attempt count. All10 recorded scenarios pass at dbcc11de (`responses-retry-green.log`). Shared-module differentials still expose old grammar/custom-tool conversion and namespace drift; whole-module parity remains partial. [Exact audit/proof](../ai-scripted-provider-oracles.md). Historical recorded-fetch parity claims below are superseded. No assertion narrowed; `request.fetch` is an approved Rust-only seam; unset must match frozen default fetch (`AGENTS.md`).
+## Whole-module audit (2026-10-25)
 
-Source: `packages/ai/src/api/azure-openai-responses.ts` and `azure-openai-responses.lazy.ts`.
-Rust: `crates/pi-ai/src/api/azure_openai_responses.rs`.
-Tests: module unit tests, `crates/pi-ai/tests/differential_azure_openai_responses.rs` (9 recorded-fetch scenarios).
+| Source symbols / branches | Proof |
+|---|---|
+| `AzureOpenAIResponsesOptions`, `DEFAULT_AZURE_API_VERSION`, provider set | exact source request matrix; native scalar options with native URL/config values |
+| `parseDeploymentNameMap`, `resolveDeploymentName`: comma split, trim, two-segment equals split, ignore missing segments, last duplicate wins, truthy option→map→model | `azure_options_match_frozen_empty_precedence_map_splits_and_sdk_retry`; unit map cases |
+| `normalizeAzureBaseUrl`: trim/slash removal, invalid URL error, three Azure suffixes, four normalized root paths, query removal, custom path retention | original request/config cases and `azure_hosts_get_the_v1_base_path` |
+| `buildDefaultBaseUrl`, `resolveAzureConfig`: truthy version option→env→v1; base option→env; truthy resource option→env; model URL; explicit missing error | original env/custom/resource cases; empty option precedence regression; native lossless config fixtures |
+| `createClient`: model→caller headers, Azure key/version/base URL | full SDK request header/body/URL comparisons; Responses path is not a deployment endpoint in frozen SDK |
+| `buildParams`: deployment/input/stream/cache/store, truthy maxTokens, temperature, plain tools, mapped/default/off reasoning | original12 scenarios plus five config/request/retry boundary cases; removed old-only sampling merge and output floor |
+| `stream`: per-request deployment/output, key guard, payload callback, SDK options, response callback, start/shared stream, abort/unknown-error guard, terminal/catch scratch cleanup | exact source events/results including open tool failure; `differential_api_catches` preserves raw/native error branding, prefix/status/body |
+| `streamSimple`: synchronous missing/empty key rejection, base options and reasoning clamps | `differential_simple_acquisition`; existing medium Simple case; [base options](simple-options.md) |
+| lazy factory | [lazy proof](api-lazy.md) |
 
-## Symbols → proof
-| TS | Rust | Test |
-|---|---|---|
-| `DEFAULT_AZURE_API_VERSION` | constant | 0 |
-| `AZURE_TOOL_CALL_PROVIDERS` | constant | conversion |
-| `OPENAI_RESPONSES_MIN_OUTPUT_TOKENS` | constant | 0 |
-| `parseDeploymentNameMap` | `parse_deployment_name_map` | 2; unit test |
-| `resolveDeploymentName` | `resolve_deployment_name` | 0-2 |
-| `formatAzureOpenAIError` | `format_sdk_error`/`format_request_error` with `"Azure OpenAI API error"` | 6 |
-| `AzureOpenAIResponsesOptions` | `AzureOpenAIResponsesOptions` | 1, 4 |
-| `stream` / `streamSimple` | same + `AzureOpenAIResponsesApi` | all |
-| `normalizeAzureBaseUrl` | `normalize_azure_base_url` | 0-2; unit test |
-| `buildDefaultBaseUrl` | `build_default_base_url` | unit test |
-| `resolveAzureConfig` | `resolve_azure_config` | 1-2 |
-| `createClient` (api-key, api-version, headers) | `create_client` | all request comparisons |
-| `buildParams` | `build_params` | 0-5 |
-| strict mode default `true` | `build_params` | 3 |
-| lazy wrapper | `azure_open_ai_responses_api` | `LazyApi` covered by `api_lazy` tests |
+SDK request maxRetries is honored with exact attempt headers. pi's maxRetryDelayMs is not a frozen SDK request option and is ignored here. No source correction, dependency, fallback or deployment.
 
-## Differential normalization
-Same as `openai-responses`: timestamps, environment identity headers, and malformed-JSON text.
+## Explicit gaps
 
-## Gaps
-- `streamSimple` API-key failure is an error stream instead of a synchronous throw.
-- The pinned Azure SDK does not add `/deployments/{model}` for `/responses`; the URL is `/openai/v1/responses?api-version=...` and the deployment name is only `body.model`.
+- SDK runtime/OS-fault shapes, pathological wrong-typed JSON/numeric extremes, and unmatched units beyond existing opaque/schema carriers follow the user-observable boundary. Default SDK malformed-SSE diagnostics have bounded actual-source/native stderr proof, including raw heartbeat/event/data lines.
+- Native partial snapshots and native callback ownership use the existing contracts. URL IDNA/runtime edge cases are not hunted.
 
-## Discrepancies
-- None.
+Proof ledger: [AI API re-pin proof](../ai-api-repin-proof.md). Earlier [native SDK boundaries](lossless-sdk-boundaries.md) remain bounded historical evidence, not a workspace gate.
 
-## Q18 provider request integration (2026-10-22)
+## Shared SDK SSE diagnostics
 
-Azure endpoint/resource/API-version/deployment values and environment map parsing now use native units. URL normalization applies the shared WHATWG boundary, and SDK URL/header conversion propagates through existing failure handling. Grammar property names remain the existing scalar metadata contract.
-
-[Focused public-provider runtime proof](lossless-sdk-boundaries.md) records exact covered cases, revisions and remaining acceptance limits.
+`malformed_sse_console_diagnostics_match_frozen_sdk` compares the actual frozen SDK console formatter against native child-process stderr for ordinary, heartbeat-prefixed and multiline/event-prefixed malformed data. Genuine RED was completely missing native diagnostics. The decoder now retains source raw-line state across heartbeat segments, preserves event type, and does not emit an unterminated final event. Seven additional LF/CRLF/CR/comment/multiline/thread/EOF request/event/result cases exercise the same shim. The Node logger caches its console method, so the oracle installs one stable forwarding spy before module import and switches only its recording target; it does not patch source or alter formatting. Source body errors and SDK host/runtime fault branches are not generalized from these fixtures.

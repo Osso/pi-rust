@@ -25,8 +25,8 @@ struct Ui {
     theme: Arc<Theme>,
 }
 impl ExtensionUiContext for Ui {
-    fn theme(&self) -> Arc<Theme> {
-        self.theme.clone()
+    fn theme(&self) -> Result<Arc<Theme>, pi_ai::request::CallbackError> {
+        Ok(self.theme.clone())
     }
     fn set_status(
         &self,

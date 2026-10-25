@@ -423,10 +423,20 @@ pub struct SseJsonStream {
     signal: Option<AbortSignal>,
     headers: BTreeMap<String, String>,
     pending: VecDeque<SseEvent>,
+    decoder: SseDecoder,
 }
 
 struct SseEvent {
     data: String,
+    event: Option<String>,
+    raw: Vec<String>,
+}
+
+#[derive(Default)]
+struct SseDecoder {
+    data: Vec<String>,
+    event: Option<String>,
+    raw: Vec<String>,
 }
 
 impl SseJsonStream {
@@ -439,6 +449,7 @@ impl SseJsonStream {
             signal,
             headers: headers.into_iter().collect(),
             pending: VecDeque::new(),
+            decoder: SseDecoder::default(),
         }
     }
 
@@ -457,8 +468,16 @@ impl SseJsonStream {
             self.done = true;
             return Ok(None);
         }
-        let value: JsValue = pi_js_compat::js_json::parse_lossless(&event.data)
-            .map_err(|error| SdkError::Message(error.into_message()))?;
+        let value = match pi_js_compat::js_json::parse_lossless(&event.data) {
+            Ok(value) => value,
+            Err(error) => {
+                write_sse_parse_diagnostics(&event)?;
+                return Err(SdkError::Message(error.into_message()));
+            }
+        };
+        if let Some(event) = event.event.filter(|event| event.starts_with("thread.")) {
+            return Ok(Some(pi_js_compat::js_json!({"event":event,"data":value})));
+        }
         if let Some(error) = value.get("error").filter(|error| is_truthy_ingress(error)) {
             let message = api_error_detail(error);
             let mut headers = ProviderErrorHeaders::new();
@@ -480,7 +499,7 @@ impl SseJsonStream {
         loop {
             if let Some(segment) = take_sse_segment(&mut self.buffer) {
                 self.pending
-                    .extend(decode_sse_segment(&String::from_utf8_lossy(&segment)));
+                    .extend(self.decoder.decode_segment(&String::from_utf8_lossy(&segment)));
                 if !self.pending.is_empty() {
                     return Ok(());
                 }
@@ -492,7 +511,7 @@ impl SseJsonStream {
                 }
                 let remaining = std::mem::take(&mut self.buffer);
                 self.pending
-                    .extend(decode_sse_segment(&String::from_utf8_lossy(&remaining)));
+                    .extend(self.decoder.decode_segment(&String::from_utf8_lossy(&remaining)));
                 return Ok(());
             }
             if self.signal.as_ref().is_some_and(AbortSignal::aborted) {
@@ -539,31 +558,58 @@ fn find_double_newline_index(buffer: &[u8]) -> Option<usize> {
     None
 }
 
-fn decode_sse_segment(segment: &str) -> Vec<SseEvent> {
-    let mut events = Vec::new();
-    let mut data: Vec<String> = Vec::new();
-    let normalized = segment.replace("\r\n", "\n").replace('\r', "\n");
-    for line in normalized.split('\n') {
+impl SseDecoder {
+    fn decode_segment(&mut self, segment: &str) -> Vec<SseEvent> {
+        let normalized = segment.replace("\r\n", "\n").replace('\r', "\n");
+        normalized
+            .split_terminator('\n')
+            .filter_map(|line| self.decode_line(line))
+            .collect()
+    }
+
+    fn decode_line(&mut self, line: &str) -> Option<SseEvent> {
         if line.is_empty() {
-            if data.is_empty() {
-                continue;
+            if self.event.as_ref().is_none_or(String::is_empty) && self.data.is_empty() {
+                return None;
             }
-            events.push(SseEvent { data: data.join("\n") });
-            data.clear();
-            continue;
+            let event = SseEvent {
+                data: self.data.join("\n"),
+                event: self.event.take(),
+                raw: std::mem::take(&mut self.raw),
+            };
+            self.data.clear();
+            return Some(event);
         }
+        self.raw.push(line.to_owned());
         if line.starts_with(':') {
-            continue;
+            return None;
         }
         let (field, value) = match line.split_once(':') {
             Some((field, value)) => (field, value.strip_prefix(' ').unwrap_or(value)),
             None => (line, ""),
         };
-        if field == "data" {
-            data.push(value.to_owned());
+        match field {
+            "data" => self.data.push(value.to_owned()),
+            "event" => self.event = Some(value.to_owned()),
+            _ => {}
         }
+        None
     }
-    events
+}
+
+fn write_sse_parse_diagnostics(event: &SseEvent) -> Result<(), SdkError> {
+    use std::io::Write;
+    let raw = pi_js_compat::js_json!(event.raw);
+    let raw = pi_js_compat::node_fs::inspect_console_value(&raw);
+    let message = pi_js_compat::js_format!(
+        "Could not parse message into JSON: {}\nFrom chunk: {}\n",
+        event.data,
+        raw
+    );
+    std::io::stderr()
+        .lock()
+        .write_all(&pi_js_compat::js_json::encode_node_utf8(&message).into_bytes())
+        .map_err(|error| SdkError::Message(error.to_string().into()))
 }
 
 /// Check only named scalar metadata fields, never content or argument subtrees.
@@ -643,6 +689,42 @@ pub fn format_sdk_error(error: &SdkError, prefix: Option<&str>) -> JsString {
         }
         SdkError::Message(message) => message.clone(),
     }
+}
+
+/// Preserve the thrown value and SDK-shaped fields at a provider's callback catch.
+pub(crate) fn format_callback_error(error: &CallbackError, prefix: Option<&str>) -> JsString {
+    use crate::utils::error_body::{
+        ErrorBody, ProviderError, ProviderErrorInput, format_provider_error, normalize_provider_error,
+    };
+    use pi_js_compat::abort::AbortReason;
+    let input = match error.thrown_value() {
+        AbortReason::Value(value) => ProviderErrorInput::Value(value),
+        AbortReason::Error(error) | AbortReason::DomException(error) => {
+            let fields = error.value();
+            let number = |name| fields.get(name).and_then(JsValue::as_f64);
+            let nested_number = |name, key| {
+                fields
+                    .get(name)
+                    .and_then(|value| value.get(key))
+                    .and_then(JsValue::as_f64)
+            };
+            ProviderErrorInput::Error(Box::new(ProviderError {
+                message: error.message,
+                status_code: number("statusCode"),
+                status: number("status"),
+                body: fields.get("body").cloned().map(ErrorBody::Json),
+                error: fields.get("error").cloned(),
+                metadata_http_status_code: nested_number("$metadata", "httpStatusCode"),
+                response_status_code: nested_number("$response", "statusCode"),
+                response_body: fields
+                    .get("$response")
+                    .and_then(|value| value.get("body"))
+                    .cloned()
+                    .map(ErrorBody::Json),
+            }))
+        }
+    };
+    format_provider_error(&normalize_provider_error(&input), prefix)
 }
 
 /// Format a retry-layer failure (`ProviderRequestError<CallbackError>`).

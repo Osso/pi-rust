@@ -259,7 +259,7 @@ fn read_string_arg(args: &Value, key: &str) -> Option<JsString> {
 }
 
 fn format_pyrun_result(text: &JsString, executed: Option<&JsString>, is_error: bool, theme: &Theme) -> JsString {
-    let Some(executed) = executed else {
+    let Some(executed) = executed.filter(|executed| !executed.is_empty()) else {
         return theme.fg(ThemeColor::ToolOutput, text);
     };
     if !text.starts_with(executed) {
@@ -458,9 +458,11 @@ fn list_resolvable_sessions(ctx: &ExtensionContext) -> Result<Vec<SessionInfo>, 
         let manager = session;
         (manager.get_cwd().to_owned(), manager.get_session_dir().to_owned())
     };
-    let local = SessionManager::list(&cwd, Some(&session_dir), None, None)
+    let control_db_path = ctx.control_db_path()?;
+    let local = SessionManager::list(&cwd, Some(&session_dir), None, control_db_path.as_ref())
         .map_err(|error| HandlerError::new(error.message()))?;
-    let all = SessionManager::list_all(None, None, None).map_err(|error| HandlerError::new(error.message()))?;
+    let all = SessionManager::list_all(None, None, control_db_path.as_ref())
+        .map_err(|error| HandlerError::new(error.message()))?;
     let mut merged: indexmap::IndexMap<JsString, SessionInfo> = indexmap::IndexMap::new();
     for session in local.into_iter().chain(all) {
         merged.insert(session.path.clone(), session);
@@ -808,12 +810,15 @@ fn update_existing_text(context: &ToolRenderContext, text: JsString) -> Option<C
 fn render_call(args: &Value, theme: &Theme, context: &ToolRenderContext) -> Result<ComponentRef, HandlerError> {
     let session_id = read_string_arg(args, "session_id");
     let label = match session_id {
-        Some(session_id) if session_id != "default" => js_format!("pyrun_eval({})", session_id),
+        Some(session_id) if !session_id.is_empty() && session_id != "default" => {
+            js_format!("pyrun_eval({})", session_id)
+        }
         _ => "pyrun_eval".into(),
     };
     let code = read_string_arg(args, "code");
     let highlighted = code
         .as_ref()
+        .filter(|code| !code.is_empty())
         .map(|code| highlight_code(code, Some(&"python".into())).map(|lines| JsString::join(lines, "\n")))
         .transpose()?;
     let text = match highlighted {

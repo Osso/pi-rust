@@ -105,6 +105,12 @@ HandlerError retains one boxed source variant (native error or CallbackError). F
 | `LoadExtensionsResult`, `ExtensionError` | same names | differential `errors`, discovery tests |
 | `ProviderConfig`, `ProviderModelConfig`, `InlineExtension`, `ExtensionFactory` | aliases in `types`/`loader` | differential `providers` |
 
+## Fallible UI theme getter (2026-10-25)
+
+ExtensionUiContext.theme returns Result<Arc<Theme>,CallbackError>. Frozen's shared theme proxy throws when no theme has been initialized; native previously used an infallible getter that reached the shared uncaught panic instead of letting the sandbox setter reject. Default/interactive getters now use try_current_theme; example callers propagate the existing error, ready fixture getters return Ok, and the infallible border-editor render boundary uses the existing uncaught authority only at a proven process-uncaught source boundary. RED `/tmp/ext-api2-sandbox-theme-red.log` is an isolated subprocess failure against an actual frozen rejection, including the already-applied settings mutation. Nine boundary parents GREEN `/tmp/ext-api2-theme-green.log`. Cross-lane files are signature propagation/fixtures only.
+
+Border boundary probe: `frozen_border_editor_render_theme_failure_is_process_uncaught` imports the unmodified real border-status-editor example and TUI, initializes the real dark theme, mounts the actual custom editor, then makes the UI theme getter throw during a scheduled render. Frozen reaches process uncaughtException (not the setup catch), records phase render-theme-getter, Error/border-render-theme-failed, and exits17. GREEN `/tmp/ext-api2-border-render-uncaught.log`. This proves routing of a render callback failure; it does not claim an initialized global theme spontaneously disappears.
+
 ## Old-only markdown API removal (2026-10-25)
 
 Frozen packages contain no MarkdownTransformContext/MarkdownTransformer, registration, state or runner getter. Removed these old-only public types/API and their exclusive fixture assertions, with parent approval. No production getter consumer existed; real message/entry renderer and runtime-registration assertions remain. No frozen callback or output assertion was weakened.

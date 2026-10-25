@@ -260,7 +260,7 @@ fn toggle(pi: &ExtensionApi, shared: &Shared, ctx: &ExtensionContext) -> Result<
 }
 fn update(s: &State, ctx: &ExtensionContext) -> Result<(), HandlerError> {
     let ui = ctx.ui()?;
-    let th = ui.theme();
+    let th = ui.theme()?;
     let status = if s.executing && !s.todos.is_empty() {
         Some(th.fg(
             C::Accent,

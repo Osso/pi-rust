@@ -40,7 +40,7 @@ pub fn publish_coordinator_snapshot(
         return Ok(());
     };
     deliver_terminal_outbox_projections(&DeliverTerminalOutboxOptions {
-        artifact_root: None,
+        artifact_root: super::runtime::artifact_root_for_store(store),
         claim_id: pi_ai::utils::random_uuid::random_uuid()?.into(),
         control_db_path: persistence.control_db_path,
         now: Arc::new(|| Ok(crate::utils::iso_time::now_iso_string().into())),
