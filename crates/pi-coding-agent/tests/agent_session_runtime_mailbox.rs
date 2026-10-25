@@ -56,6 +56,9 @@ impl SessionPersistence for TestPersistence {
     }
 }
 
+// Each fixture refreshes the same process-global faux API; hold ownership through its final prompt.
+static REGISTRY_FIXTURE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 struct TestEnv {
     _dir: tempfile::TempDir,
     cwd: String,
@@ -66,6 +69,7 @@ struct TestEnv {
     session_manager: SharedSessionManager,
     faux: FauxProviderHandle,
     store: Option<Arc<MultiAgentStore>>,
+    _registry_guard: tokio::sync::MutexGuard<'static, ()>,
 }
 
 fn faux() -> FauxProviderHandle {
@@ -112,6 +116,7 @@ async fn test_env_with_resources(
     custom_tool_definitions: Vec<pi_coding_agent::core::extensions::types::ToolDefinition>,
     extensions: Option<pi_coding_agent::core::extensions::types::LoadExtensionsResult>,
 ) -> TestEnv {
+    let registry_guard = REGISTRY_FIXTURE.lock().await;
     let dir = tempfile::tempdir().expect("temp dir");
     let cwd = dir.path().join("repo").to_str().expect("utf-8 test path").to_owned();
     std::fs::create_dir_all(&cwd).expect("cwd");
@@ -185,6 +190,7 @@ async fn test_env_with_resources(
         session_manager,
         faux,
         store,
+        _registry_guard: registry_guard,
     }
 }
 

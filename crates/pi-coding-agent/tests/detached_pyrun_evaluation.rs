@@ -793,9 +793,10 @@ async fn repin_restored_runner_error_writes_failure_before_lost_runtime() {
 async fn repin_observed_runner_error_wakes_and_keeps_the_original_diagnostic() {
     let fixture = fixture("runner-error-live").await;
     let artifact = write_artifact(&fixture, "pyrun_1", Some("call-1"), "code", "");
+    // Publish complete text: frozen readers intentionally report a different error for an empty file.
     let mut runner = spawn_live_runner(
         &artifact,
-        "import pathlib, time\ntime.sleep(0.15)\npathlib.Path(r\"OUTPUT_PATH\").with_name('launch.json.runner-error').write_text('live runner failed\\n')\ntime.sleep(30)\n",
+        "import pathlib, time\ntime.sleep(0.15)\nerror = pathlib.Path(r\"OUTPUT_PATH\").with_name('launch.json.runner-error')\npending = error.with_suffix('.pending')\npending.write_text('live runner failed\\n')\npending.replace(error)\ntime.sleep(30)\n",
     );
     set_runner_process_identity(&artifact, read_process_identity(runner.id()).unwrap());
     let result = tokio::time::timeout(

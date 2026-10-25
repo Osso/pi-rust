@@ -5,26 +5,6 @@ use super::finalize::oracle as frozen;
 
 #[tokio::test]
 async fn queued_prompt_does_not_complete_an_active_steered_turn() {
-    // Other fixtures refresh and replace the process-global faux stream registration.
-    const CHILD: &str = "PI_MAILBOX_PROMPT_CHILD";
-    if std::env::var_os(CHILD).is_none() {
-        let output = std::process::Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "prompt_boundary::queued_prompt_does_not_complete_an_active_steered_turn",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "mailbox prompt child failed:\n{}\n{}",
-            String::from_utf8(output.stdout).unwrap(),
-            String::from_utf8(output.stderr).unwrap()
-        );
-        return;
-    }
     use pi_ai::providers::faux::FauxResponseStep;
     use pi_coding_agent::core::agent_session::StreamingBehavior;
     let env = test_env(true).await;
