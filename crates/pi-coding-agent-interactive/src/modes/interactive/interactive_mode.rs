@@ -21,6 +21,7 @@ use pi_agent_core::agent::types::{AgentEvent, AgentMessage};
 use pi_ai::auth::types::{AuthEvent, AuthInteraction, AuthPrompt, AuthPromptKind};
 use pi_ai::request::{CallbackError, Fetch, HttpRequest};
 use pi_ai::types::{AssistantMessage, ImageContent, Model};
+use pi_js_compat::abort::AbortReason;
 use pi_js_compat::date::js_now_millis;
 use pi_js_compat::js_format;
 use pi_js_compat::js_regex::JsRegex as Regex;
