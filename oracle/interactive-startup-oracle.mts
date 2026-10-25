@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
@@ -27,7 +27,10 @@ class CaptureTerminal implements Terminal {
 	kittyProtocolActive = false;
 	titles: string[] = [];
 	writes: string[] = [];
-	start() {}
+	input?: (text: string) => void;
+	start(onInput: (text: string) => void) {
+		this.input = onInput;
+	}
 	stop() {}
 	async drainInput() {}
 	write(text: string) {
@@ -56,6 +59,8 @@ interface Request {
 	restored: boolean;
 	watchChanges: boolean;
 	colors: string[];
+	importFailure?: "missing" | "factory";
+	importPath?: string;
 }
 
 async function captureStartup(request: Request) {
@@ -89,7 +94,9 @@ async function captureStartup(request: Request) {
 		apiKey: "fixture",
 		models: request.models,
 	});
-	const sessionManager = SessionManager.inMemory(cwd);
+	const sessionManager = request.importFailure
+		? SessionManager.create(cwd, join(cwd, "sessions"))
+		: SessionManager.inMemory(cwd);
 	if (request.restored)
 		sessionManager.appendMessage({
 			role: "user",
@@ -140,6 +147,8 @@ async function captureStartup(request: Request) {
 	};
 	try {
 		await mode.init();
+		if (request.importFailure)
+			await captureImportFailure(mode, runtime, terminal, request);
 		const render = (container: { render(width: number): string[] }) =>
 			container.render(120).map(units);
 		const output = {
@@ -164,6 +173,34 @@ async function captureStartup(request: Request) {
 		mode.stop();
 		result.session.dispose();
 	}
+}
+
+async function captureImportFailure(
+	mode: {
+		chatContainer: { render(width: number): string[] };
+		handleImportCommand(text: string): Promise<void>;
+	},
+	runtime: { createRuntime: () => Promise<never> },
+	terminal: CaptureTerminal,
+	request: Request,
+): Promise<never> {
+	if (!request.importPath) throw new Error("import fixture requires a path");
+	process.once("exit", (exitCode) => {
+		const output = {
+			exitCode,
+			chat: mode.chatContainer.render(120).map(units),
+		};
+		writeSync(1, `${JSON.stringify({ ok: true, output })}\n`);
+	});
+	if (request.importFailure === "factory") {
+		runtime.createRuntime = async () => {
+			throw new Error("File not found: imported dependency");
+		};
+	}
+	const operation = mode.handleImportCommand(`/import ${request.importPath}`);
+	terminal.input?.("\r");
+	await operation;
+	process.exit(0);
 }
 
 async function captureChanges(

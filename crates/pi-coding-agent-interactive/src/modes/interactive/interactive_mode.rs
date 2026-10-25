@@ -8819,8 +8819,9 @@ impl InteractiveMode {
             }
             Err(error) => {
                 if error
-                    .message
-                    .starts_with(crate::core::session_errors::SessionImportFileNotFoundError::MESSAGE_PREFIX)
+                    .original
+                    .as_ref()
+                    .is_some_and(|source| source.is::<crate::core::session_errors::SessionImportFileNotFoundError>())
                 {
                     self.show_error(&js_format!("Failed to import session: {}", error.message));
                 } else {
@@ -13241,6 +13242,7 @@ mod ui_tests {
         steer_multi_agent: Option<SteerMultiAgent>,
         model_registry: Option<ModelRegistry>,
         cwd: Option<String>,
+        runtime_factory_failure: Option<Arc<Mutex<Option<CallbackError>>>>,
     }
 
     async fn build_mode_with_extra_providers(
@@ -13312,6 +13314,7 @@ mod ui_tests {
             let loader = Arc::clone(&loader);
             let settings = Arc::new(Mutex::new(settings));
             let observer = setup.runtime_request_observer.clone();
+            let failure = setup.runtime_factory_failure.clone();
             Arc::new(move |request: CreateAgentSessionRuntimeOptions| {
                 if let Some(observer) = &observer {
                     observer(&request);
@@ -13321,7 +13324,11 @@ mod ui_tests {
                 let loader = Arc::clone(&loader);
                 let settings = Arc::clone(&settings);
                 let initial_active_tool_names = initial_active_tool_names.clone();
+                let failure = failure.clone();
                 Box::pin(async move {
+                    if let Some(failure) = failure.as_ref().and_then(|failure| failure.lock().unwrap().clone()) {
+                        return Err(failure);
+                    }
                     let model = faux.get_model(None).expect("faux model");
                     let stream_provider = Arc::clone(&faux.provider);
                     let agent = Agent::new(AgentOptions {
@@ -13393,7 +13400,7 @@ mod ui_tests {
             }) as crate::core::agent_session_runtime::CreateAgentSessionRuntimeFactory
         };
         let session_manager = if persist_session {
-            let session_dir = temp.path().join("sessions").display().to_string();
+            let session_dir = Path::new(&cwd).join("sessions").display().to_string();
             SessionManager::create(&JsString::from(&cwd), Some(&JsString::from(&session_dir)), None)
                 .expect("persisted session manager")
         } else {

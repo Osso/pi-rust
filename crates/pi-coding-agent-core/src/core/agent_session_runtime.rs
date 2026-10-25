@@ -1006,7 +1006,7 @@ impl AgentSessionRuntime {
         )
         .map_err(CallbackError::from)?;
         if !std::path::Path::new(&encode_node_utf8(&resolved)).exists() {
-            return Err(SessionImportFileNotFoundError::new(resolved).message().clone().into());
+            return Err(SessionImportFileNotFoundError::new(resolved).into_callback());
         }
         let session_dir = self.session().session_manager().get_session_dir().to_owned();
         if !std::path::Path::new(&encode_node_utf8(&session_dir)).exists() {

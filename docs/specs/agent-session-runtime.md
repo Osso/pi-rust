@@ -5,6 +5,7 @@ Port the whole frozen `core/agent-session-runtime.ts` at the common pin. [Source
 ## What it must do
 
 - [x] A prepared tool-result cwd relocation prevents a later session replacement from starting until activation releases the lifecycle transition.
+- [x] Missing import paths retain `SessionImportFileNotFoundError` name, message and `filePath` through the existing callback carrier. Interactive recovery checks the retained error type, not its message prefix; a later ordinary factory failure with similar text remains fatal.
 - [ ] Serialize all lifecycle transitions in frozen FIFO order, release after failure, and release prepared relocation before continuing the replacement session.
 - [ ] Invoke before-invalidate, before-process-restart and rebind hooks at their frozen boundaries; interactive mode uses that authority instead of partial session adoption.
 - [ ] Match reload, working-directory recovery, archived resume/trust propagation, restart cleanup and creation/teardown side effects.

@@ -2,6 +2,12 @@
 
 Rust: `crates/pi-coding-agent-core/src/core/agent_session_runtime.rs`.
 
+## Missing-import error identity (2026-10-25)
+
+Actual frozen `importFromJsonl` returns `SessionImportFileNotFoundError` with `name`, `message` and `filePath`; native previously projected only its message into a generic Error. `missing_import_preserves_the_frozen_error_name_and_file_path` reproduces the complete visible error-value mismatch. The existing `SessionImportFileNotFoundError` now projects its fields into `NativeNodeError`/`CallbackError` and retains itself as the original Rust source; no new error carrier or constructor class is added.
+
+The interactive catch now checks that retained source instead of `File not found:` text. `import_error_class_controls_recovery_and_exit_like_frozen` uses real native/frozen runtime/mode processes, a persisted private session and an actual imported JSONL file. A genuine missing import remains recoverable with the exact full error frame and process exit0. A later factory Error with the same prefix must produce the same full frame and actual exit1; native previously exited0. The frozen confirmation dialog is driven by real terminal Enter input, never replaced with a canned result. Both process scenarios pass after the fix. RED/GREEN artifacts: `/tmp/repin-interactive-2-proof/import-error-red.log`, `import-ui-persisted-red.log`, `import-{agent_session_runtime,lib}-green.log`. Separate whole import-command parsing/confirmation/recovery branches remain interactive work, not accepted by this bounded error proof.
+
 ## Common-pin re-port in progress (2026-10-23)
 
 [Contract](../../specs/agent-session-runtime.md). Historical inventory below is
@@ -166,9 +172,7 @@ CallbackError carriers. Logs: `/tmp/pi-rust-repin-lossless-interactive/`.
 
 ## Gaps
 
-- Project-trust context factories and `assertMainSessionRuntimeAvailable` refresh
-  bookkeeping are not part of the factory options.
-- `teardownCurrent` does not flush pending session entries beyond `abort()`.
+The historical project-trust/availability and pre-abort notes are superseded by the 4d and teardown proofs above. Whole-runtime acceptance remains open. Pathological input, OS-fault, numeric-extreme and runtime scheduling cases follow the project user-observable parity exclusions; existing lossless carriers remain intact.
 
 ## v15 import/fork names (approved 2026-10-20)
 
