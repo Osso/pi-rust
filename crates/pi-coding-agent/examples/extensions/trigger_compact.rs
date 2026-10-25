@@ -56,11 +56,13 @@ fn trigger_compaction(ctx: ExtensionContext, instructions: Option<JsString>) -> 
             if has_ui {
                 complete_ui.notify(&JsString::from("Compaction completed"), Some(NotifyType::Info));
             }
+            Ok(())
         })),
         on_error: Some(Arc::new(move |error| {
             if has_ui {
-                error_ui.notify(&js_format!("Compaction failed: {}", error), Some(NotifyType::Error));
+                error_ui.notify(&js_format!("Compaction failed: {}", error.message), Some(NotifyType::Error));
             }
+            Ok(())
         })),
     }))
 }
