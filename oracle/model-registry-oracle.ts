@@ -1,6 +1,7 @@
 // Frozen registry; no runtime/composer modules or live provider requests.
-import { pathToFileURL } from "node:url";
+
 import { existsSync, readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
 import { serve } from "./config-auth-oracle-support.ts";
 import {
 	clearFetchScript,
