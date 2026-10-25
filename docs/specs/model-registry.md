@@ -29,6 +29,8 @@ The model-selector consumer distinguishes refresh rejection from its caught avai
 
 Provider reapplication during refresh follows the live insertion order. A modifier's newly appended provider is visited in that pass; a deleted provider is skipped; deletion and reinsertion creates a new visit with its current config. Updating an existing provider retains its position. A stale snapshot must not restore deleted models or old config.
 
+Registered raw/simple callbacks preserve synchronous throws according to the shared [stream acquisition contract](provider-stream-errors.md). The registry wrapper does not invent an error event where frozen returns no stream.
+
 ## How it works
 
 - [Traceability and current proof bounds](../porting/traceability/model-registry.md).

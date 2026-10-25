@@ -30,8 +30,11 @@ use crate::core::config_value::{
 
 pub use crate::core::config_value::clear_config_value_cache as clear_api_key_cache;
 
-pub type StreamSimpleFn =
-    Arc<dyn Fn(Model, Context, Option<SimpleStreamOptions>) -> AssistantMessageEventStream + Send + Sync>;
+pub type StreamSimpleFn = Arc<
+    dyn Fn(Model, Context, Option<SimpleStreamOptions>) -> Result<AssistantMessageEventStream, CallbackError>
+        + Send
+        + Sync,
+>;
 pub type ExtensionOAuthLoginFn = Arc<
     dyn Fn(Arc<dyn OAuthLoginCallbacks>) -> BoxFuture<'static, Result<OAuthCredentials, pi_ai::auth::AuthError>>
         + Send

@@ -22,7 +22,7 @@ the pinned TS module).
 | `getModel`/`getModels`/`getProviders` | `get_model`/`get_models`/`get_providers` (re-exports of `providers/all`) | registry differential; `providers-all` differential |
 | `ApiStreamFunction`, `ApiStreamSimpleFunction` | `ApiStreamFunction`, `ApiStreamSimpleFunction` | used by `ApiProvider::new` |
 | `ApiProvider` | `ApiProvider` (`new`, `from_streams`, `api`) | `registered_provider_receives_the_explicit_api_key` |
-| `wrapStream`/`wrapStreamSimple` mismatch throw | `ApiProvider::new` closes over the api and returns an error stream with `Mismatched api: <model.api> expected <api>` | `api_mismatch_is_reported_as_the_typescript_error_message`; differential `mismatch` |
+| `wrapStream`/`wrapStreamSimple` mismatch throw | `ApiProvider::new` closes over api and returns CallbackError before stream creation with the frozen message | prerequisite implemented; mismatch test migration/current GREEN pending |
 | `registerApiProvider(provider, sourceId?)` | `register_api_provider(ApiProvider, Option<String>)` | differential `registry` |
 | `getApiProvider` | `get_api_provider` | behavioral + differential `registry` |
 | `getApiProviders` | `get_api_providers` | differential `registry` (order preserved) |
@@ -45,7 +45,7 @@ the pinned TS module).
 
 ## Deviations
 
-- Unregistered API and Vertex environment lookup failures now escape stream acquisition as explicit Result errors. The old api-mismatch wrapper still converts a synchronous throw to an error stream; **pending common-pin parity**, not an approved deviation.
+- Unregistered API, Vertex environment lookup, API mismatch and registered callback failures use a shared CallbackError acquisition result. Parent approved the prerequisite2026-10-24; consumer migration and full current proof remain pending. No error-stream substitution where frozen propagates.
 - `ProviderStreamOptions`/`ApiStreamOptions` are untyped in TypeScript and
   arrive in `StreamOptions::extra`; the compatibility dispatch only reads the
   shared `StreamOptions` fields, so no option mapping is needed here.
@@ -55,6 +55,10 @@ the pinned TS module).
 ## Discrepancies
 
 - None.
+
+## Registered callback prerequisite (2026-10-24)
+
+[Acquisition contract](../../specs/provider-stream-errors.md). Actual frozen registry/public compat dispatch proves4synchronous TypeError/raw UTF-16 callback cases (`model_registry_stream_throw_probe`); native compiler RED exposes the missing callback and dispatch carriers. ProviderStreams raw/simple methods now carry Result; optional deferred methods and provider behavior stay unchanged. Lazy and agent-loop consumers must retain their exact frozen catch boundaries; proof and mechanical migrations are not yet complete.
 
 ## Q18 provider request integration (2026-10-22)
 
