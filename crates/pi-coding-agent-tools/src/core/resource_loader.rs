@@ -1042,6 +1042,7 @@ impl DefaultResourceLoader {
             Some(override_fn) => override_fn(base_system_prompt.as_ref()),
             None => base_system_prompt,
         };
+        *self.state() = state.clone();
 
         let append_sources = match &self.append_system_prompt_source {
             Some(sources) => sources.clone(),

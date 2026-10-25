@@ -8,6 +8,23 @@ async function main(): Promise<void> {
 	const { SettingsManager } = await import(pathToFileURL(join(dirname(process.argv[2]), "settings-manager.ts")).href);
 	for await (const line of createInterface({ input: process.stdin })) {
 		const request = JSON.parse(line);
+		if (request.operation === "prompt_publication") {
+			let revision = 0;
+			const seen: Array<string | null> = [];
+			const loader = new DefaultResourceLoader({
+				cwd: request.root, agentDir: request.root, settingsManager: SettingsManager.inMemory(),
+				noExtensions: true, noSkills: true, noPromptTemplates: true, noThemes: true, noContextFiles: true,
+				systemPromptOverride: () => `system-${++revision}`,
+				appendSystemPromptOverride: () => {
+					seen.push(loader.getSystemPrompt() ?? null);
+					return [`append-${revision}`];
+				},
+			});
+			await loader.reload();
+			await loader.reload();
+			process.stdout.write(`${JSON.stringify({ id: request.id, seen, system: loader.getSystemPrompt(), append: loader.getAppendSystemPrompt() })}\n`);
+			continue;
+		}
 		if (request.operation === "warnings") {
 			const warnings: string[] = [];
 			const original = console.error;
