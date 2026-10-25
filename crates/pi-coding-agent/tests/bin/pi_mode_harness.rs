@@ -255,7 +255,7 @@ fn model_registry(handle: &FauxProviderHandle) -> ModelRegistry {
                 stream_simple: Some(Arc::new(move |model, context, options| {
                     capture_context(&context);
                     if optional_env("PI_HARNESS_DONE_ERROR").as_deref() == Some("1") {
-                        done_error_fixture(model)
+                        Ok(done_error_fixture(model))
                     } else {
                         provider.stream_simple(model, context, options.unwrap_or_default())
                     }
