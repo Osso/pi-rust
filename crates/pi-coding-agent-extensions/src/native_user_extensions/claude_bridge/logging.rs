@@ -304,7 +304,7 @@ impl Logs {
 }
 #[derive(Clone)]
 pub(super) struct CliDebug {
-    logs: Logs,
+    pub(super) logs: Logs,
     tag: String,
     seq: u64,
     pub debug_file: Option<PathBuf>,

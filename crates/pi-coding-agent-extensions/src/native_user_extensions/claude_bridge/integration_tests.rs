@@ -142,7 +142,8 @@ async fn claude_bridge_profile_queries_writeback_and_share_quota_selection() {
 #[tokio::test]
 async fn claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch_session_mirrors() {
     let (dir, config, _) = setup().await;
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
     *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
         dir.path().join("cc-summary"),
         dir.path().join("agent-summary"),
@@ -179,6 +180,32 @@ async fn claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch
     assert_eq!(count, 1);
     assert!(!dir.path().join("agent-summary").exists());
     assert!(!dir.path().join("cc-summary").exists());
+    let text = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    for line in [
+        "provider: one-off summarizer call (cacheRetention none) routed to isolated summary, msgs=2",
+        "compact summary: spawn model=claude-opus-5-5[1m] registeredModel=claude-opus-5-5 promptLen=19",
+        "compact summary: first event type=system",
+        "compact summary: done textLen=27",
+    ] {
+        assert!(text.contains(&format!("[{module}] {line}\n")), "missing {line}");
+    }
+    let mut opts = options(&dir);
+    opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
+    let failed = bridge
+        .stream(model(&config), context("summary-error"), Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(failed.stop_reason, StopReason::Error);
+    assert_eq!(
+        failed.error_message.unwrap(),
+        JsString::from("summary failed ") + JsString::from_utf16(vec![0xdfff])
+    );
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert!(log.contains(&format!("[{module}] compact summary: error summary failed �\n")));
+    assert!(!log.contains(&format!("[{module}] runIsolatedSummary threw; pushing terminal error")));
 }
 
 #[tokio::test]

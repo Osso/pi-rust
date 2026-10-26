@@ -73,6 +73,8 @@ The approved conversion observer keeps `convert_messages` output unchanged and r
 
 Missed-steer handling now matches `index.ts:1988–2029`: absent/rejected prompt pushes mark rebuild, preserve the completion cursor's rebuild flag and still deliver MCP replies. A test-only steer-write seam models the source prompt-stream boundary while leaving the real subprocess control channel alive. Both fake-process cases assert exact UTF-16 results received by Claude, the rebuild state and all four failure-path log lines. The initial test failed because the old path sent the lost steer into the fake MCP response slot. Closed **OS stdin** instead kills both paths; its query error is matching transport failure, not a parity gap (`/tmp/bridge-steer-{red,green}.log`).
 
+Isolated-summary debug hooks now cover route, spawn, first SDK message, served context windows, quota retries, direct errors/empty output, success, cancellation and thrown failures. The internal terminal-log marker prevents a source direct-result error from also being logged as a thrown exception. Auth failure recording precedes the unconditional settled trace, including the thrown-attempt path. Fake summary tests assert exact launch/first-event/completion lines and UTF-16 result errors without a duplicate thrown-error line.
+
 ## Logging call sites
 
 Audit in progress against extension snapshot `38d84cb549cce66dd76d45a5020d132f74780393`. Paths below are relative to `claude_bridge/`. Debug calls use the existing `Logs::debug` gate (`CLAUDE_BRIDGE_DEBUG=1`) and `CLAUDE_BRIDGE_DEBUG_PATH` or the agent directory's `claude-bridge.log`. Diagnostics remain unconditional at `claude-bridge-diag.log`; auth and shape keep their existing private JSONL sinks. This checkpoint is not exhaustive logging parity.

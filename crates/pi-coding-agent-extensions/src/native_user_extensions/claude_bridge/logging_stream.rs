@@ -9,6 +9,32 @@ use pi_js_compat::{
 };
 
 impl Logs {
+    pub(super) fn debug_served_context(
+        &self,
+        label: &str,
+        frame: &JsValue,
+        model: &pi_ai::types::Model,
+    ) -> Result<(), CallbackError> {
+        if let Some(usage) = frame.get("modelUsage").and_then(JsValue::as_object) {
+            for (key, value) in usage {
+                let number = |field| {
+                    value
+                        .get(field)
+                        .filter(|v| !matches!(v, JsValue::Null))
+                        .map_or_else(|| "?".to_owned(), pi_js_compat::js_json::stringify_lossless)
+                };
+                self.debug(pi_js_compat::js_format!(
+                    "{}: served contextWindow={} maxOutputTokens={} servedModel={} registered={}",
+                    label,
+                    number("contextWindow"),
+                    number("maxOutputTokens"),
+                    key,
+                    pi_js_compat::number::js_number_to_string(model.context_window)
+                ))?;
+            }
+        }
+        Ok(())
+    }
     pub(super) fn before_frame(&self, frame: &JsValue, decoder: &StreamDecoder) -> Result<(), CallbackError> {
         match string(frame, "type")
             .to_utf8()
