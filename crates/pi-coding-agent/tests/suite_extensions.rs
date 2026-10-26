@@ -89,6 +89,8 @@ pub mod pyrun_extension;
 pub mod raw_extension_dialogs;
 #[path = "raw_extension_ui_types.rs"]
 pub mod raw_extension_ui_types;
+#[path = "reminders_runtime.rs"]
+pub mod reminders_runtime;
 #[path = "session_autoname.rs"]
 pub mod session_autoname;
 
