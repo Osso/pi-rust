@@ -85,6 +85,35 @@
         "packages/ai/src/providers/openai-codex-team.models.ts": "5bf1b0989eee13248570b6a6c038bceb338ebc0db5798849a7382c9e955cfc7d",
         "packages/ai/src/providers/openai-codex.models.ts": "324a614325d6ef43cd5090dba8bf466a07f34681c8d68b75e62b7fd68d6a9f26"
       }
+    },
+    {
+      "approved": "2026-10-26",
+      "base": "66534fbdc7bb09492b40142471bbbb87b4a4d5bc",
+      "commit": "532f7d12cd19235081bd4d6e425bde185652d86f",
+      "checkout": "/home/osso/.worktrees/pi-rust-source-532f7d12",
+      "modules": {
+        "packages/coding-agent/src/modes/interactive/components/mermaid.ts": "994acb562b70957ed828770d74879e03cfffbc472acef94073ad74cda8defe58",
+        "packages/coding-agent/src/modes/interactive/components/markdown-transform.ts": "657edd0453dab59d362e0d18c330486b86a47fe7a33b8c32204db8ce23a142a9",
+        "packages/coding-agent/src/modes/interactive/components/assistant-message.ts": "f0f9fdc6e019eb14ec1c8b2b17044cd70b9b34362907fef21a712352e426ab65",
+        "packages/coding-agent/src/modes/interactive/components/settings-selector.ts": "c2f91253001bb081879e2b4d92bf241f87cea5cb466703cb0d4f0b0e89a1317b",
+        "packages/coding-agent/src/modes/interactive/interactive-mode.ts": "ab32f3f5c951a9063b05badd26e80e8e534846c53684311096ddddc41f418361",
+        "packages/coding-agent/src/core/settings-manager.ts": "ad9efbe14ce224326db5746133d567e8f79408ddffea0fef67830003e04512b4",
+        "packages/coding-agent/test/mermaid.test.ts": "3fdd02c934038020a8d1c1749303b07b55be5379da24c2585e01d20b49590faf",
+        "packages/coding-agent/install-lock/package-lock.json": "938dd4900ba386720edb42a35b3eda603d786a1cfa1dad31bd844e1de3a29661",
+        "node_modules/grok-mermaid/package.json": "352aa3c5ce52ba2a936422dd72ba658274049f858533455f4ae13cdbb2e0f31e",
+        "node_modules/grok-mermaid/dist/ansi.js": "5158f3c2d087c65aa0ea14738d4f4ee0aa830e18090d7711da34135be7abfa3c",
+        "node_modules/grok-mermaid/dist/canvas.js": "cfed0a039daf258eb579cf46dfe23bdf03728ab5da3f5113a62558d8c8d73f05",
+        "node_modules/grok-mermaid/dist/graph.js": "3580897d4e95e2bc31f1b87281d30b6055c2272650d812f3235f16f533a728a2",
+        "node_modules/grok-mermaid/dist/index.js": "691abeb4a43b61916516e991dd65dc8c7a6976748633cbfbf2e9a92575d0c6e2",
+        "node_modules/grok-mermaid/dist/labels.js": "6d4d68d02f12b3d349039e377d73110772758ee783689027a0d1b8f621204c89",
+        "node_modules/grok-mermaid/dist/layout-seq.js": "301fa793336bce85729c9ef310b8e8d4771df50bab60c21544bb00ded3ce31f4",
+        "node_modules/grok-mermaid/dist/layout.js": "7bd472a4979f33f4dcb0d9ec9c942444b3a4369a21ff2c14bd7587b73d217574",
+        "node_modules/grok-mermaid/dist/parse.js": "48dfa2f26dbfb5f9480a73f2acfb907d520f7f4c3c547d6a45454ae86dd7c066",
+        "node_modules/grok-mermaid/dist/source-box.js": "a0e4d1e8edf5ee0072555df8f2859b1448e4940ecef9f9c80d4d55a4d10d35ff",
+        "node_modules/grok-mermaid/dist/types.js": "f44aa358fe8dac67c4d5394af5e1f83dd1edee79405f2f53f1575bf3b90bc56a",
+        "node_modules/grok-mermaid/dist/width-data.js": "8541df200c30539539aced8e11c4872e21da35e37f4b7a4e084429dd819e62e7",
+        "node_modules/grok-mermaid/dist/width.js": "20713ad1e9d30670e446c59f9a378054929b6ad9d852ca163dc9da1e7929a613"
+      }
     }
   ]
 }

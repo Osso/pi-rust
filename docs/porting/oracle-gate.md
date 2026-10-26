@@ -61,6 +61,8 @@ at their actual paths, exactly as the common reference. Parent/nested guards
 validate the same lock; writable fixture state stays private. Required
 `node_modules` setup may reuse the frozen dependency directory by read-only symlink.
 
+The user-approved Mermaid reference at `532f7d12` is a separate historical lineage, not a descendant of the common pin. Its `base` is the introducing commit `66534fbdc`; the locked module hashes also cover the installed `grok-mermaid` 0.2.2 JavaScript oracle. It does not repin other modules.
+
 Exposure is not selection. Individual differential tests explicitly select a
 locked module; unselected oracles continue importing the frozen source. The
 resident selector additionally verifies its module immediately before spawning.
