@@ -68,7 +68,16 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
             base_url: Some("claude-bridge".into()),
             api_key: Some("not-used".into()),
             api: Some("claude-bridge".into()),
-            models: Some(models.into_iter().map(Into::into).collect()),
+            models: Some(
+                models
+                    .into_iter()
+                    .map(|model| {
+                        let mut input: crate::core::model_registry::ProviderModelInput = model.into();
+                        input.api = Some("claude-bridge".into());
+                        input
+                    })
+                    .collect(),
+            ),
             stream_simple: Some(Arc::new(move |model, context, options| {
                 stream_bridge.stream(model, context, options)
             })),

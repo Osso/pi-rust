@@ -10,6 +10,7 @@ pub mod regex_replace;
 
 /// Register native user ports without loading them until a user path selects them.
 pub fn register(registry: &mut ExtensionRegistry) {
+    claude_bridge::register(registry);
     registry.register_hidden(
         "<native:regex-replace-pi-tool>",
         Arc::new(|pi| {

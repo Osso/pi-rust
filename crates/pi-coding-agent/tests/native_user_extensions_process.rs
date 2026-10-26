@@ -9,9 +9,16 @@ fn write(path: &Path, text: &str) {
     std::fs::write(path, text).expect("fixture file");
 }
 
-fn run_print(agent: &Path, temp: &Path) -> (i32, String) {
+fn run_startup(agent: &Path, temp: &Path) -> (i32, String) {
     let output = Command::new(env!("CARGO_BIN_EXE_pi"))
-        .args(["-p", "hi"])
+        .args([
+            "-p",
+            "hi",
+            "--provider",
+            "startup-fixture-missing",
+            "--model",
+            "missing",
+        ])
         .current_dir(temp)
         .env("HOME", temp)
         .env("PI_CODING_AGENT_DIR", agent)
@@ -43,16 +50,40 @@ fn startup_resolves_native_ports_from_user_package_and_extension_paths() {
         &agent.join("extensions/disable-broadcast.ts"),
         "export default function () {}\n",
     );
+    let bridge = temp.path().join("repos/pi-claude-bridge");
+    write(
+        &bridge.join("package.json"),
+        r#"{"name":"pi-claude-bridge","pi":{"extensions":["./src/index.ts"]}}"#,
+    );
+    write(&bridge.join("src/index.ts"), "export default function () {}\n");
     write(
         &agent.join("settings.json"),
-        &format!(r#"{{"packages":["{}"]}}"#, package.display()),
+        &format!(r#"{{"packages":["{}","{}"]}}"#, package.display(), bridge.display()),
     );
 
-    let (_, stderr) = run_print(&agent, temp.path());
+    let (_, stderr) = run_startup(&agent, temp.path());
+    assert!(!stderr.contains("Failed to load extension"), "{stderr}");
+
+    let models = Command::new(env!("CARGO_BIN_EXE_pi"))
+        .args(["--list-models", "claude-bridge"])
+        .current_dir(temp.path())
+        .env("HOME", temp.path())
+        .env("PI_CODING_AGENT_DIR", &agent)
+        .env("PI_CODING_AGENT_STATE_DIR", temp.path().join("state"))
+        .env("PI_OFFLINE", "1")
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("pi lists models");
+    let stdout = String::from_utf8(models.stdout).expect("utf-8 models");
+    let stderr = String::from_utf8(models.stderr).expect("utf-8 stderr");
+    assert!(models.status.success(), "{stderr}");
+    assert!(stdout.contains("claude-bridge"), "{stdout}");
+    assert!(stdout.contains("claude-opus-5-5"), "{stdout}");
+    assert!(stdout.contains("claude-haiku-5-5"), "{stdout}");
     assert!(!stderr.contains("Failed to load extension"), "{stderr}");
 
     write(&agent.join("extensions/unported.ts"), "export default function () {}\n");
-    let (code, stderr) = run_print(&agent, temp.path());
+    let (code, stderr) = run_startup(&agent, temp.path());
     assert_eq!(code, 1, "{stderr}");
     assert!(
         stderr.contains("Extension does not export a valid factory function:") && stderr.contains("unported.ts"),

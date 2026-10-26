@@ -25,4 +25,6 @@ Use failing behavioral tests before implementation. Test direct factory registra
 
 Implementation is in progress. Unimplemented requirements must not be presented as completed parity.
 
+Real startup registers the hidden bridge factory through the common native-user registry. The real-binary package-discovery test lists `claude-opus-5-5` and `claude-haiku-5-5` offline. Registered models use the bridge API rather than the catalog's Anthropic API. Startup tests select a missing provider to stop before inference; `PI_OFFLINE` alone does not disable inference.
+
 Approved deviation (user decision 2026-10-25): forward frozen pi's `systemPromptOptions.rulesContent` as `<user_rules>\n{rulesContent}\n</user_rules>` at the position where the bridge appends custom sections. The source bridge reads `sections` (absent in the frozen API) and omits `rulesContent`; preserving that omission would lose the user's global instructions. Test exact projected text with rules present and absent.
