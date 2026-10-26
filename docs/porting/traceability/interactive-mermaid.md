@@ -4,13 +4,14 @@ The common TypeScript pin does not render Mermaid. The user approved porting the
 
 ## Status
 
-The renderer, settings and interactive Markdown integration are implemented. Focused tests cover the paths below; a whole-module audit and final workspace verification remain pending.
+The renderer, settings and interactive Markdown integration are implemented through `1045d5fa0`. The table identifies focused test coverage, not complete parity proof. A whole-module audit and final workspace verification remain pending.
 
 | Historical behavior | Rust status and proof |
 | --- | --- |
 | Flowchart, sequence, state, class and ER rendering | `pi-tui/src/mermaid.rs`; focused differentials compare normal output, width, styles and Unicode graphemes with the pinned JavaScript package. |
-| Flowchart warnings and strict-parser final-line retry | Focused warning, retry and oversize differentials. |
+| Flowchart warnings and strict-parser final-line retry | Focused warning and retry differentials; native oversize test. |
 | `markdown.mermaid` off/final/streaming settings | Settings and selector behavior with bidirectional historical settings fixtures. |
 | Streaming/final mode, width fallback, theme spans and thinking exclusion | Markdown and message-component tests plus an interactive PTY test: assistant output becomes Unicode art while thinking remains fenced code. |
+| Terminal controls in source | Controls are stripped before parsing; one ANSI-colored flowchart label is compared with the historical JavaScript oracle. Broader control-sequence parity remains unverified. |
 
-Non-scalar UTF-16 Mermaid input remains a recorded exotic-input gap. The renderer leaves the original fenced block intact when scalar rendering is not possible.
+Unsupported, unrenderable or too-wide diagrams retain the original fenced block. In final mode, parser warnings retain the block and add a warning; streaming mode renders available art. Non-scalar UTF-16 Mermaid input remains a recorded exotic-input gap and retains the fenced block.
