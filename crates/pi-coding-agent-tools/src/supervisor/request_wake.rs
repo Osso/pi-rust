@@ -59,7 +59,7 @@ impl SupervisorRequestWakeServer {
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
         set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let generation = self.generation.clone();
-        let shutdown = self.renew_shutdown_signal();
+        let shutdown = self.shutdown().signal();
         let task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -100,20 +100,18 @@ impl SupervisorRequestWakeServer {
     }
 
     pub async fn close(&self) -> Result<(), JsString> {
-        self.shutdown().abort(None);
+        // Resolve only the current waiters and accept loop (request-wake.ts:60-75); later
+        // waits observe a fresh signal and stay pending until the next wake.
+        {
+            let mut controller = self.shutdown();
+            controller.abort(None);
+            *controller = pi_js_compat::abort::AbortController::new();
+        }
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
         remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         Ok(())
-    }
-
-    fn renew_shutdown_signal(&self) -> AbortSignal {
-        let mut controller = self.shutdown();
-        if controller.signal().aborted() {
-            *controller = pi_js_compat::abort::AbortController::new();
-        }
-        controller.signal()
     }
 
     fn shutdown(&self) -> std::sync::MutexGuard<'_, pi_js_compat::abort::AbortController> {

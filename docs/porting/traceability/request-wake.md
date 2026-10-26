@@ -33,3 +33,7 @@ Control-DB/socket paths and errors remain native `JsString`; binding, connection
 - F04: rejected candidate start → candidate drop preserves the active owner's pathname and reachability. The regression checks the exact frozen active-socket error before disposal.
 
 Each regression failed on `ededb0e77` before production edits; `/tmp/request-wake-red.log` records all three expected failures. No frozen source or wire format changed.
+
+## Waits created after close (verifier V01, 2026-10-26)
+
+`close()` (request-wake.ts:60-75) resolves only waiters present at that moment; a wait created after close stays pending until a later wake. Native close aborts the current shutdown signal and installs a fresh one. RED/GREEN: `request_wake::a_wait_created_after_close_stays_pending_until_the_next_wake` (/tmp/wake-v01-red.log).

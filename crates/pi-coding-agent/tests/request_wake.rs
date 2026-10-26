@@ -192,6 +192,30 @@ async fn close_then_start_reopens_the_listener_without_resetting_generation() {
     server.close().await.unwrap();
 }
 
+/// request-wake.ts:60-75 resolves only the waiters present at close; a wait created
+/// after close stays pending and is woken by the next ping after restart.
+#[tokio::test]
+async fn a_wait_created_after_close_stays_pending_until_the_next_wake() {
+    let (_directory, path) = socket_path();
+    let server = SupervisorRequestWakeServer::new(&path);
+    server.start().await.unwrap();
+    ping_and_wait_for_accept(&server).await;
+    server.close().await.unwrap();
+
+    let signal = AbortSignal::default();
+    let waiter = server.wait_for_wake_after(1, &signal);
+    tokio::pin!(waiter);
+    assert!(
+        futures_util::poll!(&mut waiter).is_pending(),
+        "close must not resolve waiters created after it"
+    );
+    server.start().await.unwrap();
+    ping_and_wait_for_accept(&server).await;
+    waiter.await;
+    assert_eq!(server.current_generation(), 2);
+    server.close().await.unwrap();
+}
+
 #[tokio::test]
 async fn dropping_a_rejected_candidate_preserves_the_active_owners_socket() {
     let (_directory, path) = socket_path();
