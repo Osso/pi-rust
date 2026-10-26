@@ -9,6 +9,10 @@ Rust: `crates/pi-coding-agent-tools/src/core/extensions/types.rs`.
 Approved deviation: TypeScript extension files are not loaded (AGENTS.md). The
 event/API contracts are Rust-native; factories receive `ExtensionApi`.
 
+## Native entry path accessor (2026-10-25)
+
+`ExtensionApi::resolved_path()` returns the existing resolved entry path for native ports of `import.meta.url` consumers. The [regex-replace port](native-regex-replace.md) proves relative settings entry paths resolve to the actual adjacent CLI while the reported path remains unchanged. It adds no field or persistence/wire change.
+
 ## Command wait stale guard (2026-10-25)
 
 Frozen runner.ts:999–1002 asserts active synchronously before calling waitForIdle. Native `ExtensionCommandContext::wait_for_idle` now returns `Result<BoxFuture<()>, HandlerError>` instead of turning a stale-guard error into an empty successful future. No native consumer called this method; there is no cross-lane propagation. New targeted test covers active completion and exact stale error; RED is the missing fallible contract (`/tmp/ext-api-wait-red.log`), GREEN pending at commit.
