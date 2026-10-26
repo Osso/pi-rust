@@ -12,8 +12,7 @@ struct SkillState {
 pub struct ParsedLog {
     pub session: Option<Session>,
     pub corrupt_lines: usize,
-    pub errors: Vec<JsString>,
-    pub warnings: Vec<JsString>,
+    pub diagnostics: Vec<JsString>,
 }
 
 pub fn parse_text(text: &JsString) -> Result<Option<JsValue>, JsString> {
@@ -24,8 +23,7 @@ pub fn parse_log(content: &JsString) -> ParsedLog {
     let mut output = ParsedLog {
         session: None,
         corrupt_lines: 0,
-        errors: Vec::new(),
-        warnings: Vec::new(),
+        diagnostics: Vec::new(),
     };
     let mut state = SkillState::default();
     for line in content
@@ -34,8 +32,8 @@ pub fn parse_log(content: &JsString) -> ParsedLog {
         .filter(|line| !line.is_empty())
     {
         let parsed = js_json::parse_lossless(line)
-            .map_err(|error| error.into_message())
-            .and_then(|entry| parse_entry(&entry, &mut state, &mut output.warnings));
+            .map_err(|error| pi_js_compat::js_format!("SyntaxError: {}", error.into_message()))
+            .and_then(|entry| parse_entry(&entry, &mut state, &mut output.diagnostics));
         match parsed {
             Ok(Some(session)) => match &mut output.session {
                 Some(base) => data::merge_session(base, session),
@@ -44,7 +42,7 @@ pub fn parse_log(content: &JsString) -> ParsedLog {
             Ok(None) => {}
             Err(error) => {
                 output.corrupt_lines += 1;
-                output.errors.push(error);
+                output.diagnostics.push(error);
             }
         }
     }
@@ -60,7 +58,7 @@ fn iso_date(value: &JsValue) -> Result<JsString, JsString> {
     };
     to_iso_string_value(millis)
         .map(Into::into)
-        .map_err(|error| error.to_string().into())
+        .map_err(|error| pi_js_compat::js_format!("RangeError: {}", error.to_string()))
 }
 
 fn parse_entry(
@@ -280,6 +278,15 @@ fn attribute_language(model: &mut ModelUsage, tool: &JsString, arguments: &JsVal
 mod tests {
     use super::*;
     use pi_js_compat::js_json;
+    #[test]
+    fn corrupt_lines_report_node_error_class_and_retain_valid_entries() {
+        let parsed =
+            parse_log(&"bad\n{\"type\":\"session\",\"id\":\"valid\",\"timestamp\":\"2026-10-25T10:00:00Z\"}\n".into());
+        assert_eq!(parsed.corrupt_lines, 1);
+        assert!(parsed.diagnostics[0].starts_with("SyntaxError: "));
+        assert_eq!(parsed.session.expect("valid session").session_id, "valid");
+    }
+
     #[test]
     fn matches_frozen_parser_fixtures_including_utf16() -> Result<(), JsString> {
         let fixture =

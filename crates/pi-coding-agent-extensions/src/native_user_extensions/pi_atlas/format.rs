@@ -264,10 +264,59 @@ pub fn format_model_name(value: &JsString) -> JsString {
     )
 }
 
+pub fn format_cache_timestamp(iso: &JsString, now: f64, zone: &jiff::tz::TimeZone) -> JsString {
+    use pi_js_compat::date::{date_parse_utf16, local_date_fields_in};
+    let Some(date) = local_date_fields_in(date_parse_utf16(iso.units()) as i64, zone) else {
+        return "undefined NaN, NaN".into();
+    };
+    let Some(today) = local_date_fields_in(now as i64, zone) else {
+        return "undefined NaN, NaN".into();
+    };
+    let yesterday = local_date_fields_in((now - 86_400_000.0) as i64, zone);
+    let hour = if date.hours % 12 == 0 { 12 } else { date.hours % 12 };
+    let time = format!(
+        "{hour}:{:02} {}",
+        date.minutes,
+        if date.hours >= 12 { "PM" } else { "AM" }
+    );
+    let same_day = |other: pi_js_compat::date::LocalDateFields| {
+        (date.year, date.month, date.day) == (other.year, other.month, other.day)
+    };
+    if same_day(today) {
+        return time.into();
+    }
+    if yesterday.is_some_and(same_day) {
+        return format!("Yesterday {time}").into();
+    }
+    let month = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ][date.month as usize];
+    if date.year == today.year {
+        format!("{month} {}, {time}", date.day).into()
+    } else {
+        format!("{month} {}, {}", date.day, date.year).into()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use pi_js_compat::js_json;
+    #[test]
+    fn formats_timestamp_relative_to_local_calendar() {
+        let now = pi_js_compat::date::date_parse("2026-10-25T12:00:00Z");
+        for (iso, expected) in [
+            ("2026-10-25T10:05:00Z", "10:05 AM"),
+            ("2026-10-24T19:07:00Z", "Yesterday 7:07 PM"),
+            ("2026-10-01T00:00:00Z", "Oct 1, 12:00 AM"),
+            ("2025-10-25T12:00:00Z", "Oct 25, 2025"),
+        ] {
+            assert_eq!(
+                format_cache_timestamp(&iso.into(), now, &jiff::tz::TimeZone::UTC),
+                expected
+            );
+        }
+    }
     #[test]
     fn matches_frozen_number_currency_and_model_names() -> Result<(), JsString> {
         let fixtures =

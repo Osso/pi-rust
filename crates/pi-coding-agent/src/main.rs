@@ -268,6 +268,7 @@ pub fn create_first_party_extension_factories(
         crate::bundled_extensions::register_agents_extensions(&mut registry, agent_options);
     }
     crate::bundled_extensions::register_bundled_extensions(&mut registry);
+    pi_coding_agent_extensions::native_user_extensions::register(&mut registry);
     let pyrun_factory = match agent_options {
         Some(options) => pyrun_extension_factory(options),
         None => crate::bundled_extensions::pyrun::index::pyrun_extension_factory(Default::default()),

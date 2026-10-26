@@ -96,16 +96,16 @@ pub fn compute_signature(dir: &Path) -> Result<JsString, JsString> {
 }
 
 pub fn load_aggregate(cache: &Path, sessions: &Path, now: f64) -> Result<Vec<JsValue>, JsString> {
-    load_aggregate_with_progress(cache, sessions, now, false, &mut |_| {}, &mut |_| {})
+    load_aggregate_with_progress(cache, sessions, &|| now, false, &mut |_| {}, &mut |_| Ok(()))
 }
 
 pub fn load_aggregate_with_progress(
     cache: &Path,
     sessions: &Path,
-    now: f64,
+    clock: &dyn Fn() -> f64,
     force: bool,
     on_progress: &mut dyn FnMut(LoadingProgress),
-    on_log: &mut dyn FnMut(JsString),
+    on_log: &mut dyn FnMut(JsString) -> Result<(), JsString>,
 ) -> Result<Vec<JsValue>, JsString> {
     let force_cache = pi_js_compat::process_env::get("PI_ATLAS_FORCE_CACHE")
         .and_then(|value| value.parse::<f64>().ok())
@@ -135,8 +135,8 @@ pub fn load_aggregate_with_progress(
         if let Ok(bytes) = std::fs::read(file) {
             let parsed = parser::parse_log(&String::from_utf8_lossy(&bytes).as_ref().into());
             corrupt += parsed.corrupt_lines;
-            for error in parsed.errors.into_iter().chain(parsed.warnings) {
-                on_log(error);
+            for error in parsed.diagnostics {
+                on_log(error)?;
             }
             if let Some(session) = parsed.session {
                 result.push(data::session_value(&session)?);
@@ -149,12 +149,12 @@ pub fn load_aggregate_with_progress(
         ));
     }
     if corrupt > 0 {
-        on_log(format!("pi-atlas: skipped {corrupt} corrupt JSONL line(s)").into());
+        on_log(format!("pi-atlas: skipped {corrupt} corrupt JSONL line(s)").into())?;
     }
     result.sort_by(|left, right| {
         compare_text(left, right, "timestamp").then_with(|| compare_text(left, right, "sessionId"))
     });
-    write_cache(cache, &compute_signature(sessions)?, &result, now)?;
+    write_cache(cache, &compute_signature(sessions)?, &result, clock())?;
     Ok(result)
 }
 
@@ -179,6 +179,68 @@ fn progress(total: usize, done: usize, elapsed: f64) -> LoadingProgress {
 mod tests {
     use super::*;
     use pi_js_compat::js_json;
+    #[test]
+    fn cache_timestamp_is_taken_after_parsing_progress() -> Result<(), JsString> {
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("cache.json");
+        let clock = std::cell::Cell::new(0.0);
+        load_aggregate_with_progress(
+            &cache,
+            &dir.path().join("missing"),
+            &|| clock.get(),
+            true,
+            &mut |_| clock.set(42_000.0),
+            &mut |_| Ok(()),
+        )?;
+        let payload = js_json::parse_lossless(std::fs::read_to_string(&cache).unwrap()).unwrap();
+        assert_eq!(
+            payload["generatedAt"].as_string(),
+            Some(&JsString::from("1970-01-01T00:00:42.000Z"))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn reads_ts_cache_and_exports_native_cache_for_reverse_oracle() -> Result<(), JsString> {
+        let agent = std::path::PathBuf::from(std::env::var_os("PI_CODING_AGENT_DIR").expect("isolated test state"));
+        let artifact = agent
+            .parent()
+            .expect("test state parent")
+            .join("atlas-cache-interchange");
+        std::fs::create_dir_all(artifact.join("sessions/nested")).map_err(|error| JsString::from(error.to_string()))?;
+        let source = artifact.join("typescript.json");
+        std::fs::write(&source, include_str!("fixtures/cache.json"))
+            .map_err(|error| JsString::from(error.to_string()))?;
+        let payload = read_cache(&source).expect("TS cache readable");
+        let sessions = payload["sessions"].as_array().expect("sessions");
+        let restored = sessions
+            .iter()
+            .map(js_json::from_value::<super::super::data::Session>)
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| JsString::from(error.to_string()))?;
+        let native_sessions = restored
+            .iter()
+            .map(super::super::data::session_value)
+            .collect::<Result<Vec<_>, _>>()?;
+        write_cache(
+            &artifact.join("native.json"),
+            &"atlas-native-interchange".into(),
+            &native_sessions,
+            pi_js_compat::date::date_parse("2026-10-25T12:00:00Z"),
+        )?;
+        assert_eq!(
+            std::fs::read_to_string(artifact.join("native.json")).map_err(|error| JsString::from(error.to_string()))?,
+            include_str!("fixtures/cache.json")
+        );
+        std::fs::write(artifact.join("sessions/a.jsonl"), "one").map_err(|error| JsString::from(error.to_string()))?;
+        std::fs::write(artifact.join("sessions/nested/b.jsonl"), "two-two")
+            .map_err(|error| JsString::from(error.to_string()))?;
+        let signature = compute_signature(&artifact.join("sessions"))?;
+        std::fs::write(artifact.join("signature.txt"), js_json::encode_node_utf8(&signature))
+            .map_err(|error| JsString::from(error.to_string()))?;
+        Ok(())
+    }
+
     #[test]
     fn loads_nested_logs_and_invalidates_cached_aggregates() -> Result<(), JsString> {
         let dir = tempfile::tempdir().map_err(|error| JsString::from(error.to_string()))?;
