@@ -548,9 +548,7 @@ fn complete_supervisor_error_unless_cancelled(
             control_db_path,
             request.id,
             token,
-            &SupervisorResponse::Error {
-                reason: error.message().clone(),
-            },
+            &pi_js_compat::js_json!({"kind":"error","reason":error.message()}),
         )
     });
     if let Err(error) = completion {

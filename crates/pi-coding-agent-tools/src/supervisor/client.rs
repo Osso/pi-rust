@@ -42,6 +42,9 @@ pub struct SupervisorClientDependencies {
 fn database_error(error: ControlDbError) -> NativeNodeError {
     NativeNodeError::new("Error", error.message().clone())
 }
+fn project_supervisor_response(response: &JsValue) -> Result<SupervisorResponse, NativeNodeError> {
+    pi_js_compat::js_json::from_value(response).map_err(|error| NativeNodeError::new("Error", error.to_string()))
+}
 fn cancelled() -> SupervisorResponse {
     SupervisorResponse::Error {
         reason: SUPERVISOR_REQUEST_CANCELLED_REASON.into(),
@@ -123,10 +126,11 @@ async fn request_supervisor_decision_attempt(
             if request.status == SupervisorRequestStatus::Completed
                 && let Some(response) = request.response
             {
-                return Ok(Some(response));
+                return Ok(Some(project_supervisor_response(&response)?));
             }
             if request.status == SupervisorRequestStatus::Cancelled {
-                return Ok(Some(match request.response {
+                let response = request.response.as_ref().map(project_supervisor_response).transpose()?;
+                return Ok(Some(match response {
                     Some(SupervisorResponse::Error { reason }) => SupervisorResponse::Error { reason },
                     _ => cancelled(),
                 }));

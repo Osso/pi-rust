@@ -187,7 +187,7 @@ fn fresh_rust_supervisor_request_remains_cancelled_after_peer_takeover() {
             &db,
             id,
             &JsString::from("rust-claim"),
-            &SupervisorResponse::Advisory { answer: "late".into() }
+            &json!({"answer":"late","kind":"advisory"})
         )
         .is_err()
     );

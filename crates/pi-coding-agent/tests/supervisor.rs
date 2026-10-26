@@ -273,7 +273,10 @@ async fn completes_a_request_with_the_parsed_response() {
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(stored.status, SupervisorRequestStatus::Completed);
     assert_eq!(
-        stored.response,
+        stored
+            .response
+            .as_ref()
+            .map(|value| pi_js_compat::js_json::from_value::<SupervisorResponse>(value).unwrap()),
         Some(SupervisorResponse::Approve {
             reason: "bounded".to_owned().into()
         })
@@ -307,7 +310,10 @@ async fn expired_requests_complete_with_the_deadline_error() {
 
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
-        stored.response,
+        stored
+            .response
+            .as_ref()
+            .map(|value| pi_js_compat::js_json::from_value::<SupervisorResponse>(value).unwrap()),
         Some(SupervisorResponse::Error {
             reason: "Supervisor request deadline expired".to_owned().into()
         })
@@ -463,7 +469,10 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         .unwrap();
     let stored = read_supervisor_request(&control_db_path, request_id).unwrap().unwrap();
     assert_eq!(
-        stored.response,
+        stored
+            .response
+            .as_ref()
+            .map(|value| pi_js_compat::js_json::from_value::<SupervisorResponse>(value).unwrap()),
         Some(SupervisorResponse::Approve {
             reason: "prior approval".to_owned().into()
         })
@@ -482,7 +491,10 @@ async fn process_request_does_not_reuse_a_prior_assistant_response() {
         .unwrap();
     let stored = read_supervisor_request(&control_db_path, goal_id).unwrap().unwrap();
     assert_eq!(
-        stored.response,
+        stored
+            .response
+            .as_ref()
+            .map(|value| pi_js_compat::js_json::from_value::<SupervisorResponse>(value).unwrap()),
         Some(SupervisorResponse::Error {
             reason: "Supervisor model returned no assistant text for current request"
                 .to_owned()

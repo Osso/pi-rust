@@ -16,6 +16,10 @@ Whole frozen module read: `packages/coding-agent/src/supervisor/service.ts` at `
 
 Baseline RED reproduced at 26b5de0e5: `/tmp/runtime-services-red-supervisor-prompts.log` (pre-repin text vs cumulative-objective frozen text). New instruction exports RED E0432: `/tmp/runtime-services-red-supervisor-review-exports.log`. Prompt/helper GREEN at 992a263c8: all three service differential tests pass (`/tmp/runtime-services-green-supervisor-prompts.log`). The subsequent lifecycle/parser checkpoints complete the whole-module row.
 
+## Lossless DB response boundary (2026-10-26)
+
+The DB completion API now accepts raw `JsValue` ([F01 reciprocal proof](session-control-db.md#supervisor-response-json-preservation-f01-2026-10-26)). The service still creates its frozen typed decision and explicitly serializes it at completion; expiry/main error paths create the same kind/reason object directly. This adapter does not alter parser decisions, lifecycle ordering or service-created response order.
+
 ## Durable evaluator lifecycle re-pin
 
 Six actual-source/real-SQLite RED cases at 992a263c8 (`/tmp/runtime-services-red-supervisor-runtime.log`): evaluator rejection incorrectly completes the request; pending cancellation never settles; settled cancellation attempts stale-claim completion; settled deadline incorrectly approves; settled lower-priority work bypasses approval preemption; abort drops evaluator cleanup before requeue. Native now polls first with the frozen 300ms default, applies cancellation/deadline/preemption in frozen order, awaits abort cleanup without JoinHandle::abort, checks cancellation around the final evaluator await, and lets evaluation errors propagate. Cancelled is an explicit outcome. Source response parse/complete behavior is otherwise unchanged. GREEN at 78be0daab: six exact runtime cases pass (`/tmp/runtime-services-green-supervisor-runtime.log`).

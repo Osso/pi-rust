@@ -102,9 +102,7 @@ async fn waits_for_and_returns_the_durable_supervisor_response() {
             &responder_path,
             request.id,
             &JsString::from("runtime"),
-            &SupervisorResponse::Approve {
-                reason: "bounded".to_owned().into(),
-            },
+            &json!({"kind":"approve","reason":"bounded"}),
         )
         .expect("complete request");
     });
@@ -153,10 +151,7 @@ async fn retries_a_timed_out_request_before_returning_a_later_durable_response()
                 &responder_path,
                 request.id,
                 &JsString::from("runtime"),
-                &SupervisorResponse::Continue {
-                    instructions: "Continue the goal.".to_owned().into(),
-                    reason: "recovered".to_owned().into(),
-                },
+                &json!({"instructions":"Continue the goal.","kind":"continue","reason":"recovered"}),
             )
             .expect("complete request");
             return;

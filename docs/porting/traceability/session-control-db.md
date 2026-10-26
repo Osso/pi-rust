@@ -24,6 +24,12 @@ Hostname reads share the existing OsStr→JsString Node byte-ingress decoder for
 
 Fixture: `oracle/control-db-oracle.mts` is the single ESM fixture; all Rust callers use it. This replaces the former CommonJS-classified .ts path after protected TS1479, without copies, alternate paths or compiler-option changes.
 
+## Supervisor response JSON preservation (F01, 2026-10-26)
+
+Frozen `session-control-db.ts:1740–1752,1923–1945` parses/stores the response directly; it validates only the response kind against the request kind. `SupervisorRequest.response` now retains `JsValue`, and `complete_supervisor_request` accepts that lossless value without a typed round trip. `SupervisorResponse` remains a typed consumer projection; service-created decisions retain their existing constructor order.
+
+Reciprocal tests `repin_control_requests::supervisor_ts_completion_preserves_response_wire_on_native_read` and `supervisor_native_completion_preserves_ts_response_wire_in_sqlite_and_peer_read` use the actual frozen public producer/claim/completion/read APIs. They compare full public JSON strings and exact SQLite `response_json` bytes for kind/reason/instructions order and an unknown nested property with a lone-surrogate value. Valid RED: `/tmp/accept-supervisor-order-red-valid.log`; GREEN (five request tests): `/tmp/accept-supervisor-order-green.log`. The initial RED attempt had a fixture callWire argument error and is not behavioral evidence. Existing response-kind rejection and claim-fencing assertions remain unchanged. No new dependency, schema, source delta or gap.
+
 ## Empty listener-path assertion (2026-10-25)
 
 Actual-source RED `/tmp/storage3-control-listener-path-red.log` omits the public trusted path for an empty registration path while native exposed sessionPath:"". Registration now timestamps only nonempty supplied paths, preserving the original path value in SQLite. Source/native GREEN `/tmp/storage3-control-listener-path-green.log` covers omitted, empty and ordinary absolute paths with real public registration/read APIs. No new carrier or path fallback.

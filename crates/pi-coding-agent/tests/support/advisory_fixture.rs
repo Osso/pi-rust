@@ -220,7 +220,7 @@ async fn respond(path: JsString, response: SupervisorResponse) -> JsValue {
             .unwrap();
         assert_eq!(changed, 1);
     } else {
-        complete_supervisor_request(&path, request.id, &token, &response).unwrap();
+        complete_supervisor_request(&path, request.id, &token, &js_json::to_value(&response).unwrap()).unwrap();
     }
     json!({"kind": request.kind, "sender": request.sender_session_id, "project": request.project_id,
         "payload": JsValue::Object(request.payload), "payloadJson": raw, "deadline": request.deadline_at})

@@ -232,7 +232,7 @@ pub struct SupervisorRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub response: Option<SupervisorResponse>,
+    pub response: Option<JsValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -531,9 +531,7 @@ fn supervisor_request_from_row(row: SupervisorRequestRow) -> Result<SupervisorRe
     let response = match row.11 {
         None => None,
         Some(response_json) => {
-            let value = pi_js_compat::js_json::parse_lossless(&response_json)
-                .map_err(|error| ControlDbError::new(error.to_string()))?;
-            Some(js_json::from_value(&value).map_err(|error| ControlDbError::new(error.to_string()))?)
+            Some(js_json::parse_lossless(&response_json).map_err(|error| ControlDbError::new(error.to_string()))?)
         }
     };
     Ok(SupervisorRequest {
@@ -813,7 +811,7 @@ pub fn complete_supervisor_request(
     control_db_path: impl Into<JsString>,
     request_id: i64,
     claim_token: &JsString,
-    response: &SupervisorResponse,
+    response: &JsValue,
 ) -> Result<(), ControlDbError> {
     let control_db_path = control_db_path.into();
     with_control_db(&control_db_path, |db| {
@@ -830,15 +828,20 @@ pub fn complete_supervisor_request(
             )));
         };
         let request_kind = SupervisorRequestKind::parse(&request_kind);
-        if !is_supervisor_response_valid_for_request(request_kind, response.kind_name()) {
+        let response_kind = response
+            .get("kind")
+            .and_then(JsValue::as_string)
+            .ok_or_else(|| ControlDbError::new("expected supervisor response string kind"))?
+            .to_utf8()
+            .map_err(|error| ControlDbError::new(error.to_string()))?;
+        if !is_supervisor_response_valid_for_request(request_kind, &response_kind) {
             return Err(ControlDbError::new(format!(
                 "Invalid Supervisor response kind {} for {}",
-                response.kind_name(),
+                response_kind,
                 request_kind.as_str()
             )));
         }
-        let response_value = js_json::to_value(response).map_err(|error| ControlDbError::new(error.to_string()))?;
-        let response_json = js_json::stringify_lossless(&response_value);
+        let response_json = js_json::stringify_lossless(response);
         let changed = db.execute(
             "UPDATE supervisor_requests
 				 SET status = 'completed', completed_at = ?, response_json = ?
