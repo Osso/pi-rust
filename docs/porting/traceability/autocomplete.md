@@ -74,3 +74,7 @@ None found. Sorting is the only intentional approximation, recorded above as a g
 ## Homedir throw/catch parity (2026-10-23)
 
 `expand_home_path` and `resolve_scoped_fuzzy_query` return NativeNodeError through Result. Frozen getFileSuggestions and getFuzzyFileSuggestions catches consume those failures and return no suggestions. `differential_autocomplete::nss_home` forces getpwuid_r EIO in isolated source/native processes for `~/` and `@~/`; both return null without a panic. RED/GREEN logs: `/tmp/pi-rust-repin-lossless-interactive/autocomplete-home-{red,green}.log`.
+
+## Harness intermittent (acceptance 2026-10-26)
+
+`autocomplete_close_abort::abort_after_parent_exit_but_before_stdout_close_matches_frozen` failed once in the full workspace run because the frozen oracle side reported "fd parent did not exit before abort" (its own setup deadline under load), then passed 5/5 targeted reruns. Scheduling/timing gap category; native behavior was not the failing side.

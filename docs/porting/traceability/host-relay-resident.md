@@ -22,3 +22,7 @@ Tests use private settings/control DBs and fake SSH only. Final mutation/check e
 ## Retained UTF-8 boundary (2026-10-26)
 
 `read_relay_identity` retains strict decoding of internal machine-written `.relay.json` process metadata; invalid bytes require corruption. Frozen `host-relay-resident.ts:27` uses `readFileSync(..., "utf8")`; excluded OS/data-fault case, not equivalent invalid-byte behavior. See the [complete file-read audit](../utf8-decoding-sweep.md).
+
+## Harness intermittent (acceptance 2026-10-26)
+
+`host_relay_resident::spawn_failure_is_logged_like_frozen_without_executing_any_ssh` failed once in the full workspace run with ETXTBSY ("Text file busy") when executing its freshly written fake script, then passed 5/5 targeted reruns. This is the write-then-exec race with concurrent forks in the multithreaded test process; no product path is involved.
