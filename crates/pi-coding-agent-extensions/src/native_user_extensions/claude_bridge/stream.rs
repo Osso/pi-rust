@@ -77,6 +77,7 @@ pub fn map_tool_args(name: &str, args: &JsObject) -> JsObject {
 
 pub struct StreamDecoder {
     pub output: AssistantMessage,
+    model: Model,
     pub(super) names: IndexMap<String, String>,
     started: bool,
     pub(super) streamed: bool,
@@ -104,6 +105,7 @@ impl StreamDecoder {
             .map_or(0.0, |d| d.as_secs_f64() * 1000.0);
         Self {
             output: AssistantMessage::empty(&model.api, &model.provider, &model.id, timestamp),
+            model: model.clone(),
             names,
             started: false,
             streamed: false,
@@ -488,6 +490,7 @@ impl StreamDecoder {
         }
         let usage = &mut self.output.usage;
         usage.total_tokens = usage.input + usage.output + usage.cache_read + usage.cache_write;
+        usage.cost = pi_ai::models::calculate_cost(&self.model, usage);
     }
 }
 
@@ -518,6 +521,58 @@ mod tests {
             .iter()
             .flat_map(|line| decoder.decode(&js_json::parse_lossless(*line).unwrap()).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn claude_bridge_usage_recalculates_cost_with_model_rates() {
+        let mut model = pi_ai::providers::models_data::builtin_model("anthropic", "claude-opus-5-5").unwrap();
+        model.cost.rates = pi_ai::types::ModelCostRates {
+            input: 10.0,
+            output: 20.0,
+            cache_read: 1.0,
+            cache_write: 12.5,
+        };
+        let mut decoder = StreamDecoder::new(&model);
+        // Exact costs from TS usage.ts updateUsage with these rates and successive frames.
+        let cases = [
+            (
+                r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"msg-cost","usage":{"input_tokens":100}}}}"#,
+                pi_ai::types::UsageCost {
+                    input: 0.001,
+                    total: 0.001,
+                    ..Default::default()
+                },
+                100.0,
+            ),
+            (
+                r#"{"type":"stream_event","event":{"type":"message_delta","usage":{"output_tokens":50,"cache_read_input_tokens":200,"cache_creation_input_tokens":80,"output_tokens_details":{"thinking_tokens":30}}}}"#,
+                pi_ai::types::UsageCost {
+                    input: 0.001,
+                    output: 0.001,
+                    cache_read: 0.00019999999999999998,
+                    cache_write: 0.001,
+                    total: 0.0032,
+                },
+                430.0,
+            ),
+            (
+                r#"{"type":"assistant","message":{"id":"msg-next","content":[],"usage":{"input_tokens":120,"output_tokens":null}}}"#,
+                pi_ai::types::UsageCost {
+                    input: 0.0012000000000000001,
+                    output: 0.001,
+                    cache_read: 0.00019999999999999998,
+                    cache_write: 0.001,
+                    total: 0.0034000000000000002,
+                },
+                450.0,
+            ),
+        ];
+        for (frame, cost, total_tokens) in cases {
+            frames(&mut decoder, &[frame]);
+            assert_eq!(decoder.output.usage.cost, cost);
+            assert_eq!(decoder.output.usage.total_tokens, total_tokens);
+        }
+        assert_eq!(decoder.output.usage.reasoning, Some(30.0));
     }
 
     #[test]
