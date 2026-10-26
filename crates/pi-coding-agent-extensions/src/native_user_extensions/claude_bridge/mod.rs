@@ -122,6 +122,8 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
 #[cfg(test)]
 mod account_profile_tests;
 #[cfg(test)]
+mod ask_history_tests;
+#[cfg(test)]
 mod integration_tests;
 #[cfg(test)]
 mod lifecycle_tests;

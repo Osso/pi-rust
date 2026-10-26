@@ -168,6 +168,19 @@ impl SessionStore {
         }
     }
 
+    pub fn sync_ask(
+        &mut self,
+        key: &JsString,
+        context: &Context,
+        cwd: &Path,
+        model: &str,
+    ) -> Result<Option<String>, CallbackError> {
+        if let Some(mirror) = self.mirrors.get(key) {
+            return Ok(Some(mirror.id.clone()));
+        }
+        self.sync(key, context, cwd, model, false)
+    }
+
     pub fn clear(&mut self) {
         self.mirrors.clear();
     }

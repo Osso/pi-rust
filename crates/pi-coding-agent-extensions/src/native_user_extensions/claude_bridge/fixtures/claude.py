@@ -131,6 +131,20 @@ elif text == "[Your context was compacted. What precedes this is a summary plus 
         records = [json.loads(line) for line in saved if line.strip()]
     assert records[0]["message"]["content"] == "compacted history", records
     answer("rewritten continuation", "rewrite-msg")
+elif text in ["assert-ask-history", "assert-ask-existing"]:
+    resume = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--resume=")), None)
+    assert resume, args
+    assert "--no-session-persistence" not in args, args
+    if text == "assert-ask-existing":
+        assert resume == "existing-native", args
+    else:
+        project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())
+        root = os.environ["CLAUDE_CONFIG_DIR"]
+        with open(os.path.join(root, "projects", project, resume + ".jsonl"), encoding="utf-8") as saved:
+            records = [json.loads(line) for line in saved if line.strip()]
+        assert records[0]["message"]["content"] == "prior question \udfff", records
+        assert records[1]["message"]["content"][0]["text"] == "prior answer", records
+    answer("shared history restored", "ask-history-msg")
 elif text == "short-unowned":
     assert not any(arg.startswith("--resume=") for arg in args), args
     answer("short caller", "short-msg")

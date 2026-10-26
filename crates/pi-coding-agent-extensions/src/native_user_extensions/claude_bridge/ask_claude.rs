@@ -209,8 +209,27 @@ async fn execute(
     let start = tokio::time::Instant::now();
     let mut calls = IndexMap::new();
     let cwd = context.cwd()?;
+    let isolated = args
+        .get("isolated")
+        .and_then(JsValue::as_bool)
+        .unwrap_or(defaults.isolated);
+    let session = context.session_manager()?;
+    let history = if isolated {
+        Vec::new()
+    } else {
+        let branch = session.get_branch(None);
+        let history = crate::core::session_manager::build_session_context(
+            &branch,
+            crate::core::session_manager::LeafSelection::Last,
+        )
+        .messages;
+        pi_agent_core::harness::messages::convert_to_llm(&history)
+            .map_err(|e| HandlerError::new(e.message().clone()))?
+    };
     let result = AskRun {
         bridge,
+        history,
+        session_id: session.get_session_id(),
         system_prompt: context.get_system_prompt()?,
         append_skills: defaults.append_skills,
         args: &args,
@@ -257,6 +276,8 @@ async fn execute(
 
 struct AskRun<'a> {
     bridge: &'a BridgeProvider,
+    history: Vec<pi_ai::types::Message>,
+    session_id: JsString,
     system_prompt: JsString,
     append_skills: bool,
     args: &'a JsValue,
@@ -313,6 +334,32 @@ impl AskRun<'_> {
             .get("isolated")
             .and_then(JsValue::as_bool)
             .unwrap_or(self.default_isolated);
+        if !launch.isolated && !self.history.is_empty() {
+            let mut context = pi_ai::types::Context {
+                system_prompt: None,
+                messages: self.history.clone(),
+                tools: None,
+            };
+            context
+                .messages
+                .push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
+                    role: pi_ai::types::UserRole::Tag,
+                    content: pi_ai::types::UserContent::Text(string(self.args, "prompt")),
+                    input_source: None,
+                    provider_native: None,
+                    timestamp: super::account_state::now_seconds()? * 1000.0,
+                }));
+            let mut sessions = self
+                .bridge
+                .sessions
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            let store = sessions.as_mut().map_err(|e| e.clone())?;
+            launch.resume = store.sync_ask(&self.session_id, &context, &launch.cwd, &launch.model)?;
+            if launch.claude_dir.is_none() {
+                launch.claude_dir = Some(store.claude_dir.clone());
+            }
+        }
         launch.effort = match string(self.args, "thinking")
             .to_utf8()
             .map_err(|e| CallbackError::new(e.to_string()))?
