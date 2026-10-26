@@ -602,6 +602,66 @@ async fn claude_bridge_shape_trace_records_discarded_attempt_under_its_original_
 }
 
 #[tokio::test]
+async fn claude_bridge_cancellation_interrupts_a_blocked_control_reply_and_reaps_the_child() {
+    assert_blocked_control_cancellation(false).await;
+}
+
+#[tokio::test]
+async fn claude_bridge_shutdown_interrupts_a_blocked_control_reply_and_reaps_the_child() {
+    assert_blocked_control_cancellation(true).await;
+}
+
+async fn assert_blocked_control_cancellation(shutdown: bool) {
+    let (dir, config, loaded) = setup().await;
+    let runner = super::lifecycle_tests::runner(dir.path(), loaded, Some(model(&config)));
+    let controller = pi_js_compat::abort::AbortController::new();
+    let mut opts = options(&dir);
+    opts.stream.request.signal = Some(controller.signal());
+    opts.stream.session_id = Some(runner.create_context().session_manager().unwrap().get_session_id());
+    let mut ctx = read_context("blocked-control-write");
+    ctx.tools.as_mut().unwrap()[0].description = "x".repeat(2 * 1024 * 1024).into();
+    let stream = config.stream_simple.as_ref().unwrap()(model(&config), ctx, Some(opts)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !dir.path().join(".fixture-control-blocked").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    if shutdown {
+        use crate::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            runner.emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            })),
+        )
+        .await
+        .expect("shutdown interrupts control writes");
+    } else {
+        controller.abort(None);
+    }
+    let output = tokio::time::timeout(std::time::Duration::from_secs(1), stream.result())
+        .await
+        .expect("abort must interrupt a full stdin pipe")
+        .unwrap();
+    assert_eq!(
+        output.stop_reason,
+        if shutdown {
+            StopReason::Error
+        } else {
+            StopReason::Aborted
+        }
+    );
+    if shutdown {
+        assert_eq!(output.error_message.unwrap(), "pi session shut down");
+    }
+    let pid = std::fs::read_to_string(dir.path().join(".fixture-pid")).unwrap();
+    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();
@@ -765,4 +825,231 @@ async fn claude_bridge_fake_process_askclaude_uses_registered_tool() {
             .and_then(JsValue::as_bool),
         Some(true)
     );
+}
+
+#[tokio::test]
+async fn claude_bridge_empty_results_emit_source_events_content_and_usage() {
+    for (prompt, tags, text_blocks, input, output, error) in [
+        (
+            "empty-assistant-result",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            7.0,
+            3.0,
+            None,
+        ),
+        (
+            "missing-content-result",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            0.0,
+            0.0,
+            None,
+        ),
+        ("empty-stream-result", vec!["start", "done"], 0, 7.0, 3.0, None),
+        (
+            "empty-stream-text",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            13.0,
+            6.0,
+            None,
+        ),
+        (
+            "empty-is-error-result",
+            vec!["start", "error"],
+            0,
+            0.0,
+            0.0,
+            Some(JsString::from("Claude Code reported an error")),
+        ),
+        (
+            "text-is-error-result",
+            vec!["start", "error"],
+            0,
+            0.0,
+            0.0,
+            Some(JsString::from("failed ") + JsString::from_utf16(vec![0xdfff])),
+        ),
+        (
+            "empty-synthetic-error",
+            vec!["start", "error"],
+            0,
+            7.0,
+            0.0,
+            Some(JsString::from("Claude Code reported an error")),
+        ),
+    ] {
+        let (dir, config, _) = setup().await;
+        let mut stream =
+            config.stream_simple.as_ref().unwrap()(model(&config), context(prompt), Some(options(&dir))).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(js_json::to_value(&event.unwrap()).unwrap());
+        }
+        let actual: Vec<_> = events
+            .iter()
+            .map(|event| super::stream::string(event, "type"))
+            .collect();
+        assert_eq!(
+            actual,
+            tags.iter().map(|tag| JsString::from(*tag)).collect::<Vec<_>>(),
+            "{prompt}"
+        );
+        let result = stream.result().await.unwrap();
+        assert_eq!(result.content.len(), text_blocks, "{prompt}");
+        for content in &result.content {
+            let AssistantContent::Text(text) = content else {
+                panic!("{prompt}: text");
+            };
+            assert_eq!(text.text, "", "{prompt}");
+        }
+        assert_eq!(result.usage.input, input, "{prompt}");
+        assert_eq!(result.usage.output, output, "{prompt}");
+        let cache_read = if prompt == "empty-stream-text" { 40.0 } else { 0.0 };
+        assert_eq!(result.usage.total_tokens, input + output + cache_read, "{prompt}");
+        assert_eq!(result.error_message, error, "{prompt}");
+        assert_eq!(
+            result.stop_reason,
+            if error.is_some() {
+                StopReason::Error
+            } else {
+                StopReason::Stop
+            },
+            "{prompt}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn claude_bridge_empty_tool_results_normalize_mcp_content_and_preserve_error() {
+    for empty_block in [false, true] {
+        let (dir, config, _) = setup().await;
+        let stream = config.stream_simple.as_ref().unwrap();
+        let mut ctx = read_context("empty-tool-result");
+        let first = stream(model(&config), ctx.clone(), Some(options(&dir)))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        assert_eq!(first.stop_reason, StopReason::ToolUse);
+        assert_eq!(first.usage.total_tokens, 10.0);
+        append_read_result(&mut ctx, first, "".into());
+        let Some(Message::ToolResult(result)) = ctx.messages.last_mut() else {
+            panic!("result");
+        };
+        result.is_error = true;
+        if !empty_block {
+            result.content.clear();
+        }
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            stream(model(&config), ctx, Some(options(&dir))).unwrap().result(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+        assert_eq!(result.content.len(), 1);
+        assert_eq!(result.usage.total_tokens, 0.0);
+    }
+}
+
+#[tokio::test]
+async fn claude_bridge_askclaude_cancels_initialization_and_reaps_on_result_errors() {
+    use std::sync::Arc;
+    for stall in [true, false] {
+        let (dir, _, loaded) = setup().await;
+        if stall {
+            std::fs::write(dir.path().join(".fixture-stall-initialize"), "").unwrap();
+        }
+        let definition = loaded.extensions[0]
+            .read()
+            .tools
+            .get("AskClaude")
+            .unwrap()
+            .definition
+            .clone();
+        let runner = super::lifecycle_tests::runner(dir.path(), loaded, None);
+        let controller = pi_js_compat::abort::AbortController::new();
+        let args = JsValue::object([
+            (
+                "prompt",
+                JsValue::String(if stall { "wait" } else { "error-wait" }.into()),
+            ),
+            ("isolated", JsValue::Bool(true)),
+            ("mode", JsValue::String("none".into())),
+        ]);
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = updates.clone();
+        let execute = tokio::spawn((definition.execute)(
+            "ask-cancel".into(),
+            args,
+            Some(controller.signal()),
+            Some(Arc::new(move |update| {
+                captured.lock().unwrap().push(update);
+                Ok(())
+            })),
+            Some(runner.create_context()),
+        ));
+        let pid = wait_for_fixture_pid(&dir).await;
+        if stall {
+            controller.abort(None);
+        }
+        let output = tokio::time::timeout(std::time::Duration::from_secs(1), execute)
+            .await
+            .expect("AskClaude cancellation/error must settle and reap")
+            .unwrap()
+            .unwrap();
+        if !stall {
+            assert_eq!(output.details.unwrap().get("error"), Some(&JsValue::Bool(true)));
+            assert!(
+                updates.lock().unwrap().is_empty(),
+                "source error branch does not blank progress"
+            );
+        }
+        assert!(
+            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+            "AskClaude must await cleanup: stalled={stall} pid={pid} status={:?}",
+            std::fs::read_to_string(format!("/proc/{pid}/status"))
+        );
+    }
+}
+
+#[tokio::test]
+async fn claude_bridge_summary_abort_reaps_its_child_before_terminal_output() {
+    let (dir, config, _) = setup().await;
+    std::fs::write(dir.path().join(".fixture-stall-initialize"), "").unwrap();
+    for _ in 0..8 {
+        let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+        let controller = pi_js_compat::abort::AbortController::new();
+        let mut opts = options(&dir);
+        opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
+        opts.stream.request.signal = Some(controller.signal());
+        let stream = bridge.stream(model(&config), context("summary"), Some(opts)).unwrap();
+        let pid = wait_for_fixture_pid(&dir).await;
+        controller.abort(None);
+        assert_eq!(stream.result().await.unwrap().stop_reason, StopReason::Aborted);
+        assert!(
+            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+            "summary must reap before delivering abort: pid={pid:?}"
+        );
+        std::fs::remove_file(dir.path().join(".fixture-pid")).unwrap();
+    }
+}
+
+async fn wait_for_fixture_pid(dir: &tempfile::TempDir) -> String {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match std::fs::read_to_string(dir.path().join(".fixture-pid")) {
+                Ok(pid) if pid.parse::<u32>().is_ok() => return pid,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("Cannot read fixture PID: {error}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("fixture must publish a complete PID")
 }

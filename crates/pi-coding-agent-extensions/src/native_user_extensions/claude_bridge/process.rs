@@ -213,7 +213,7 @@ pub struct ClaudeProcess {
     child: Child,
     input: ChildStdin,
     output: tokio::io::Lines<BufReader<ChildStdout>>,
-    stderr: tokio::task::JoinHandle<Result<String, std::io::Error>>,
+    stderr: Option<tokio::task::JoinHandle<Result<String, std::io::Error>>>,
 }
 
 impl ClaudeProcess {
@@ -286,14 +286,8 @@ impl ClaudeProcess {
             child,
             input,
             output: BufReader::new(output).lines(),
-            stderr,
+            stderr: Some(stderr),
         };
-        Ok(process)
-    }
-
-    pub async fn spawn(options: &LaunchOptions) -> Result<Self, CallbackError> {
-        let mut process = Self::spawn_child(options)?;
-        process.initialize(options).await?;
         Ok(process)
     }
 
@@ -337,17 +331,13 @@ impl ClaudeProcess {
             .transpose()
     }
 
-    pub async fn close(mut self) -> Result<(), CallbackError> {
+    pub async fn close(&mut self) -> Result<(), CallbackError> {
         self.input
             .shutdown()
             .await
             .map_err(|e| CallbackError::new(e.to_string()))?;
         let status = self.child.wait().await.map_err(|e| CallbackError::new(e.to_string()))?;
-        let stderr = self
-            .stderr
-            .await
-            .map_err(|e| CallbackError::new(e.to_string()))?
-            .map_err(|e| CallbackError::new(e.to_string()))?;
+        let stderr = self.read_stderr().await?;
         if !status.success() {
             return Err(CallbackError::new(format!(
                 "Claude Code process exited with code {}{}",
@@ -362,13 +352,35 @@ impl ClaudeProcess {
         Ok(())
     }
 
-    pub async fn terminate(mut self) -> Result<(), CallbackError> {
+    pub async fn terminate(&mut self) -> Result<(), CallbackError> {
         self.child.kill().await.map_err(|e| CallbackError::new(e.to_string()))?;
-        self.stderr
-            .await
-            .map_err(|e| CallbackError::new(e.to_string()))?
-            .map_err(|e| CallbackError::new(e.to_string()))?;
+        if self.stderr.is_some() {
+            self.read_stderr().await?;
+        }
         Ok(())
+    }
+
+    async fn read_stderr(&mut self) -> Result<String, CallbackError> {
+        let task = self
+            .stderr
+            .as_mut()
+            .ok_or_else(|| CallbackError::new("Claude stderr already consumed"))?;
+        let result = task.await;
+        self.stderr = None;
+        result
+            .map_err(|e| CallbackError::new(e.to_string()))?
+            .map_err(|e| CallbackError::new(e.to_string()))
+    }
+
+    pub async fn cancel(&mut self) -> Result<(), CallbackError> {
+        // The SDK starts interrupt without awaiting it, then closes the query.
+        // Do not let a full stdin pipe prevent that close from reaping the child.
+        tokio::select! {
+            biased;
+            _ = self.interrupt() => {},
+            _ = std::future::ready(()) => {},
+        }
+        self.terminate().await
     }
 
     pub async fn interrupt(&mut self) -> Result<(), CallbackError> {

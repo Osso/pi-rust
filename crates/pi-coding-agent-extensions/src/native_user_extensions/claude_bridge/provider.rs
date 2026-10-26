@@ -25,6 +25,7 @@ pub enum QueryCommand {
 
 struct QueryHandle {
     sender: mpsc::UnboundedSender<QueryCommand>,
+    stop: pi_js_compat::abort::AbortController,
     tool_ids: Arc<Mutex<HashSet<String>>>,
     session: JsString,
     settled: tokio::sync::watch::Receiver<bool>,
@@ -171,6 +172,9 @@ impl BridgeProvider {
         let rewritten = !stale_ids.is_empty();
         for id in stale_ids {
             if let Some(query) = state.queries.remove(&id) {
+                query.stop.abort(Some(
+                    JsValue::String("Context was compacted; this query was discarded.".into()).into(),
+                ));
                 let _closed = query.sender.send(QueryCommand::Shutdown {
                     reason: "Context was compacted; this query was discarded.".into(),
                 });
@@ -240,10 +244,13 @@ impl BridgeProvider {
         let native_id = Arc::new(Mutex::new(None));
         let (settled, completion) = tokio::sync::watch::channel(false);
         let tool_ids = Arc::new(Mutex::new(HashSet::new()));
+        let stop = pi_js_compat::abort::AbortController::new();
+        let stop_signal = stop.signal();
         state.queries.insert(
             id,
             QueryHandle {
                 sender: commands,
+                stop,
                 tool_ids: tool_ids.clone(),
                 session: session_key,
                 settled: completion,
@@ -254,7 +261,15 @@ impl BridgeProvider {
         let bridge = self.clone();
         drop(state);
         tokio::spawn(async move {
-            let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, &bridge, native_id);
+            let mut actor = QueryActor::new(
+                &model,
+                &context,
+                sender,
+                (receive, stop_signal),
+                tool_ids,
+                &bridge,
+                native_id,
+            );
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let auth_profile = launch
@@ -354,7 +369,15 @@ impl BridgeProvider {
                 Ok(())
             };
             match result.and(persist) {
-                Err(error) => actor.fail(error),
+                Err(error) => actor.fail(
+                    error,
+                    options
+                        .stream
+                        .request
+                        .signal
+                        .as_ref()
+                        .is_some_and(|signal| signal.aborted()),
+                ),
                 Ok(()) => actor.finish(),
             };
             settled.send_replace(true);
@@ -390,6 +413,7 @@ impl BridgeProvider {
                 .collect::<Vec<_>>()
         };
         for query in queries {
+            query.stop.abort(Some(JsValue::String(reason.clone()).into()));
             let mut settled = query.settled;
             if query
                 .sender
@@ -671,9 +695,10 @@ struct QueryActor {
     decoder: StreamDecoder,
     current: Option<Sender>,
     commands: mpsc::UnboundedReceiver<QueryCommand>,
+    stop: pi_js_compat::abort::AbortSignal,
     tool_ids: Arc<Mutex<HashSet<String>>>,
     tools: Vec<Tool>,
-    pending_calls: HashMap<String, JsValue>,
+    pending_calls: indexmap::IndexMap<String, JsValue>,
     pending_results: HashMap<String, JsValue>,
     turn_ended: bool,
     native_session: Option<String>,
@@ -693,7 +718,7 @@ impl QueryActor {
         model: &Model,
         context: &Context,
         sender: Sender,
-        commands: mpsc::UnboundedReceiver<QueryCommand>,
+        commands: (mpsc::UnboundedReceiver<QueryCommand>, pi_js_compat::abort::AbortSignal),
         tool_ids: Arc<Mutex<HashSet<String>>>,
         bridge: &BridgeProvider,
         native_id: Arc<Mutex<Option<String>>>,
@@ -703,10 +728,11 @@ impl QueryActor {
             model: model.clone(),
             decoder: StreamDecoder::with_tools(model, tools.iter().map(|t| t.name.clone())),
             current: Some(sender),
-            commands,
+            commands: commands.0,
+            stop: commands.1,
             tool_ids,
             tools,
-            pending_calls: HashMap::new(),
+            pending_calls: indexmap::IndexMap::new(),
             pending_results: HashMap::new(),
             turn_ended: false,
             native_session: None,
@@ -751,35 +777,47 @@ impl QueryActor {
             return Ok(());
         }
         let mut process = ClaudeProcess::spawn_child(launch)?;
-        tokio::select! {
+        let stop = self.stop.clone();
+        let outcome = tokio::select! {
             biased;
-            _ = signal.wait() => { self.mark_aborted(); process.terminate().await?; return Ok(()); },
-            command = self.commands.recv() => { let error = shutdown_reason(command); process.terminate().await?; return Err(error); },
-            result = process.initialize(launch) => result?,
+            _ = signal.wait() => None,
+            reason = stop.wait() => Some(Err(CallbackError::new(js_json::to_js_string(&reason.value()).map_err(CallbackError::new)?))),
+            result = self.run_query(launch, context, &mut process) => Some(result),
         };
-        let prompt = user_message(prompt_content(context)?, false);
-        tokio::select! {
-            biased;
-            _ = signal.wait() => { self.mark_aborted(); process.terminate().await?; return Ok(()); },
-            command = self.commands.recv() => { let error = shutdown_reason(command); process.terminate().await?; return Err(error); },
-            result = process.write(&prompt) => result?,
-        };
+        match outcome {
+            None => {
+                self.mark_aborted();
+                let released = self
+                    .release_pending_calls(&"Operation aborted".into(), &mut process)
+                    .await;
+                process.cancel().await?;
+                released
+            }
+            Some(Err(error)) => {
+                process.terminate().await?;
+                Err(error)
+            }
+            Some(Ok(())) => Ok(()),
+        }
+    }
+
+    async fn run_query(
+        &mut self,
+        launch: &LaunchOptions,
+        context: &Context,
+        process: &mut ClaudeProcess,
+    ) -> Result<(), CallbackError> {
+        process.initialize(launch).await?;
+        process.write(&user_message(prompt_content(context)?, false)).await?;
         loop {
             tokio::select! {
-                _ = signal.wait() => {
-                    self.mark_aborted();
-                    self.pending_calls.clear(); self.pending_results.clear();
-                    process.terminate().await?;
-                    return Ok(());
-                }
                 command = self.commands.recv() => match command {
                     Some(QueryCommand::Shutdown { reason }) => {
-                        self.pending_calls.clear(); self.pending_results.clear();
                         self.tool_ids.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
-                        process.terminate().await?; return Err(CallbackError::new(reason));
+                        return Err(CallbackError::new(reason));
                     }
-                    Some(command) => self.deliver(command,&mut process).await?,
-                    None => { process.terminate().await?; return Err(CallbackError::new("Claude query command channel closed")); },
+                    Some(command) => self.deliver(command,process).await?,
+                    None => { return Err(CallbackError::new("Claude query command channel closed")); },
                 },
                 frame = process.read() => match frame? {
                     None => break,
@@ -791,7 +829,7 @@ impl QueryActor {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
                             *self.native_id.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = self.native_session.clone();
                         }
-                        if string(&frame,"type") == "control_request" { self.control(&frame,&mut process).await?; }
+                        if string(&frame,"type") == "control_request" { self.control(&frame,process).await?; }
                         else {
                             self.decode(&frame)?;
                             if string(&frame,"type") == "result" { break; }
@@ -800,6 +838,7 @@ impl QueryActor {
                 }
             }
         }
+        self.release_pending_calls(&"Query ended".into(), process).await?;
         process.close().await?;
         if let Some(shape) = &mut self.shape {
             shape.record_pi(
@@ -880,6 +919,38 @@ impl QueryActor {
         Ok(())
     }
 
+    fn drain_pending_calls(&mut self, reason: &JsString) -> Vec<JsValue> {
+        self.pending_results.clear();
+        std::mem::take(&mut self.pending_calls)
+            .into_values()
+            .map(|request| {
+                let result = JsValue::object([(
+                    "content",
+                    JsValue::Array(vec![JsValue::object([
+                        ("type", JsValue::String("text".into())),
+                        ("text", JsValue::String(reason.clone())),
+                    ])]),
+                )]);
+                mcp_response_frame(&request, Ok(result))
+            })
+            .collect()
+    }
+
+    async fn release_pending_calls(
+        &mut self,
+        reason: &JsString,
+        process: &mut ClaudeProcess,
+    ) -> Result<(), CallbackError> {
+        let frames = self.drain_pending_calls(reason);
+        // SDK resolves all parked callbacks before close, but does not await the
+        // resulting transport writes. A blocked peer must not delay teardown.
+        tokio::select! {
+            biased;
+            result = async { for frame in frames {process.write(&frame).await?;} Ok(()) } => result,
+            _ = std::future::ready(()) => Ok(()),
+        }
+    }
+
     fn mark_aborted(&mut self) {
         self.decoder.output.stop_reason = StopReason::Aborted;
         self.decoder.output.error_message = Some("Operation aborted".into());
@@ -946,13 +1017,19 @@ impl QueryActor {
 
     fn finish(&mut self) {
         if let Some(sender) = self.current.take() {
-            sender.push(self.decoder.finish());
+            for event in self.decoder.finish_events() {
+                sender.push(event);
+            }
             sender.end(None);
         }
     }
 
-    fn fail(&mut self, error: CallbackError) {
-        self.decoder.output.stop_reason = StopReason::Error;
+    fn fail(&mut self, error: CallbackError, aborted: bool) {
+        self.decoder.output.stop_reason = if aborted {
+            StopReason::Aborted
+        } else {
+            StopReason::Error
+        };
         self.decoder.output.error_message = Some(error.message);
         self.finish();
     }
@@ -995,7 +1072,9 @@ impl QueryActor {
                 let value = JsValue::object([
                     (
                         "content",
-                        js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
+                        super::convert::tool_result_to_mcp_content(
+                            &js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
+                        ),
                     ),
                     ("isError", JsValue::Bool(result.is_error)),
                 ]);
@@ -1013,7 +1092,9 @@ impl QueryActor {
             .cloned()
             .collect();
         for id in ready {
-            if let (Some(request), Some(result)) = (self.pending_calls.remove(&id), self.pending_results.remove(&id)) {
+            if let (Some(request), Some(result)) =
+                (self.pending_calls.shift_remove(&id), self.pending_results.remove(&id))
+            {
                 self.send_mcp_response(&request, Ok(result), process).await?;
             }
         }
@@ -1077,34 +1158,33 @@ impl QueryActor {
         result: Result<JsValue, JsString>,
         process: &mut ClaudeProcess,
     ) -> Result<(), CallbackError> {
-        let rpc_id = request
-            .get("request")
-            .and_then(|v| v.get("message"))
-            .and_then(|v| v.get("id"))
-            .cloned()
-            .unwrap_or(JsValue::Number(0.0));
-        let response = match result {
-            Ok(result) => JsValue::object([
-                ("jsonrpc", JsValue::String("2.0".into())),
-                ("id", rpc_id),
-                ("result", result),
-            ]),
-            Err(error) => JsValue::object([
-                ("jsonrpc", JsValue::String("2.0".into())),
-                ("id", rpc_id),
-                (
-                    "error",
-                    JsValue::object([("code", JsValue::Number(-32603.0)), ("message", JsValue::String(error))]),
-                ),
-            ]),
-        };
-        process
-            .write(&control_response(
-                request,
-                JsValue::object([("mcp_response", response)]),
-            ))
-            .await
+        process.write(&mcp_response_frame(request, result)).await
     }
+}
+
+fn mcp_response_frame(request: &JsValue, result: Result<JsValue, JsString>) -> JsValue {
+    let rpc_id = request
+        .get("request")
+        .and_then(|v| v.get("message"))
+        .and_then(|v| v.get("id"))
+        .cloned()
+        .unwrap_or(JsValue::Number(0.0));
+    let response = match result {
+        Ok(result) => JsValue::object([
+            ("jsonrpc", JsValue::String("2.0".into())),
+            ("id", rpc_id),
+            ("result", result),
+        ]),
+        Err(error) => JsValue::object([
+            ("jsonrpc", JsValue::String("2.0".into())),
+            ("id", rpc_id),
+            (
+                "error",
+                JsValue::object([("code", JsValue::Number(-32603.0)), ("message", JsValue::String(error))]),
+            ),
+        ]),
+    };
+    control_response(request, JsValue::object([("mcp_response", response)]))
 }
 
 fn mark_local_rebuild(
@@ -1131,14 +1211,6 @@ fn mark_local_rebuild(
     }
     store.mark_rebuild(session, rotate || active);
     Ok(())
-}
-
-fn shutdown_reason(command: Option<QueryCommand>) -> CallbackError {
-    match command {
-        Some(QueryCommand::Shutdown { reason }) => CallbackError::new(reason),
-        Some(_) => CallbackError::new("Claude query received tool results before initialization"),
-        None => CallbackError::new("Claude query command channel closed"),
-    }
 }
 
 fn recent_tool_result_ids(context: &Context) -> HashSet<String> {
@@ -1330,4 +1402,46 @@ pub fn executable_path(settings: &JsValue, extension_path: &Path) -> Result<Path
     Err(CallbackError::new(
         "Could not find Claude Code executable. Set provider.pathToClaudeCodeExecutable in claude-bridge.json.",
     ))
+}
+
+#[cfg(test)]
+mod teardown_tests {
+    use super::*;
+    #[test]
+    fn claude_bridge_teardown_resolves_all_mcp_calls_with_plain_reason_and_clears_queued_results() {
+        let model = pi_ai::providers::models_data::builtin_model("anthropic", "claude-opus-5-5").unwrap();
+        let context = Context {
+            system_prompt: None,
+            messages: Vec::new(),
+            tools: None,
+        };
+        let bridge = BridgeProvider::new(JsValue::Null, Err(CallbackError::new("unused")), "AskClaude".into());
+        let (sender, _) = pi_ai::utils::event_stream::create_assistant_message_event_stream();
+        let (_, commands) = mpsc::unbounded_channel();
+        let stop = pi_js_compat::abort::AbortController::new();
+        let mut actor = QueryActor::new(
+            &model,
+            &context,
+            sender,
+            (commands, stop.signal()),
+            Arc::new(Mutex::new(HashSet::new())),
+            &bridge,
+            Arc::new(Mutex::new(None)),
+        );
+        for (tool, id) in [("first", 1.0), ("second", 2.0)] {
+            let frame = JsValue::object([
+                ("request_id", JsValue::String(tool.into())),
+                (
+                    "request",
+                    JsValue::object([("message", JsValue::object([("id", JsValue::Number(id))]))]),
+                ),
+            ]);
+            actor.pending_calls.insert(tool.into(), frame);
+            actor.pending_results.insert(tool.into(), JsValue::Null);
+        }
+        let frames = actor.drain_pending_calls(&"Operation aborted".into());
+        assert_eq!(frames,js_json::parse_lossless(r#"[{"type":"control_response","response":{"subtype":"success","request_id":"first","response":{"mcp_response":{"jsonrpc":"2.0","id":1,"result":{"content":[{"type":"text","text":"Operation aborted"}]}}}}},{"type":"control_response","response":{"subtype":"success","request_id":"second","response":{"mcp_response":{"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Operation aborted"}]}}}}}]"#).unwrap().as_array().unwrap().to_vec());
+        assert!(actor.pending_calls.is_empty());
+        assert!(actor.pending_results.is_empty());
+    }
 }

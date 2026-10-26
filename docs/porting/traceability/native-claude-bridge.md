@@ -2,7 +2,15 @@
 
 Source: read-only extension `38d84cb549cce66dd76d45a5020d132f74780393`, `src/`.
 Native directory: `crates/pi-coding-agent-extensions/src/native_user_extensions/claude_bridge/`.
-Audit baseline: `c4bc63836`. This is an implementation/proof inventory, **not parity closure**.
+Audit baseline: `c4bc63836`. This is an implementation/proof inventory, **not parity closure**. The table and numbered findings below retain that historical baseline; implemented follow-ups are recorded here and in the [current spec status](../../specs/claude-bridge-native.md).
+
+## Cancellation follow-up
+
+- Provider protocol operations (initialize, prompt/steer/control writes, reads and close) are under one abort boundary. Session shutdown/discard has a separate reason-bearing wakeup, so it also interrupts blocked writes. Offline tests fill the tools/list reply pipe, then abort or shut down and assert stream settlement plus child reaping.
+- AskClaude and isolated summaries retain child ownership outside their cancellable protocol futures and await reaping on cancellation/errors. The source AskClaude catch stops its interval but does not blank progress; native preserves that behavior. Tests stall initialization and return an error while the CLI stays alive.
+- Quota rechecks check cancellation after the response and do not publish new account evidence from a cancelled probe. Provider output uses Aborted, not Error, and retains the cancellation error text. The injected HTTP test compares account state before and after that boundary.
+- Parked MCP calls drain in insertion order with plain-text reason replies on abort, shutdown, discard and normal/error end. Queued results are cleared. The source resolves promises before close without waiting for transport delivery; native attempts the equivalent writes without allowing a blocked pipe to delay reaping. Exact reply-value/queue tests complement the fake-process lifetime tests. Full bidirectional MCP proof remains open.
+
 The source's TypeScript loader is not executed at runtime. Its SDK/MCP/cc-session-io contracts are implemented natively.
 
 ## Source coverage
@@ -23,7 +31,7 @@ The source's TypeScript loader is not executed at runtime. Its SDK/MCP/cc-sessio
 | `index.ts` | `mod.rs`, `provider.rs`, `process.rs`, `sessions.rs`, `summaries.rs`, `lifecycle.rs`; 53 offline bridge tests plus real-binary startup | See open requirements below |
 | `log-paths.ts` | No native log-path authority | Debug override and dynamic agent-dir paths |
 | `mcp-server.ts` | `provider.rs::control`, `mcp_result`, `send_mcp_response`; schema and tool-use-ID round-trip fixture | Bidirectional full MCP handshake proof is incomplete; cancellation kills peer instead of source's final handler replies |
-| `models.ts` | `models.rs`; catalog/order/context/plan tests and real offline model listing | Provider effort ignores model-specific thinkingLevelMap; exact source name-word-boundary/locale ordering not proven |
+| `models.ts` | `models.rs`; catalog/order/context/plan tests and real offline model listing | Model-specific effort/null suppression is covered by SDK subprocess tests; exact source name-word-boundary/locale ordering not proven |
 | `native-prefix.ts` | `native_prefix.rs`, `session_records.rs`, `sessions.rs`; frozen JSONL writer/readback and association tests | Source best-effort prior/association read errors differ from native explicit propagation; account-selected session directory mismatch |
 | `pi-cwd-api.d.ts` | Native extension cwd and stream cwd fields | Declaration-only; no runtime code |
 | `prompt-capture.ts` | `prompt_capture.rs`; exact capture, inheritance, UTF-16, explicit unresolved error and approved user_rules tests | Diagnose/debug callback wiring; exhaustive rejection-error text fixture proof |
@@ -50,7 +58,7 @@ Additional implementation/proof issues found during the same audit:
 - **Compaction takeover is pending user decision.** Source `index.ts:3006–3039` returns `compaction` from `session_before_compact`; the frozen native result permits only `cancel` there. Separate native `compaction` hook adaptation is not registered. Draft helper/tests are saved outside the checkout in `/tmp/claude-bridge-item5-checkpoint`.
 - **Profile transcript directory.** Native `prepare_launch` writes/imports through `SessionStore.claude_dir` from ambient `CLAUDE_CONFIG_DIR`, but launches a named profile under its selected private directory. A history rebuild may therefore be unreadable to that child. Source session IO uses its ambient directory too; classify the source behavior before changing semantics, rather than invent a new format.
 - **Cancellation coverage and cleanup.** Provider initialize, initial write and top-level reads are tested. Tool/control writes, account rechecks, AskClaude initialization/close, summary shutdown and malformed-peer/error exits lack complete cancellation/peer-reaping proof. Query cancellation currently drops queued RPC handlers and kills the child rather than sending source-equivalent final replies. Source `index.ts:2017–2030` preserves tool-result delivery after a missed steer and marks a rebuild; native returns an error from that write.
-- **Provider metadata/wire details.** Native `launch_options_for_profile` uses generic reasoning mapping, not source `index.ts:2434–2446` thinkingLevelMap overrides/null suppression. SDK init/argv fidelity beyond exercised frames remains incomplete: source provider installs PostToolBatch even with no MCP tools; native initializes it only when `has_tools`. Native source tests do not establish full argument ordering or every control frame.
+- **Provider metadata/SDK launch (resolved slice).** Native `models::effort` honors source `index.ts:2434–2446` thinkingLevelMap precedence, undefined fallback and null/invalid suppression. Provider hooks initialize even with no MCP tools. Nine installed-SDK captures prove exact argv order and initialize fields for provider/MCP, all Ask modes, summaries including an absent prompt, debug-file precedence and config overrides. Full inherited environment/cwd and Node-script launch are subprocess-tested. Registered AskClaude tests cover all thinking parameters. See [SDK launch proof](../bridge-sdk-proof.md); broader MCP control-frame and transcript proof remains open.
 - **Lighter-proof limits.** Native partial tool JSON uses the shared incremental parser while source keeps the previous arguments until `JSON.parse` succeeds. Source tool-result extraction normalizes empty/unsupported blocks to a blank text block, while native sends typed content directly. Wrong-type/pathological JSON remains outside the standing parity bar, but ordinary incomplete JSON and empty tool output are realistic and still require regression tests.
 
 ## Proof ledger
@@ -60,3 +68,18 @@ Additional implementation/proof issues found during the same audit:
 - `0ddafa3cd`: 40 bridge tests; offline HTTP and CLI refresh, capacity and throttled pending requests; workspace/fmt/clippy passed.
 - `4b4826a72`: 47 bridge tests; summaries/lifecycle/rebuild/terminating tools; workspace/fmt/clippy passed.
 - `c4bc63836`: 53 bridge tests; `/tmp/claude-bridge-item5-gate-{1,2,3,4}.log` records focused tests, workspace all-target check `-j3`, fmt and strict extensions clippy. Code unchanged by this audit documentation commit; proof remains valid. Source inventory is 686 rows / 186679 lines.
+
+
+## Stream partial JSON and empty-result slice (2026-10-25)
+
+| Source boundary | Native behavior | Proof |
+|---|---|---|
+| `index.ts::parsePartialJson`, `processStreamEvent` input deltas and block stop | Strict lossless JSON parse replaces arguments only on success. Incomplete/invalid accumulated JSON retains initial or last successful arguments; stop applies tool argument mapping and removes stream metadata. | Native RED/GREEN delta/stop tests; unchanged TS helper executed with tsx, including nested input and unpaired UTF-16 (`fixtures/stream-semantics-oracle.{mjs,json}`). |
+| `extract-tool-results.ts::toolResultToMcpContent` | Live MCP results filter empty text, unsupported blocks and incomplete images, retaining valid text/images; an empty result becomes one blank text block. Transcript conversion still uses its distinct empty string representation. | Frozen TS conversion/extraction values compared natively; offline child asserts the complete MCP response for both empty arrays and empty text, with `isError: true`. |
+| `processAssistantMessage`, successful `result`, `finalizeCurrentStream` | Empty completed assistant text is skipped, missing assistant content does not record usage, streamed empty text remains observable, result-only empty/missing text emits one empty text block, and contentless turns start before their terminal event. Empty synthetic text is omitted. | Offline child modes assert event order, final content, errors and usage for seven cases. |
+| `resultErrorText` success-shaped `is_error` | Empty/missing result text uses `Claude Code reported an error`; nonempty failure text retains UTF-16. Neither creates successful text content. | Offline empty/nonempty failure modes, with exact error text and zero/retained usage assertions. |
+
+This closes the baseline partial-tool-JSON and empty/unsupported live-result normalization findings above, not the other baseline findings. No network or live credentials were used. RED evidence: `/tmp/bridge-stream-red.log`; pre-merge GREEN/gates: `/tmp/bridge-stream-precommit-{tests,check,clippy,fmt}.log` (69 bridge tests; workspace all-target check `-j3`; strict extensions all-target/all-feature clippy; formatting).
+
+
+Integrated checkpoint: stream implementation `895647444` plus `native-ext/claude-bridge` at `3d6eb518ca15c5b24095957493833eac19dff841`. `/tmp/bridge-stream-merged-{tests,check,clippy,fmt}.log` covers the combined tree: 75 bridge tests pass; `cargo check -j3 --workspace --all-targets`, `cargo clippy -j3 -p pi-coding-agent-extensions --all-targets --all-features -- -D warnings`, and `cargo fmt --check` pass. Manual readability review covered the stream/conversion/provider changes and tests. Subsequent changes to this checkpoint are documentation only.

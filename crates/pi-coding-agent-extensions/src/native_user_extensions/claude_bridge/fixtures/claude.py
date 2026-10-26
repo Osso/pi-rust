@@ -164,6 +164,37 @@ elif text == "short-unowned":
 elif text == "assert-preserved-native":
     assert "--resume=11111111-1111-4111-8111-111111111111" in args, args
     answer("preserved", "preserved-msg")
+elif text == "empty-tool-result":
+    event({"type": "message_start", "message": {"id": "empty-tool-msg", "usage": {"input_tokens": 8}}})
+    event({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "tool-read", "name": "mcp__custom-tools__read", "input": {"file_path": "empty"}}})
+    event({"type": "content_block_stop", "index": 0})
+    event({"type": "message_delta", "delta": {"stop_reason": "tool_use"}, "usage": {"output_tokens": 2}})
+    event({"type": "message_stop"})
+    result = control("empty-call", {"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "read", "arguments": {}, "_meta": {"claudecode/toolUseId": "tool-read"}}})
+    assert result["result"] == {"content": [{"type": "text", "text": ""}], "isError": True}, result
+    send({"type": "result", "subtype": "success"})
+elif text in ["empty-assistant-result", "missing-content-result", "empty-stream-result", "empty-is-error-result", "text-is-error-result", "empty-synthetic-error", "empty-stream-text"]:
+    if text == "empty-assistant-result":
+        send({"type": "assistant", "message": {"content": [{"type": "text", "text": ""}], "usage": {"input_tokens": 7, "output_tokens": 3}}})
+    elif text == "missing-content-result":
+        send({"type": "assistant", "message": {"usage": {"input_tokens": 99}}})
+    elif text == "empty-stream-result":
+        event({"type": "message_start", "message": {"id": "empty-msg", "usage": {"input_tokens": 7}}})
+        event({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 3}})
+        event({"type": "message_stop"})
+    elif text == "empty-stream-text":
+        answer("", "empty-text-msg")
+        sys.exit(0)
+    elif text == "empty-synthetic-error":
+        send({"type": "assistant", "message": {"model": "<synthetic>", "content": [{"type": "text", "text": ""}], "usage": {"input_tokens": 7}}})
+    result = {"type": "result", "subtype": "success"}
+    if text == "empty-assistant-result":
+        result["result"] = ""
+    if text in ["empty-is-error-result", "text-is-error-result", "empty-synthetic-error"]:
+        result["is_error"] = True
+    if text == "text-is-error-result":
+        result["result"] = "failed \udfff"
+    send(result)
 elif text == "terminating-tool":
     event({"type": "message_start", "message": {"id": "ending-msg"}})
     event({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "ending", "name": "mcp__custom-tools__end_turn", "input": {"reason": "done"}}})
@@ -220,8 +251,18 @@ elif text == "rate-limit":
     ]:
         send({"type": "rate_limit_event", "rate_limit_info": info})
     send({"type": "result", "subtype": "success", "is_error": True, "result": "capacity \udfff"})
+elif text == "error-wait":
+    send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
+    import time
+    time.sleep(300)
 elif text == "error":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
+elif text == "blocked-control-write":
+    send({"type": "control_request", "request_id": "blocked", "request": {"subtype": "mcp_message", "server_name": "custom-tools", "message": {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}}})
+    with open(".fixture-control-blocked", "w", encoding="ascii") as marker:
+        marker.write("ready")
+    import time
+    time.sleep(300)
 elif text == "auth-stderr-wait":
     print("OAuth invalid_grant status=401", file=sys.stderr, flush=True)
     while True:

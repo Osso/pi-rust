@@ -8,7 +8,8 @@ use pi_js_compat::js_json::{self, JsValue};
 
 async fn capture(launch: &process::LaunchOptions) -> JsValue {
     std::fs::write(launch.cwd.join(".fixture-record-launch"), "").unwrap();
-    let mut child = ClaudeProcess::spawn(launch).await.unwrap();
+    let mut child = ClaudeProcess::spawn_child(launch).unwrap();
+    child.initialize(launch).await.unwrap();
     child
         .write(&process::user_message(JsValue::String("record".into()), false))
         .await
