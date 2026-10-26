@@ -158,15 +158,13 @@ fn plain(component: &mut SettingsSelectorComponent) -> JsString {
 
 #[test]
 fn removed_cache_notice_option_is_not_searchable() {
-    for label in ["Cache miss notices"] {
-        let mut component = selector(config(), Rc::new(Recorder::default()));
-        type_label(&mut component, label);
-        let output = plain(&mut component);
-        assert!(
-            output.contains("No matching settings"),
-            "removed option still visible: {output:?}"
-        );
-    }
+    let mut component = selector(config(), Rc::new(Recorder::default()));
+    type_label(&mut component, "Cache miss notices");
+    let output = plain(&mut component);
+    assert!(
+        output.contains("No matching settings"),
+        "removed option still visible: {output:?}"
+    );
 }
 
 #[test]
