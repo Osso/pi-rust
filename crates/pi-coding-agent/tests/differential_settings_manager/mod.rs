@@ -745,8 +745,8 @@ pub(crate) fn bidirectional() {
     let project = temp.path().join("project");
     fs::create_dir_all(&agent).unwrap();
     fs::create_dir_all(project.join(".pi")).unwrap();
-    let global = json!({"packages":[{"skills":["skill"],"unknown":{"keep":true},"source":"npm:original"}],"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"}});
-    let local = json!({"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"unknownProject":{"producer":"TS"}});
+    let global = json!({"packages":[{"skills":["skill"],"unknown":{"keep":true},"source":"npm:original"}],"unknownRoot":{"producer":"TS"},"agents":{"implement":{"model":"global","tools":["read"]}},"retry":{"provider":{"timeoutMs":100,"maxRetries":2},"sentinel":{"ts":true}},"compaction":{"thresholdPercent":70,"idle":false,"unknownChild":{"ts":1}},"terminal":{"unknownChild":{"ts":2}},"permissionRules":{"allow":{"read":["global"]}},"relay":{"peer":"isolated"},"reminders":{"deliverySessionId":"global-session","globalExtra":true}});
+    let local = json!({"agents":{"implement":{"thinkingLevel":"low"}},"retry":{"provider":{"maxRetries":3}},"permissionRules":{"allow":{"write":["project"]}},"unknownProject":{"producer":"TS"},"reminders":{"deliverySessionId":"project-session","projectExtra":true}});
     let ask = |oracle: &mut oracle::TsOracle, steps: Vec<Value>| {
         let response = oracle.request(&json!({"id":"bidirectional","managerKey":"shared-fixture","agentDir":agent,"projectDir":project,"steps":steps}));
         assert_eq!(response["ok"], true, "{response}");
@@ -777,6 +777,14 @@ pub(crate) fn bidirectional() {
     )
     .unwrap();
     assert_eq!(snapshot(&rust), ts["snapshot"]);
+    assert_eq!(
+        rust.get_reminders_delivery_session_id(),
+        Some(&JsString::from("project-session"))
+    );
+    assert_eq!(
+        rust.get_merged_settings()["reminders"]["globalExtra"],
+        JsValue::from(json!(true))
+    );
     rust.set_packages(rust.get_packages().unwrap());
     rust.flush();
     assert_eq!(
@@ -820,6 +828,7 @@ pub(crate) fn bidirectional() {
     let saved: Value = serde_json::from_str(ts["globalFile"].as_str().unwrap()).unwrap();
     assert_eq!(saved["unknownRoot"], global["unknownRoot"]);
     assert_eq!(saved["relay"], global["relay"]);
+    assert_eq!(saved["reminders"], global["reminders"]);
     assert_eq!(saved["outOfBand"], json!({"producer":"fixture-only"}));
     assert_eq!(
         saved["compaction"],
@@ -835,6 +844,7 @@ pub(crate) fn bidirectional() {
     assert_eq!(saved["retry"], global["retry"]);
     let saved_project: Value = serde_json::from_str(ts["projectFile"].as_str().unwrap()).unwrap();
     assert_eq!(saved_project["unknownProject"], local["unknownProject"]);
+    assert_eq!(saved_project["reminders"], local["reminders"]);
     assert_eq!(saved_project["extensions"], json!(["Rust-extension"]));
     assert_eq!(saved_project["skills"], json!(["TS-skill"]));
     assert_eq!(saved_project["prompts"], json!(["TS-prompt"]));

@@ -77,6 +77,32 @@ fn settings(value: Value) -> Settings {
 }
 
 #[test]
+fn reminder_delivery_session_uses_merged_settings_and_preserves_utf16() {
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"reminders":{"deliverySessionId":"global","extra":1},"unknown":true}"#);
+    workspace.write_project(r#"{"reminders":{"deliverySessionId":"\ud800","projectExtra":2}}"#);
+    let mut manager = workspace.manager();
+
+    let expected = pi_js_compat::js_json::parse_lossless(r#""\ud800""#).unwrap();
+    assert_eq!(manager.get_reminders_delivery_session_id(), expected.as_string());
+    let merged = manager.get_merged_settings();
+    assert_eq!(merged["reminders"]["extra"], JsValue::from(json!(1)));
+    assert_eq!(merged["reminders"]["projectExtra"], JsValue::from(json!(2)));
+    assert_eq!(
+        workspace.untrusted().get_reminders_delivery_session_id(),
+        Some(&JsString::from("global"))
+    );
+
+    manager.set_theme(&JsString::from("light"));
+    manager.flush();
+    assert_eq!(
+        workspace.global()["reminders"],
+        json!({"deliverySessionId":"global","extra":1})
+    );
+    assert_eq!(workspace.global()["unknown"], true);
+}
+
+#[test]
 fn preserves_external_settings_added_after_startup() {
     let workspace = Workspace::new();
     workspace.write_global(r#"{"theme":"dark","defaultModel":"claude-sonnet"}"#);

@@ -1140,6 +1140,14 @@ impl SettingsManager {
         std::mem::take(&mut self.errors)
     }
 
+    pub fn get_reminders_delivery_session_id(&self) -> Option<&JsString> {
+        self.settings
+            .get("reminders")
+            .and_then(Value::as_object)
+            .and_then(|reminders| reminders.get("deliverySessionId"))
+            .and_then(Value::as_string)
+    }
+
     pub fn get_last_changelog_version(&self) -> Option<&JsString> {
         self.settings.get("lastChangelogVersion").and_then(Value::as_string)
     }

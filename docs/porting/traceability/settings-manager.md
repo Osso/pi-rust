@@ -12,6 +12,10 @@ Frozen settings-manager has no tuiMode/fullscreen known API. Removed typed gette
 Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, `packages/coding-agent/src/core/settings-manager.ts`.
 Rust: `crates/pi-coding-agent-settings/src/core/settings_manager.rs`. Governing [contract](../../specs/settings-manager.md); [percentage helper](compaction-threshold.md).
 
+## Reminder settings delta
+
+`be6413897` adds the optional `reminders.deliverySessionId` type and reads it through `getMergedSettings`; it adds no settings setter. Rust retains the existing lossless settings object and provides `get_reminders_delivery_session_id() -> Option<&JsString>`. The native focused test covers trusted/project merge, untrusted project exclusion, lone-surrogate preservation, and unrelated global writes. The existing bidirectional frozen settings fixture now includes reminder objects in both scopes and checks their persistence through TS and Rust writes; it uses the common-pin oracle, whose generic merge and persistence logic applies to this field. The delta also contains unrelated settings changes outside this slice.
+
 ## Current status
 
 **Done at the user-observable parity bar (2026-10-25).** Successor whole-module audit covers file/memory storage, migrations, scoped clone/merge/read/write/error queues, all getters/setters and shared drain. Existing five frozen differential tests pass at parent `3672fd002` (`/tmp/settings-models-settings-differential.log`), including exact file text, stale/concurrent writers, reciprocal TS/Rust writes and queued ordering. Successful persistence algorithms and serialization remain unchanged by the successor error-only fixes. Native error REDs reproduce directory-as-settings reads during construction and queued persistence and invalid timeout text. The corrections use Node read/open errors and JS String conversion. Historical phase notes below describe earlier checkpoints, not remaining blockers. Consumers have separate coverage rows.
