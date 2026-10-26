@@ -246,22 +246,29 @@ impl Markdown {
         if art.width > width {
             return None;
         }
-        if !self.mermaid_streaming {
-            if let Some(warnings) = art.warnings.as_ref().filter(|warnings| !warnings.is_empty()) {
-                let suffix = if warnings.len() > 1 {
-                    format!(" (+{} more)", warnings.len() - 1)
-                } else {
-                    String::new()
-                };
-                let warning = JsString::from(format!("Mermaid diagram not rendered: {}{}", warnings[0], suffix));
-                let mut lines = self.render_token(token, width, None, None);
-                lines.push(JsString::default());
-                lines.push(self.theme.code(&self.theme.mermaid_warning(&warning)));
-                return Some(lines);
-            }
+        if !self.mermaid_streaming
+            && let Some(warnings) = art.warnings.as_ref().filter(|warnings| !warnings.is_empty())
+        {
+            return Some(self.render_mermaid_warning(token, width, warnings));
         }
-        let lines: Vec<JsString> = art
-            .styled_lines
+        Some(self.render_mermaid_art(art))
+    }
+
+    fn render_mermaid_warning(&self, token: &Token, width: usize, warnings: &[String]) -> Vec<JsString> {
+        let suffix = if warnings.len() > 1 {
+            format!(" (+{} more)", warnings.len() - 1)
+        } else {
+            String::new()
+        };
+        let warning = JsString::from(format!("Mermaid diagram not rendered: {}{}", warnings[0], suffix));
+        let mut lines = self.render_token(token, width, None, None);
+        lines.push(JsString::default());
+        lines.push(self.theme.code(&self.theme.mermaid_warning(&warning)));
+        lines
+    }
+
+    fn render_mermaid_art(&self, art: crate::mermaid::MermaidArt) -> Vec<JsString> {
+        art.styled_lines
             .into_iter()
             .map(|line| {
                 let mut result = JsString::default();
@@ -281,8 +288,7 @@ impl Markdown {
                 }
                 self.theme.code(&result)
             })
-            .collect();
-        Some(lines)
+            .collect()
     }
 
     pub fn text(&self) -> &JsString {
