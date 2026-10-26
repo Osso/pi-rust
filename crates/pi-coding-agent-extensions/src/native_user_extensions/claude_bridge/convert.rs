@@ -110,6 +110,41 @@ fn user_content(content: &JsValue) -> JsValue {
     }
 }
 
+/// Live tool results use extract-tool-results.ts, not transcript flattening.
+/// An empty or unsupported result must still contain one blank MCP text block.
+pub fn tool_result_to_mcp_content(content: &JsValue) -> JsValue {
+    let blank = || JsValue::object([("type", text("text")), ("text", text(""))]);
+    if let Some(value) = content.as_string() {
+        return JsValue::Array(vec![JsValue::object([
+            ("type", text("text")),
+            ("text", text(value.clone())),
+        ])]);
+    }
+    let blocks: Vec<_> = content
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|block| {
+            let kind = string(block, "type");
+            if kind == "text" && !string(block, "text").is_empty() {
+                return Some(JsValue::object([
+                    ("type", text("text")),
+                    ("text", text(string(block, "text"))),
+                ]));
+            }
+            if kind == "image" && !string(block, "data").is_empty() && !string(block, "mimeType").is_empty() {
+                return Some(JsValue::object([
+                    ("type", text("image")),
+                    ("data", text(string(block, "data"))),
+                    ("mimeType", text(string(block, "mimeType"))),
+                ]));
+            }
+            None
+        })
+        .collect();
+    JsValue::Array(if blocks.is_empty() { vec![blank()] } else { blocks })
+}
+
 fn result_content(content: &JsValue) -> JsValue {
     let blocks = content.as_array();
     let images = blocks.is_some_and(|blocks| {
@@ -289,6 +324,22 @@ pub fn convert_messages(messages: &[Message], provider: bool) -> Result<Vec<JsVa
 mod tests {
     use super::*;
     use pi_js_compat::js_json;
+
+    #[test]
+    fn claude_bridge_empty_tool_results_match_ts_conversion_and_extraction() {
+        let fixture = js_json::parse_lossless(include_str!("fixtures/stream-semantics-oracle.json")).unwrap();
+        for case in fixture.get("mcp").unwrap().as_array().unwrap() {
+            assert_eq!(
+                tool_result_to_mcp_content(case.get("input").unwrap()),
+                *case.get("output").unwrap()
+            );
+        }
+        let messages: Vec<Message> = js_json::from_value(fixture.get("messages").unwrap()).unwrap();
+        assert_eq!(
+            JsValue::Array(convert_messages(&messages, true).unwrap()),
+            *fixture.get("converted").unwrap()
+        );
+    }
 
     #[test]
     fn claude_bridge_conversion_hoists_parallel_results_before_steer_and_preserves_arguments() {
