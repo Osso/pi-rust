@@ -156,7 +156,7 @@ fn read_absolute(input: &str, zone: &TimeZone) -> Result<i64, String> {
     Ok(wall - offset.expect("absolute suffix validated"))
 }
 
-fn find_zone_file(directory: &std::path::Path, localtime: &[u8]) -> Result<Option<std::path::PathBuf>, String> {
+fn search_zoneinfo_files(directory: &std::path::Path, localtime: &[u8]) -> Result<Option<std::path::PathBuf>, String> {
     let entries = std::fs::read_dir(directory).map_err(|e| format!("Cannot read {}: {e}", directory.display()))?;
     for entry in entries {
         let entry = entry.map_err(|e| format!("Cannot read {}: {e}", directory.display()))?;
@@ -165,7 +165,7 @@ fn find_zone_file(directory: &std::path::Path, localtime: &[u8]) -> Result<Optio
         }
         let path = entry.path();
         if path.is_dir() {
-            if let Some(found) = find_zone_file(&path, localtime)? {
+            if let Some(found) = search_zoneinfo_files(&path, localtime)? {
                 return Ok(Some(found));
             }
         } else if std::fs::read(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))? == localtime {
@@ -178,7 +178,8 @@ fn find_zone_file(directory: &std::path::Path, localtime: &[u8]) -> Result<Optio
 fn read_copied_system_zone_name() -> Result<&'static str, String> {
     let root = std::path::Path::new("/usr/share/zoneinfo");
     let localtime = std::fs::read("/etc/localtime").map_err(|e| format!("Cannot read /etc/localtime: {e}"))?;
-    let path = find_zone_file(root, &localtime)?.ok_or_else(|| "No matching system timezone file.".to_owned())?;
+    let path =
+        search_zoneinfo_files(root, &localtime)?.ok_or_else(|| "No matching system timezone file.".to_owned())?;
     let id = path.strip_prefix(root).map_err(|e| e.to_string())?;
     let id = id
         .to_str()
