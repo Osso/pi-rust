@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { createInterface } from "node:readline";
@@ -24,7 +25,29 @@ const names = [
 	"loadModelsDevData",
 	"generateModels",
 ];
-const input = fs.readFileSync(path, "utf8");
+const baseline = fs.readFileSync(path, "utf8");
+const lock = JSON.parse(fs.readFileSync(new URL("../docs/porting/delta-lock.json", import.meta.url), "utf8"));
+const delta = lock.deltas.find((entry: { commit: string }) => entry.commit === "5a0ea4d393e21d190524f26f1375486d7b86f7cb");
+if (!delta) throw new Error("Terra delta missing from lock");
+const relative = "packages/ai/scripts/generate-models.ts";
+const input = fs.readFileSync(join(delta.checkout, relative), "utf8");
+if (createHash("sha256").update(input).digest("hex") !== delta.modules[relative]) throw new Error("Terra generator lock mismatch");
+const terra = `		// https://developers.openai.com/api/docs/models/gpt-6.1-terra
+		{
+			id: "gpt-6.1-terra",
+			name: "GPT-6.1 Terra",
+			api: "openai-codex-responses",
+			provider: "openai-codex",
+			baseUrl: CODEX_BASE_URL,
+			reasoning: true,
+			thinkingLevelMap: { max: "max" },
+			input: ["text", "image"],
+			cost: { input: 1, output: 5, cacheRead: 0.05, cacheWrite: 1.25 },
+			contextWindow: 922000,
+			maxTokens: CODEX_MAX_TOKENS,
+		},
+`;
+if (!input.includes(terra) || input.replace(terra, "") !== baseline) throw new Error("Unexpected Terra generator delta");
 const cloudflare = await import(
 	pathToFileURL(join(dirname(path), "../src/api/cloudflare.ts")).href
 );

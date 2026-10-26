@@ -173,9 +173,9 @@
     "moonshotai-cn.json": "cd92af0014777fb876ab08a1af697de7caa90603d75fd4bb4bb12ad8cd208ae2",
     "nvidia.json": "3b71085466cf26f80bec8a3a7395dc5f34886f9b2d97f829218650f25da6c6ad",
     "openai.json": "29bdec4ef303fc6f34ed8d00cecebad2d3296ea1e28584d19dda0726a9dfbc4f",
-    "openai-codex.json": "d6b00721d4e7d6bf12a9ea2c3ba8053d41234b3ea2e844a1ea1941b14fdcb0e5",
-    "openai-codex-gc.json": "929003eea86582dce3de3072e85c150a6ab91e3bea6f1501ea83e29a335e5ece",
-    "openai-codex-team.json": "5e3246b9af88b0adc417a510dae431c969ad2c0f2cdef4a3210fc276b6d62472",
+    "openai-codex.json": "ded6e00db90d1b54b5b1d3fbfbc9ef19143e8ebe1652b3c40e9ac605c4376249",
+    "openai-codex-gc.json": "d555f32289a38a4affd2f13e42dc750f7a91c42a2e5a20f4f009955008e6e002",
+    "openai-codex-team.json": "ea981ead51b9f250110867598fa2cf149f76052bb92aa09eb91c4387a12307fc",
     "opencode.json": "59d6f75ae0b47991c58598d980a9a691c89ce36943f5c64537744c38be2913b0",
     "opencode-go.json": "2821c88421ed77b22eb7471d06fb8066f5d89491f35f80c1b252934e83957e7f",
     "openrouter.json": "6576bac298fd011ce8b7877b9f01b233bfa6971eb1a977ff0a33cb05eaec0f79",
@@ -188,5 +188,6 @@
     "xiaomi-token-plan-sgp.json": "7112cbb820de6c740e5565e693973ce30c3f316315f68f7566a0dc73c03fe691",
     "zai.json": "d0363b5d43bfdca62f774f61c804f1fcda92c6ce315992bc656c615eeec19715",
     "zai-coding-cn.json": "024ba6c183ffc2dde31bbf6eee7141ee13b5147e611972d23fb682b519029055"
-  }
+  },
+  "deltaCommit": "5a0ea4d393e21d190524f26f1375486d7b86f7cb"
 }

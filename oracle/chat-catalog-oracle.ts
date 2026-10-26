@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { createInterface } from "node:readline";
 import { pathToFileURL } from "node:url";
+import { applyTerraDelta } from "./terra-delta.ts";
 
 // Import only actual frozen literals: no factories, generators, or runtime barrel.
 async function main(): Promise<void> {
@@ -16,7 +17,9 @@ async function main(): Promise<void> {
 		path: `packages/ai/src/${file.slice(dirname(source).length + 1)}`,
 		sha256: createHash("sha256").update(readFileSync(file)).digest("hex"),
 	}));
-	const output = { models: MODELS, provenance };
+	const models = { ...MODELS };
+	await applyTerraDelta(models);
+	const output = { models, provenance };
 	if (process.argv[3] === "--export") {
 		process.stdout.write(`${JSON.stringify(output)}\n`);
 	} else {

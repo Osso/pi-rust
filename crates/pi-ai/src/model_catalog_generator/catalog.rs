@@ -253,6 +253,7 @@ fn add_codex(models: &mut Vec<JsValue>) {
         ("gpt-5.6-sol", "GPT-5.6 Sol", [5.0, 30.0, 0.5, 0.0], 372000, true),
         ("gpt-6-sol", "GPT-6 Sol", [2.0, 10.0, 0.2, 2.5], 922000, true),
         ("gpt-6-luna", "GPT-6 Luna", [0.1, 0.5, 0.01, 0.125], 922000, true),
+        ("gpt-6.1-terra", "GPT-6.1 Terra", [1.0, 5.0, 0.05, 1.25], 922000, true),
         ("gpt-6-astra", "GPT-6 Astra", [10.0, 50.0, 1.0, 12.5], 922000, true),
     ] {
         let mut model = object([
@@ -263,7 +264,7 @@ fn add_codex(models: &mut Vec<JsValue>) {
             ("baseUrl", text("https://chatgpt.com/backend-api")),
             ("reasoning", JsValue::Bool(true)),
         ]);
-        if matches!(id, "gpt-6-sol" | "gpt-6-luna") {
+        if matches!(id, "gpt-6-sol" | "gpt-6-luna" | "gpt-6.1-terra") {
             set(&mut model, "thinkingLevelMap", literal(json!({"max":"max"})));
         }
         set(

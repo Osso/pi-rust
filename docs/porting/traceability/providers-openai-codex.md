@@ -18,6 +18,10 @@ differential, covering default/GC/Team entries).
 | `models: Object.values(OPENAI_CODEX_MODELS).map(m => ({...m, provider: id}))` | `models_data::provider_models("openai-codex")` with `provider = id` | both factory tests (ids, order, rewritten provider, thinkingLevelMap/compat equality) |
 | `api: openAICodexResponsesApi()` | `ProviderApi::Single(Arc::new(openai_codex_responses_api()))` | `every_catalog_api_dispatches_to_an_implementation` (codex token + SSE transport) |
 
+## Terra delta (2026-10-26)
+
+Locked delta `5a0ea4d39` adds `gpt-6.1-terra` to default, GC and Team catalogs. `providers_openai_codex::terra_catalog_and_registry_match_locked_typescript` compares each complete native record and registry lookup with the three locked TypeScript shards. `terra_generated_catalog_matches_locked_typescript` compares generated records to those shards. The tests were RED on absent Terra before implementation and GREEN afterward. The artifact manifest records the delta commit and updated payload hashes. Common-pin-only catalog/provider differential expectations still require delta-aware integration; they are not evidence for the post-delta catalog.
+
 ## Notes and discrepancies
 
 - The factory always spreads `OPENAI_CODEX_MODELS`, including for the

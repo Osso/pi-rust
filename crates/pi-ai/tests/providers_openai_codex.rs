@@ -1,9 +1,61 @@
 //! Behavioral tests for `packages/ai/src/providers/openai-codex.ts`.
 
+use crate::shared_oracle as oracle;
 use pi_ai::models::Models;
 use pi_ai::providers::all::{builtin_models, builtin_providers, get_builtin_models};
 use pi_ai::providers::models_data;
 use pi_ai::providers::openai_codex::{openai_codex_provider, openai_codex_provider_with_id};
+
+#[test]
+fn terra_catalog_and_registry_match_locked_typescript() {
+    let mut ts = oracle::TsOracle::spawn(
+        "codex-terra-oracle.ts",
+        "packages/ai/src/providers/openai-codex.models.ts",
+    );
+    let expected: serde_json::Value = ts.request(&serde_json::json!({}));
+    let registry = builtin_models(Default::default());
+    for (index, provider) in ["openai-codex", "openai-codex-gc", "openai-codex-team"]
+        .iter()
+        .enumerate()
+    {
+        let catalog = models_data::builtin_model(provider, "gpt-6.1-terra").expect("Terra in catalog");
+        assert_eq!(serde_json::to_value(&catalog).unwrap(), expected[index]);
+        assert_eq!(registry.get_model(provider, "gpt-6.1-terra"), Some(catalog));
+    }
+}
+
+#[test]
+fn terra_generated_catalog_matches_locked_typescript() {
+    use pi_ai::model_catalog_generator::{Generator, HttpResponse};
+    use pi_js_compat::js_json::{JsValue, stringify_lossless};
+
+    let mut ts = oracle::TsOracle::spawn(
+        "codex-terra-oracle.ts",
+        "packages/ai/src/providers/openai-codex.models.ts",
+    );
+    let expected: serde_json::Value = ts.request(&serde_json::json!({}));
+    let mut fetch = |url: &str| {
+        let body = if url == "https://models.dev/api.json" {
+            "{}"
+        } else {
+            "{\"data\":[]}"
+        };
+        Ok(HttpResponse {
+            status: 200,
+            body: body.to_owned(),
+        })
+    };
+    let actual = Generator::new(&mut fetch).generate_catalog().unwrap();
+    for (index, provider) in ["openai-codex", "openai-codex-gc", "openai-codex-team"]
+        .iter()
+        .enumerate()
+    {
+        assert_eq!(
+            stringify_lossless(&actual[*provider]["gpt-6.1-terra"]),
+            stringify_lossless(&JsValue::from(&expected[index]))
+        );
+    }
+}
 
 #[test]
 fn default_factory_matches_the_typescript_provider_descriptor() {
