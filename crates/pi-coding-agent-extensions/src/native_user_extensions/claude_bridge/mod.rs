@@ -2,6 +2,7 @@
 mod ask_claude;
 pub mod ask_render;
 pub mod config;
+pub mod convert;
 pub mod models;
 mod process;
 pub mod prompt_capture;
