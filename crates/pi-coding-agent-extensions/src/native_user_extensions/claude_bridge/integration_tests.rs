@@ -20,7 +20,7 @@ pub(super) async fn setup() -> (
     std::fs::create_dir(dir.path().join(".pi")).unwrap();
     std::fs::write(dir.path().join(".pi/claude-bridge.json"), serde_json::to_string(&serde_json::json!({"startupNoticeShown":"2026-10-25", "provider":{"pathToClaudeCodeExecutable":executable}, "askClaude":{"enabled":true}})).unwrap()).unwrap();
     let mut registry = ExtensionRegistry::new();
-    register(&mut registry);
+    register_with_ownership(&mut registry, Arc::new(ownership::Ownership::default()));
     let loaded = registry
         .load_extensions(
             &["<native:pi-claude-bridge>".into()],
@@ -303,7 +303,19 @@ fn append_read_result(ctx: &mut Context, assistant: pi_ai::types::AssistantMessa
 #[tokio::test]
 async fn claude_bridge_rewrite_discards_a_parked_query_and_reimports_authoritative_history() {
     let (dir, config, _) = setup().await;
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let ownership = Arc::new(ownership::Ownership::default());
+    let bridge = provider::BridgeProvider::with_ownership(
+        JsValue::Null,
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+        ownership.clone(),
+    );
+    let sponsor = provider::BridgeProvider::with_ownership(
+        JsValue::Null,
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+        ownership,
+    );
     *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
         dir.path().join("cc-rewrite"),
         dir.path().join("agent-rewrite"),
@@ -322,7 +334,7 @@ async fn claude_bridge_rewrite_discards_a_parked_query_and_reimports_authoritati
         panic!("user");
     };
     user.content = UserContent::Text("compacted history".into());
-    bridge
+    sponsor
         .mark_rebuild(opts.stream.session_id.as_ref().unwrap(), false)
         .unwrap();
     let output = bridge

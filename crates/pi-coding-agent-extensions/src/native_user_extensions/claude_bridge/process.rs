@@ -153,7 +153,7 @@ pub struct ClaudeProcess {
 }
 
 impl ClaudeProcess {
-    pub async fn spawn(options: &LaunchOptions) -> Result<Self, CallbackError> {
+    pub fn spawn_child(options: &LaunchOptions) -> Result<Self, CallbackError> {
         let mut command = Command::new(&options.executable);
         command
             .args(options.arguments()?)
@@ -192,15 +192,25 @@ impl ClaudeProcess {
             stderr.read_to_string(&mut text).await?;
             Ok(text)
         });
-        let mut process = Self {
+        let process = Self {
             child,
             input,
             output: BufReader::new(output).lines(),
             stderr,
         };
-        process.write(&options.initialize()).await?;
+        Ok(process)
+    }
+
+    pub async fn spawn(options: &LaunchOptions) -> Result<Self, CallbackError> {
+        let mut process = Self::spawn_child(options)?;
+        process.initialize(options).await?;
+        Ok(process)
+    }
+
+    pub async fn initialize(&mut self, options: &LaunchOptions) -> Result<(), CallbackError> {
+        self.write(&options.initialize()).await?;
         loop {
-            let frame = process
+            let frame = self
                 .read()
                 .await?
                 .ok_or_else(|| CallbackError::new("Claude Code closed before initialize"))?;
@@ -212,7 +222,7 @@ impl ClaudeProcess {
                 break;
             }
         }
-        Ok(process)
+        Ok(())
     }
 
     pub async fn write(&mut self, frame: &JsValue) -> Result<(), CallbackError> {

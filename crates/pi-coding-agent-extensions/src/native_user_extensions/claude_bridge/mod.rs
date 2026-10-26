@@ -8,6 +8,7 @@ pub mod convert;
 mod lifecycle;
 pub mod models;
 mod native_prefix;
+mod ownership;
 mod process;
 pub mod prompt_capture;
 mod provider;
@@ -26,16 +27,20 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 pub fn register(registry: &mut ExtensionRegistry) {
+    register_with_ownership(registry, ownership::shared());
+}
+
+fn register_with_ownership(registry: &mut ExtensionRegistry, ownership: Arc<ownership::Ownership>) {
     registry.register_hidden(
         "<native:pi-claude-bridge>",
-        Arc::new(|pi| {
-            let result = activate(pi);
+        Arc::new(move |pi| {
+            let result = activate_with_ownership(pi, ownership.clone());
             Box::pin(async move { result })
         }),
     );
 }
 
-fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
+fn activate_with_ownership(pi: &ExtensionApi, ownership: Arc<ownership::Ownership>) -> Result<(), HandlerError> {
     let cwd = PathBuf::from(pi.cwd().to_utf8().map_err(|e| HandlerError::new(e.to_string()))?);
     let agent_dir = crate::config::get_agent_dir().map_err(|e| HandlerError::new(e.to_string()))?;
     let agent_dir = PathBuf::from(agent_dir.to_utf8().map_err(|e| HandlerError::new(e.to_string()))?);
@@ -60,36 +65,53 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
         .cloned()
         .unwrap_or_else(|| "AskClaude".into());
     let ask_name = ask_name.to_utf8().map_err(|e| HandlerError::new(e.to_string()))?;
-    let bridge = provider::BridgeProvider::new(settings.clone(), executable, ask_name);
+    let bridge = provider::BridgeProvider::with_ownership(settings.clone(), executable, ask_name, ownership.clone());
     let models = models::project_models(
         pi_ai::providers::models_data::provider_models("anthropic").unwrap_or_default(),
         &settings,
     );
     register_prompt_captures(pi, bridge.captures.clone())?;
     let stream_bridge = bridge.clone();
-    pi.register_provider(
-        "claude-bridge",
-        ProviderConfig {
-            base_url: Some("claude-bridge".into()),
-            api_key: Some("not-used".into()),
-            api: Some("claude-bridge".into()),
-            models: Some(
-                models
-                    .into_iter()
-                    .map(|model| {
-                        let mut input: crate::core::model_registry::ProviderModelInput = model.into();
-                        input.api = Some("claude-bridge".into());
-                        input
-                    })
-                    .collect(),
-            ),
-            stream_simple: Some(Arc::new(move |model, context, options| {
-                stream_bridge.stream(model, context, options)
-            })),
-            ..Default::default()
-        },
-    )
-    .map_err(HandlerError::from)?;
+    let provider_config = ProviderConfig {
+        base_url: Some("claude-bridge".into()),
+        api_key: Some("not-used".into()),
+        api: Some("claude-bridge".into()),
+        models: Some(
+            models
+                .into_iter()
+                .map(|model| {
+                    let mut input: crate::core::model_registry::ProviderModelInput = model.into();
+                    input.api = Some("claude-bridge".into());
+                    input
+                })
+                .collect(),
+        ),
+        stream_simple: Some(Arc::new(move |model, context, options| {
+            stream_bridge.stream(model, context, options)
+        })),
+        ..Default::default()
+    };
+    if ownership.claim(&bridge.identity) {
+        pi.register_provider("claude-bridge", provider_config)
+            .map_err(HandlerError::from)?;
+    } else {
+        let api = pi.clone();
+        pi.on_session_start(
+            move |_,
+                  ctx: crate::core::extensions::types::ExtensionContext|
+                  -> crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> {
+                let api = api.clone();
+                let config = provider_config.clone();
+                Box::pin(async move {
+                    if ctx.model_registry()?.get_provider("claude-bridge").is_none() {
+                        api.register_provider("claude-bridge", config)?;
+                    }
+                    Ok(None)
+                })
+            },
+        )
+        .map_err(HandlerError::new)?;
+    }
     lifecycle::register(pi, bridge.clone())?;
     usage::register(pi, bridge.clone())?;
     ask_claude::register(pi, config.get("askClaude").unwrap_or(&JsValue::Null), bridge.clone())?;

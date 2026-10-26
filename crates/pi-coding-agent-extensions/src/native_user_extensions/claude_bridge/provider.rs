@@ -47,6 +47,8 @@ struct PendingProfiles {
 #[derive(Clone)]
 pub struct BridgeProvider {
     state: Arc<Mutex<QueryState>>,
+    pub(super) identity: Arc<()>,
+    ownership: Arc<super::ownership::Ownership>,
     pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
     pub executable: Result<PathBuf, CallbackError>,
@@ -57,7 +59,22 @@ pub struct BridgeProvider {
 }
 
 impl BridgeProvider {
+    #[cfg(test)]
     pub fn new(settings: JsValue, executable: Result<PathBuf, CallbackError>, ask_name: String) -> Self {
+        Self::with_ownership(
+            settings,
+            executable,
+            ask_name,
+            Arc::new(super::ownership::Ownership::default()),
+        )
+    }
+
+    pub(super) fn with_ownership(
+        settings: JsValue,
+        executable: Result<PathBuf, CallbackError>,
+        ask_name: String,
+        ownership: Arc<super::ownership::Ownership>,
+    ) -> Self {
         let accounts = (|| {
             let Some(names) = super::account_profiles::configured_names(&settings)? else {
                 return Ok(None);
@@ -70,8 +87,10 @@ impl BridgeProvider {
                 .collect::<Result<Vec<_>, _>>()?;
             super::account_state::AccountManager::new(home, names).map(Some)
         })();
-        Self {
+        let bridge = Self {
             state: Arc::new(Mutex::new(QueryState::default())),
+            identity: Arc::new(()),
+            ownership,
             accounts: Arc::new(Mutex::new(accounts)),
             usage_runtime: super::usage::UsageRuntime::default(),
             settings,
@@ -79,7 +98,19 @@ impl BridgeProvider {
             executable,
             ask_name,
             captures: super::prompt_capture::shared_captures(),
-        }
+        };
+        let state = Arc::downgrade(&bridge.state);
+        let sessions = Arc::downgrade(&bridge.sessions);
+        bridge.ownership.subscribe(
+            &bridge.identity,
+            Arc::new(move |session, rotate| {
+                if let (Some(state), Some(sessions)) = (state.upgrade(), sessions.upgrade()) {
+                    mark_local_rebuild(&state, &sessions, session, rotate)?;
+                }
+                Ok(())
+            }),
+        );
+        bridge
     }
 
     pub fn stream(
@@ -254,6 +285,7 @@ impl BridgeProvider {
     }
 
     pub fn clear_sessions(&self) -> Result<(), CallbackError> {
+        self.ownership.release(&self.identity);
         self.sessions
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -264,24 +296,7 @@ impl BridgeProvider {
     }
 
     pub fn mark_rebuild(&self, session: &JsString, rotate: bool) -> Result<(), CallbackError> {
-        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        let store = sessions.as_mut().map_err(|e| e.clone())?;
-        let mut active = false;
-        for query in state.queries.values_mut().filter(|q| &q.session == session) {
-            query.stale = true;
-            active = true;
-            if let Some(id) = query
-                .native_id
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .clone()
-            {
-                store.seed_live_session(session, id);
-            }
-        }
-        store.mark_rebuild(session, rotate || active);
-        Ok(())
+        self.ownership.mark_rebuild(session, rotate)
     }
 
     pub async fn shutdown(&self, session: &JsString, reason: &JsString) -> Result<(), CallbackError> {
@@ -595,11 +610,16 @@ impl QueryActor {
     ) -> Result<(), CallbackError> {
         validate_tools(&self.tools)?;
         let signal = options.stream.request.signal.clone().unwrap_or_default();
-        let mut process = tokio::select! {
+        if signal.aborted() {
+            self.mark_aborted();
+            return Ok(());
+        }
+        let mut process = ClaudeProcess::spawn_child(launch)?;
+        tokio::select! {
             biased;
-            _ = signal.wait() => { self.mark_aborted(); return Ok(()); },
-            command = self.commands.recv() => { return Err(shutdown_reason(command)); },
-            process = ClaudeProcess::spawn(launch) => process?,
+            _ = signal.wait() => { self.mark_aborted(); process.terminate().await?; return Ok(()); },
+            command = self.commands.recv() => { let error = shutdown_reason(command); process.terminate().await?; return Err(error); },
+            result = process.initialize(launch) => result?,
         };
         let prompt = user_message(prompt_content(context)?, false);
         tokio::select! {
@@ -889,6 +909,32 @@ impl QueryActor {
             ))
             .await
     }
+}
+
+fn mark_local_rebuild(
+    state: &Arc<Mutex<QueryState>>,
+    sessions: &Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
+    session: &JsString,
+    rotate: bool,
+) -> Result<(), CallbackError> {
+    let mut state = state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let mut sessions = sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+    let store = sessions.as_mut().map_err(|e| e.clone())?;
+    let mut active = false;
+    for query in state.queries.values_mut().filter(|q| &q.session == session) {
+        query.stale = true;
+        active = true;
+        if let Some(id) = query
+            .native_id
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            store.seed_live_session(session, id);
+        }
+    }
+    store.mark_rebuild(session, rotate || active);
+    Ok(())
 }
 
 fn shutdown_reason(command: Option<QueryCommand>) -> CallbackError {
