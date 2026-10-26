@@ -375,6 +375,10 @@ name = "differential_catalog_lifetime"
 path = "tests/differential_catalog_lifetime.rs"
 
 [[test]]
+name = "differential_model_persistence_reciprocal"
+path = "tests/differential_model_persistence_reciprocal.rs"
+
+[[test]]
 name = "differential_cli_import_home"
 path = "tests/differential_cli_import_home.rs"
 
