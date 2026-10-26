@@ -316,8 +316,20 @@ impl SessionStore {
             Some(m) => m.id.clone(),
             None => session_records::new_id()?,
         };
-        let converted = convert::convert_messages(prior, provider)?;
-        let converted = super::repair::repair_tool_pairing(&converted);
+        let report = convert::convert_messages_report(prior, provider)?;
+        if let Some(logs) = &self.verification_logs {
+            logs.debug_conversion(prior.len(), &report)?;
+        }
+        let converted = super::repair::repair_tool_pairing(&report.messages);
+        if converted.len() != report.messages.len()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(format!(
+                "convertAndImportMessages: repairToolPairing {} → {} msgs",
+                report.messages.len(),
+                converted.len()
+            ))?;
+        }
         let (mut prefix, covered) = native_prefix::native_prefix(&native, &converted);
         if !native.is_empty()
             && let Some(logs) = &self.verification_logs

@@ -238,7 +238,31 @@ fn pascal_case(name: &JsString) -> Result<JsString, CallbackError> {
     ))
 }
 
-fn assistant_content(raw: &JsValue, provider: bool) -> Result<Vec<JsValue>, CallbackError> {
+#[derive(Default)]
+pub(super) struct ConversionStats {
+    pub thinking: usize,
+    pub aborted_turns: usize,
+    pub providers: indexmap::IndexSet<JsString>,
+    pub other: indexmap::IndexMap<JsString, usize>,
+    pub sanitized_ids: indexmap::IndexMap<JsString, JsString>,
+}
+impl ConversionStats {
+    fn sanitize(&mut self, id: JsString) -> JsString {
+        self.sanitized_ids
+            .entry(id.clone())
+            .or_insert_with(|| sanitize_tool_id(&id))
+            .clone()
+    }
+}
+pub(super) struct ConversionReport {
+    pub messages: Vec<JsValue>,
+    pub stats: ConversionStats,
+}
+fn assistant_content(
+    raw: &JsValue,
+    provider: bool,
+    stats: &mut ConversionStats,
+) -> Result<Vec<JsValue>, CallbackError> {
     let mut output = Vec::new();
     for block in raw.get("content").and_then(JsValue::as_array).into_iter().flatten() {
         let kind = string(block, "type");
@@ -259,7 +283,7 @@ fn assistant_content(raw: &JsValue, provider: bool) -> Result<Vec<JsValue>, Call
         } else if kind == "toolCall" {
             output.push(JsValue::object([
                 ("type", text("tool_use")),
-                ("id", text(sanitize_tool_id(&string(block, "id")))),
+                ("id", text(stats.sanitize(string(block, "id")))),
                 ("name", text(sdk_name(&string(block, "name"), provider)?)),
                 (
                     "input",
@@ -269,6 +293,16 @@ fn assistant_content(raw: &JsValue, provider: bool) -> Result<Vec<JsValue>, Call
                         .unwrap_or(JsValue::Object(Default::default())),
                 ),
             ]));
+        } else if kind == "thinking" {
+            stats.thinking += 1;
+            stats.providers.insert(
+                raw.get("provider")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".into()),
+            );
+        } else {
+            *stats.other.entry(kind).or_default() += 1;
         }
     }
     if output.is_empty() {
@@ -281,6 +315,10 @@ fn assistant_content(raw: &JsValue, provider: bool) -> Result<Vec<JsValue>, Call
 }
 
 pub fn convert_messages(messages: &[Message], provider: bool) -> Result<Vec<JsValue>, CallbackError> {
+    Ok(convert_messages_report(messages, provider)?.messages)
+}
+pub(super) fn convert_messages_report(messages: &[Message], provider: bool) -> Result<ConversionReport, CallbackError> {
+    let mut stats = ConversionStats::default();
     let mut output: Vec<JsValue> = Vec::new();
     let mut assistant_index: Option<usize> = None;
     let mut results_index: Option<usize> = None;
@@ -291,9 +329,10 @@ pub fn convert_messages(messages: &[Message], provider: bool) -> Result<Vec<JsVa
             Message::User(_) => output.push(message("user", user_content(content))),
             Message::Assistant(_) => {
                 if content.as_array().is_none_or(|blocks| blocks.is_empty()) {
+                    stats.aborted_turns += 1;
                     continue;
                 }
-                let blocks = assistant_content(&raw, provider)?;
+                let blocks = assistant_content(&raw, provider, &mut stats)?;
                 results_index = None;
                 assistant_index = Some(output.len());
                 output.push(message("assistant", JsValue::Array(blocks)));
@@ -301,7 +340,7 @@ pub fn convert_messages(messages: &[Message], provider: bool) -> Result<Vec<JsVa
             Message::ToolResult(_) => {
                 let block = JsValue::object([
                     ("type", text("tool_result")),
-                    ("tool_use_id", text(sanitize_tool_id(&string(&raw, "toolCallId")))),
+                    ("tool_use_id", text(stats.sanitize(string(&raw, "toolCallId")))),
                     ("content", result_content(content)),
                     ("is_error", raw.get("isError").cloned().unwrap_or(JsValue::Bool(false))),
                 ]);
@@ -317,7 +356,10 @@ pub fn convert_messages(messages: &[Message], provider: bool) -> Result<Vec<JsVa
             }
         }
     }
-    Ok(output)
+    Ok(ConversionReport {
+        messages: output,
+        stats,
+    })
 }
 
 #[cfg(test)]

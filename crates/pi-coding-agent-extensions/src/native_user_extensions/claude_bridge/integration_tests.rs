@@ -542,6 +542,82 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_shutdown_reports_exact_live_context_handler_and_prompt_counts() {
+    use crate::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+    let (dir, config, _) = setup().await;
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
+    let mut registry = ExtensionRegistry::new();
+    let fixture = bridge.clone();
+    registry.register_hidden(
+        "<fixture:leak-report>",
+        Arc::new(move |pi| {
+            let result = lifecycle::register(pi, fixture.clone());
+            Box::pin(async { result })
+        }),
+    );
+    let loaded = registry
+        .load_extensions(
+            &["<fixture:leak-report>".into()],
+            &dir.path().to_str().unwrap().into(),
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let runner = lifecycle_tests::runner(dir.path(), loaded, Some(model(&config)));
+    let mut opts = options(&dir);
+    opts.stream.session_id = Some(runner.create_context().session_manager().unwrap().get_session_id());
+    let output = bridge
+        .stream(model(&config), read_context("tool-round-trip"), Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::ToolUse);
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if std::fs::read_to_string(logging::debug_path().unwrap())
+                .unwrap()
+                .contains(&format!("[{module}] mcp handler: read [tool-read] → waiting\n"))
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert!(log.contains(&format!(
+        "[{module}] WARNING: session_shutdown left state behind — contexts=1 pendingToolCalls=1 promptStreams=1\n"
+    )));
+    runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+    let after = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert_eq!(
+        after
+            .lines()
+            .filter(|line| line.contains(&format!("[{module}] WARNING: session_shutdown left state behind")))
+            .count(),
+        1
+    );
+    let pid = std::fs::read_to_string(dir.path().join(".fixture-pid")).unwrap();
+    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+}
+
+#[tokio::test]
 async fn claude_bridge_empty_prompt_writes_unconditional_source_diagnostic() {
     let (dir, config, _) = setup().await;
     let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
