@@ -35,16 +35,16 @@ This is the Rust port contract for TypeScript revision `be6413897c72efe708232c1a
 
 ## Implementation inventory
 
-- Rust storage, time, actions, interface and delivery are implemented; full runtime integration proof is pending.
+- Rust storage, time, actions, interface and delivery are implemented. See traceability for proof limits.
 - TypeScript sources and tests are listed in the traceability map.
 
 ## Tests asserting this spec
 
-- Focused Rust behavioral and bidirectional persistence tests are recorded in traceability. Full runtime delivery proof is pending.
+- Focused behavioral, bidirectional persistence and real-process crash/restart tests are recorded in traceability.
 
 ## Known gaps (current cycle)
 
-- [ ] Full runtime delivery, notification and crash-boundary proof remains pending.
+- [ ] The process crash test observes the alert and busy turn before the kill, but cannot directly observe custom-queue insertion.
 - [ ] The frozen feature does not supervise or restart the delivery session; overdue reminders wait for its next start.
 - [ ] Failed desktop alerts are not retried independently.
 
