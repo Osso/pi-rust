@@ -261,7 +261,7 @@ Final verification source scope is `5ea18c8cc` (the merge of `37cfc6e87` with th
 
 ## Child launch environment and string prompts (verifier 377, 2026-10-26)
 
-- `index.ts:2891` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on `process.env`. Native provider/AskClaude/summary children (`process.rs`) and usage-refresh children (`usage.rs`) set it; the fake `claude` asserts it on both launch paths. Gap: TS mutates the whole pi process environment, so unrelated children spawned later (bash tool, other extensions) also inherit it; the native port scopes it to bridge children and does not mutate the host process environment.
+- `index.ts:2891` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on `process.env`. Native provider/AskClaude/summary children (`process.rs`) and usage-refresh children (`usage.rs`) set it; the fake `claude` asserts it on both launch paths. Approved deviation (user 2026-10-26, "Bridge children only"): TS mutates the whole pi process environment, so unrelated children spawned later (bash tool, other extensions) also inherit it; the native port scopes it to bridge children and does not mutate the host process environment.
 - AskClaude and isolated-summary string prompts use the SDK `mT` envelope (`session_id:""`, text-block array). Tests: `claude_bridge_sdk_askclaude_thinking_overrides_reach_child`, `claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch_session_mirrors` (RED `/tmp/bridge-f1f2-red.log`, GREEN `/tmp/bridge-f1f2-green.log`).
 
 ## Proof ledger
