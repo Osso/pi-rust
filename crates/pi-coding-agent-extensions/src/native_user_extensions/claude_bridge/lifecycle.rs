@@ -28,7 +28,11 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ui.clone());
             }
-            let result = ui.and_then(|_| {
+            let result = ui.and_then(|_| ctx.mode()).and_then(|mode| {
+                *start_bridge
+                    .mode
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
                 if matches!(
                     event.reason,
                     SessionStartReason::New | SessionStartReason::Resume | SessionStartReason::Fork

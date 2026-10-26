@@ -51,6 +51,8 @@ pub struct BridgeProvider {
     pub(super) identity: Arc<()>,
     ownership: Arc<super::ownership::Ownership>,
     pub(super) ui: SharedUi,
+    pub(super) mode: Arc<Mutex<Option<crate::core::extensions::types::ExtensionMode>>>,
+    pub(super) startup_notice: Arc<Mutex<Option<super::startup_notice::StartupNotice>>>,
     pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
     pub executable: Result<PathBuf, CallbackError>,
@@ -93,6 +95,8 @@ impl BridgeProvider {
             state: Arc::new(Mutex::new(QueryState::default())),
             identity: Arc::new(()),
             ui: Arc::new(Mutex::new(None)),
+            mode: Arc::new(Mutex::new(None)),
+            startup_notice: Arc::new(Mutex::new(None)),
             ownership,
             accounts: Arc::new(Mutex::new(accounts)),
             usage_runtime: super::usage::UsageRuntime::default(),
@@ -122,6 +126,22 @@ impl BridgeProvider {
         mut context: Context,
         options: Option<SimpleStreamOptions>,
     ) -> Result<AssistantMessageEventStream, CallbackError> {
+        let ui = self
+            .ui
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
+        let mode = *self.mode.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let (Some(ui), Some(mode), Some(notice)) = (
+            ui,
+            mode,
+            self.startup_notice
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut(),
+        ) {
+            notice.show(mode, ui.as_ref())?;
+        }
         if options
             .as_ref()
             .is_some_and(|options| options.stream.cache_retention == Some(pi_ai::types::CacheRetention::None))

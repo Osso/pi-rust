@@ -15,6 +15,7 @@ mod provider;
 mod rate_limit;
 mod session_records;
 mod sessions;
+mod startup_notice;
 pub mod stream;
 mod summaries;
 mod usage;
@@ -67,6 +68,11 @@ fn activate_with_ownership(pi: &ExtensionApi, ownership: Arc<ownership::Ownershi
         .unwrap_or_else(|| "AskClaude".into());
     let ask_name = ask_name.to_utf8().map_err(|e| HandlerError::new(e.to_string()))?;
     let bridge = provider::BridgeProvider::with_ownership(settings.clone(), executable, ask_name, ownership.clone());
+    *bridge
+        .startup_notice
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+        Some(startup_notice::StartupNotice::from_config(&config, agent_dir));
     let models = models::project_models(
         pi_ai::providers::models_data::provider_models("anthropic").unwrap_or_default(),
         &settings,
