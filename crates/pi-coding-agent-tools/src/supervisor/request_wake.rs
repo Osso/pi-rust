@@ -59,13 +59,7 @@ impl SupervisorRequestWakeServer {
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
         set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let generation = self.generation.clone();
-        let shutdown = {
-            let mut controller = self.shutdown();
-            if controller.signal().aborted() {
-                *controller = pi_js_compat::abort::AbortController::new();
-            }
-            controller.signal()
-        };
+        let shutdown = self.renew_shutdown_signal();
         let task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -112,6 +106,14 @@ impl SupervisorRequestWakeServer {
         }
         remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         Ok(())
+    }
+
+    fn renew_shutdown_signal(&self) -> AbortSignal {
+        let mut controller = self.shutdown();
+        if controller.signal().aborted() {
+            *controller = pi_js_compat::abort::AbortController::new();
+        }
+        controller.signal()
     }
 
     fn shutdown(&self) -> std::sync::MutexGuard<'_, pi_js_compat::abort::AbortController> {
