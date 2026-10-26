@@ -149,7 +149,7 @@ async fn write_native_cache(path: &Path, payload: &JsValue) -> JsValue {
         .unwrap();
     assert_eq!(result.source, "network");
     assert_eq!(result.fetched_count, 2);
-    js_json::to_value(result.models).unwrap()
+    js_json::to_value(&result.models).unwrap()
 }
 
 fn write_ts_cache(cache_home: &Path, payload: &JsValue) -> JsValue {
