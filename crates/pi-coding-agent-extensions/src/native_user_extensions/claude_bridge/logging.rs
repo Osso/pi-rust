@@ -50,6 +50,29 @@ impl Logs {
         }
         append_debug(&debug_path()?, &self.module_id, &timestamp()?, &message.into())
     }
+    pub(super) fn debug_error(&self, label: impl Into<JsString>, error: &CallbackError) -> Result<(), CallbackError> {
+        self.debug(pi_js_compat::js_format!(
+            "{} {}: {}",
+            label.into(),
+            error.name,
+            error.message
+        ))
+    }
+    pub(super) fn debug_final_stream(&self, output: &pi_ai::types::AssistantMessage) -> Result<(), CallbackError> {
+        let mut fields = JsObject::new();
+        fields.insert(
+            "stopReason".into(),
+            JsValue::String(stop_reason(output.stop_reason).into()),
+        );
+        if let Some(error) = &output.error_message {
+            fields.insert("error".into(), JsValue::String(error.clone()));
+        }
+        self.debug(format!(
+            "provider: finalizeCurrentStream called, stopReason={}, turnOutput={}",
+            stop_reason(output.stop_reason),
+            js_json::stringify_lossless(&JsValue::Object(fields))
+        ))
+    }
     pub fn diag(&self, label: &str, data: JsObject) -> Result<(), CallbackError> {
         let path = agent_dir()?.join("claude-bridge-diag.log");
         let mut entry = JsObject::new();
@@ -246,6 +269,15 @@ impl CliDebug {
                 .debug(format!("[cli-stderr {}#{}] {line}", self.tag, self.seq))?;
         }
         Ok(())
+    }
+}
+pub(super) fn stop_reason(reason: pi_ai::types::StopReason) -> &'static str {
+    match reason {
+        pi_ai::types::StopReason::Stop => "stop",
+        pi_ai::types::StopReason::Length => "length",
+        pi_ai::types::StopReason::ToolUse => "toolUse",
+        pi_ai::types::StopReason::Error => "error",
+        pi_ai::types::StopReason::Aborted => "aborted",
     }
 }
 pub(super) fn prompt_info(context: &pi_ai::types::Context) -> Result<(JsString, bool), CallbackError> {

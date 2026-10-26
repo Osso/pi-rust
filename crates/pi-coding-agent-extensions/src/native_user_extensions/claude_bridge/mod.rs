@@ -115,6 +115,15 @@ fn activate_with_ownership(pi: &ExtensionApi, ownership: Arc<ownership::Ownershi
         pi.register_provider("claude-bridge", provider_config)
             .map_err(HandlerError::from)?;
     } else {
+        let registration_logs = bridge
+            .logs
+            .as_ref()
+            .map_err(|e| HandlerError::new(e.message.clone()))?
+            .clone();
+        registration_logs.debug(format!(
+            "provider: deferring registration decision to session_start (module={})",
+            registration_logs.module_id
+        ))?;
         let api = pi.clone();
         pi.on_session_start(
             move |_,
@@ -122,9 +131,19 @@ fn activate_with_ownership(pi: &ExtensionApi, ownership: Arc<ownership::Ownershi
                   -> crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> {
                 let api = api.clone();
                 let config = provider_config.clone();
+                let logs = registration_logs.clone();
                 Box::pin(async move {
                     if ctx.model_registry()?.get_provider("claude-bridge").is_none() {
+                        logs.debug(format!(
+                            "provider: registry lacks claude-bridge, registering (module={})",
+                            logs.module_id
+                        ))?;
                         api.register_provider("claude-bridge", config)?;
+                    } else {
+                        logs.debug(format!(
+                            "provider: registry already has claude-bridge, skipping registration (module={})",
+                            logs.module_id
+                        ))?;
                     }
                     Ok(None)
                 })

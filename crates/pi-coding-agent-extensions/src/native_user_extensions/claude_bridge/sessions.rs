@@ -120,6 +120,13 @@ impl SessionStore {
     pub fn complete(&mut self, key: &JsString, id: String, cursor: usize, cwd: &Path) -> Result<(), CallbackError> {
         let old = self.mirrors.get(key);
         let cursor = old.map_or(cursor, |m| m.cursor.max(cursor));
+        if let Some(logs) = &self.verification_logs {
+            logs.debug(format!(
+                "provider: query done, session={}, cursor={}",
+                &id[..id.len().min(8)],
+                cursor
+            ))?;
+        }
         let rebuild = old.is_some_and(|m| m.rebuild);
         let rotate = old.is_some_and(|m| m.rotate);
         self.record(key, id, cursor, cwd)?;
@@ -157,6 +164,12 @@ impl SessionStore {
 
     pub fn delete_ephemeral(&self, key: &JsString, id: &str, cwd: &Path) -> Result<(), CallbackError> {
         if self.mirrors.get(key).is_some_and(|mirror| mirror.id == id) {
+            if let Some(logs) = &self.verification_logs {
+                logs.debug(format!(
+                    "provider: query done, ignoring captured session {} to preserve shared session",
+                    &id[..id.len().min(8)]
+                ))?;
+            }
             return Ok(());
         }
         let path = session_records::session_path(&self.claude_dir, cwd, id)?;
@@ -164,6 +177,16 @@ impl SessionStore {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(CallbackError::new(e.to_string())),
+        }
+        if let Some(logs) = &self.verification_logs {
+            logs.debug(format!(
+                "provider: query done, deleted ephemeral session {} to preserve shared session",
+                &id[..id.len().min(8)]
+            ))?;
+            logs.debug(format!(
+                "provider: query done, ignoring captured session {} to preserve shared session",
+                &id[..id.len().min(8)]
+            ))?;
         }
         let companion = path.with_extension("");
         match std::fs::remove_dir_all(companion) {
@@ -307,11 +330,22 @@ impl SessionStore {
             ))?;
         }
         let (attachments, skipped) = native_prefix::tail_attachments(&native, &prefix, &converted, covered);
-        for warning in skipped {
-            eprintln!(
-                "claude-bridge: {}",
-                warning.to_utf8().map_err(|e| CallbackError::new(e.to_string()))?
-            );
+        if !skipped.is_empty()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(pi_js_compat::js_format!(
+                "convertAndImportMessages: dropped {} carried attachment(s): {}",
+                skipped.len(),
+                JsString::join(skipped, "; ")
+            ))?;
+        }
+        if !attachments.is_empty()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(format!(
+                "convertAndImportMessages: carrying {} attachment(s) across the rebuild",
+                attachments.values().map(Vec::len).sum::<usize>()
+            ))?;
         }
         for record in &mut prefix {
             if let JsValue::Object(fields) = record {
@@ -350,6 +384,11 @@ impl SessionStore {
             }
         }
         if let Some(logs) = &self.verification_logs {
+            match mirror {
+                None => logs.debug(format!("Case 2: first turn with {} prior messages → session {}{}, {} records", prior.len(), &id[..id.len().min(8)], old_id.as_ref().map(|old| format!(" seeded from recorded session {}", &old[..old.len().min(8)])).unwrap_or_default(), writer.records.len()))?,
+                Some(m) if !m.rotate => logs.debug(format!("Case 4: {} missed messages, {} total → rewrote session {} (same id), {} records", prior.len().saturating_sub(m.cursor), prior.len(), &id[..id.len().min(8)], writer.records.len()))?,
+                Some(m) => logs.debug(format!("Case 4 post-abort: {} total → new session {} (was {}, rotated to avoid race with orphan writer), {} records", prior.len(), &id[..id.len().min(8)], &m.id[..m.id.len().min(8)], writer.records.len()))?,
+            }
             logs.debug_session_paths(&id[..id.len().min(8)], cwd, &path)?;
         }
         if let Some(logs) = &self.verification_logs {

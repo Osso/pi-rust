@@ -395,6 +395,14 @@ impl BridgeProvider {
                 state.throttled.remove(&key);
             }
             let owned = state.queries.remove(&id).is_some();
+            if let Err(error) = actor.log_completion(
+                &result,
+                owned,
+                options.stream.request.signal.as_ref().is_some_and(|s| s.aborted()),
+                &super::models::cli_model_id(&model.id, &bridge.settings),
+            ) {
+                result = Err(error);
+            }
             let failed = result.is_err() || actor.decoder.output.stop_reason == StopReason::Aborted;
             let persist = if owned && let Some(native_id) = actor.native_session.take() {
                 let mut sessions = bridge
@@ -415,13 +423,7 @@ impl BridgeProvider {
             } else {
                 Ok(())
             };
-            let result = result.and(persist).and_then(|()| {
-                bridge
-                    .logs
-                    .as_ref()
-                    .map_err(|e| e.clone())?
-                    .debug("provider: clearing activeQuery before final stream completion")
-            });
+            let result = result.and(persist);
             match result {
                 Err(error) => actor.fail(
                     error,
@@ -818,10 +820,6 @@ impl QueryActor {
         }
         let signal = options.stream.request.signal.clone().unwrap_or_default();
         if signal.aborted() {
-            self.logs
-                .as_ref()
-                .map_err(|e| e.clone())?
-                .debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate")?;
             self.mark_aborted();
             return Ok(());
         }
@@ -835,10 +833,6 @@ impl QueryActor {
         };
         match outcome {
             None => {
-                self.logs
-                    .as_ref()
-                    .map_err(|e| e.clone())?
-                    .debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate")?;
                 self.mark_aborted();
                 let released = self
                     .release_pending_calls(&"Operation aborted".into(), &mut process)
@@ -1108,6 +1102,68 @@ impl QueryActor {
         Ok(())
     }
 
+    fn log_completion(
+        &self,
+        result: &Result<(), CallbackError>,
+        owned: bool,
+        aborted: bool,
+        model: &str,
+    ) -> Result<(), CallbackError> {
+        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
+        let reason = super::logging::stop_reason(self.decoder.output.stop_reason);
+        match result {
+            Ok(()) => {
+                if aborted {
+                    logs.debug(format!(
+                        "consumeQuery: for-await loop exited, wasAborted=true, capturedSessionId={}",
+                        self.native_session
+                            .as_deref()
+                            .map(|s| &s[..s.len().min(8)])
+                            .unwrap_or("none")
+                    ))?;
+                }
+                logs.debug(pi_js_compat::js_format!(
+                    "provider: consumeQuery completed, stopReason={}, error={}, aborted={}",
+                    reason,
+                    self.decoder
+                        .output
+                        .error_message
+                        .as_ref()
+                        .cloned()
+                        .unwrap_or_else(|| "undefined".into()),
+                    if aborted { "true" } else { "false" }
+                ))?;
+                if !owned {
+                    return logs
+                        .debug("provider: discarded query completed, leaving session and stream to its replacement");
+                }
+                if aborted {
+                    return logs.debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate");
+                }
+                logs.debug("provider: clearing activeQuery before final stream completion")?;
+                if self.current.is_some() {
+                    logs.debug_final_stream(&self.decoder.output)?;
+                }
+            }
+            Err(error) => {
+                logs.debug_error(
+                    pi_js_compat::js_format!(
+                        "provider: query error, model={}, aborted={}, error=",
+                        model,
+                        if aborted { "true" } else { "false" }
+                    ),
+                    error,
+                )?;
+                if !owned {
+                    return logs.debug(
+                        "provider: discarded query ended in error, leaving session and stream to its replacement",
+                    );
+                }
+                logs.debug("provider: clearing activeQuery before error stream completion")?;
+            }
+        }
+        Ok(())
+    }
     fn finish(&mut self) {
         if let Some(sender) = self.current.take() {
             for event in self.decoder.finish_events() {

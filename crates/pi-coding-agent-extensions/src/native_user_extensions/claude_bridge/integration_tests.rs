@@ -497,6 +497,8 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
     assert!(messages.contains(&"provider: clearing activeQuery before final stream completion"));
     assert!(messages.contains(&"Case 1: clean start, 1 total messages"));
     assert!(messages.contains(&"syncResult: path=clean-start"));
+    assert!(messages.contains(&"provider: fresh query model=claude-opus-5-5[1m] msgs=1 tools=0 resume=none effort=default ctxFiles=0 strictMcp=true prompt=hello"));
+    assert!(messages.contains(&"provider: consumeQuery completed, stopReason=stop, error=undefined, aborted=false"));
     let cli = std::fs::read_dir(path.parent().unwrap().join("cc-cli-logs"))
         .unwrap()
         .map(|e| e.unwrap().path())
