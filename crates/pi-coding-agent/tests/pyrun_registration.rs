@@ -61,8 +61,10 @@ async fn pyrun_registration_checks_command_without_parsing_args_and_routes_bridg
             assert_eq!(error.message, "Detached Pyrun bridge requires the control database");
         }
     }
-    process_env::set("PI_PYRUN_RUNNER_COMMAND", "/bin/true");
-    process_env::set("PI_PYRUN_RUNNER_ARGS", "[]");
+    // The runner consumes the one request line, then exits without answering, so the
+    // evaluation deterministically fails on runner exit instead of racing an EPIPE.
+    process_env::set("PI_PYRUN_RUNNER_COMMAND", "/usr/bin/head");
+    process_env::set("PI_PYRUN_RUNNER_ARGS", "[\"-n\",\"1\"]");
     let runtime = support::runtime();
     let extension = support::extension(&runtime, cwd, "pyrun-no-session", |api| {
         install_pyrun_extension(
