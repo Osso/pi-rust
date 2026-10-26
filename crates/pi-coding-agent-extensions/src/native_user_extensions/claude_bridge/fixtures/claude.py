@@ -235,6 +235,15 @@ elif text in ["tool-round-trip", "steer-round-trip"]:
     with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
         json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
+elif text == "image-prompt":
+    assert content == [{"type": "text", "text": "image-prompt"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AQ=="}}], content
+    answer("image accepted", "image-msg")
+elif text == "text-fallback":
+    assert content == [{"type": "text", "text": "text-fallback"}], content
+    answer("text accepted", "fallback-msg")
+elif text == "[continue]":
+    assert content == [{"type": "text", "text": "[continue]"}], content
+    answer("continued", "continue-msg")
 elif text == "logging-events":
     send({"type": "fixture_notice"})
     event({"type": "content_block_start", "index": 0, "content_block": {"type": "redacted_thinking"}})
