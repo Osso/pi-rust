@@ -36,12 +36,18 @@ struct Capture {
 #[derive(Default)]
 pub struct PromptCaptures {
     captures: IndexMap<JsString, CaptureRef>,
+    pub(super) diagnose_logs: Option<Result<super::logging::Logs, CallbackError>>,
 }
 
-pub fn shared_captures() -> Arc<Mutex<PromptCaptures>> {
+pub(super) fn shared_captures(logs: Result<super::logging::Logs, CallbackError>) -> Arc<Mutex<PromptCaptures>> {
     static CAPTURES: OnceLock<Arc<Mutex<PromptCaptures>>> = OnceLock::new();
     CAPTURES
-        .get_or_init(|| Arc::new(Mutex::new(PromptCaptures::default())))
+        .get_or_init(|| {
+            Arc::new(Mutex::new(PromptCaptures {
+                diagnose_logs: Some(logs),
+                ..Default::default()
+            }))
+        })
         .clone()
 }
 
@@ -151,7 +157,7 @@ impl PromptCaptures {
         }
         let inherited = self.find_inherited(prompt, Some(prompt));
         if inherited.is_empty() {
-            return Err(self.unresolved_error(prompt));
+            return Err(self.unresolved_error(prompt)?);
         }
         Ok(Some(Arc::new(Mutex::new(Capture {
             prompt: prompt.clone(),
@@ -213,7 +219,7 @@ impl PromptCaptures {
         selected
     }
 
-    fn unresolved_error(&self, prompt: &JsString) -> CallbackError {
+    fn unresolved_error(&self, prompt: &JsString) -> Result<CallbackError, CallbackError> {
         let matches: Vec<_> = self
             .captures
             .iter()
@@ -229,17 +235,36 @@ impl PromptCaptures {
             .collect();
         let shared = matches.iter().map(|(_, _, prefix)| *prefix).max().unwrap_or(0);
         let best: Vec<_> = matches.iter().filter(|(_, _, prefix)| *prefix == shared).collect();
+        if let Some(logs) = &self.diagnose_logs {
+            logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!(
+                "prompt-capture: no match for {}-char system prompt. {} known keys={}",
+                prompt.len(),
+                best.first()
+                    .map(|(key, _, prefix)| pi_js_compat::js_format!(
+                        "closest known ({}-char) shares its first {} chars and diverges at offset {}: {}",
+                        key.len(),
+                        prefix,
+                        prefix,
+                        pi_js_compat::js_json::stringify_lossless(&JsValue::String(prompt.slice(
+                            pi_js_compat::number::js_slice_index(*prefix as f64 - 40.0, prompt.len()),
+                            (*prefix + 60).min(prompt.len())
+                        )))
+                    ))
+                    .unwrap_or_else(|| "no known captures to compare against.".into()),
+                best.len()
+            ))?;
+        }
         if let Some((key, node, _)) = best
             .iter()
             .find(|(key, _, prefix)| *prefix == prompt.len() && key.len() > prompt.len())
         {
-            return CallbackError::new(format!(
+            return Ok(CallbackError::new(format!(
                 "prompt-capture: this {}-char prompt is the {}-char capture recorded at {} with its final {} chars missing. That shape matches pi#5581: an extension-triggered idle turn (sendMessage with triggerTurn) skips before_agent_start, so the prompt lacks that turn's extension additions. The turn fails; the next user-typed turn resolves normally. Workaround: when idle, send a user message instead of triggerTurn.",
                 prompt.len(),
                 key.len(),
                 node.source.as_deref().unwrap_or("an unknown boundary"),
                 key.len() - prompt.len()
-            ));
+            )));
         }
         let offset = best.first().map_or("?".to_owned(), |(_, _, prefix)| prefix.to_string());
         let length = best.first().map_or(0, |(key, _, _)| key.len());
@@ -248,14 +273,14 @@ impl PromptCaptures {
             .and_then(|(_, node, _)| node.source.as_ref())
             .map(|s| format!(", last recorded at {s}"))
             .unwrap_or_default();
-        CallbackError::new(format!(
+        Ok(CallbackError::new(format!(
             "prompt-capture: no capture for this {}-char system prompt, and it embeds none of the {} known. Closest known match diverges at offset {} ({}-char key{}). Claude Code would receive none of this turn's context files, skills or custom instructions. When the divergence sits at a section's opening tag, the capture and this prompt disagree about that section — pi's mcp_servers since pi 0.99.2, or one an extension added. Otherwise an extension loaded after claude-bridge rewrote the system prompt from before_agent_start — one that wraps it is fine, one that rebuilds or strips it leaves nothing to match — or pi rebuilt the prompt outside before_agent_start (a late-registered tool or fresh resource discovery).",
             prompt.len(),
             self.captures.len(),
             offset,
             length,
             source
-        ))
+        )))
     }
 }
 

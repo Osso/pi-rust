@@ -85,9 +85,9 @@ pub fn read_records(path: &Path) -> Result<Vec<JsValue>, CallbackError> {
         Ok(content) => content,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
         Err(error) => {
-            return Err(CallbackError::new(format!(
-                "Read Claude session {}: {error}",
-                path.display()
+            return Err(CallbackError::new(pi_js_compat::node_fs::node_read_error(
+                &error,
+                &path_text(path)?,
             )));
         }
     };

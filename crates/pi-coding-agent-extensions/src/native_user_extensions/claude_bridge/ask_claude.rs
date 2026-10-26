@@ -202,6 +202,11 @@ async fn execute(
     context: ExtensionContext,
 ) -> Result<AgentToolResult, HandlerError> {
     if context.model()?.is_some_and(|m| m.base_url == "claude-bridge") {
+        bridge
+            .logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug("askClaude: blocked circular delegation (active provider is claude-bridge)")?;
         return Ok(tool_result("Error: AskClaude cannot be used when the active provider is claude-bridge — you're already running through Claude Code.".into(),JsValue::object([("error",JsValue::Bool(true))])));
     }
     let mode = defaults.resolve_mode(&args)?;
@@ -233,7 +238,7 @@ async fn execute(
         system_prompt: context.get_system_prompt()?,
         append_skills: defaults.append_skills,
         args: &args,
-        mode,
+        mode: mode.clone(),
         default_isolated: defaults.isolated,
         signal,
         on_update: on_update.as_ref(),
@@ -263,14 +268,30 @@ async fn execute(
                 ]),
             ))
         }
-        Err(error) => Ok(tool_result(
-            pi_js_compat::js_format!("Error: {}", error.message),
-            JsValue::object([
-                ("prompt", JsValue::String(prompt)),
-                ("executionTime", JsValue::Number(elapsed)),
-                ("error", JsValue::Bool(true)),
-            ]),
-        )),
+        Err(error) => {
+            bridge.logs.as_ref().map_err(|e| e.clone())?.debug_error(
+                pi_js_compat::js_format!(
+                    "askClaude error: mode={}, model={}, isolated={}, elapsed={}s, error=",
+                    mode,
+                    args.get("model")
+                        .filter(|v| !matches!(v, JsValue::Null))
+                        .map(pi_js_compat::js_json::to_js_string)
+                        .transpose()?
+                        .unwrap_or_else(|| "default".into()),
+                    if isolated { "true" } else { "false" },
+                    format!("{:.1}", elapsed / 1000.0)
+                ),
+                &error,
+            )?;
+            Ok(tool_result(
+                pi_js_compat::js_format!("Error: {}", error.message),
+                JsValue::object([
+                    ("prompt", JsValue::String(prompt)),
+                    ("executionTime", JsValue::Number(elapsed)),
+                    ("error", JsValue::Bool(true)),
+                ]),
+            ))
+        }
     }
 }
 
