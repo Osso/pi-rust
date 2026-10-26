@@ -10,7 +10,10 @@ Source: extension snapshot `38d84cb549cce66dd76d45a5020d132f74780393`, outside t
 | Streaming | Text, thinking, tool arguments, partial usage, tool boundary and result errors | Native wire-frame tests |
 | CLI / MCP | Local child, initialize, stream-json, tools/list, ID-paired tools/call; Pi read round trip | Offline fake executable through registered provider |
 | AskClaude | Opt-in registration, schema/defaults, native-mode restrictions, isolated process, progress, action summaries, lossless TUI previews | Fake process through actual registered tool; schema/action/renderer tests |
-| Prompt capture / sessions / accounts / usage / summaries | Not complete; AskClaude shared history and skills depend on these rows | No completion claim |
+| Prompt capture | Exact/inherited capture projection; recency/reachable captures; portable context/custom/append/skills; explicit unresolved/unsafe failures; approved user-rules mapping; before_agent_start/agent_start/turn_start hooks | Native inheritance test and exact rules-present/rules-absent test |
+| Sessions / accounts / usage / summaries | Not complete; AskClaude shared history depends on session persistence | No completion claim |
+
+Prompt checkpoint: RED `/tmp/claude-bridge-red-prompt.log`; 18 targeted tests GREEN `/tmp/claude-bridge-prompt-integrated.log`; the exact rules-present/rules-absent text is asserted by `claude_bridge_prompt_exact_rules_present_and_absent`. The provider uses projected captures, not the raw harness prompt. AskClaude requests only the captured native-read skills block.
 
 Mechanical core API additions: readonly `ExtensionApi::cwd()` and discovered `extension_path()` accessors, for project config and package-relative executable lookup. No loader-resolution implementation is duplicated.
 

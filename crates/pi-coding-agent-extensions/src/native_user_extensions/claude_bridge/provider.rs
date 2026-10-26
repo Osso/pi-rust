@@ -38,6 +38,7 @@ pub struct BridgeProvider {
     pub settings: JsValue,
     pub executable: Result<PathBuf, CallbackError>,
     pub ask_name: String,
+    pub captures: Arc<Mutex<super::prompt_capture::PromptCaptures>>,
 }
 
 impl BridgeProvider {
@@ -47,15 +48,19 @@ impl BridgeProvider {
             settings,
             executable,
             ask_name,
+            captures: super::prompt_capture::shared_captures(),
         }
     }
 
     pub fn stream(
         &self,
         model: Model,
-        context: Context,
+        mut context: Context,
         options: Option<SimpleStreamOptions>,
     ) -> Result<AssistantMessageEventStream, CallbackError> {
+        if let Some(tools) = &mut context.tools {
+            tools.retain(|tool| tool.name != self.ask_name && tool.name != "web_search");
+        }
         let options = options.unwrap_or_default();
         let (sender, stream) = create_assistant_message_event_stream();
         let results: HashSet<_> = context
@@ -152,7 +157,22 @@ impl BridgeProvider {
             cwd,
             model: super::models::cli_model_id(&model.id, &self.settings),
             provider: self.settings.clone(),
-            append: context.system_prompt.clone(),
+            append: self
+                .captures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .project(
+                    context.system_prompt.as_ref(),
+                    if context
+                        .tools
+                        .as_ref()
+                        .is_some_and(|tools| tools.iter().any(|tool| tool.name == "read"))
+                    {
+                        "mcp"
+                    } else {
+                        "none"
+                    },
+                )?,
             effort: options.reasoning.map(|v| {
                 match v {
                     pi_ai::types::ThinkingLevel::Minimal | pi_ai::types::ThinkingLevel::Low => "low",

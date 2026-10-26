@@ -4,6 +4,7 @@ pub mod ask_render;
 pub mod config;
 pub mod models;
 mod process;
+pub mod prompt_capture;
 mod provider;
 pub mod stream;
 
@@ -55,6 +56,7 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
         pi_ai::providers::models_data::provider_models("anthropic").unwrap_or_default(),
         &settings,
     );
+    register_prompt_captures(pi, bridge.captures.clone())?;
     let stream_bridge = bridge.clone();
     pi.register_provider(
         "claude-bridge",
@@ -90,3 +92,70 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
 mod integration_tests;
 #[cfg(test)]
 mod registration_tests;
+
+fn register_prompt_captures(
+    pi: &ExtensionApi,
+    captures: Arc<std::sync::Mutex<prompt_capture::PromptCaptures>>,
+) -> Result<(), HandlerError> {
+    use crate::core::extensions::types::{
+        BeforeAgentStartEvent, BeforeAgentStartEventResult, BoxFuture, ExtensionContext,
+    };
+    let last_options = Arc::new(std::sync::Mutex::new(None));
+    let before_captures = captures.clone();
+    let before_options = last_options.clone();
+    pi.on_before_agent_start(
+        move |event: BeforeAgentStartEvent,
+              _|
+              -> BoxFuture<'static, Result<Option<BeforeAgentStartEventResult>, HandlerError>> {
+            before_captures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .record(&event.system_prompt, &event.system_prompt_options, "before_agent_start");
+            *before_options.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                Some(event.system_prompt_options);
+            Box::pin(async { Ok(None) })
+        },
+    )
+    .map_err(HandlerError::new)?;
+    let agent_captures = captures.clone();
+    let agent_options = last_options.clone();
+    pi.on_agent_start(
+        move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let captures = agent_captures.clone();
+            let options = agent_options
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            Box::pin(async move {
+                if let Some(options) = options {
+                    captures
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .record(&ctx.get_system_prompt()?, &options, "agent_start");
+                }
+                Ok(None)
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
+    pi.on_turn_start(
+        move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let captures = captures.clone();
+            let options = last_options
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
+            Box::pin(async move {
+                if let Some(options) = options {
+                    captures
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .record(&ctx.get_system_prompt()?, &options, "turn_start");
+                }
+                Ok(None)
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
+    Ok(())
+}

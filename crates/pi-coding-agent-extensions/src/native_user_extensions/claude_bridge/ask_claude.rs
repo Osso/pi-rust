@@ -23,6 +23,7 @@ pub struct AskDefaults {
     mode: String,
     isolated: bool,
     allow_full: bool,
+    append_skills: bool,
 }
 
 impl AskDefaults {
@@ -51,6 +52,7 @@ impl AskDefaults {
                 .and_then(JsValue::as_bool)
                 .unwrap_or(false),
             allow_full,
+            append_skills: config.get("appendSkills").and_then(JsValue::as_bool) != Some(false),
         }
     }
 
@@ -209,6 +211,8 @@ async fn execute(
     let cwd = context.cwd()?;
     let result = AskRun {
         bridge,
+        system_prompt: context.get_system_prompt()?,
+        append_skills: defaults.append_skills,
         args: &args,
         mode,
         default_isolated: defaults.isolated,
@@ -253,6 +257,8 @@ async fn execute(
 
 struct AskRun<'a> {
     bridge: &'a BridgeProvider,
+    system_prompt: JsString,
+    append_skills: bool,
     args: &'a JsValue,
     mode: String,
     default_isolated: bool,
@@ -293,6 +299,14 @@ impl AskRun<'_> {
         launch.model = super::models::resolve_model(&catalog, &requested)
             .map(|m| super::models::cli_model_id(&m.id, &self.bridge.settings))
             .unwrap_or(requested);
+        if self.append_skills && self.mode != "none" {
+            launch.append = self
+                .bridge
+                .captures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .skills(Some(&self.system_prompt), "native")?;
+        }
         launch.ask_mode = Some(self.mode.clone());
         launch.isolated = self
             .args
