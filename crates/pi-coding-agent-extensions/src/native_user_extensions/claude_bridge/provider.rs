@@ -560,6 +560,26 @@ impl BridgeProvider {
         .map_err(CallbackError::new)
     }
 
+    fn mcp_manifest(&self, context: &Context) -> Result<Option<JsValue>, CallbackError> {
+        let tools: Vec<_> = context
+            .tools
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .filter(|tool| tool.name != self.ask_name && tool.name != "web_search")
+            .cloned()
+            .collect();
+        if tools.is_empty() {
+            return Ok(None);
+        }
+        validate_tools(&tools)?;
+        let request = |method: &str| JsValue::object([("method", JsValue::String(method.into()))]);
+        Ok(Some(JsValue::object([
+            ("initializeResult", mcp_result(&request("initialize"), &tools)?),
+            ("toolsListResult", mcp_result(&request("tools/list"), &tools)?),
+        ])))
+    }
+
     pub fn launch_options(
         &self,
         model: &Model,
@@ -630,15 +650,7 @@ impl BridgeProvider {
                         "none"
                     },
                 )?,
-            effort: options.reasoning.map(|v| {
-                match v {
-                    pi_ai::types::ThinkingLevel::Minimal | pi_ai::types::ThinkingLevel::Low => "low",
-                    pi_ai::types::ThinkingLevel::Medium => "medium",
-                    pi_ai::types::ThinkingLevel::High => "high",
-                    _ => "max",
-                }
-                .to_owned()
-            }),
+            effort: super::models::effort(model, options.reasoning).map(str::to_owned),
             summary_system_prompt: None,
             summary: false,
             resume: None,
@@ -649,10 +661,7 @@ impl BridgeProvider {
             account_retries_remaining: false,
             ask_mode: None,
             isolated: false,
-            has_tools: context
-                .tools
-                .as_ref()
-                .is_some_and(|v| v.iter().any(|t| t.name != self.ask_name && t.name != "web_search")),
+            mcp_manifest: self.mcp_manifest(context)?,
         })
     }
 }

@@ -1,0 +1,36 @@
+{
+  "argv": [
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "stream-json",
+    "--effort",
+    "max",
+    "--resume=existing",
+    "--disallowedTools",
+    "AskUserQuestion,EnterPlanMode,ExitPlanMode,ToolSearch,ScheduleWakeup,Read,Write,Edit,Glob,Grep,Bash,Agent,NotebookEdit,EnterWorktree,ExitWorktree,CronCreate,CronDelete,TeamCreate,TeamDelete,WebFetch,WebSearch",
+    "--setting-sources=user,project",
+    "--permission-mode",
+    "bypassPermissions",
+    "--no-session-persistence",
+    "--strict-mcp-config",
+    "--model",
+    "claude-opus-5-5[1m]",
+    "--thinking-display",
+    "summarized",
+    "--settings",
+    "{\"autoMemoryEnabled\":false,\"claudeMdExcludes\":[\"**/CLAUDE.md\",\"**/AGENTS.md\",\"**/.claude/rules/**\"]}"
+  ],
+  "env": {},
+  "cwd": "<cwd>",
+  "initialize": {
+    "request_id": "<request-id>",
+    "type": "control_request",
+    "request": {
+      "subtype": "initialize",
+      "appendSystemPrompt": "append \ud800",
+      "skills": []
+    }
+  }
+}
