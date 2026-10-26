@@ -738,6 +738,21 @@ fn extensions_command_lists_the_ported_first_party_extensions() {
     }
 }
 
+#[test]
+fn reminders_tool_is_active_in_a_default_session() {
+    let fixture = fixture(&source_lock());
+    let output = run_rust(&fixture, &["tools"]);
+    assert_eq!(output.code, 0, "stderr: {}", output.stderr);
+    assert!(
+        output.stdout.lines().any(|line| {
+            let mut columns = line.split_whitespace();
+            columns.next() == Some("yes") && columns.next() == Some("reminders")
+        }),
+        "reminders is not active:\n{}",
+        output.stdout
+    );
+}
+
 /// Reads stderr lines until an `Error: ` line appears or `timeout` elapses, then kills the child.
 fn first_error_line(mut command: Command, timeout: Duration) -> String {
     use std::io::{BufRead, BufReader};

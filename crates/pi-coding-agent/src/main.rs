@@ -158,6 +158,7 @@ pub const FIRST_PARTY_EXTENSION_NAMES: &[&str] = &[
     "bwrap",
     "pyrun",
     "loop",
+    "reminders",
     "run-plan",
     "safe",
     "spec-validation",

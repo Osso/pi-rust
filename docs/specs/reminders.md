@@ -1,6 +1,6 @@
 # Reminders
 
-This is the **authorized, unimplemented and unverified Rust port contract** for TypeScript revision `be6413897c72efe708232c1a139ce01815d9cd18`. See [traceability](../porting/traceability/reminders.md) for source and proof status. Reminders are machine-local follow-up context, not a task list or authorization to act.
+This is the Rust port contract for TypeScript revision `be6413897c72efe708232c1a139ce01815d9cd18`. The implementation is in progress; see [traceability](../porting/traceability/reminders.md) for proof status. Reminders are machine-local follow-up context, not a task list or authorization to act.
 
 ## What it must do
 
@@ -35,16 +35,16 @@ This is the **authorized, unimplemented and unverified Rust port contract** for 
 
 ## Implementation inventory
 
-- Rust implementation: **not established by this documentation**; port and integration are pending.
+- Rust storage, time, actions, interface and delivery are implemented; full runtime integration proof is pending.
 - TypeScript sources and tests are listed in the traceability map.
 
 ## Tests asserting this spec
 
-- Rust behavioral and bidirectional persistence proof: **pending**. TypeScript tests are references, not Rust proof.
+- Focused Rust behavioral and bidirectional persistence tests are recorded in traceability. Full runtime delivery proof is pending.
 
 ## Known gaps (current cycle)
 
-- [ ] Port implementation, integration, and proof remain pending.
+- [ ] Full runtime delivery, notification and crash-boundary proof remains pending.
 - [ ] The frozen feature does not supervise or restart the delivery session; overdue reminders wait for its next start.
 - [ ] Failed desktop alerts are not retried independently.
 
