@@ -77,9 +77,9 @@ pub fn map_tool_args(name: &str, args: &JsObject) -> JsObject {
 
 pub struct StreamDecoder {
     pub output: AssistantMessage,
-    names: IndexMap<String, String>,
+    pub(super) names: IndexMap<String, String>,
     started: bool,
-    streamed: bool,
+    pub(super) streamed: bool,
     pub(super) message_id: JsString,
     pub(super) stream_open: bool,
     pub(super) block_start: usize,

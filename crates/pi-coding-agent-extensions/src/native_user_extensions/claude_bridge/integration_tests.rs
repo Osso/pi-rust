@@ -58,7 +58,8 @@ fn context(prompt: &str) -> Context {
 fn options(dir: &tempfile::TempDir) -> SimpleStreamOptions {
     let mut options = SimpleStreamOptions::default();
     options.stream.cwd = Some(dir.path().to_str().unwrap().into());
-    options.stream.session_id = Some("pi-fixture-session".into());
+    options.stream.session_id =
+        Some(format!("pi-fixture-{}", dir.path().file_name().unwrap().to_str().unwrap()).into());
     options
 }
 
@@ -427,7 +428,8 @@ async fn claude_bridge_rate_limit_failures_are_labeled_without_losing_utf16() {
         }
     }
     let (dir, config, _) = setup().await;
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
     let ui = Arc::new(Ui::default());
     *bridge.ui.lock().unwrap() = Some(ui.clone());
     let output = bridge
@@ -450,6 +452,11 @@ async fn claude_bridge_rate_limit_failures_are_labeled_without_losing_utf16() {
         ]
     );
     assert!(actual.iter().all(|(_, kind)| *kind == Some(NotifyType::Warning)));
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert!(log.contains(&format!(
+        "[{}] consumeQuery: error result, subtype=success, error=Claude rate limit (five_hour): capacity �\n",
+        bridge.logs.as_ref().unwrap().module_id
+    )));
 }
 
 #[tokio::test]
@@ -488,6 +495,8 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
     );
     assert!(messages.contains(&"consumeQuery: for-await loop exited, wasAborted=false, capturedSessionId=11111111"));
     assert!(messages.contains(&"provider: clearing activeQuery before final stream completion"));
+    assert!(messages.contains(&"Case 1: clean start, 1 total messages"));
+    assert!(messages.contains(&"syncResult: path=clean-start"));
     let cli = std::fs::read_dir(path.parent().unwrap().join("cc-cli-logs"))
         .unwrap()
         .map(|e| e.unwrap().path())
@@ -526,6 +535,63 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_empty_prompt_writes_unconditional_source_diagnostic() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut ctx = context("");
+    ctx.messages.clear();
+    let output = bridge
+        .stream(model(&config), ctx, Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop);
+    let log = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-diag.log")).unwrap();
+    let rows = log
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .filter(|row| stream::string(row, "moduleInstanceId") == bridge.logs.as_ref().unwrap().module_id.as_str())
+        .collect::<Vec<_>>();
+    let row = rows
+        .iter()
+        .find(|r| stream::string(r, "label") == "empty_prompt")
+        .expect("unconditional empty-prompt diagnostic");
+    let mut fields = row.as_object().unwrap().clone();
+    fields.shift_remove(&JsString::from("ts"));
+    fields.shift_remove(&JsString::from("moduleInstanceId"));
+    assert_eq!(
+        js_json::stringify_lossless(&JsValue::Object(fields)),
+        r#"{"label":"empty_prompt","contextLength":0,"isReentrant":false,"activeQueryContexts":0,"activeQueryExists":false,"sharedSession":null,"messageRoles":""}"#
+    );
+}
+
+#[tokio::test]
+async fn claude_bridge_stream_debug_call_sites_keep_source_names_and_field_order() {
+    let (dir, config, _) = setup().await;
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
+    let output = bridge
+        .stream(model(&config), context("logging-events"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop);
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    for expected in [
+        "consumeQuery: unhandled SDK message type fixture_notice",
+        "processStreamEvent: unhandled content_block_start type redacted_thinking",
+        "processStreamEvent: skipping tool_use outside pi's MCP tools WebSearch [native-search] — handled internally by CC",
+        "processStreamEvent: unhandled event type ping",
+        "usage: in=13 out=6 cacheRead=40 cacheWrite=0 total=59 cachePct=75% model=claude-opus-5-5",
+    ] {
+        assert!(log.contains(&format!("[{module}] {expected}\n")), "missing {expected}");
+    }
+}
+
+#[tokio::test]
 async fn claude_bridge_auth_stderr_is_observed_before_a_running_query_exits() {
     let (dir, config, _) = setup().await;
     let home = dir.path().join("stderr-home");
@@ -535,7 +601,8 @@ async fn claude_bridge_auth_stderr_is_observed_before_a_running_query_exits() {
         r#"{"claudeAiOauth":{"accessToken":"fixture"}}"#,
     )
     .unwrap();
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
     *bridge.accounts.lock().unwrap() = Ok(Some(
         account_state::AccountManager::new(home, vec!["live-stderr".into()]).unwrap(),
     ));
@@ -577,6 +644,11 @@ async fn claude_bridge_auth_stderr_is_observed_before_a_running_query_exits() {
         observed.is_ok(),
         "auth failure must be visible while the child is still running"
     );
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert!(log.contains(&format!(
+        "[{}] provider: abort detected, marked sharedSession needsRebuild + forceRotate\n",
+        bridge.logs.as_ref().unwrap().module_id
+    )));
 }
 
 #[tokio::test]
@@ -747,7 +819,9 @@ async fn claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_r
         read.description.clone(),
         read.parameters.clone(),
     )]);
-    let stream_fn = config.stream_simple.as_ref().unwrap();
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
+    let stream_fn = |model, context, options| bridge.stream(model, context, options);
     let stream = stream_fn(model(&config), context.clone(), Some(options(&dir))).unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), stream.result())
         .await
@@ -793,6 +867,12 @@ async fn claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_r
         panic!("text");
     };
     assert!(text.text.contains("fixture from Pi read"));
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    assert!(log.contains(&format!(
+        "[{module}] provider: tool results, 1 results, 1 waiting handlers, ctx.msgs=3\n"
+    )));
+    assert!(log.contains(&format!("[{module}] mcp handler: read [tool-read] → waiting\n")));
 }
 
 #[tokio::test]

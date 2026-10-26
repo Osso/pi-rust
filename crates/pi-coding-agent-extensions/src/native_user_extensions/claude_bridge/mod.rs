@@ -8,6 +8,7 @@ pub mod config;
 pub mod convert;
 mod lifecycle;
 mod logging;
+mod logging_stream;
 pub mod models;
 mod native_prefix;
 mod ownership;

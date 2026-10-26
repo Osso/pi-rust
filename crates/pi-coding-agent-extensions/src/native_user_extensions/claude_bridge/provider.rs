@@ -186,6 +186,11 @@ impl BridgeProvider {
             .filter_map(|(id, q)| (q.stale && q.session == session_key).then_some(*id))
             .collect::<Vec<_>>();
         let rewritten = !stale_ids.is_empty();
+        if rewritten {
+            self.logs.as_ref().map_err(|e| e.clone())?.debug(
+                "provider: history rewritten under a parked query — discarded it, rebuilding from current history",
+            )?;
+        }
         for id in stale_ids {
             if let Some(query) = state.queries.remove(&id) {
                 query.stop.abort(Some(
@@ -225,6 +230,10 @@ impl BridgeProvider {
                     .advance_cursor(&session_key, context.messages.len());
             }
             drop(state);
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug("provider: orphaned tool result after abort, emitting end_turn")?;
             let output = pi_ai::types::AssistantMessage::empty(
                 &model.api,
                 &model.provider,
@@ -238,8 +247,30 @@ impl BridgeProvider {
             sender.end(None);
             return Ok(stream);
         }
+        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "provider: fresh query setup, isReentrant={}, activeContexts={}",
+            active_query,
+            state.queries.len()
+        ))?;
         let quota_retry = state.quota_retry.remove(&session_key);
+        if !rewritten && !quota_retry {
+            self.logs.as_ref().map_err(|e| e.clone())?.diag_empty_prompt(
+                &context,
+                active_query,
+                state.queries.len(),
+                self.sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref()
+                    .map_err(|e| e.clone())?
+                    .debug_shared_session(&session_key),
+            )?;
+        }
         if (rewritten || quota_retry) && !matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {
+            self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+                "provider: continuing the turn after a rewritten history, {} msgs rebuilt",
+                context.messages.len()
+            ))?;
             context.messages.push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
                 role: pi_ai::types::UserRole::Tag,content: pi_ai::types::UserContent::Text("[Your context was compacted. What precedes this is a summary plus the most recent messages, ending with the tool result you were waiting for. Continue the task from there.]".into()),input_source: None,provider_native: None,timestamp: super::account_state::now_seconds()? * 1000.0,
             }));
@@ -522,6 +553,14 @@ impl BridgeProvider {
         if launch.claude_dir.is_none() {
             launch.claude_dir = Some(store.claude_dir.clone());
         }
+        self.logs.as_ref().map_err(|e| e.clone())?.debug_fresh_query(
+            &launch,
+            context,
+            self.captures
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .debug_context_file_count(context.system_prompt.as_ref())?,
+        )?;
         Ok(launch)
     }
 
@@ -770,15 +809,6 @@ impl QueryActor {
         options: &SimpleStreamOptions,
     ) -> Result<(), CallbackError> {
         validate_tools(&self.tools)?;
-        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
-        logs.debug(format!(
-            "provider: fresh query model={} msgs={} tools={} resume={} effort={}",
-            launch.model,
-            context.messages.len(),
-            self.tools.len(),
-            launch.resume.as_deref().unwrap_or("none"),
-            launch.effort.as_deref().unwrap_or("default")
-        ))?;
         if launch.provider.get("shapeTrace").and_then(JsValue::as_bool) == Some(true) {
             self.shape = Some(super::shape_trace::ShapeTrace::new(
                 super::logging::agent_dir()?.join("claude-bridge-shapes.jsonl"),
@@ -788,6 +818,10 @@ impl QueryActor {
         }
         let signal = options.stream.request.signal.clone().unwrap_or_default();
         if signal.aborted() {
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate")?;
             self.mark_aborted();
             return Ok(());
         }
@@ -801,6 +835,10 @@ impl QueryActor {
         };
         match outcome {
             None => {
+                self.logs
+                    .as_ref()
+                    .map_err(|e| e.clone())?
+                    .debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate")?;
                 self.mark_aborted();
                 let released = self
                     .release_pending_calls(&"Operation aborted".into(), &mut process)
@@ -875,6 +913,19 @@ impl QueryActor {
 
     fn settle_account_frame(&mut self, frame: &mut JsValue, launch: &LaunchOptions) -> Result<(), CallbackError> {
         if string(frame, "type") == "rate_limit_event" {
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug(pi_js_compat::js_format!(
+                    "consumeQuery: rate_limit_event {}",
+                    frame
+                        .get("rate_limit_info")
+                        .map_or_else(
+                            || JsString::from("undefined"),
+                            |value| JsString::from(js_json::stringify_lossless(value))
+                        )
+                        .slice(0, 300)
+                ))?;
             if let Some(info) = frame.get("rate_limit_info")
                 && let Some(message) = self.warnings.observe(info)
             {
@@ -906,6 +957,16 @@ impl QueryActor {
                 fields.insert("is_error".into(), JsValue::Bool(true));
                 fields.insert("result".into(), JsValue::String(labeled));
             }
+        }
+        if let Some(error) = super::stream::result_error(frame) {
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug(pi_js_compat::js_format!(
+                    "consumeQuery: error result, subtype={}, error={}",
+                    string(frame, "subtype"),
+                    error
+                ))?;
         }
         let Some(name) = launch.account_profile.as_deref() else {
             return Ok(());
@@ -1007,7 +1068,15 @@ impl QueryActor {
                 &self.decoder.message_id,
             )?;
         }
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .before_frame(frame, &self.decoder)?;
         let events = self.decoder.decode(frame)?;
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .after_frame(frame, &self.decoder)?;
         for event in events {
             if !self.decoder.parked
                 && matches!(
@@ -1084,6 +1153,12 @@ impl QueryActor {
     }
 
     async fn accept_results(&mut self, context: &Context, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
+        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "provider: tool results, {} results, {} waiting handlers, ctx.msgs={}",
+            recent_tool_result_ids(context).len(),
+            self.pending_calls.len(),
+            context.messages.len()
+        ))?;
         for message in context
             .messages
             .iter()
@@ -1148,6 +1223,19 @@ impl QueryActor {
                     let id = call_id
                         .to_utf8()
                         .map_err(|_| CallbackError::new("Invalid Claude tool-use id"))?;
+                    self.logs
+                        .as_ref()
+                        .map_err(|e| e.clone())?
+                        .debug(pi_js_compat::js_format!(
+                            "mcp handler: {} [{}] → {}",
+                            name,
+                            call_id,
+                            if self.pending_results.contains_key(&id) {
+                                format!("resolved from queue ({} remaining)", self.pending_results.len() - 1)
+                            } else {
+                                "waiting".into()
+                            }
+                        ))?;
                     self.pending_calls.insert(id, frame.clone());
                     self.flush_results(process).await?;
                 } else {
