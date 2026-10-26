@@ -256,7 +256,7 @@ async fn run_summary(
         launch.append = None;
         launch.isolated = true;
         launch.effort = None;
-        launch.has_tools = false;
+        launch.mcp_manifest = None;
         if let Some(name) = &launch.account_profile
             && !attempted.insert(name.clone())
         {

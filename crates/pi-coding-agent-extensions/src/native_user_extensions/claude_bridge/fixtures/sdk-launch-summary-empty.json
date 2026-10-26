@@ -1,0 +1,33 @@
+{
+  "argv": [
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "stream-json",
+    "--max-turns",
+    "1",
+    "--model",
+    "claude-opus-5-5[1m]",
+    "--tools",
+    "",
+    "--setting-sources=",
+    "--strict-mcp-config",
+    "--no-session-persistence",
+    "--settings",
+    "{\"autoMemoryEnabled\":false}"
+  ],
+  "env": {},
+  "cwd": "<cwd>",
+  "initialize": {
+    "request_id": "<request-id>",
+    "type": "control_request",
+    "request": {
+      "subtype": "initialize",
+      "systemPrompt": [
+        ""
+      ],
+      "skills": []
+    }
+  }
+}

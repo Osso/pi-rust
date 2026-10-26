@@ -16,6 +16,8 @@ mod process;
 pub mod prompt_capture;
 mod provider;
 mod rate_limit;
+#[cfg(test)]
+mod sdk_launch_tests;
 mod session_records;
 mod session_verify;
 mod sessions;

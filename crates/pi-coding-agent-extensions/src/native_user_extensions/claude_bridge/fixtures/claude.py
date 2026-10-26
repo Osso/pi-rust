@@ -46,20 +46,29 @@ def answer(text, message_id):
 
 
 args = sys.argv[1:]
+if os.path.exists(".fixture-record-launch"):
+    init = read()
+    with open(".fixture-launch.json", "w", encoding="utf-8") as record:
+        json.dump({"argv": args, "env": dict(os.environ), "cwd": os.getcwd(), "initialize": init}, record)
+    send({"type": "control_response", "response": {"subtype": "success", "request_id": init["request_id"], "response": {}}})
+    user = read()
+    answer("launch recorded", "launch-msg")
+    sys.exit(0)
 if args[:1] == ["-p"]:
     assert args == ["-p", "Reply: ok", "--model", "haiku", "--max-turns", "1", "--tools", "", "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config"], args
     root = os.environ["CLAUDE_CONFIG_DIR"]
     with open(os.path.join(root, ".credentials.json"), "w", encoding="utf-8") as saved:
         json.dump({"claudeAiOauth": {"accessToken": "refreshed-for-usage", "expiresAt": 8640000000000}}, saved)
     sys.exit(1)  # Inference fails after persisting a successfully renewed grant.
-if "--debug" in args:
+if "--debug-file" in args:
+    assert "--debug" not in args, args
     print("fixture debug line", file=sys.stderr, flush=True)
     with open(args[args.index("--debug-file") + 1], "w", encoding="utf-8") as debug:
         debug.write("fixture CLI debug log\n")
 assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"], args
 assert os.environ.get("ENABLE_CLAUDEAI_MCP_SERVERS") == "0"
 assert os.environ.get("DISABLE_AUTO_COMPACT") == "1"
-assert os.environ.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
+assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in os.environ
 with open(".fixture-pid", "w", encoding="ascii") as pid_file:
     pid_file.write(str(os.getpid()))
 if os.path.exists(".fixture-stall-initialize"):
@@ -77,7 +86,7 @@ text = content if isinstance(content, str) else "".join(item.get("text", "") for
 if "--max-turns" in args:
     assert "--resume" not in args and not any(arg.startswith("--resume=") for arg in args), args
     assert args[args.index("--tools") + 1] == "", args
-    assert args[args.index("--setting-sources") + 1] == "", args
+    assert "--setting-sources=" in args, args
     assert "--no-session-persistence" in args and "--strict-mcp-config" in args
     assert "--permission-mode" not in args
     assert json.loads(args[args.index("--settings") + 1]) == {"autoMemoryEnabled": False}

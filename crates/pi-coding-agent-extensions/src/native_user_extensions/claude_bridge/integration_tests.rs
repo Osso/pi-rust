@@ -58,8 +58,13 @@ fn context(prompt: &str) -> Context {
 fn options(dir: &tempfile::TempDir) -> SimpleStreamOptions {
     let mut options = SimpleStreamOptions::default();
     options.stream.cwd = Some(dir.path().to_str().unwrap().into());
-    options.stream.session_id =
-        Some(format!("pi-fixture-{}", dir.path().file_name().unwrap().to_str().unwrap()).into());
+    options.stream.session_id = Some(
+        format!(
+            "pi-fixture-session-{}",
+            dir.path().file_name().unwrap().to_str().unwrap()
+        )
+        .into(),
+    );
     options
 }
 
