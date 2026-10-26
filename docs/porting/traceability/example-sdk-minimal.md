@@ -1,7 +1,7 @@
 # SDK minimal example
 
 Source: pinned `packages/coding-agent/examples/sdk/01-minimal.ts` at
-`532f7d12cd19235081bd4d6e425bde185652d86f`.
+`4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d` ([source lock](../source-lock.json)).
 [Contract](../../specs/example-sdk-minimal.md).
 
 | Source statement / branch | Rust composition | Proof |
@@ -57,6 +57,6 @@ already exposes creation errors as strings and prompt errors with a message;
 this example does not change core error types or claim arbitrary structured
 provider-error preservation beyond that existing boundary.
 
-Coverage remains **partial** pending parent independent final verification.
+Coverage is **done** (coverage.md). Verified 2026-10-26 at `11aa7a810`: `cargo test -p pi-coding-agent --test example_sdk_minimal` passes 4/4 against the pinned-source oracle.
 No source bugs identified; no new dependencies or invalid-input exclusions.
 Other twelve SDK example modules remain untouched.

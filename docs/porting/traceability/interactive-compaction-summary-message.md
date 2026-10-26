@@ -29,4 +29,4 @@ None found.
 
 ## Q18 native UTF-16
 
-Native render/style callbacks and summary composition; `raw_error_consumer_components::compaction_expanded_summary_keeps_raw_units` written **unexecuted** pending library compilation. Requires shared core message summary to be native (main owns change). No internal encoding.
+Native render/style callbacks and summary composition; `raw_error_consumer_components::compaction_expanded_summary_keeps_raw_units` passes (verified 2026-10-26 at `11aa7a810`, `suite_core_4`, 19/19 in that module); the shared core message summary is native. No internal encoding.
