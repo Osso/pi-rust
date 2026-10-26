@@ -400,6 +400,11 @@ impl BridgeProvider {
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let store = sessions.as_mut().map_err(|e| e.clone())?;
         let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        store.verification_ui = self
+            .ui
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone();
         launch.preserve_shared_session = store.preserve_unowned(&key, context);
         launch.resume = store.sync(&key, context, &cwd, &launch.model, true)?;
         if launch.claude_dir.is_none() {

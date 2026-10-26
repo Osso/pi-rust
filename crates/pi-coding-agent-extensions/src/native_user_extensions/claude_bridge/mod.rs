@@ -14,6 +14,7 @@ pub mod prompt_capture;
 mod provider;
 mod rate_limit;
 mod session_records;
+mod session_verify;
 mod sessions;
 mod startup_notice;
 pub mod stream;

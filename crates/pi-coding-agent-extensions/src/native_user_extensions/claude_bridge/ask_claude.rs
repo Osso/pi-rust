@@ -355,6 +355,12 @@ impl AskRun<'_> {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let store = sessions.as_mut().map_err(|e| e.clone())?;
+            store.verification_ui = self
+                .bridge
+                .ui
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone();
             launch.resume = store.sync_ask(&self.session_id, &context, &launch.cwd, &launch.model)?;
             if launch.claude_dir.is_none() {
                 launch.claude_dir = Some(store.claude_dir.clone());

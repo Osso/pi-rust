@@ -8,6 +8,7 @@ use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 struct Mirror {
     id: String,
@@ -20,6 +21,7 @@ pub struct SessionStore {
     pub claude_dir: PathBuf,
     agent_dir: PathBuf,
     mirrors: HashMap<JsString, Mirror>,
+    pub verification_ui: Option<Arc<dyn crate::core::extensions::types::ExtensionUiContext>>,
 }
 
 impl SessionStore {
@@ -47,6 +49,7 @@ impl SessionStore {
             claude_dir,
             agent_dir,
             mirrors: HashMap::new(),
+            verification_ui: None,
         }
     }
 
@@ -267,6 +270,18 @@ impl SessionStore {
             }
         }
         session_records::write_records(&path, &writer.records)?;
+        for warning in super::session_verify::verify_written_session(&path, &id, writer.records.len())? {
+            if let Some(ui) = &self.verification_ui {
+                let cwd: JsString = cwd
+                    .to_str()
+                    .ok_or_else(|| CallbackError::new("Invalid Claude working directory"))?
+                    .into();
+                ui.notify(
+                    &super::session_verify::warning_message(&warning, &cwd)?,
+                    Some(crate::core::extensions::types::NotifyType::Warning),
+                )?;
+            }
+        }
         self.record(key, id.clone(), prior.len(), cwd)?;
         Ok(Some(id))
     }
