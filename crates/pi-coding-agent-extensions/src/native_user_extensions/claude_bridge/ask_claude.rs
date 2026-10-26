@@ -8,7 +8,7 @@ use pi_agent_core::{AgentToolResult, agent::types::AgentToolUpdateCallback};
 use pi_ai::types::{TextContent, TextOrImageContent};
 use pi_js_compat::abort::AbortSignal;
 use pi_js_compat::callback_error::CallbackError;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::json;
 
 use super::process::{ClaudeProcess, user_message};
@@ -379,18 +379,42 @@ impl AskRun<'_> {
             "xhigh" => Some("max".into()),
             _ => None,
         };
+        self.bridge
+            .logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug(pi_js_compat::js_format!(
+                "askClaude: mode={} model={} cliModel={} effort={} isolated={} resume={} skills={} promptLen={}",
+                self.mode,
+                self.args
+                    .get("model")
+                    .and_then(JsValue::as_string)
+                    .cloned()
+                    .unwrap_or_else(|| "opus".into()),
+                launch.model,
+                launch.effort.as_deref().unwrap_or("default"),
+                if launch.isolated { "true" } else { "false" },
+                launch.resume.as_deref().map(|s| &s[..s.len().min(8)]).unwrap_or("none"),
+                if launch.append.as_ref().is_some_and(|s| !s.is_empty()) {
+                    "true"
+                } else {
+                    "false"
+                },
+                string(self.args, "prompt").len()
+            ))?;
         let signal = self.signal.clone().unwrap_or_default();
         if signal.aborted() {
             return Err(CallbackError::new("Aborted"));
         }
         let mut process = ClaudeProcess::spawn_child(&launch)?;
         let mut text = JsString::default();
+        let mut query_log = (0usize, 0usize, JsString::from("none"));
         let result = tokio::select! {
             biased;
             _ = signal.wait() => None,
-            result = self.consume_query(&mut process, &launch, &mut text) => Some(result),
+            result = self.consume_query(&mut process, &launch, &mut text, &mut query_log) => Some(result),
         };
-        match result {
+        let result = match result {
             Some(Ok(())) => Ok(text),
             Some(Err(error)) => {
                 process.terminate().await?;
@@ -400,7 +424,11 @@ impl AskRun<'_> {
                 process.cancel().await?;
                 Ok(text)
             }
+        };
+        if let Ok(text) = &result {
+            self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: done stopReason={} resultSubtype={} sdkMessages={} textDeltas={} responseLen={} toolCalls={}", if signal.aborted() { "cancelled" } else { "stop" }, query_log.2, query_log.0, query_log.1, text.len(), self.calls.len()))?;
         }
+        result
     }
 
     async fn consume_query(
@@ -408,11 +436,13 @@ impl AskRun<'_> {
         process: &mut ClaudeProcess,
         launch: &super::process::LaunchOptions,
         text: &mut JsString,
+        query_log: &mut (usize, usize, JsString),
     ) -> Result<(), CallbackError> {
         process.initialize(launch).await?;
         process
             .write(&user_message(JsValue::String(string(self.args, "prompt")), false))
             .await?;
+
         let mut interval = tokio::time::interval_at(
             tokio::time::Instant::now() + std::time::Duration::from_secs(1),
             std::time::Duration::from_secs(1),
@@ -423,7 +453,13 @@ impl AskRun<'_> {
                 frame = process.read() => match frame? {
                     None => break,
                     Some(frame) => {
+                        query_log.0 += 1;
+                        let event = frame.get("event").unwrap_or(&JsValue::Null);
+                        if string(event, "type") == "content_block_delta" && event.get("delta").is_some_and(|d| string(d, "type") == "text_delta") { query_log.1 += 1; }
+                        if string(event, "type") == "content_block_start" && let Some(block) = event.get("content_block").filter(|b| string(b, "type") == "tool_use") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: tool_use start: {}", string(block, "name")))?; }
                         if string(&frame,"type") == "result" {
+                            query_log.2 = string(&frame, "subtype");
+                            if let Some(usage) = frame.get("usage") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: result usage: in={} out={} cacheRead={} cacheWrite={} turns={}", usage.get("input_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("output_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("cache_read_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), usage.get("cache_creation_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), frame.get("num_turns").map_or_else(|| "?".into(), js_json::stringify_lossless)))?; }
                             if let Some(error) = result_error(&frame) { return Err(CallbackError::new(error)); }
                             if text.is_empty() { *text = string(&frame,"result"); }
                             break;

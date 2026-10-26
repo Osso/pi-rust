@@ -16,7 +16,8 @@ async fn claude_bridge_askclaude_shared_history_imports_once_and_resumes_native_
         let executable = dir.path().join("claude");
         std::fs::write(&executable, include_str!("fixtures/claude.py")).unwrap();
         std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
-        let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(executable), "AskClaude".into());
+        let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(executable), "AskClaude".into());
+        bridge.logs.as_mut().unwrap().enabled = true;
         *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
             dir.path().join("cc"),
             dir.path().join("agent"),
@@ -95,5 +96,19 @@ async fn claude_bridge_askclaude_shared_history_imports_once_and_resumes_native_
             panic!("answer");
         };
         assert_eq!(text.text, "shared history restored");
+        let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+        let module = &bridge.logs.as_ref().unwrap().module_id;
+        let messages = log
+            .lines()
+            .filter_map(|line| line.split_once(&format!("[{module}] ")).map(|(_, message)| message))
+            .collect::<Vec<_>>();
+        assert!(messages.iter().any(
+            |message| message.starts_with("askClaude: mode=none model=opus cliModel=")
+                && message.ends_with(&format!(" skills=false promptLen={}", prompt.len()))
+        ));
+        assert!(messages.iter().any(|message| {
+            message.starts_with("askClaude: done stopReason=stop resultSubtype=success sdkMessages=")
+                && message.ends_with(" responseLen=23 toolCalls=0")
+        }));
     }
 }

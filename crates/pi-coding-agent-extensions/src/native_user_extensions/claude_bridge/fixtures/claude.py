@@ -235,6 +235,12 @@ elif text in ["tool-round-trip", "steer-round-trip"]:
     with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
         json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
+elif text == "logging-events":
+    send({"type": "fixture_notice"})
+    event({"type": "content_block_start", "index": 0, "content_block": {"type": "redacted_thinking"}})
+    event({"type": "content_block_start", "index": 1, "content_block": {"type": "tool_use", "id": "native-search", "name": "WebSearch", "input": {}}})
+    event({"type": "ping"})
+    answer("logging complete", "logging-msg")
 elif text == "restream":
     event({"type": "message_start", "message": {"id": "msg_old"}})
     event({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})

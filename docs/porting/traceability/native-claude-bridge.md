@@ -61,6 +61,30 @@ Additional implementation/proof issues found during the same audit:
 - **Provider metadata/SDK launch (resolved slice).** Native `models::effort` honors source `index.ts:2434–2446` thinkingLevelMap precedence, undefined fallback and null/invalid suppression. Provider hooks initialize even with no MCP tools. Nine installed-SDK captures prove exact argv order and initialize fields for provider/MCP, all Ask modes, summaries including an absent prompt, debug-file precedence and config overrides. Full inherited environment/cwd and Node-script launch are subprocess-tested. Registered AskClaude tests cover all thinking parameters. See [SDK launch proof](../bridge-sdk-proof.md); broader MCP control-frame and transcript proof remains open.
 - **Lighter-proof limits.** Native partial tool JSON uses the shared incremental parser while source keeps the previous arguments until `JSON.parse` succeeds. Source tool-result extraction normalizes empty/unsupported blocks to a blank text block, while native sends typed content directly. Wrong-type/pathological JSON remains outside the standing parity bar, but ordinary incomplete JSON and empty tool output are realistic and still require regression tests.
 
+## Imported tool-pair repair
+
+Audit found that native imports bypassed source `index.ts:610` / cc-session-io `repairToolPairing`. The authorized fix adds `repair.rs` and calls it before prefix selection and RecordWriter imports. It preserves original non-tool fields and UTF-16 IDs, inserts missing results in Set order, removes orphan results and emits the source first-message placeholder when needed. The public conversion wrapper remains unchanged.
+
+`fixtures/repair-oracle.mjs` ran with installed `tsx` and `cc-session-io@0.4.0` under `/home/osso/Repos/pi-claude-bridge/node_modules`. Byte-identical snapshot `convert.ts` and `skills.ts` copies used `/tmp/bridge-diag-convert-oracle` only to resolve those dependencies; the snapshot stayed read-only. Frozen cases cover orphan uses, orphan results, interleaved pairs, mixed matched/orphan results, duplicate IDs and unpaired UTF-16 IDs. A SessionStore import test first failed on the missing synthetic result and now matches source-written message records; a pure repair test compares exact repaired values. 83 bridge tests passed (`/tmp/bridge-repair-{red,green}.log`).
+
+## Logging call sites
+
+Audit in progress against extension snapshot `38d84cb549cce66dd76d45a5020d132f74780393`. Paths below are relative to `claude_bridge/`. Debug calls use the existing `Logs::debug` gate (`CLAUDE_BRIDGE_DEBUG=1`) and `CLAUDE_BRIDGE_DEBUG_PATH` or the agent directory's `claude-bridge.log`. Diagnostics remain unconditional at `claude-bridge-diag.log`; auth and shape keep their existing private JSONL sinks. This checkpoint is not exhaustive logging parity.
+
+| TS call site (`src/index.ts`) | Native call site | Fields / condition | Proof |
+| --- | --- | --- | --- |
+| 2195 provider entry | `provider.rs::BridgeProvider::stream` | activeQuery, lastMsgRole, isReentrant | fake normal query exact line |
+| 1971 consume loop exit | `provider.rs::QueryActor::run` | wasAborted, capturedSessionId (8 chars) | fake normal query exact line |
+| 2602 final stream completion | `provider.rs::BridgeProvider::stream` completion task | successful run, before finish | fake normal query exact line |
+| 2744 AskClaude launch | `ask_claude.rs::AskRun::run` | mode, model, cliModel, effort, isolated, resume, skills, promptLen | fake shared-history query, imported and existing-native |
+| 2807 AskClaude native tool | `ask_claude.rs::AskRun::run` | tool_use content_block_start name | insertion; tool-flow proof pending |
+| 2832 AskClaude result usage | `ask_claude.rs::AskRun::run` | in, out, cacheRead, cacheWrite, turns; only with usage | insertion; usage-flow proof pending |
+| 2849 AskClaude completion | `ask_claude.rs::AskRun::run` | stopReason, resultSubtype, sdkMessages, textDeltas, responseLen, toolCalls | fake shared-history query exact field order |
+
+Second logging group adds `logging_stream.rs` observers for stream/assistant fallback, skipped native tools, unknown SDK/event/block types, discarded blocks and usage. `sessions.rs` logs clean/reuse/rebuild decisions and post-write paths. Provider hooks cover rewrite/orphan/setup, rate-limit/error results, MCP wait/queue, result delivery and cancellation. The source `empty_prompt` diagnostic is unconditional and has an exact ordered JSON assertion. Fake normal, Pi-read round trip, UTF-16 error, cancellation and AskClaude flows now assert log output. Integration fixtures use distinct per-directory Pi session keys: their previous shared key raced on the PID-scoped association temp filename. This is test isolation, not a runtime persistence change. Second-group proof: 72 bridge tests passed; workspace check, strict extensions clippy and fmt check passed (`/tmp/bridge-diag-{group4-tests,check-2,clippy-2}.log`). Full per-site table remains in progress. The next group adds query settlement/error/finalize logging, exact fresh-query fields, all three session rebuild-case lines, carried-attachment diagnostics, session completion and provider registration decisions. The normal-query test first failed on the missing settlement line and now passes. Workspace check, strict extensions clippy and fmt passed (`/tmp/bridge-diag-{check-3,clippy-3}.log`). Audit found that the native importer lacks source `repairToolPairing`; main authorized a separate behavior-fix commit with TS-derived fixtures before adding conversion-report logging.
+
+Checkpoint proof: both focused subprocess tests passed after observed assertion failures; workspace all-target check (`-j3`), strict extensions all-target/all-feature clippy and fmt check passed. Logs: `/tmp/bridge-diag-check-1.log`, `/tmp/bridge-diag-clippy-1.log`. Inventory: 686 rows / 186679 lines, unchanged. These checks cover only this checkpoint; later logging insertions invalidate the affected scope.
+
 ## Proof ledger
 
 - `7c4960437`: real-binary package discovery/startup and offline Opus/Haiku listing; workspace all-target check, fmt and strict changed-crate clippy passed.

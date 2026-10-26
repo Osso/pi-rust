@@ -73,6 +73,11 @@ fn snapshot(node: &CaptureRef) -> Capture {
 }
 
 impl PromptCaptures {
+    pub(super) fn debug_context_file_count(&mut self, prompt: Option<&JsString>) -> Result<usize, CallbackError> {
+        Ok(self
+            .resolve(prompt)?
+            .map_or(0, |node| snapshot(&node).input.context_files.len()))
+    }
     pub fn known_count(&self) -> usize {
         self.captures.len()
     }

@@ -120,6 +120,13 @@ impl SessionStore {
     pub fn complete(&mut self, key: &JsString, id: String, cursor: usize, cwd: &Path) -> Result<(), CallbackError> {
         let old = self.mirrors.get(key);
         let cursor = old.map_or(cursor, |m| m.cursor.max(cursor));
+        if let Some(logs) = &self.verification_logs {
+            logs.debug(format!(
+                "provider: query done, session={}, cursor={}",
+                &id[..id.len().min(8)],
+                cursor
+            ))?;
+        }
         let rebuild = old.is_some_and(|m| m.rebuild);
         let rotate = old.is_some_and(|m| m.rotate);
         self.record(key, id, cursor, cwd)?;
@@ -157,6 +164,12 @@ impl SessionStore {
 
     pub fn delete_ephemeral(&self, key: &JsString, id: &str, cwd: &Path) -> Result<(), CallbackError> {
         if self.mirrors.get(key).is_some_and(|mirror| mirror.id == id) {
+            if let Some(logs) = &self.verification_logs {
+                logs.debug(format!(
+                    "provider: query done, ignoring captured session {} to preserve shared session",
+                    &id[..id.len().min(8)]
+                ))?;
+            }
             return Ok(());
         }
         let path = session_records::session_path(&self.claude_dir, cwd, id)?;
@@ -164,6 +177,16 @@ impl SessionStore {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(CallbackError::new(e.to_string())),
+        }
+        if let Some(logs) = &self.verification_logs {
+            logs.debug(format!(
+                "provider: query done, deleted ephemeral session {} to preserve shared session",
+                &id[..id.len().min(8)]
+            ))?;
+            logs.debug(format!(
+                "provider: query done, ignoring captured session {} to preserve shared session",
+                &id[..id.len().min(8)]
+            ))?;
         }
         let companion = path.with_extension("");
         match std::fs::remove_dir_all(companion) {
@@ -190,6 +213,17 @@ impl SessionStore {
         self.mirrors.clear();
     }
 
+    pub(super) fn debug_shared_session(&self, key: &JsString) -> JsValue {
+        self.mirrors
+            .get(key)
+            .or_else(|| self.mirrors.get(&JsString::from("(none)")))
+            .map_or(JsValue::Null, |m| {
+                JsValue::object([
+                    ("sessionId", JsValue::String(m.id[..m.id.len().min(8)].into())),
+                    ("cursor", JsValue::Number(m.cursor as f64)),
+                ])
+            })
+    }
     pub fn mark_rebuild(&mut self, key: &JsString, rotate: bool) {
         if let Some(mirror) = self.mirrors.get_mut(key) {
             mirror.rebuild = true;
@@ -215,6 +249,28 @@ impl SessionStore {
             let missed = &prior[mirror.cursor..];
             if missed.is_empty() || matches!(missed, [Message::Assistant(_)]) {
                 let id = mirror.id.clone();
+                if let Some(logs) = &self.verification_logs {
+                    logs.debug(if missed.is_empty() {
+                        format!(
+                            "Case 3: resuming session {}, cursor={}",
+                            &id[..id.len().min(8)],
+                            mirror.cursor
+                        )
+                    } else {
+                        format!(
+                            "Case 3: advanced cursor past trailing assistant, resuming session {}, cursor={}",
+                            &id[..id.len().min(8)],
+                            prior.len()
+                        )
+                    })?;
+                }
+                if let Some(logs) = &self.verification_logs {
+                    logs.debug(format!(
+                        "syncResult: path=reuse sessionId={} cursor={}",
+                        id,
+                        prior.len()
+                    ))?;
+                }
                 if !missed.is_empty()
                     && let Some(mirror) = self.mirrors.get_mut(key)
                 {
@@ -224,9 +280,27 @@ impl SessionStore {
             }
         }
         if key == "(none)" && mirror.is_some_and(|m| !m.rebuild && prior.len() < m.cursor) {
+            if let (Some(logs), Some(mirror)) = (&self.verification_logs, mirror) {
+                logs.debug(format!(
+                    "Case 1 synthetic: clean start for shorter context, preserving shared session {}, cursor={}",
+                    &mirror.id[..mirror.id.len().min(8)],
+                    mirror.cursor
+                ))?;
+                logs.debug(format!(
+                    "syncResult: path=clean-start preserve-shared sessionId={} cursor={}",
+                    mirror.id, mirror.cursor
+                ))?;
+            }
             return Ok(None);
         }
         if prior.is_empty() {
+            if let Some(logs) = &self.verification_logs {
+                logs.debug(format!(
+                    "Case 1: clean start, {} total messages",
+                    context.messages.len()
+                ))?;
+                logs.debug("syncResult: path=clean-start")?;
+            }
             return Ok(None);
         }
         let old_id = mirror.map(|m| m.id.clone()).or(self.recorded(key, cwd)?);
@@ -243,13 +317,36 @@ impl SessionStore {
             None => session_records::new_id()?,
         };
         let converted = convert::convert_messages(prior, provider)?;
+        let converted = super::repair::repair_tool_pairing(&converted);
         let (mut prefix, covered) = native_prefix::native_prefix(&native, &converted);
+        if !native.is_empty()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(format!(
+                "convertAndImportMessages: kept {} of {} CC records, covering {}/{} msgs",
+                prefix.len(),
+                native.len(),
+                covered,
+                converted.len()
+            ))?;
+        }
         let (attachments, skipped) = native_prefix::tail_attachments(&native, &prefix, &converted, covered);
-        for warning in skipped {
-            eprintln!(
-                "claude-bridge: {}",
-                warning.to_utf8().map_err(|e| CallbackError::new(e.to_string()))?
-            );
+        if !skipped.is_empty()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(pi_js_compat::js_format!(
+                "convertAndImportMessages: dropped {} carried attachment(s): {}",
+                skipped.len(),
+                JsString::join(skipped, "; ")
+            ))?;
+        }
+        if !attachments.is_empty()
+            && let Some(logs) = &self.verification_logs
+        {
+            logs.debug(format!(
+                "convertAndImportMessages: carrying {} attachment(s) across the rebuild",
+                attachments.values().map(Vec::len).sum::<usize>()
+            ))?;
         }
         for record in &mut prefix {
             if let JsValue::Object(fields) = record {
@@ -286,6 +383,28 @@ impl SessionStore {
                     Some(crate::core::extensions::types::NotifyType::Warning),
                 )?;
             }
+        }
+        if let Some(logs) = &self.verification_logs {
+            match mirror {
+                None => logs.debug(format!("Case 2: first turn with {} prior messages → session {}{}, {} records", prior.len(), &id[..id.len().min(8)], old_id.as_ref().map(|old| format!(" seeded from recorded session {}", &old[..old.len().min(8)])).unwrap_or_default(), writer.records.len()))?,
+                Some(m) if !m.rotate => logs.debug(format!("Case 4: {} missed messages, {} total → rewrote session {} (same id), {} records", prior.len().saturating_sub(m.cursor), prior.len(), &id[..id.len().min(8)], writer.records.len()))?,
+                Some(m) => logs.debug(format!("Case 4 post-abort: {} total → new session {} (was {}, rotated to avoid race with orphan writer), {} records", prior.len(), &id[..id.len().min(8)], &m.id[..m.id.len().min(8)], writer.records.len()))?,
+            }
+            logs.debug_session_paths(&id[..id.len().min(8)], cwd, &path)?;
+        }
+        if let Some(logs) = &self.verification_logs {
+            logs.debug(format!(
+                "syncResult: path=rebuild sessionId={} priors={} {}",
+                id,
+                prior.len(),
+                if mirror.is_none() {
+                    "first"
+                } else if mirror.is_some_and(|m| !m.rotate) {
+                    "preserved"
+                } else {
+                    "rotated-post-abort"
+                }
+            ))?;
         }
         self.record(key, id.clone(), prior.len(), cwd)?;
         Ok(Some(id))

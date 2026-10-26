@@ -50,6 +50,29 @@ impl Logs {
         }
         append_debug(&debug_path()?, &self.module_id, &timestamp()?, &message.into())
     }
+    pub(super) fn debug_error(&self, label: impl Into<JsString>, error: &CallbackError) -> Result<(), CallbackError> {
+        self.debug(pi_js_compat::js_format!(
+            "{} {}: {}",
+            label.into(),
+            error.name,
+            error.message
+        ))
+    }
+    pub(super) fn debug_final_stream(&self, output: &pi_ai::types::AssistantMessage) -> Result<(), CallbackError> {
+        let mut fields = JsObject::new();
+        fields.insert(
+            "stopReason".into(),
+            JsValue::String(stop_reason(output.stop_reason).into()),
+        );
+        if let Some(error) = &output.error_message {
+            fields.insert("error".into(), JsValue::String(error.clone()));
+        }
+        self.debug(format!(
+            "provider: finalizeCurrentStream called, stopReason={}, turnOutput={}",
+            stop_reason(output.stop_reason),
+            js_json::stringify_lossless(&JsValue::Object(fields))
+        ))
+    }
     pub fn diag(&self, label: &str, data: JsObject) -> Result<(), CallbackError> {
         let path = agent_dir()?.join("claude-bridge-diag.log");
         let mut entry = JsObject::new();
@@ -86,6 +109,106 @@ impl Logs {
                 .unwrap_or(JsValue::Null),
         );
         self.diag("session_verify_fail", data)
+    }
+    pub(super) fn diag_empty_prompt(
+        &self,
+        context: &pi_ai::types::Context,
+        reentrant: bool,
+        active: usize,
+        shared: JsValue,
+    ) -> Result<(), CallbackError> {
+        let (prompt, images) = prompt_info(context)?;
+        if !prompt.is_empty() || images {
+            return Ok(());
+        }
+        let messages = context
+            .messages
+            .iter()
+            .map(|m| js_json::to_value(m).map_err(|e| CallbackError::new(e.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut data = JsObject::new();
+        data.insert("contextLength".into(), JsValue::Number(messages.len() as f64));
+        if let Some(last) = messages.last() {
+            data.insert(
+                "lastMsgRole".into(),
+                JsValue::String(super::stream::string(last, "role")),
+            );
+        }
+        data.insert("isReentrant".into(), JsValue::Bool(reentrant));
+        data.insert("activeQueryContexts".into(), JsValue::Number(active as f64));
+        data.insert("activeQueryExists".into(), JsValue::Bool(reentrant));
+        data.insert("sharedSession".into(), shared);
+        data.insert(
+            "messageRoles".into(),
+            JsValue::String(JsString::join(
+                messages
+                    .iter()
+                    .enumerate()
+                    .map(|(i, m)| pi_js_compat::js_format!("[{}]{}", i, super::stream::string(m, "role"))),
+                " ",
+            )),
+        );
+        self.diag("empty_prompt", data)
+    }
+    pub(super) fn debug_fresh_query(
+        &self,
+        launch: &super::process::LaunchOptions,
+        context: &pi_ai::types::Context,
+        context_files: usize,
+    ) -> Result<(), CallbackError> {
+        let (prompt, images) = prompt_info(context)?;
+        let prompt = if prompt.is_empty() && !images {
+            JsString::from("[continue]")
+        } else {
+            prompt
+        };
+        self.debug(pi_js_compat::js_format!(
+            "provider: fresh query model={} msgs={} tools={} resume={} effort={} ctxFiles={} strictMcp={} prompt={}{}",
+            launch.model,
+            context.messages.len(),
+            context.tools.as_ref().map_or(0, Vec::len),
+            launch.resume.as_deref().map(|s| &s[..s.len().min(8)]).unwrap_or("none"),
+            launch.effort.as_deref().unwrap_or("default"),
+            context_files,
+            if launch.provider.get("strictMcpConfig").and_then(JsValue::as_bool) == Some(false) {
+                "false"
+            } else {
+                "true"
+            },
+            prompt.slice(0, 60),
+            if images { " [+images]" } else { "" }
+        ))
+    }
+    pub fn debug_session_paths(&self, label: &str, cwd: &Path, path: &Path) -> Result<(), CallbackError> {
+        let cwd = cwd
+            .to_str()
+            .ok_or_else(|| CallbackError::new("Invalid Claude working directory"))?;
+        let path_text = path
+            .to_str()
+            .ok_or_else(|| CallbackError::new("Invalid Claude session path"))?;
+        let real = pi_js_compat::node_fs::realpath_sync_native(&cwd.into())
+            .map_err(|e| e.message)
+            .unwrap_or_else(|error| pi_js_compat::js_format!("<failed: {}>", error));
+        let stat = std::fs::metadata(path).ok();
+        self.debug(format!("{label}: cwd={cwd}"))?;
+        if real != cwd {
+            self.debug(pi_js_compat::js_format!(
+                "{}: realpath(cwd)={} (DIFFERS — symlink-resolved path is what CC SDK uses)",
+                label,
+                real
+            ))?;
+        }
+        self.debug(format!("{label}: jsonlPath={path_text}"))?;
+        self.debug(format!(
+            "{label}: fileExists={}{}",
+            stat.is_some(),
+            stat.map(|s| format!(" size={}", s.len())).unwrap_or_default()
+        ))?;
+        self.debug(format!(
+            "{label}: env.CLAUDE_CONFIG_DIR={} HOME={}",
+            std::env::var("CLAUDE_CONFIG_DIR").unwrap_or_else(|_| "(unset)".into()),
+            std::env::var("HOME").unwrap_or_else(|_| "(unset)".into())
+        ))
     }
     pub fn cli(&self, tag: &str, profile: Option<super::auth_trace::AuthProfile>) -> Result<CliDebug, CallbackError> {
         let seq = self.next_cli.fetch_add(1, Ordering::Relaxed);
@@ -147,6 +270,53 @@ impl CliDebug {
         }
         Ok(())
     }
+}
+pub(super) fn stop_reason(reason: pi_ai::types::StopReason) -> &'static str {
+    match reason {
+        pi_ai::types::StopReason::Stop => "stop",
+        pi_ai::types::StopReason::Length => "length",
+        pi_ai::types::StopReason::ToolUse => "toolUse",
+        pi_ai::types::StopReason::Error => "error",
+        pi_ai::types::StopReason::Aborted => "aborted",
+    }
+}
+pub(super) fn prompt_info(context: &pi_ai::types::Context) -> Result<(JsString, bool), CallbackError> {
+    let mut turn = context
+        .messages
+        .iter()
+        .rev()
+        .take_while(|m| matches!(m, pi_ai::types::Message::User(_)))
+        .collect::<Vec<_>>();
+    turn.reverse();
+    let values = turn
+        .iter()
+        .map(|m| js_json::to_value(m).map_err(|e| CallbackError::new(e.to_string())))
+        .collect::<Result<Vec<_>, _>>()?;
+    let texts = values
+        .iter()
+        .map(|message| {
+            let content = message.get("content").unwrap_or(&JsValue::Null);
+            if let Some(text) = content.as_string() {
+                return text.clone();
+            }
+            JsString::join(
+                content
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|b| super::stream::string(b, "type") == "text")
+                    .map(|b| super::stream::string(b, "text")),
+                "\n",
+            )
+        })
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>();
+    let images = values.iter().any(|m| {
+        m.get("content")
+            .and_then(JsValue::as_array)
+            .is_some_and(|blocks| blocks.iter().any(|b| super::stream::string(b, "type") == "image"))
+    });
+    Ok((JsString::join(texts, "\n"), images))
 }
 pub(super) fn append_line(path: &Path, value: &JsValue) -> Result<(), CallbackError> {
     append_text(path, &(js_json::stringify_lossless(value) + "\n"))
