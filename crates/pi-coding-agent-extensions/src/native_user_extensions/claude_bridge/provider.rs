@@ -180,6 +180,12 @@ impl BridgeProvider {
         ))?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let session_key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        if !state.queries.is_empty() {
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug_extract_results(&context)?;
+        }
         let stale_ids = state
             .queries
             .iter()
@@ -1220,12 +1226,11 @@ impl QueryActor {
     }
 
     async fn accept_results(&mut self, context: &Context, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
-        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
-            "provider: tool results, {} results, {} waiting handlers, ctx.msgs={}",
-            recent_tool_result_ids(context).len(),
-            self.pending_calls.len(),
-            context.messages.len()
-        ))?;
+        self.logs.as_ref().map_err(|e| e.clone())?.debug_deliver_results(
+            context,
+            &self.pending_calls,
+            &self.pending_results,
+        )?;
         for message in context
             .messages
             .iter()

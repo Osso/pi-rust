@@ -55,6 +55,73 @@ fn claude_bridge_import_repairs_orphan_and_interleaved_tool_pairs_before_writing
 }
 
 #[test]
+fn claude_bridge_conversion_logs_exact_pre_repair_stats_and_repair_length() {
+    let fixture = js_json::parse_lossless(include_str!("fixtures/repair-oracle.json")).unwrap();
+    let mut input = fixture.get("imports").unwrap().as_array().unwrap()[0]
+        .get("input")
+        .unwrap()
+        .clone();
+    let blocks = input.as_array_mut().unwrap()[0]
+        .get_mut("content")
+        .unwrap()
+        .as_array_mut()
+        .unwrap();
+    blocks[0]
+        .as_object_mut()
+        .unwrap()
+        .insert("id".into(), JsValue::String("a|1".into()));
+    blocks.push(JsValue::object([
+        ("type", JsValue::String("thinking".into())),
+        ("thinking", JsValue::String("private reasoning".into())),
+    ]));
+    let mut messages: Vec<pi_ai::types::Message> = js_json::from_value(&input).unwrap();
+    messages.push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
+        role: pi_ai::types::UserRole::Tag,
+        content: pi_ai::types::UserContent::Text("current".into()),
+        input_source: None,
+        provider_native: None,
+        timestamp: 3.0,
+    }));
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = SessionStore::at(dir.path().join("cc"), dir.path().join("agent"));
+    let mut logs = super::logging::Logs::new().unwrap();
+    logs.enabled = true;
+    store.verification_logs = Some(logs.clone());
+    store
+        .sync(
+            &"convert-log-fixture".into(),
+            &pi_ai::types::Context {
+                system_prompt: None,
+                tools: None,
+                messages,
+            },
+            dir.path(),
+            "m",
+            true,
+        )
+        .unwrap();
+    let text = std::fs::read_to_string(super::logging::debug_path().unwrap()).unwrap();
+    let lines = text
+        .lines()
+        .filter_map(|line| {
+            line.split_once(&format!("[{}] ", logs.module_id))
+                .map(|(_, message)| message)
+        })
+        .filter(|line| line.starts_with("convertAndImportMessages:"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec![
+            "convertAndImportMessages: 2 pi msgs → 2 anthropic msgs",
+            "convertAndImportMessages: imported roles: [0]assistant:tool_use [1]assistant:text",
+            "convertAndImportMessages: dropped 1 thinking (other)",
+            "convertAndImportMessages: sanitized 1 tool IDs: a|1→a_1",
+            "convertAndImportMessages: repairToolPairing 2 → 3 msgs",
+        ]
+    );
+}
+
+#[test]
 fn cc_session_records_match_frozen_writer_and_round_trip_through_ts_reader() {
     let fixture = js_json::parse_lossless(include_str!("fixtures/session-oracle.json")).unwrap();
     let messages = fixture.get("provider").unwrap().as_array().unwrap();

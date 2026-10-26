@@ -150,6 +150,73 @@ impl Logs {
         );
         self.diag("empty_prompt", data)
     }
+    pub(super) fn debug_conversion(
+        &self,
+        input_count: usize,
+        report: &super::convert::ConversionReport,
+    ) -> Result<(), CallbackError> {
+        let messages = &report.messages;
+        self.debug(format!(
+            "convertAndImportMessages: {input_count} pi msgs → {} anthropic msgs",
+            messages.len()
+        ))?;
+        let roles = messages.iter().enumerate().map(|(i, message)| {
+            let content = message.get("content").unwrap_or(&JsValue::Null);
+            let types = if content.as_string().is_some() {
+                JsString::from("text")
+            } else if let Some(blocks) = content.as_array() {
+                JsString::join(blocks.iter().map(|b| super::stream::string(b, "type")), "+")
+            } else {
+                JsString::from("?")
+            };
+            pi_js_compat::js_format!("[{}]{}:{}", i, super::stream::string(message, "role"), types)
+        });
+        self.debug(pi_js_compat::js_format!(
+            "convertAndImportMessages: imported roles: {}",
+            JsString::join(roles, " ")
+        ))?;
+        let stats = &report.stats;
+        let mut dropped = Vec::new();
+        if stats.thinking > 0 {
+            let mut providers = stats.providers.iter().cloned().collect::<Vec<_>>();
+            providers.sort();
+            dropped.push(pi_js_compat::js_format!(
+                "{} thinking ({})",
+                stats.thinking,
+                JsString::join(providers, ", ")
+            ));
+        }
+        if stats.aborted_turns > 0 {
+            dropped.push(format!("{} aborted turn(s)", stats.aborted_turns).into());
+        }
+        dropped.extend(
+            stats
+                .other
+                .iter()
+                .map(|(kind, count)| pi_js_compat::js_format!("{} {}", count, kind)),
+        );
+        if !dropped.is_empty() {
+            self.debug(pi_js_compat::js_format!(
+                "convertAndImportMessages: dropped {}",
+                JsString::join(dropped, ", ")
+            ))?;
+        }
+        if !stats.sanitized_ids.is_empty() {
+            let ids = stats.sanitized_ids.iter().map(|(original, clean)| {
+                if original == clean {
+                    original.clone()
+                } else {
+                    pi_js_compat::js_format!("{}→{}", original, clean)
+                }
+            });
+            self.debug(pi_js_compat::js_format!(
+                "convertAndImportMessages: sanitized {} tool IDs: {}",
+                stats.sanitized_ids.len(),
+                JsString::join(ids, ", ")
+            ))?;
+        }
+        Ok(())
+    }
     pub(super) fn debug_fresh_query(
         &self,
         launch: &super::process::LaunchOptions,

@@ -67,6 +67,8 @@ Audit found that native imports bypassed source `index.ts:610` / cc-session-io `
 
 `fixtures/repair-oracle.mjs` ran with installed `tsx` and `cc-session-io@0.4.0` under `/home/osso/Repos/pi-claude-bridge/node_modules`. Byte-identical snapshot `convert.ts` and `skills.ts` copies used `/tmp/bridge-diag-convert-oracle` only to resolve those dependencies; the snapshot stayed read-only. Frozen cases cover orphan uses, orphan results, interleaved pairs, mixed matched/orphan results, duplicate IDs and unpaired UTF-16 IDs. A SessionStore import test first failed on the missing synthetic result and now matches source-written message records; a pure repair test compares exact repaired values. 83 bridge tests passed (`/tmp/bridge-repair-{red,green}.log`).
 
+The approved conversion observer keeps `convert_messages` output unchanged and returns real pre-repair messages plus stats computed at source conversion branches. A RED/GREEN test asserts the five complete ordered debug lines for a dropped thinking block, sanitized ID and inserted synthetic result. `logging_tools.rs` observes extraction and projects source delivery-map transitions without changing actor result processing. 84 bridge tests passed (`/tmp/bridge-conversion-tests.log`).
+
 ## Logging call sites
 
 Audit in progress against extension snapshot `38d84cb549cce66dd76d45a5020d132f74780393`. Paths below are relative to `claude_bridge/`. Debug calls use the existing `Logs::debug` gate (`CLAUDE_BRIDGE_DEBUG=1`) and `CLAUDE_BRIDGE_DEBUG_PATH` or the agent directory's `claude-bridge.log`. Diagnostics remain unconditional at `claude-bridge-diag.log`; auth and shape keep their existing private JSONL sinks. This checkpoint is not exhaustive logging parity.
