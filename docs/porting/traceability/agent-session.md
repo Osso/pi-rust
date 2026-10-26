@@ -88,7 +88,11 @@ Actual first RED `compact-callback-success-red.log` proves the prior TODO droppe
 - Base tools: `createAllToolDefinitions` rebuilt on every `_buildRuntime` from current
   settings (read auto-resize, bash command prefix/shell path/detach registry/background
   jobs); `baseToolsOverride` path appends `end_turn`; active names are deduplicated in
-  insertion order. The old BashSessionEnvironment/provider consumer and its old-only
+  insertion order. `includeAllExtensionTools` (:5535–5538) activates every registered
+  extension tool before SDK custom tools; the native branch had omitted extension tools
+  (found by bridge verifier 378; proof
+  `agent_session_runtime::construction_activates_tools_registered_at_extension_load`).
+  The old BashSessionEnvironment/provider consumer and its old-only
   test were removed mechanically under the [current bash re-pin](bash.md); frozen
   has no session PI_* injection/stripping contract.
 - Events: `_handleAgentEvent`, persistence on `message_end` (a failed `appendMessage`/custom/bash append is an uncaught throw, matching the source's handler with no try/catch; proof `tests/agent_session.rs::persist_failures_are_uncaught_like_the_typescript_event_handler`), queue removal,

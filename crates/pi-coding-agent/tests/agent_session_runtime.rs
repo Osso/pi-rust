@@ -1601,3 +1601,41 @@ use crate::shared_scripted_registry as scripted_registry;
 // Shared support is compiled once per integration target.
 #[path = "support/scripted_registry.rs"]
 pub mod shared_scripted_registry;
+
+/// TS `_buildRuntime({ includeAllExtensionTools: true })` at construction
+/// (agent-session.ts:1028-1031, 5535-5538) activates every tool registered by a
+/// loaded extension alongside the default built-ins.
+#[tokio::test]
+async fn construction_activates_tools_registered_at_extension_load() {
+    use pi_coding_agent::core::sdk::{CreateAgentSessionOptions, create_agent_session};
+    let temp = tempfile::tempdir().expect("temp dir");
+    let cwd = temp.path().display().to_string();
+    let extension_runtime = create_extension_runtime();
+    let extension = load_extension(
+        &extension_runtime,
+        &cwd,
+        &temp.path().join("hello.ts").display().to_string(),
+        |api| hello_example::hello_extension(api).expect("register hello"),
+    )
+    .await;
+    let result = create_agent_session(CreateAgentSessionOptions {
+        no_supervisor: Some(true),
+        cwd: Some(cwd.as_str().into()),
+        agent_dir: Some(cwd.as_str().into()),
+        model_registry: Some(ModelRegistry::in_memory(AuthStorage::in_memory(serde_json::Map::new())).unwrap()),
+        resource_loader: Some(Arc::new(StaticResourceLoader {
+            extensions: Some(LoadExtensionsResult {
+                extensions: vec![extension],
+                errors: Vec::new(),
+                runtime: extension_runtime,
+            }),
+            ..StaticResourceLoader::default()
+        })),
+        ..Default::default()
+    })
+    .await
+    .expect("session");
+    let active = result.session.get_active_tool_names();
+    assert!(active.contains(&"hello".into()), "{active:?}");
+    assert!(active.contains(&"read".into()), "{active:?}");
+}

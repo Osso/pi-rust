@@ -1904,6 +1904,7 @@ impl AgentSession {
                 })
                 .collect::<Vec<_>>()
         };
+        let extension_tool_names = extension_tools.iter().map(|(name, _)| name.clone()).collect::<Vec<_>>();
         for (name, entry) in extension_tools {
             if let Some(existing) = definition_registry.iter_mut().find(|(tool_name, _)| *tool_name == name) {
                 existing.1 = entry;
@@ -2014,6 +2015,7 @@ impl AgentSession {
                 }
             }
         } else if include_all_extension_tools {
+            next_active_tool_names.extend(extension_tool_names);
             for entry in &custom_tools {
                 next_active_tool_names.push(entry.definition.name.clone());
             }
