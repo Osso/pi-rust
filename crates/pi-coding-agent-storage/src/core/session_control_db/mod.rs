@@ -11,6 +11,13 @@ mod health;
 mod incoming;
 mod lifecycle;
 mod mailbox;
+#[cfg(test)]
+mod reminder_fixture_tests;
+#[cfg(test)]
+mod reminder_more_tests;
+#[cfg(test)]
+mod reminder_tests;
+mod reminders;
 mod requests;
 mod retention;
 use pi_js_compat::js_format;
@@ -89,6 +96,11 @@ pub use mailbox::{
     read_runtime_mailbox_message_for_delivery, recover_dead_runtime_mailbox_claims, register_runtime_mailbox_listener,
     release_runtime_mailbox_message_claim, resolve_own_main_runtime_coordination_recipient,
     retire_runtime_mailbox_listener, take_runtime_mailbox_messages_for_delivery,
+};
+pub use reminders::{
+    CreateReminderInput, Reminder, ReminderListStatus, ReminderPatch, ReminderStatus, complete_reminder,
+    create_reminder, delete_reminder, list_reminders, list_undelivered_due_reminders, mark_reminder_delivered,
+    reopen_reminder, update_reminder,
 };
 pub use requests::{
     ArchitectRequest, ArchitectRequestStatus, PostArchitectRequestInput, PostSupervisorRequestInput, SupervisorRequest,
