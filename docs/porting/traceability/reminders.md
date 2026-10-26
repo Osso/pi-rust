@@ -32,7 +32,7 @@ Authorized delta source: `be6413897c72efe708232c1a139ce01815d9cd18`, not the com
 
 To refresh, run `python3 scripts/test-sandbox.py -- node oracle/reminder-time-zones.mjs` and replace the table with its output, then run the focused reminder-time tests with the Cargo sandbox runner. Update the version assertions and this note with the new reference versions. The exhaustive test directly compares every table entry with Node and exercises formatted output through Jiff. It requires the recorded ICU, Node tzdata and system tzdata versions, but not the Node patch version. The generated Node version remains provenance. Mismatched inputs or mappings fail rather than silently accepting stale data.
 
-Approved gap: IDs or aliases introduced after the pinned inputs are not recognized until the table is refreshed. The table pins display names, not timezone transition data; Jiff and Node may have different tzdata releases.
+A copied `/etc/localtime` without `TZ` is matched against zoneinfo using ICU's first-match traversal; native process tests compare Chicago and Paris with Node. Approved gap: IDs or aliases introduced after the pinned inputs are not recognized until the table is refreshed. The table pins display names, not timezone transition data; Jiff and Node may have different tzdata releases.
 
 ## Proof ledger
 

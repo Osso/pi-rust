@@ -13,6 +13,10 @@ fn node_timezone_name(zone: &TimeZone) -> Result<&str, String> {
     let name = zone
         .iana_name()
         .ok_or_else(|| "Reminder timezone has no IANA name.".to_owned())?;
+    node_timezone_name_for_id(name)
+}
+
+fn node_timezone_name_for_id(name: &str) -> Result<&'static str, String> {
     let index = node_time_zones::NODE_TIME_ZONES
         .binary_search_by_key(&name, |(id, _)| *id)
         .map_err(|_| format!("Reminder timezone {name} is absent from the pinned Node timezone table."))?;
@@ -152,14 +156,60 @@ fn read_absolute(input: &str, zone: &TimeZone) -> Result<i64, String> {
     Ok(wall - offset.expect("absolute suffix validated"))
 }
 
+fn find_zone_file(directory: &std::path::Path, localtime: &[u8]) -> Result<Option<std::path::PathBuf>, String> {
+    let entries = std::fs::read_dir(directory).map_err(|e| format!("Cannot read {}: {e}", directory.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Cannot read {}: {e}", directory.display()))?;
+        if matches!(entry.file_name().to_str(), Some("localtime" | "posixrules")) {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            if let Some(found) = find_zone_file(&path, localtime)? {
+                return Ok(Some(found));
+            }
+        } else if std::fs::read(&path).map_err(|e| format!("Cannot read {}: {e}", path.display()))? == localtime {
+            return Ok(Some(path));
+        }
+    }
+    Ok(None)
+}
+
+fn read_copied_system_zone_name() -> Result<&'static str, String> {
+    let root = std::path::Path::new("/usr/share/zoneinfo");
+    let localtime = std::fs::read("/etc/localtime").map_err(|e| format!("Cannot read /etc/localtime: {e}"))?;
+    let path = find_zone_file(root, &localtime)?.ok_or_else(|| "No matching system timezone file.".to_owned())?;
+    let id = path.strip_prefix(root).map_err(|e| e.to_string())?;
+    let id = id
+        .to_str()
+        .ok_or_else(|| "System timezone path is not UTF-8.".to_owned())?;
+    let id = id
+        .strip_prefix("posix/")
+        .or_else(|| id.strip_prefix("right/"))
+        .unwrap_or(id);
+    node_timezone_name_for_id(id)
+}
+
 /// Format an absolute reminder in the current machine timezone.
 pub fn format_reminder_due_at(input: &str) -> Result<String, String> {
-    format_reminder_due_at_in(input, &TimeZone::system())
+    let zone = TimeZone::system();
+    let millis = read_absolute(input, &zone)?;
+    let name = if zone.iana_name().is_none() && std::env::var_os("TZ").is_none() {
+        read_copied_system_zone_name()?
+    } else {
+        node_timezone_name(&zone)?
+    };
+    Ok(format_reminder_due_at_with_name(millis, &zone, name))
 }
 
 /// Format an absolute reminder in the supplied timezone.
 pub fn format_reminder_due_at_in(input: &str, zone: &TimeZone) -> Result<String, String> {
     let millis = read_absolute(input, zone)?;
+    let name = node_timezone_name(zone)?;
+    Ok(format_reminder_due_at_with_name(millis, zone, name))
+}
+
+fn format_reminder_due_at_with_name(millis: i64, zone: &TimeZone, name: &str) -> String {
     let offset = offset_at(millis, zone);
     let fields = utc_date_time(millis + offset);
     let label = if offset == 0 {
@@ -183,12 +233,11 @@ pub fn format_reminder_due_at_in(input: &str, zone: &TimeZone) -> Result<String,
             )
         }
     };
-    let name = node_timezone_name(zone)?;
     let year = if fields.year <= 0 { 1 - fields.year } else { fields.year };
-    Ok(format!(
+    format!(
         "{year:04}-{:02}-{:02} {:02}:{:02}:{:02} {label} [{name}]",
         fields.month, fields.day, fields.hour, fields.minute, fields.second
-    ))
+    )
 }
 
 /// Compare against the end of the current local day; `now` is JS epoch milliseconds.
@@ -276,6 +325,82 @@ mod tests {
             let formatted = format_reminder_due_at_in("2026-07-21T19:30:12Z", &zone).unwrap();
             assert!(formatted.ends_with(&format!("[{expected}]")), "{id}: {formatted}");
         }
+    }
+
+    #[test]
+    fn copied_system_localtime_formats_like_node() {
+        use std::process::Command;
+        const CHILD: &str = "PI_REMINDER_COPIED_LOCALTIME_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let actual = format_reminder_due_at("2026-07-21T19:30:12Z").unwrap();
+            println!("{actual}");
+            return;
+        }
+        let copy = std::env::temp_dir().join(format!("reminder-localtime-{}", std::process::id()));
+        for (zone, local) in [
+            ("America/Chicago", "2026-07-21 14:30:12 GMT-05:00"),
+            ("Europe/Paris", "2026-07-21 21:30:12 GMT+02:00"),
+        ] {
+            std::fs::copy(format!("/usr/share/zoneinfo/{zone}"), &copy).unwrap();
+            let node = Command::new("bwrap")
+                .args([
+                    "--ro-bind",
+                    "/",
+                    "/",
+                    "--ro-bind",
+                    "/usr",
+                    "/usr",
+                    "--tmpfs",
+                    "/etc",
+                    "--ro-bind",
+                ])
+                .arg(&copy)
+                .arg("/etc/localtime")
+                .args([
+                    "--unsetenv",
+                    "TZ",
+                    "--",
+                    "/usr/bin/node",
+                    "-e",
+                    "console.log(new Intl.DateTimeFormat('en-CA').resolvedOptions().timeZone)",
+                ])
+                .output()
+                .unwrap();
+            assert!(node.status.success(), "{}", String::from_utf8_lossy(&node.stderr));
+            let name = String::from_utf8(node.stdout).unwrap();
+            assert!(!name.trim().is_empty());
+            let output = Command::new("bwrap")
+                .args([
+                    "--ro-bind",
+                    "/",
+                    "/",
+                    "--ro-bind",
+                    "/usr",
+                    "/usr",
+                    "--tmpfs",
+                    "/etc",
+                    "--ro-bind",
+                ])
+                .arg(&copy)
+                .arg("/etc/localtime")
+                .args(["--unsetenv", "TZ", "--setenv", CHILD, "1", "--"])
+                .arg(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "reminder_time::tests::copied_system_localtime_formats_like_node",
+                    "--nocapture",
+                ])
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            assert!(String::from_utf8_lossy(&output.stdout).contains(&format!("{local} [{}]", name.trim())));
+        }
+        std::fs::remove_file(copy).unwrap();
     }
 
     #[test]
