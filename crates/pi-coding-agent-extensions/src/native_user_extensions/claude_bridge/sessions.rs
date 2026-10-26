@@ -209,6 +209,9 @@ impl SessionStore {
         self.sync(key, context, cwd, model, false)
     }
 
+    pub(super) fn mirror_count(&self) -> usize {
+        self.mirrors.len()
+    }
     pub fn clear(&mut self) {
         self.mirrors.clear();
     }

@@ -217,6 +217,40 @@ impl Logs {
         }
         Ok(())
     }
+    pub(super) fn debug_prompt_blocks(&self, context: &pi_ai::types::Context) -> Result<(), CallbackError> {
+        let contents = super::prompt::turn_contents(context)?;
+        if contents.is_empty() {
+            return Ok(());
+        }
+        for content in &contents {
+            for block in content
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|b| super::stream::string(b, "type") == "image")
+            {
+                if !super::prompt::valid_image(block) {
+                    self.debug(pi_js_compat::js_format!(
+                        "image block missing data or mimeType, skipping: keys={}",
+                        JsString::join(block.as_object().into_iter().flat_map(|o| o.keys().cloned()), ",")
+                    ))?;
+                } else {
+                    self.debug(pi_js_compat::js_format!(
+                        "image block: mimeType={}, data length={}",
+                        super::stream::string(block, "mimeType"),
+                        super::stream::string(block, "data").len()
+                    ))?;
+                }
+            }
+        }
+        let prompt = super::prompt::extract(context)?;
+        self.debug(pi_js_compat::js_format!(
+            "extractUserPromptBlocks: {} msgs in turn, {} blocks, types={}",
+            contents.len(),
+            prompt.blocks.len(),
+            JsString::join(prompt.blocks.iter().map(|b| super::stream::string(b, "type")), ",")
+        ))
+    }
     pub(super) fn debug_fresh_query(
         &self,
         launch: &super::process::LaunchOptions,

@@ -235,6 +235,10 @@ elif text in ["tool-round-trip", "steer-round-trip"]:
     with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
         json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
+elif text == "shape-fallback":
+    send({"type": "assistant", "message": {"id": "msg_fallback", "model": "claude-opus-5-5", "content": [{"type": "tool_use", "id": "toolu_fallback", "name": "mcp__custom-tools__read", "input": {"path": "fixture.txt"}}], "stop_reason": "tool_use"}})
+    reply = control("fallback-call", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read", "arguments": {}, "_meta": {"claudecode/toolUseId": "toolu_fallback"}}})
+    answer(reply["result"]["content"][0]["text"], "msg_fallback_final")
 elif text == "image-prompt":
     assert content == [{"type": "text", "text": "image-prompt"}, {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "AQ=="}}], content
     answer("image accepted", "image-msg")

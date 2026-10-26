@@ -33,14 +33,13 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
                     .mode
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(mode);
-                if matches!(
-                    event.reason,
-                    SessionStartReason::New | SessionStartReason::Resume | SessionStartReason::Fork
-                ) {
-                    start_bridge.clear_sessions().map_err(HandlerError::from)
-                } else {
-                    Ok(())
+                match event.reason {
+                    SessionStartReason::New => start_bridge.clear_sessions("session_start:new"),
+                    SessionStartReason::Resume => start_bridge.clear_sessions("session_start:resume"),
+                    SessionStartReason::Fork => start_bridge.clear_sessions("session_start:fork"),
+                    _ => Ok(()),
                 }
+                .map_err(HandlerError::from)
             });
             let result = result.and_then(|()| {
                 if start_bridge.settings.get("shapeTrace").and_then(JsValue::as_bool) == Some(true) {
@@ -78,7 +77,7 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
                 bridge
                     .shutdown(&ctx.session_manager()?.get_session_id(), &"pi session shut down".into())
                     .await?;
-                bridge.clear_sessions()?;
+                bridge.clear_sessions("session_shutdown")?;
                 Ok(None)
             })
         },
@@ -118,6 +117,16 @@ async fn take_over_branch_summary(
     if !prep.user_wants_summary || prep.entries_to_summarize.is_empty() {
         return Ok(None);
     }
+    let logs = bridge
+        .logs
+        .as_ref()
+        .map_err(|e| HandlerError::new(e.message.clone()))?
+        .clone();
+    logs.debug(pi_js_compat::js_format!(
+        "session_before_tree: takeover entries={} target={}",
+        prep.entries_to_summarize.len(),
+        prep.target_id.slice(0, 8)
+    ))?;
     let stream = isolated_stream(bridge, ctx.cwd()?);
     let result = generate_branch_summary(
         &prep.entries_to_summarize,
@@ -140,6 +149,10 @@ async fn take_over_branch_summary(
             ..Default::default()
         })),
         Ok(result) if result.error.is_none() => {
+            logs.debug(format!(
+                "session_before_tree: takeover complete summaryLen={}",
+                result.summary.as_ref().map_or(0, JsString::len)
+            ))?;
             let details = JsValue::object([
                 (
                     "readFiles",
@@ -178,6 +191,10 @@ async fn take_over_branch_summary(
                 Ok(result) => result.error.unwrap_or_default(),
                 Err(error) => error.message().clone(),
             };
+            logs.debug_error(
+                "session_before_tree: takeover failed; cancelling navigation",
+                &pi_js_compat::callback_error::CallbackError::new(error.clone()),
+            )?;
             ctx.ui()?.notify(
                 &pi_js_compat::js_format!("Claude bridge branch summary failed ({}); navigation cancelled.", error),
                 Some(NotifyType::Error),

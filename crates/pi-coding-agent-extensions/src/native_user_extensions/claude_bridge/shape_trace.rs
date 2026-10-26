@@ -69,6 +69,21 @@ impl ShapeTrace {
             tools,
         )
     }
+    pub fn record_pi_with_id(
+        &mut self,
+        phase: &str,
+        content: &JsValue,
+        message_id: &JsString,
+    ) -> Result<(), CallbackError> {
+        let (blocks, tools) = project(content.get("content").unwrap_or(content), "toolCall");
+        self.append(
+            "pi",
+            phase,
+            valid_id(Some(&JsValue::String(message_id.clone())), "msg_"),
+            blocks,
+            tools,
+        )
+    }
     pub fn record_pi(&mut self, phase: &str, content: &JsValue) -> Result<(), CallbackError> {
         let (blocks, tools) = project(content.get("content").unwrap_or(content), "toolCall");
         self.append("pi", phase, self.message_id.clone(), blocks, tools)

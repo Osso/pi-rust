@@ -40,10 +40,13 @@ impl Ownership {
         *owner = Arc::downgrade(instance);
         true
     }
-    pub fn release(&self, instance: &Arc<()>) {
+    pub fn release(&self, instance: &Arc<()>) -> bool {
         let mut owner = self.owner.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if owner.upgrade().is_some_and(|owner| Arc::ptr_eq(&owner, instance)) {
             *owner = Weak::new();
+            true
+        } else {
+            false
         }
     }
 }

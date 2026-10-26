@@ -445,6 +445,66 @@ async fn claude_bridge_concurrent_sessions_do_not_cross_route_identical_tool_ids
 }
 
 #[tokio::test]
+async fn claude_bridge_debug_primary_query_is_not_a_remaining_reentrant_query() {
+    let (dir, config, _) = setup().await;
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
+    let mut a = options(&dir);
+    a.stream.session_id = Some("log-primary".into());
+    let mut b = options(&dir);
+    b.stream.session_id = Some("log-reentrant".into());
+    let mut ctx_a = read_context("tool-round-trip");
+    let first_a = bridge
+        .stream(model(&config), ctx_a.clone(), Some(a.clone()))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    let first_b = bridge
+        .stream(model(&config), read_context("tool-round-trip"), Some(b.clone()))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(first_b.stop_reason, StopReason::ToolUse);
+    append_read_result(&mut ctx_a, first_a, "primary done".into());
+    let done = bridge
+        .stream(model(&config), ctx_a, Some(a))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(done.stop_reason, StopReason::Stop);
+    let fresh = bridge
+        .stream(model(&config), context("hello"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(fresh.stop_reason, StopReason::Stop);
+    bridge
+        .shutdown(b.stream.session_id.as_ref().unwrap(), &"cleanup".into())
+        .await
+        .unwrap();
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    let entries = log
+        .lines()
+        .filter_map(|line| line.split_once(&format!("[{module}] ")).map(|(_, text)| text))
+        .filter(|line| line.starts_with("provider: streamClaudeAgentSdk called"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        entries,
+        vec![
+            "provider: streamClaudeAgentSdk called, activeQuery=false, lastMsgRole=user, isReentrant=false",
+            "provider: streamClaudeAgentSdk called, activeQuery=true, lastMsgRole=user, isReentrant=true",
+            "provider: streamClaudeAgentSdk called, activeQuery=true, lastMsgRole=toolResult, isReentrant=true",
+            "provider: streamClaudeAgentSdk called, activeQuery=false, lastMsgRole=user, isReentrant=false",
+        ]
+    );
+}
+
+#[tokio::test]
 async fn claude_bridge_rate_limit_failures_are_labeled_without_losing_utf16() {
     use crate::core::extensions::types::{ExtensionUiContext, NotifyType};
     #[derive(Default)]
@@ -569,9 +629,57 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_fallback_tool_boundary_shape_keeps_the_assistant_message_id() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(
+        js_json::parse_lossless(r#"{"shapeTrace":true}"#).unwrap(),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    let mut opts = options(&dir);
+    opts.stream.session_id = Some("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb".into());
+    let key = opts.stream.session_id.clone().unwrap();
+    let mut ctx = read_context("shape-fallback");
+    let output = bridge
+        .stream(model(&config), ctx.clone(), Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::ToolUse);
+    ctx.messages.push(Message::Assistant(Box::new(output)));
+    ctx.messages.push(Message::ToolResult(ToolResultMessage {
+        role: ToolResultRole::Tag,
+        tool_call_id: "toolu_fallback".into(),
+        tool_name: "read".into(),
+        content: vec![pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new(
+            "shape done",
+        ))],
+        details: None,
+        is_error: false,
+        timestamp: 2.0,
+    }));
+    bridge.end_turn(&key, ctx).await.unwrap();
+    let text = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-shapes.jsonl")).unwrap();
+    let row = text
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .find(|row| stream::string(row, "piSessionId") == key && stream::string(row, "phase") == "pi_tool_boundary")
+        .unwrap();
+    assert_eq!(row.get("sdkMessageId"), Some(&JsValue::String("msg_fallback".into())));
+    assert!(
+        !text
+            .lines()
+            .map(|line| js_json::parse_lossless(line).unwrap())
+            .any(|row| stream::string(&row, "piSessionId") == key && stream::string(&row, "phase") == "pi_final")
+    );
+}
+
+#[tokio::test]
 async fn claude_bridge_prompt_skips_invalid_images_and_uses_source_text_or_continue_fallback() {
     let (dir, config, _) = setup().await;
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    bridge.logs.as_mut().unwrap().enabled = true;
     for (raw, expected) in [
         (
             r#"[{"type":"text","text":"image-prompt"},{"type":"image","data":"","mimeType":"image/png"},{"type":"image","data":"AA==","mimeType":""},{"type":"image","data":"AQ==","mimeType":"image/png"}]"#,
@@ -600,6 +708,26 @@ async fn claude_bridge_prompt_skips_invalid_images_and_uses_source_text_or_conti
         };
         assert_eq!(text.text, expected);
     }
+    let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    let module = &bridge.logs.as_ref().unwrap().module_id;
+    let lines = log
+        .lines()
+        .filter_map(|line| line.split_once(&format!("[{module}] ")).map(|(_, text)| text))
+        .filter(|line| line.starts_with("image block") || line.starts_with("extractUserPromptBlocks:"))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        lines,
+        vec![
+            "image block missing data or mimeType, skipping: keys=type,data,mimeType",
+            "image block missing data or mimeType, skipping: keys=type,data,mimeType",
+            "image block: mimeType=image/png, data length=4",
+            "extractUserPromptBlocks: 1 msgs in turn, 2 blocks, types=text,image",
+            "image block missing data or mimeType, skipping: keys=type,data,mimeType",
+            "extractUserPromptBlocks: 1 msgs in turn, 1 blocks, types=text",
+            "image block missing data or mimeType, skipping: keys=type,data,mimeType",
+            "extractUserPromptBlocks: 1 msgs in turn, 0 blocks, types=",
+        ]
+    );
 }
 
 #[tokio::test]
@@ -674,7 +802,14 @@ async fn claude_bridge_missed_steers_preserve_results_mark_rebuild_and_log_sourc
 async fn claude_bridge_shutdown_reports_exact_live_context_handler_and_prompt_counts() {
     use crate::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
     let (dir, config, _) = setup().await;
-    let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let owner = Arc::new(ownership::Ownership::default());
+    let mut bridge = provider::BridgeProvider::with_ownership(
+        JsValue::Null,
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+        owner.clone(),
+    );
+    assert!(owner.claim(&bridge.identity));
     bridge.logs.as_mut().unwrap().enabled = true;
     let mut registry = ExtensionRegistry::new();
     let fixture = bridge.clone();
@@ -735,6 +870,16 @@ async fn claude_bridge_shutdown_reports_exact_live_context_handler_and_prompt_co
         }))
         .await;
     let after = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+    assert!(after.contains(&format!("[{module}] session_shutdown: clearing 0 shared sessions\n")));
+    assert_eq!(
+        after
+            .lines()
+            .filter(|line| line.ends_with(&format!(
+                "[{module}] session_shutdown: clearing ACTIVE_STREAM_SIMPLE_KEY"
+            )))
+            .count(),
+        1
+    );
     assert_eq!(
         after
             .lines()

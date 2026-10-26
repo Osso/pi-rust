@@ -44,6 +44,7 @@ struct QueryHandle {
 #[derive(Default)]
 struct QueryState {
     next_id: u64,
+    primary_query: Option<u64>,
     queries: HashMap<u64, QueryHandle>,
     throttled: HashMap<JsString, PendingProfiles>,
     quota_retry: HashSet<JsString>,
@@ -190,12 +191,10 @@ impl BridgeProvider {
         let options = options.unwrap_or_default();
         let (sender, stream) = create_assistant_message_event_stream();
         let results = recent_tool_result_ids(&context);
-        let active_query = !self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .queries
-            .is_empty();
+        let active_query = {
+            let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            state.primary_query.is_some_and(|id| state.queries.contains_key(&id))
+        };
         self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
             "provider: streamClaudeAgentSdk called, activeQuery={}, lastMsgRole={}, isReentrant={}",
             active_query,
@@ -281,16 +280,30 @@ impl BridgeProvider {
             sender.end(None);
             return Ok(stream);
         }
+        let is_reentrant = state.primary_query.is_some_and(|id| state.queries.contains_key(&id));
+        if is_reentrant && results.is_empty() && matches!(context.messages.last(), Some(pi_ai::types::Message::User(_)))
+        {
+            let waiting = state
+                .primary_query
+                .and_then(|id| state.queries.get(&id))
+                .map_or(0, |q| {
+                    q.observations
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .pending_tool_calls
+                });
+            self.logs.as_ref().map_err(|e| e.clone())?.debug(format!("provider: active query user-only call treated as reentrant fresh query, waitingHandlers={waiting}, ctx.msgs={}", context.messages.len()))?;
+        }
         self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
             "provider: fresh query setup, isReentrant={}, activeContexts={}",
-            active_query,
+            is_reentrant,
             state.queries.len()
         ))?;
         let quota_retry = state.quota_retry.remove(&session_key);
         if !rewritten && !quota_retry {
             self.logs.as_ref().map_err(|e| e.clone())?.diag_empty_prompt(
                 &context,
-                active_query,
+                is_reentrant,
                 state.queries.len(),
                 self.sessions
                     .lock()
@@ -321,6 +334,9 @@ impl BridgeProvider {
         );
         state.next_id += 1;
         let id = state.next_id;
+        if !is_reentrant {
+            state.primary_query = Some(id);
+        }
         let (commands, receive) = mpsc::unbounded_channel();
         let observations = Arc::new(Mutex::new(QueryObservations::default()));
         let (settled, completion) = tokio::sync::watch::channel(false);
@@ -353,6 +369,7 @@ impl BridgeProvider {
             );
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             actor.session_key = key.clone();
+            actor.is_reentrant = is_reentrant;
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let auth_profile = launch
                 .as_ref()
@@ -510,14 +527,19 @@ impl BridgeProvider {
             "WARNING: {label} left state behind — contexts={contexts} pendingToolCalls={calls} promptStreams={streams}"
         ))
     }
-    pub fn clear_sessions(&self) -> Result<(), CallbackError> {
-        self.ownership.release(&self.identity);
-        self.sessions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-            .map_err(|e| e.clone())?
-            .clear();
+    pub fn clear_sessions(&self, event: &str) -> Result<(), CallbackError> {
+        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = sessions.as_mut().map_err(|e| e.clone())?;
+        let count = store.mirror_count();
+        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
+        logs.debug(format!(
+            "{event}: clearing {count} shared session{}",
+            if count == 1 { "" } else { "s" }
+        ))?;
+        store.clear();
+        if self.ownership.release(&self.identity) {
+            logs.debug(format!("{event}: clearing ACTIVE_STREAM_SIMPLE_KEY"))?;
+        }
         Ok(())
     }
 
@@ -566,6 +588,10 @@ impl BridgeProvider {
         if last_assistant.is_none_or(|m| m.stop_reason != StopReason::ToolUse) {
             return Ok(());
         }
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug_extract_results(&context)?;
         let results = recent_tool_result_ids(&context);
         let owner = self
             .state
@@ -584,6 +610,10 @@ impl BridgeProvider {
             })
             .map(|q| (q.sender.clone(), q.settled.clone()));
         if let Some((sender, mut settled)) = owner {
+            self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+                "provider: pi run ended on {} tool result(s); closing the CC turn",
+                results.len()
+            ))?;
             if sender.send(QueryCommand::EndTurn { context }).is_err() && !*settled.borrow() {
                 return Err(CallbackError::new(
                     "Claude query ended before terminating tool delivery",
@@ -623,6 +653,10 @@ impl BridgeProvider {
         if launch.claude_dir.is_none() {
             launch.claude_dir = Some(store.claude_dir.clone());
         }
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug_prompt_blocks(context)?;
         self.logs.as_ref().map_err(|e| e.clone())?.debug_fresh_query(
             &launch,
             context,
@@ -847,6 +881,7 @@ struct QueryActor {
     sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     session_key: JsString,
     missed_steer: bool,
+    is_reentrant: bool,
     #[cfg(test)]
     steer_write_fault: Arc<Mutex<Option<SteerWriteFault>>>,
 }
@@ -886,6 +921,7 @@ impl QueryActor {
             sessions: bridge.sessions.clone(),
             session_key: "(none)".into(),
             missed_steer: false,
+            is_reentrant: false,
             #[cfg(test)]
             steer_write_fault: bridge.steer_write_fault.clone(),
         }
@@ -950,7 +986,13 @@ impl QueryActor {
         process: &mut ClaudeProcess,
     ) -> Result<(), CallbackError> {
         process.initialize(launch).await?;
-        process.write(&user_message(prompt_content(context)?, false)).await?;
+        if let Err(error) = process.write(&user_message(prompt_content(context)?, false)).await {
+            self.logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug_error("provider: initial prompt push rejected:", &error)?;
+            return Err(error);
+        }
         loop {
             tokio::select! {
                 command = self.commands.recv() => match command {
@@ -991,7 +1033,9 @@ impl QueryActor {
         self.release_pending_calls(&"Query ended".into(), process).await?;
 
         process.close().await?;
-        if let Some(shape) = &mut self.shape {
+        if self.current.is_some()
+            && let Some(shape) = &mut self.shape
+        {
             shape.record_pi(
                 "pi_final",
                 &js_json::to_value(&self.decoder.output).map_err(|e| CallbackError::new(e.to_string()))?,
@@ -1201,9 +1245,14 @@ impl QueryActor {
         }
         if self.decoder.parked {
             if let Some(shape) = &mut self.shape {
-                shape.record_pi(
+                shape.record_pi_with_id(
                     "pi_tool_boundary",
                     &js_json::to_value(&self.decoder.output).map_err(|e| CallbackError::new(e.to_string()))?,
+                    &if string(frame, "type") == "assistant" {
+                        string(frame.get("message").unwrap_or(&JsValue::Null), "id")
+                    } else {
+                        self.decoder.message_id.clone()
+                    },
                 )?;
             }
             self.current.take();
@@ -1249,7 +1298,9 @@ impl QueryActor {
                 if aborted {
                     return logs.debug("provider: abort detected, marked sharedSession needsRebuild + forceRotate");
                 }
-                logs.debug("provider: clearing activeQuery before final stream completion")?;
+                if !self.is_reentrant {
+                    logs.debug("provider: clearing activeQuery before final stream completion")?;
+                }
                 if self.current.is_some() {
                     logs.debug_final_stream(&self.decoder.output)?;
                 }
@@ -1268,7 +1319,9 @@ impl QueryActor {
                         "provider: discarded query ended in error, leaving session and stream to its replacement",
                     );
                 }
-                logs.debug("provider: clearing activeQuery before error stream completion")?;
+                if !self.is_reentrant {
+                    logs.debug("provider: clearing activeQuery before error stream completion")?;
+                }
             }
         }
         Ok(())
@@ -1301,6 +1354,9 @@ impl QueryActor {
                 self.accept_results(&context, process).await?;
             }
             QueryCommand::Resume { sender, context } => {
+                if self.current.is_some() {
+                    self.logs.as_ref().map_err(|e| e.clone())?.debug(format!("WARNING: currentPiStream overwritten before terminal event (tool-result); activeQuery={} pendingHandlers={}", self.observations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).active, self.pending_calls.len()))?;
+                }
                 if let Some(shape) = &mut self.shape {
                     shape.record_pi(
                         "turn_reset",
@@ -1310,6 +1366,10 @@ impl QueryActor {
                 self.current = Some(sender);
                 self.decoder = StreamDecoder::with_tools(&self.model, self.tools.iter().map(|t| t.name.clone()));
                 if matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {
+                    self.logs
+                        .as_ref()
+                        .map_err(|e| e.clone())?
+                        .debug_prompt_blocks(&context)?;
                     self.deliver_steer(prompt_content(&context)?, process).await?;
                 }
                 self.latest_cursor = self.latest_cursor.max(context.messages.len());
