@@ -60,3 +60,7 @@ Gaps / deviations:
 `hash_json` and `append_artifact_record` use shared JS stringify, matching TS hash inputs and artifact lines. `js_value_artifacts` checks concrete bytes/digest; numeric Pyrun manifest differential checks shared checksum integration. [Boundary proof](../js-value-semantics-proof.md).
 
 Atomic manifest writes also use JS stringify: `launch_manifest_enumerates_numeric_environment_names_like_javascript` covers env keys 1/2/10. Activation identities share that writer; filesystem error propagation is unchanged.
+
+## Retained UTF-8 boundary (2026-10-26)
+
+`read_detached_bash_activation` and `read_detached_bash_launch_manifest` retain strict reads: machine-written activation/checksummed launch metadata; invalid bytes require corruption (parent-approved OS/data-fault gap, 2026-10-26). Frozen `detached-bash-runner.ts:75,252` reads UTF-8 with replacement; this is an exclusion, not equivalent invalid-byte behavior. See the [complete file-read audit](../utf8-decoding-sweep.md).

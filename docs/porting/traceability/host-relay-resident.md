@@ -18,3 +18,7 @@ Main call site starts the helper as an error-logged background task after startu
 `resident_identity_bytes_and_reuse_refusal_errors_match_frozen_bidirectionally` writes identity via frozen TS, reads/rewrites via Rust with exact byte equality, then lets frozen ensure reuse it without spawning. Old own/unverified PID and malformed JSON/identity errors match exactly; both runtimes release the shared startup lock. Frozen `VERSION` is `0.80.3`, native embedded package version is `0.84.1`: each implementation compares against its own runtime config as frozen code requires. Global package metadata re-pin is outside this slice; no relay-local version substitution is introduced.
 
 Tests use private settings/control DBs and fake SSH only. Final mutation/check evidence: [relay proof ledger](../host-relay-proof.md).
+
+## Retained UTF-8 boundary (2026-10-26)
+
+`read_relay_identity` retains strict decoding of internal machine-written `.relay.json` process metadata; invalid bytes require corruption. Frozen `host-relay-resident.ts:27` uses `readFileSync(..., "utf8")`; excluded OS/data-fault case, not equivalent invalid-byte behavior. See the [complete file-read audit](../utf8-decoding-sweep.md).

@@ -158,6 +158,20 @@ fn parse_changelog_reads_sections_and_ignores_unversioned_headers() {
     assert_eq!(get_new_entries(&entries, &JsString::from("1.2.2")).len(), 1);
 }
 
+#[test]
+fn changelog_replaces_invalid_utf8_without_dropping_sections() {
+    let dir = temp_dir();
+    let path = dir.join("CHANGELOG.md");
+    fs::write(&path, b"## 1.2.3\nbefore\xe2\x82after\xff\n## 1.2.2\nretained\n").unwrap();
+    assert_eq!(
+        parse_changelog(&path.display().to_string()),
+        vec![
+            entry(1, 2, 3, "## 1.2.3\nbefore\u{fffd}after\u{fffd}"),
+            entry(1, 2, 2, "## 1.2.2\nretained")
+        ]
+    );
+}
+
 /// `Number("1\uD800")` is NaN, so `|| 0` makes that part zero; the other
 /// parts still compare.
 #[test]

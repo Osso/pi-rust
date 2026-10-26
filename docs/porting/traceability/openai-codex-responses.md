@@ -98,3 +98,7 @@ Direct streamSimple's former error-stream deviation is **removed**, not retained
 Runtime commands: `cargo test -j4 -p pi-ai --test openai_codex_responses` and `cargo test -j4 -p pi-ai --test differential_openai_codex_responses`. The latter includes the selected lazy module, real account/idle/age/concurrency lifetimes and all bounded input classes. Strict TS checking uses `buildSourceTsconfig` with the frozen compiler plus the exact selected delta and oracle; Biome checks the changed oracle. Cargo proofs run through the mandatory isolated runner.
 
 Logs and exact revisions: `/tmp/pi-rust-repin-delta-ai/q15-proof-ledger.md`, latestQ15e sections. Named RED/GREEN artifacts include `q15e-codex-{simple-throw,ws-close,ws-binary,ws-null-event,input-types,service-tier,sse-framing,timer-overflow}*`, `q15e-codex-cache-{busy-green,age-1}.log`, and the account delta/lifecycle logs. Final checkpoint commands/results are appended to that ledger; historical counts are not substituted for current integration evidence.
+
+## Retained UTF-8 boundary (2026-10-26)
+
+Native `/proc/sys/kernel/osrelease` reading remains strict. It substitutes for frozen `os.release()` (`openai-codex-responses.ts:1636`), not a TS user-file reader; kernel ASCII output, outside authored-file decoding scope. See the [complete file-read audit](../utf8-decoding-sweep.md).

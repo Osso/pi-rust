@@ -20,6 +20,7 @@ one parse fixture plus a missing file, 3 comparisons, and 4 `lastVersion` values
 | `changelog.ts:61-68` | Trailing slash or extensionless basename means a directory (`tree` route) | `is_directory_target`; differential `docs/`, `docs`, `examples/extensions/` |
 | `changelog.ts:70-103` | GitHub URL construction, legacy `pi-mono` rewrite, external URLs untouched, percent-encoding | `normalize_changelog_link_target`, `encode_uri`; differential Unicode, spaces, query, and external cases |
 | `changelog.ts:105-114` | Rewrite every inline Markdown link | `normalize_changelog_links`; differential 24 requests |
+| Common pin `changelog.ts:122`, `readFileSync(..., "utf-8")` | Invalid UTF-8 becomes U+FFFD; valid sections survive | `changelog_replaces_invalid_utf8_without_dropping_sections`; RED `/tmp/utf8-changelog-red.log`, GREEN `/tmp/utf8-changelog-green.log` |
 | `changelog.ts:116-176` | `## x.y.z` section parsing, unversioned headers reset, missing file → empty, read error warning | `parse_changelog`; differential parse + focused test |
 | `changelog.ts:178-185` | Lexicographic major/minor/patch comparison | `compare_versions`; differential 3 cases |
 | `changelog.ts:187-199` | Entries newer than `lastVersion`; missing/invalid parts become zero | `get_new_entries(&JsString)`; differential `0.78.5`, `0.79.0`, `0.77`, `garbage`; `unpaired_surrogate_version_parts_count_as_zero` (unexecuted: coding lib does not compile) |

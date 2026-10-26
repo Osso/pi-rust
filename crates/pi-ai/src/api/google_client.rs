@@ -1052,9 +1052,10 @@ fn load_credentials(key_filename: Option<&JsString>) -> Result<Credentials, Goog
             None,
         ));
     };
-    let contents = std::fs::read_to_string(encode_node_utf8(&path))
+    // google-auth-library reads the credential stream with setEncoding("utf8").
+    let bytes = std::fs::read(encode_node_utf8(&path))
         .map_err(|error| GoogleRequestError::new(format!("Unable to read the credential file: {error}"), None))?;
-    parse_credentials(&contents)
+    parse_credentials(&String::from_utf8_lossy(&bytes))
 }
 
 fn well_known_adc_path() -> Option<JsString> {
@@ -1385,4 +1386,25 @@ pub(crate) async fn open_generate_stream(
     client
         .generate_content_stream(params, fetch.as_ref(), request.signal.as_ref())
         .await
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+
+    #[test]
+    fn adc_file_replaces_invalid_utf8() {
+        let path = std::env::temp_dir().join(format!("utf8-adc-{}.json", std::process::id()));
+        std::fs::write(&path, b"{\"type\":\"authorized_user\",\"client_id\":\"before\xe2\x82after\xff\",\"client_secret\":\"secret\",\"refresh_token\":\"kept\"}").unwrap();
+        let result = load_credentials(Some(&path.to_str().unwrap().into()));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(
+            result.unwrap(),
+            Credentials::AuthorizedUser {
+                client_id: "before\u{fffd}after\u{fffd}".into(),
+                client_secret: "secret".into(),
+                refresh_token: "kept".into()
+            }
+        );
+    }
 }

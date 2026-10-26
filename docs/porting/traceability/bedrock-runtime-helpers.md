@@ -42,3 +42,9 @@ parity is proven through the ConverseStream differential oracle.
   base64. Used to canonicalize image bytes before Bedrock serialization.
 - Tests: exercised through `rich-messages` differential (image content) and the
   message-conversion behavioral test.
+
+## UTF-8 file decoding (2026-10-26)
+
+| Frozen SDK source | Contract | Proof |
+|---|---|---|
+| `@smithy/core/dist-cjs/submodules/config/index.js:183,270` (`readFile(..., "utf8")`) | Invalid credential/cache/INI bytes become U+FFFD; other data survives; genuine I/O errors unchanged | `bedrock_credentials::utf8_tests::{shared_ini_replaces_invalid_utf8,sso_token_replaces_invalid_utf8}`; RED `/tmp/utf8-ai-red.log`, GREEN `/tmp/utf8-ai-green.log` (offline, no provider request) |

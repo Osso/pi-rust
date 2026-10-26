@@ -182,12 +182,14 @@ async fn read_body(mut body: Box<dyn crate::request::HttpBody>) -> Result<Vec<u8
 
 fn read_sso_token(cache_key: &str) -> Result<Value, CallbackError> {
     let path = sso_token_path(cache_key)?;
-    let text = std::fs::read_to_string(&path).map_err(|_| {
+    // readFile(ssoTokenFilepath, "utf8") in @smithy/core/config.
+    let bytes = std::fs::read(&path).map_err(|_| {
         CallbackError::new(
             "The SSO session associated with this profile is invalid. To refresh this SSO session run aws sso login with the corresponding profile.",
         )
     })?;
-    pi_js_compat::js_json::parse(&text)
+    let text = String::from_utf8_lossy(&bytes);
+    pi_js_compat::js_json::parse(text.as_ref())
         .map_err(|error| CallbackError::new(format!("The SSO session token is invalid: {error}")))
 }
 
@@ -285,7 +287,9 @@ impl SharedFiles {
 }
 
 fn parse_ini(path: &Path) -> Option<Vec<(String, BTreeMap<String, String>)>> {
-    let text = std::fs::read_to_string(path).ok()?;
+    // readFile(path, "utf8") in @smithy/core shared-ini-file-loader.
+    let bytes = std::fs::read(path).ok()?;
+    let text = String::from_utf8_lossy(&bytes);
     let mut sections: Vec<(String, BTreeMap<String, String>)> = Vec::new();
     let mut current: Option<BTreeMap<String, String>> = None;
     for line in text.lines() {
@@ -331,4 +335,57 @@ fn strip_comment(line: &str) -> &str {
         }
     }
     result
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+
+    #[test]
+    fn shared_ini_replaces_invalid_utf8() {
+        let path = std::env::temp_dir().join(format!("utf8-ini-{}", std::process::id()));
+        std::fs::write(
+            &path,
+            b"[default]\nregion=us-east-1\nnote=before\xe2\x82after\xff\n[profile retained]\nregion=eu-west-1\n",
+        )
+        .unwrap();
+        let sections = parse_ini(&path);
+        std::fs::remove_file(&path).unwrap();
+        let sections = sections.unwrap();
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].1["region"], "us-east-1");
+        assert_eq!(sections[0].1["note"], "before\u{fffd}after\u{fffd}");
+        assert_eq!(sections[1].1["region"], "eu-west-1");
+    }
+
+    #[test]
+    fn sso_token_replaces_invalid_utf8() {
+        const CHILD: &str = "PI_UTF8_SSO_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let path = sso_token_path("utf8-sweep").unwrap();
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(
+                &path,
+                b"{\"accessToken\":\"kept\",\"note\":\"before\xe2\x82after\xff\"}",
+            )
+            .unwrap();
+            let token = read_sso_token("utf8-sweep").unwrap();
+            assert_eq!(token["accessToken"], "kept");
+            assert_eq!(token["note"], "before\u{fffd}after\u{fffd}");
+            return;
+        }
+        let home = std::env::temp_dir().join(format!("utf8-sso-{}", std::process::id()));
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "api::bedrock_credentials::utf8_tests::sso_token_replaces_invalid_utf8",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .env("HOME", &home)
+            .status()
+            .unwrap();
+        std::fs::remove_dir_all(&home).unwrap();
+        assert!(status.success());
+    }
 }

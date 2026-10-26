@@ -89,8 +89,9 @@ impl SessionStore {
                 )));
             }
         };
-        let text = std::str::from_utf8(&bytes).map_err(|e| CallbackError::new(e.to_string()))?;
-        let value = js_json::parse_lossless(text).map_err(|error| {
+        // readFileSync(recordPath(piSessionId), "utf8")
+        let text = String::from_utf8_lossy(&bytes);
+        let value = js_json::parse_lossless(text.as_ref()).map_err(|error| {
             let mut error = CallbackError::new(error.into_message());
             error.name = "SyntaxError".into();
             error
@@ -689,5 +690,27 @@ mod persistence_read_tests {
             return;
         }
         sync_and_check_warning(false).await;
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+    #[test]
+    fn association_replaces_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = SessionStore::at(dir.path().join("claude"), dir.path().join("agent"));
+        let key = JsString::from("pi-session");
+        let path = store.association_path(&key).unwrap();
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            b"{\"cwd\":\"/project\",\"sessionId\":\"before\xe2\x82after\xff\",\"retained\":true}",
+        )
+        .unwrap();
+        assert_eq!(
+            store.recorded(&key, Path::new("/project")).unwrap(),
+            Some("before\u{fffd}after\u{fffd}".into())
+        );
     }
 }

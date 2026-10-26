@@ -40,3 +40,7 @@ Differential proof: request `27012` compares `commandLineIsPiRuntime` across 13 
 None.
 
 The changed module tests all pass. The 16-test core-leaf batch also exposed an unrelated project-resolver fixture failure (`key must be a string` at differential_core_leaves.rs:641); its proof is not claimed here. Empty-executable RED: `/tmp/runtime-services-red-empty-executable.log`.
+
+## Retained UTF-8 boundary (2026-10-26)
+
+`read_process_identity` retains strict `/proc/.../stat` reading. Frozen `runtime-process.ts:38` uses UTF-8 replacement, but this is kernel data rather than a user-authored text file; invalid-byte process names remain an OS/path edge gap. See the [complete file-read audit](../utf8-decoding-sweep.md).

@@ -26,7 +26,8 @@ Focused tests: `crates/pi-coding-agent/tests/architect.rs` (18), `tests/differen
 | TypeScript source | Contract | Rust and proof |
 |---|---|---|
 | `readProjectSpec` | relative `.md` inside `docs/specs`, canonical containment | `read_project_spec`; `project_spec_reads_only_markdown_inside_docs_specs` |
-| `findProjectRoot` | nearest ancestor with `docs/specs/README.md`, exact error | `find_project_root`; `project_spec_reports_a_missing_spec_index` |
+| `findProjectRoot` | nearest ancestor with readable `docs/specs/README.md`, exact error; invalid UTF-8 does not hide the root | `find_project_root`; `project_spec_reports_a_missing_spec_index`, `project_spec_replaces_invalid_utf8_in_index_and_content` |
+| `readProjectSpec`, common pin project-spec.ts:30,37 | `readFile(..., "utf8")` replacement decoding for spec and index bytes | `project_spec_replaces_invalid_utf8_in_content_with_valid_index`, `project_spec_replaces_invalid_utf8_in_index_and_content`; RED `/tmp/utf8-architect-red.log`, GREEN `/tmp/utf8-architect-green.log` |
 | `registerArchitectProjectSpecTool` | tool registration | `register_architect_project_spec_tool` / `architect_project_spec_tool_definition`; `project_spec_tool_registration_reads_specs_and_reports_paths` |
 
 ## main.ts

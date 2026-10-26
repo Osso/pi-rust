@@ -96,10 +96,9 @@ pub fn read_records(path: &Path) -> Result<Vec<JsValue>, CallbackError> {
         .split(|b| *b == b'\n')
         .filter(|line| !line.iter().all(u8::is_ascii_whitespace))
     {
-        let Ok(line) = std::str::from_utf8(line) else {
-            break;
-        };
-        let Ok(record) = js_json::parse_lossless(line) else {
+        // readFileSync(path, "utf-8") in cc-session-io.
+        let line = String::from_utf8_lossy(line);
+        let Ok(record) = js_json::parse_lossless(line.as_ref()) else {
             break;
         };
         records.push(record);
@@ -271,5 +270,38 @@ impl RecordWriter {
             self.user(JsValue::Array(rest))?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+
+    fn frozen_records(path: &Path) -> JsValue {
+        let oracle = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("src/native_user_extensions/claude_bridge/fixtures/cc-session-io.mjs");
+        let output = std::process::Command::new("node").args(["--input-type=module", "-e",
+            "import {pathToFileURL} from 'node:url'; const {parseJsonlFile}=await import(pathToFileURL(process.argv[1])); console.log(JSON.stringify(parseJsonlFile(process.argv[2])))"])
+            .arg(oracle).arg(path).output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        js_json::parse_lossless(String::from_utf8(output.stdout).unwrap().trim()).unwrap()
+    }
+
+    #[test]
+    fn session_records_replace_invalid_utf8_bidirectionally() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("input.jsonl");
+        std::fs::write(
+            &path,
+            b"{\"sessionId\":\"s\",\"text\":\"before\xe2\x82after\xff\"}\n{\"sessionId\":\"s\",\"text\":\"kept\"}\n",
+        )
+        .unwrap();
+        let expected = pi_js_compat::js_json!([{"sessionId":"s","text":"before\u{fffd}after\u{fffd}"},{"sessionId":"s","text":"kept"}]);
+        assert_eq!(frozen_records(&path), expected);
+        let native = read_records(&path).unwrap();
+        assert_eq!(JsValue::Array(native.clone()), expected);
+        let written = dir.path().join("native.jsonl");
+        write_records(&written, &native).unwrap();
+        assert_eq!(frozen_records(&written), expected);
     }
 }

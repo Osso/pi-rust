@@ -280,8 +280,9 @@ fn read_changelog_file(changelog_path: &str) -> Option<String> {
     if !Path::new(changelog_path).exists() {
         return None;
     }
-    match std::fs::read_to_string(changelog_path) {
-        Ok(content) => Some(content),
+    // readFileSync(changelogPath, "utf-8")
+    match std::fs::read(changelog_path) {
+        Ok(content) => Some(String::from_utf8_lossy(&content).into_owned()),
         Err(error) => {
             eprintln!("Warning: Could not parse changelog: {error}");
             None

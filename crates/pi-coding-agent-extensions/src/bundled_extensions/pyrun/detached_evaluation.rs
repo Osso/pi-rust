@@ -569,7 +569,9 @@ fn read_complete_artifact_records(path: &JsString) -> Result<Vec<Value>, JsStrin
     if !Path::new(&js_json::encode_node_utf8(path)).exists() {
         return Ok(Vec::new());
     }
-    let text = std::fs::read_to_string(js_json::encode_node_utf8(path)).map_err(|error| error.to_string())?;
+    // readFileSync(path, "utf8")
+    let bytes = std::fs::read(js_json::encode_node_utf8(path)).map_err(|error| error.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
     let Some(last_newline) = text.rfind('\n') else {
         return Ok(Vec::new());
     };
@@ -1087,6 +1089,24 @@ mod js_value_tests {
             matches!(restored, Ok(RestoredRunner::Terminal(_))),
             "{:?}",
             restored.err().map(|error| error.message)
+        );
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+    #[test]
+    fn complete_artifact_records_replace_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("artifact.jsonl");
+        std::fs::write(&path, b"{\"kind\":\"progress\",\"update\":{\"type\":\"console\",\"text\":\"before\xe2\x82after\xff\"}}\n{\"kind\":\"kept\"}\n{\"partial\":\"").unwrap();
+        assert_eq!(
+            read_complete_artifact_records(&path.to_str().unwrap().into()).unwrap(),
+            vec![
+                pi_js_compat::js_json!({"kind":"progress","update":{"type":"console","text":"before\u{fffd}after\u{fffd}"}}),
+                pi_js_compat::js_json!({"kind":"kept"})
+            ]
         );
     }
 }
