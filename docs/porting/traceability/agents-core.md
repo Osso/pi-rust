@@ -4,6 +4,18 @@ Source: `packages/coding-agent/extensions/agents-core/src/runtime.ts`, 3,326 lin
 
 Whole-module audit completed 2026-10-25 under the approved lighter-proof rule. The runtime row is **done** within the user-observable parity scope. No realistic branch remains open in the factory, browser, registry, archive, artifact-root, cancellation-timeout or recovery audit. Non-persistence closure is source reading plus existing tests; the [control-DB reciprocal proof](session-control-db.md) and [runtime mailbox acceptance proof](runtime-mailbox-acceptance.md) remain separate, unchanged authorities. This is not a workspace-wide acceptance claim.
 
+## Reciprocal extension persistence (2026-10-26)
+
+| Boundary | Behavioral proof |
+| --- | --- |
+| Frozen extension → native extension → frozen extension, and reverse | `agents_core_runtime::reciprocal_agents_core_ts_rust_ts_extension_persistence` and `reciprocal_agents_core_rust_ts_rust_extension_persistence`; frozen adapter: `oracle/agents-core-repin-oracle.ts`, `reciprocal` operation |
+
+Each direction uses one private state directory and the same control DB/session paths throughout. The first implementation attaches an existing saved session through the extension API. The peer reopens the persisted store and sends a Unicode message through the extension mailbox API. The first implementation reopens and dispatches a scripted child to completion. After every mutation, the peer reopens the same state and compares **all agent snapshots, mailbox records, full list/view tool content and details**, without ID/time/path normalization. Both implementations also return the exact same terminal `waitNotifications` wake from the persisted completion. Assertions require a waiting attachment, a pending addressed message, two distinct persisted records and the completed child's concrete summary. The attached session file remains byte-identical.
+
+The frozen side registers the actual bundled extension and invokes its tools; the native side uses the public agents-core request handler, mailbox, viewer and wait APIs. Session-manager bootstrap creates the saved-session fixture; no raw DB seed or JSON state transfer substitutes for extension operations. The child factory is scripted, without a provider or network. This proves extension-owned attachment, message and terminal lifecycle persistence, including the persisted terminal notification read boundary. It does **not** claim a reciprocal production-child session-file writer, wait-tool notification acceptance/claim consumption, live ownership transfer, or close of an unowned attachment. Those remain under the existing factory, mailbox acceptance and runtime tests.
+
+Focused command: `cargo test -j3 -p pi-coding-agent --test suite_core_1 reciprocal_agents_core -- --nocapture`. No production discrepancy was found; no production code changed.
+
 ## Source map
 
 Line ranges below refer only to the frozen runtime. Native split filenames are implementation organization, not additional frozen source modules.
