@@ -1,11 +1,16 @@
 //! Native session transitions and isolated summary takeovers.
 use super::provider::BridgeProvider;
 use crate::core::{
-    compaction::branch_summarization::{GenerateBranchSummaryOptions, generate_branch_summary},
+    compaction::{
+        CompactionSummaryOptions,
+        branch_summarization::{GenerateBranchSummaryOptions, generate_branch_summary},
+        compact,
+    },
     extensions::types::*,
 };
 use pi_agent_core::agent::StreamFn;
-use pi_js_compat::js_json::{JsString, JsValue};
+use pi_js_compat::callback_error::CallbackError;
+use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::sync::Arc;
 
 fn isolated_stream(bridge: BridgeProvider, cwd: JsString) -> StreamFn {
@@ -68,6 +73,19 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
         },
     )
     .map_err(HandlerError::new)?;
+    // Source registers this on `session_before_compact` (index.ts:3011), whose result
+    // the pinned host reduces to `cancel`; the `compaction` event honors the takeover
+    // (user decision 2026-10-26).
+    let takeover_bridge = bridge.clone();
+    pi.on_compaction(
+        move |event: CompactionEvent,
+              ctx: ExtensionContext|
+              -> BoxFuture<'static, Result<Option<CompactionEventResult>, HandlerError>> {
+            let bridge = takeover_bridge.clone();
+            Box::pin(async move { take_over_compaction(bridge, event, ctx).await })
+        },
+    )
+    .map_err(HandlerError::new)?;
     let shutdown_bridge = bridge.clone();
     pi.on_session_shutdown(
         move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
@@ -105,6 +123,128 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
     .map_err(HandlerError::new)?;
     Ok(())
 }
+fn reason_name(reason: CompactionReason) -> &'static str {
+    match reason {
+        CompactionReason::Idle => "idle",
+        CompactionReason::Manual => "manual",
+        CompactionReason::Threshold => "threshold",
+        CompactionReason::Overflow => "overflow",
+    }
+}
+
+/// `reinjectPriorCompactionFileOps` (index.ts:1014-1023).
+fn reinject_prior_compaction_file_ops(
+    logs: &super::logging::Logs,
+    branch_entries: &[crate::core::session_manager::SessionEntry],
+    preparation: &mut CompactionPreparation,
+) -> Result<(), HandlerError> {
+    let prior = branch_entries
+        .iter()
+        .rev()
+        .find(|entry| entry.entry_type() == "compaction");
+    let details = prior
+        .and_then(|entry| entry.as_compaction())
+        .and_then(|entry| entry.details.clone());
+    let (Some(JsValue::Array(read)), Some(JsValue::Array(modified))) = (
+        details.as_ref().and_then(|d| d.get("readFiles")),
+        details.as_ref().and_then(|d| d.get("modifiedFiles")),
+    ) else {
+        return Ok(());
+    };
+    for file in read {
+        preparation
+            .file_ops
+            .read
+            .insert(js_json::to_js_string(file).map_err(HandlerError::new)?);
+    }
+    for file in modified {
+        preparation
+            .file_ops
+            .edited
+            .insert(js_json::to_js_string(file).map_err(HandlerError::new)?);
+    }
+    logs.debug(format!(
+        "compact takeover: re-injected prior file ops read={} modified={}",
+        read.len(),
+        modified.len()
+    ))?;
+    Ok(())
+}
+
+async fn take_over_compaction(
+    bridge: BridgeProvider,
+    mut event: CompactionEvent,
+    ctx: ExtensionContext,
+) -> Result<Option<CompactionEventResult>, HandlerError> {
+    let Some(model) = ctx.model()?.filter(|m| m.base_url == "claude-bridge") else {
+        return Ok(None);
+    };
+    let logs = bridge
+        .logs
+        .as_ref()
+        .map_err(|e| HandlerError::new(e.message.clone()))?
+        .clone();
+    logs.debug(format!(
+        "session_before_compact: takeover reason={} willRetry={} isSplitTurn={} messages={} turnPrefix={}",
+        reason_name(event.reason),
+        event.will_retry,
+        event.preparation.is_split_turn,
+        event.preparation.messages_to_summarize.len(),
+        event.preparation.turn_prefix_messages.len()
+    ))?;
+    let result = match reinject_prior_compaction_file_ops(&logs, &event.branch_entries, &mut event.preparation) {
+        Ok(()) => {
+            let stream = isolated_stream(bridge, ctx.cwd()?);
+            compact(
+                &event.preparation,
+                &model,
+                &CompactionSummaryOptions {
+                    model: &model,
+                    api_key: None,
+                    headers: None,
+                    custom_instructions: event.custom_instructions.as_ref(),
+                    signal: event.signal.clone(),
+                    thinking_level: None,
+                    stream_fn: Some(&stream),
+                    env: None,
+                },
+            )
+            .await
+            .map_err(|error| CallbackError::new(error.message().clone()))
+        }
+        Err(error) => Err(CallbackError::new(error.message)),
+    };
+    match result {
+        Ok(compaction) => {
+            logs.debug(format!(
+                "session_before_compact: takeover complete summaryLen={}",
+                compaction.summary.len()
+            ))?;
+            Ok(Some(CompactionEventResult {
+                compaction: Some(compaction),
+                ..Default::default()
+            }))
+        }
+        Err(error) => {
+            logs.debug_error(
+                "session_before_compact: takeover failed; cancelling to avoid native compact fallback",
+                &error,
+            )?;
+            ctx.ui()?.notify(
+                &pi_js_compat::js_format!(
+                    "Claude bridge compact failed ({}); cancelled to avoid known hang. Retry, switch model, or reduce context.",
+                    error.message
+                ),
+                Some(NotifyType::Error),
+            )?;
+            Ok(Some(CompactionEventResult {
+                cancel: Some(true),
+                ..Default::default()
+            }))
+        }
+    }
+}
+
 async fn take_over_branch_summary(
     bridge: BridgeProvider,
     event: SessionBeforeTreeEvent,

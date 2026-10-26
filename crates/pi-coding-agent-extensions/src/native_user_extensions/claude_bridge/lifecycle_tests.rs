@@ -243,3 +243,68 @@ async fn claude_bridge_lifecycle_branch_summary_takes_over_navigation_and_cancel
     assert_eq!(result.cancel, Some(true));
     assert!(result.summary.is_none());
 }
+
+/// index.ts:3011-3042 + reinjectPriorCompactionFileOps (:1014-1023), delivered
+/// through the host `compaction` event (user decision 2026-10-26). Re-runs in a
+/// child test process with CLAUDE_BRIDGE_DEBUG=1 because logging is process-wide.
+#[tokio::test]
+async fn claude_bridge_compaction_takeover_reinjects_prior_file_ops_and_cancels_on_error() {
+    if std::env::var("CLAUDE_BRIDGE_DEBUG").as_deref() != Ok("1") {
+        let dir = tempfile::tempdir().unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "native_user_extensions::claude_bridge::lifecycle_tests::claude_bridge_compaction_takeover_reinjects_prior_file_ops_and_cancels_on_error",
+            ])
+            .env("CLAUDE_BRIDGE_DEBUG", "1")
+            .env("CLAUDE_BRIDGE_DEBUG_PATH", dir.path().join("debug.log"))
+            .output()
+            .unwrap();
+        assert!(
+            String::from_utf8(output.stdout.clone())
+                .unwrap()
+                .contains("running 1 test"),
+            "{output:?}"
+        );
+        assert!(output.status.success(), "{output:?}");
+        return;
+    }
+    let (dir, config, loaded) = integration_tests::setup().await;
+    let runner = runner(dir.path(), loaded, Some(integration_tests::model(&config)));
+    let mut event: CompactionEvent = js_json::from_value(&js_json::parse_lossless(r#"{"preparation":{"firstKeptEntryId":"keep","messagesToSummarize":[{"role":"user","content":"compact history","timestamp":1}],"turnPrefixMessages":[],"isSplitTurn":false,"tokensBefore":1234,"fileOps":{"read":["b.rs"],"written":[],"edited":[]},"settings":{"enabled":true,"reserveTokens":16384,"keepRecentTokens":20000}},"branchEntries":[{"type":"compaction","id":"old","parentId":null,"timestamp":"2026-10-25T00:00:00.000Z","summary":"older","firstKeptEntryId":"x","tokensBefore":9,"details":{"readFiles":["a.rs"],"modifiedFiles":["c.rs"]}},{"type":"message","id":"u","parentId":"old","timestamp":"2026-10-25T00:00:01.000Z","message":{"role":"user","content":"compact history","timestamp":1}}],"reason":"threshold","willRetry":false}"#).unwrap()).unwrap();
+    let result = runner.emit(&mut ExtensionEvent::Compaction(event.clone())).await;
+    let crate::core::extensions::runner::EmitResult::Compaction(result) = result else {
+        panic!("bridge compaction takeover");
+    };
+    let compaction = result.compaction.expect("takeover result");
+    assert!(compaction.summary.starts_with("Claude: "), "{:?}", compaction.summary);
+    assert_eq!(compaction.first_kept_entry_id, "keep");
+    assert_eq!(
+        compaction.details,
+        Some(js_json::parse_lossless(r#"{"readFiles":["a.rs","b.rs"],"modifiedFiles":["c.rs"]}"#).unwrap())
+    );
+    let module_log = std::fs::read_to_string(super::logging::debug_path().unwrap()).unwrap();
+    for line in [
+        "session_before_compact: takeover reason=threshold willRetry=false isSplitTurn=false messages=1 turnPrefix=0\n",
+        "compact takeover: re-injected prior file ops read=1 modified=1\n",
+        &format!(
+            "session_before_compact: takeover complete summaryLen={}\n",
+            compaction.summary.len()
+        ),
+    ] {
+        assert!(module_log.contains(line), "missing {line:?} in {module_log}");
+    }
+
+    event.custom_instructions = Some("summary-error".into());
+    let result = runner.emit(&mut ExtensionEvent::Compaction(event)).await;
+    let crate::core::extensions::runner::EmitResult::Compaction(result) = result else {
+        panic!("bridge compaction failure");
+    };
+    assert_eq!(result.cancel, Some(true));
+    assert!(result.compaction.is_none());
+    let module_log = std::fs::read_to_string(super::logging::debug_path().unwrap()).unwrap();
+    assert!(
+        module_log.contains("session_before_compact: takeover failed; cancelling to avoid native compact fallback"),
+        "{module_log}"
+    );
+}

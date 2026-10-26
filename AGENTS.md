@@ -20,6 +20,7 @@
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).
 - `packages/ai/src/cli.ts` (`pi-ai` bin) is a gap (2026-10-18).
+- claude-bridge compaction takeover (TS returns `{compaction}` from `session_before_compact`, ignored by the pinned host) runs on the host `compaction` event (approved deviation 2026-10-26).
 - claude-bridge `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` (TS index.ts:2891 sets it process-wide) is set only on bridge-spawned Claude children, not inherited by bash/other children (approved deviation 2026-10-26).
 - Codex-usage `claude-bridge:usage-all-request`/`usage-request` (frozen index.ts:252-264, 364-373): Rust adds a claimable event-bus request API so a native listener can claim synchronously; unclaimed requests keep frozen "bridge not loaded"/"Claude bridge usage handler unavailable" (approved deviation 2026-10-22).
 - General rule (approved 2026-10-22): Rust returns owned values; JS object identity and mutation-through-returned-reference are not ported unless a frozen built-in consumer relies on them (then port that behavior explicitly). Audit consumers per case; no per-case approval needed.
