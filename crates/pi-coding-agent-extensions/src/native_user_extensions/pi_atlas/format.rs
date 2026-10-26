@@ -103,11 +103,6 @@ pub fn language_from_path(path: &JsString) -> JsString {
         ("yml", "YAML"),
         ("zig", "Zig"),
         ("zsh", "Shell"),
-        ("style", "decimal"),
-        ("style", "currency"),
-        ("currency", "USD"),
-        ("style", "currency"),
-        ("currency", "USD"),
     ];
     names
         .iter()
@@ -302,6 +297,13 @@ pub fn format_cache_timestamp(iso: &JsString, now: f64, zone: &jiff::tz::TimeZon
 mod tests {
     use super::*;
     use pi_js_compat::js_json;
+    #[test]
+    fn unmapped_extensions_are_other_like_source_ext_to_lang() {
+        // pi-atlas src/format.ts:109-112: EXT_TO_LANG has no style/currency keys.
+        assert_eq!(language_from_path(&"theme.style".into()), "Other");
+        assert_eq!(language_from_path(&"prices.currency".into()), "Other");
+        assert_eq!(language_from_path(&"main.rs".into()), "Rust");
+    }
     #[test]
     fn formats_timestamp_relative_to_local_calendar() {
         let now = pi_js_compat::date::date_parse("2026-10-25T12:00:00Z");
