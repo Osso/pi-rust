@@ -29,3 +29,15 @@ Proof ledger (local artifacts):
 Approved source discrepancy (user decision 2026-10-25): forward `rulesContent` as `<user_rules>` at the source custom-sections position. See the [spec](../../specs/claude-bridge-native.md).
 
 AskClaude checkpoint: fake-tool RED `/tmp/claude-bridge-red-askclaude.log`; action-summary RED `/tmp/claude-bridge-red-actions.log`; render RED `/tmp/claude-bridge-red-render.log`; 15 targeted tests GREEN `/tmp/claude-bridge-green-ask-render.log`; workspace all-target check `/tmp/claude-bridge-ask-check.log`, strict clippy `/tmp/claude-bridge-ask-clippy.log` and `cargo fmt --check` passed. Later prompt/session/account work invalidates the integration scope, not these bounded behaviors.
+
+## UTF-8 decoding sweep (2026-10-26)
+
+| Frozen extension source (38d84cb549) | Native sites / contract | Proof |
+|---|---|---|
+| `account-profiles.ts:74,123`; `index.ts:159` | `read_credentials`, `freshest`, `read_active_profile`: read UTF-8 with replacement; copying credentials writes the decoded text just like TS | `account_profiles::utf8_tests::{credentials_replace_invalid_utf8_in_values_and_copy_bytes,active_profile_replaces_invalid_utf8,freshest_ignores_a_nonmatching_invalid_utf8_marker}` |
+| `auth-trace.ts:98,112` | Descriptor credentials and active marker decode with replacement, not unreadable state | `auth_trace::utf8_tests::{credential_trace_replaces_invalid_utf8,profile_trace_replaces_invalid_utf8_marker}` |
+| `native-prefix.ts:258` | Recorded session association JSON replaces invalid bytes without dropping the association | `sessions::utf8_tests::association_replaces_invalid_utf8` |
+| `cc-session-io` frozen `jsonl.ts` reader | Session records survive invalid UTF-8; following records still load | `session_records::utf8_tests::session_records_replace_invalid_utf8_bidirectionally`: unmodified frozen reader on malformed bytes and native-written JSONL |
+| `session-verify.ts:18` | Post-write verification reads with replacement, retains matching session/count | `session_verify::utf8_tests::verification_replaces_invalid_utf8` |
+
+RED logs: `/tmp/utf8-bridge-red.log` (eight failures at the exact read boundaries); `/tmp/utf8-bridge-copy-red.log` (decoded credential copy bytes). GREEN: `/tmp/utf8-bridge-green.log`. Existing malformed-JSON, permissions and I/O paths are unchanged.

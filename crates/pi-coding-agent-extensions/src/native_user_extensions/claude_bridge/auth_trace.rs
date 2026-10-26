@@ -112,8 +112,10 @@ fn read_credential_file(path: &std::path::Path) -> JsValue {
     let read = || -> std::io::Result<JsValue> {
         let mut file = std::fs::File::open(path)?;
         let stat = file.metadata()?;
-        let mut content = String::new();
-        file.read_to_string(&mut content)?;
+        // readFileSync(descriptor, "utf8")
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let content = String::from_utf8_lossy(&bytes);
         let mut fields = credential_metadata(&content).as_object().cloned().unwrap_or_default();
         fields.insert(
             "modifiedAt".into(),
@@ -138,8 +140,11 @@ fn read_error(error: &std::io::Error) -> JsValue {
 }
 fn profile_files(profile: &AuthProfile) -> JsValue {
     let original = profile.home.join(".claude");
-    let active = match std::fs::read_to_string(original.join(".active-profile")) {
-        Ok(name) if name.trim() == profile.name => read_credential_file(&original.join(".credentials.json")),
+    // readFileSync(join(original, ".active-profile"), "utf8")
+    let active = match std::fs::read(original.join(".active-profile")) {
+        Ok(bytes) if String::from_utf8_lossy(&bytes).trim() == profile.name => {
+            read_credential_file(&original.join(".credentials.json"))
+        }
         Ok(_) => JsValue::object([("state", JsValue::String("unassociated".into()))]),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             JsValue::object([("state", JsValue::String("unassociated".into()))])
@@ -325,5 +330,41 @@ const profile={home:process.argv[2],name:'trace-fixture'};m.namespace.recordCred
         let node=std::process::Command::new("node").args(["-e",r#"process.stdout.write(require('crypto').createHash('sha256').update('\ud800').digest('hex').slice(0,16))"#]).output().unwrap();
         assert!(node.status.success());
         assert_eq!(fingerprint(&token), String::from_utf8(node.stdout).unwrap());
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+    #[test]
+    fn credential_trace_replaces_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("credentials.json");
+        std::fs::write(
+            &path,
+            b"{\"claudeAiOauth\":{\"accessToken\":\"before\xe2\x82after\xff\",\"expiresAt\":42}}",
+        )
+        .unwrap();
+        let observed = read_credential_file(&path);
+        assert_eq!(observed["state"].as_string(), Some(&JsString::from("present")));
+        assert_eq!(
+            observed["accessFingerprint"].as_string(),
+            Some(&JsString::from(fingerprint(&"before\u{fffd}after\u{fffd}".into())))
+        );
+        assert_eq!(observed["expiresAt"].as_f64(), Some(42.0));
+    }
+    #[test]
+    fn profile_trace_replaces_invalid_utf8_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join(".claude")).unwrap();
+        std::fs::write(dir.path().join(".claude/.active-profile"), b"before\xff").unwrap();
+        let profile = AuthProfile {
+            home: dir.path().into(),
+            name: "work".into(),
+        };
+        assert_eq!(
+            profile_files(&profile)["active"]["state"].as_string(),
+            Some(&JsString::from("unassociated"))
+        );
     }
 }

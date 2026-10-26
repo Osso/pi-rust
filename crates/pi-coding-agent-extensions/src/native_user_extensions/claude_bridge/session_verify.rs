@@ -21,7 +21,8 @@ pub(super) fn verify_written_session(path: &Path, id: &str, count: usize) -> Res
         }
     };
     let content = match std::fs::read(path) {
-        Ok(bytes) => String::from_utf8(bytes).map_err(|e| CallbackError::new(e.to_string()))?,
+        // readFileSync(jsonlPath, "utf8")
+        Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
         Err(error) => {
             return Ok(vec![pi_js_compat::js_format!(
                 "file unreadable — path={} size={} err={}",
@@ -149,5 +150,21 @@ mod tests {
                 expected
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+    #[test]
+    fn verification_replaces_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("session.jsonl");
+        std::fs::write(
+            &path,
+            b"{\"sessionId\":\"s\",\"text\":\"before\xe2\x82after\xff\"}\n{\"sessionId\":\"s\",\"text\":\"kept\"}\n",
+        )
+        .unwrap();
+        assert_eq!(verify_written_session(&path, "s", 2).unwrap(), Vec::<JsString>::new());
     }
 }

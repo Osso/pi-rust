@@ -91,9 +91,9 @@ fn require_regular(path: &Path) -> Result<()> {
 fn read_credentials(path: &Path) -> Result<(Vec<u8>, JsValue)> {
     require_regular(path)?;
     let content = fs::read(path)?;
-    let text = std::str::from_utf8(&content)
-        .map_err(|_| ProfileError::Message("Invalid credentials: expected a nonempty JSON object"))?;
-    let value = js_json::parse_lossless(text)
+    // readFileSync(path, "utf8")
+    let text = String::from_utf8_lossy(&content);
+    let value = js_json::parse_lossless(text.as_ref())
         .map_err(|_| ProfileError::Message("Invalid credentials: expected a nonempty JSON object"))?;
     if !matches!(&value,JsValue::Object(fields) if !fields.is_empty()) {
         return Err(ProfileError::Message(
@@ -109,7 +109,7 @@ fn read_credentials(path: &Path) -> Result<(Vec<u8>, JsValue)> {
             "Invalid credentials: expected a nonempty OAuth access token",
         ));
     }
-    Ok((content, value))
+    Ok((text.into_owned().into_bytes(), value))
 }
 fn has_owner(path: &Path) -> Result<bool> {
     let Some(stat) = inspect(path)? else {
@@ -161,7 +161,8 @@ fn freshest(home: &Path, name: &str, dir: &Path) -> Result<PathBuf> {
         if newest.is_none_or(|newest| time >= newest) {
             let marker = original.join(".active-profile");
             let active = if inspect(&marker)?.is_some() {
-                Some(fs::read_to_string(marker)?)
+                // readFileSync(marker, "utf8")
+                Some(String::from_utf8_lossy(&fs::read(marker)?).into_owned())
             } else {
                 None
             };
@@ -369,8 +370,9 @@ pub fn read_active_profile(
     let dir = config_dir
         .map(Path::to_path_buf)
         .unwrap_or_else(|| home.join(".claude"));
-    match fs::read_to_string(dir.join(".active-profile")) {
-        Ok(text) => Ok(Some(text.trim().into())),
+    // readFileSync(join(configDir, ".active-profile"), "utf8")
+    match fs::read(dir.join(".active-profile")) {
+        Ok(bytes) => Ok(Some(String::from_utf8_lossy(&bytes).trim().into())),
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(_) => Err(CallbackError::new("Cannot read Claude active profile marker")),
     }
@@ -403,4 +405,55 @@ pub fn read_usage_credentials(
         }
         _ => CallbackError::new("Invalid or unreadable Claude credentials for current account"),
     })
+}
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+    #[test]
+    fn credentials_replace_invalid_utf8_in_values_and_copy_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("credentials.json");
+        let bytes = b"{\"claudeAiOauth\":{\"accessToken\":\"kept\"},\"note\":\"before\xe2\x82after\xff\"}";
+        fs::write(&path, bytes).unwrap();
+        let (stored, parsed) = read_credentials(&path).unwrap();
+        assert_eq!(
+            stored,
+            "{\"claudeAiOauth\":{\"accessToken\":\"kept\"},\"note\":\"before\u{fffd}after\u{fffd}\"}".as_bytes()
+        );
+        assert_eq!(
+            parsed["note"].as_string(),
+            Some(&JsString::from("before\u{fffd}after\u{fffd}"))
+        );
+        assert_eq!(
+            parsed["claudeAiOauth"]["accessToken"].as_string(),
+            Some(&JsString::from("kept"))
+        );
+    }
+    #[test]
+    fn active_profile_replaces_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir(dir.path().join(".claude")).unwrap();
+        fs::write(
+            dir.path().join(".claude/.active-profile"),
+            b" before\xe2\x82after\xff \n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_active_profile(dir.path(), None).unwrap(),
+            Some("before\u{fffd}after\u{fffd}".into())
+        );
+    }
+    #[test]
+    fn freshest_ignores_a_nonmatching_invalid_utf8_marker() {
+        let dir = tempfile::tempdir().unwrap();
+        let original = dir.path().join(".claude");
+        fs::create_dir(&original).unwrap();
+        fs::write(original.join(".credentials.json"), "live").unwrap();
+        fs::write(original.join(".active-profile"), b"wrong\xff").unwrap();
+        assert_eq!(
+            freshest(dir.path(), "work", &dir.path().join("isolated")).unwrap(),
+            original.join("work.credentials.json")
+        );
+    }
 }
