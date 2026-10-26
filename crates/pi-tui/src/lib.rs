@@ -1,5 +1,6 @@
 //! Rust port of Pi's terminal UI library.
 
+mod mermaid;
 pub mod text_units;
 mod unicode_tables;
 

@@ -4746,6 +4746,17 @@ impl InteractiveMode {
         }
     }
 
+    fn mermaid_mode_source(&self) -> Rc<dyn Fn() -> crate::core::settings_manager::MermaidRenderingMode> {
+        let session = self.session();
+        Rc::new(move || session.settings_manager().get_mermaid_rendering_mode())
+    }
+
+    fn user_message_component(&self, text: JsString) -> UserMessageComponent {
+        let mut message = UserMessageComponent::new(text, Some(self.markdown_theme()), self.output_pad());
+        message.set_mermaid_mode_source(self.mermaid_mode_source());
+        message
+    }
+
     fn add_message_to_chat(&self, message: &AgentMessage, populate_history: bool) {
         let coordination = crate::modes::interactive::coordination_visibility::is_coordination_message(message);
         let previous_child_count = self.chat_container.borrow().children().len();
@@ -4773,20 +4784,12 @@ impl InteractiveMode {
                         self.chat_container.borrow_mut().add_child(component(Spacer::new(1)));
                         self.chat_container
                             .borrow_mut()
-                            .add_child(component(UserMessageComponent::new(
-                                user_message,
-                                Some(self.markdown_theme()),
-                                self.output_pad(),
-                            )));
+                            .add_child(component(self.user_message_component(user_message)));
                     }
                 } else {
                     self.chat_container
                         .borrow_mut()
-                        .add_child(component(UserMessageComponent::new(
-                            text.clone(),
-                            Some(self.markdown_theme()),
-                            self.output_pad(),
-                        )));
+                        .add_child(component(self.user_message_component(text.clone())));
                 }
                 if populate_history
                     && user.input_source != Some(pi_ai::types::InputSource::Extension)
@@ -4797,15 +4800,15 @@ impl InteractiveMode {
                 }
             }
             AgentMessage::Assistant(assistant) => {
-                self.chat_container
-                    .borrow_mut()
-                    .add_child(component(AssistantMessageComponent::new(
-                        Some((**assistant).clone()),
-                        self.hide_thinking_block.get(),
-                        Some(self.markdown_theme()),
-                        Some(self.hidden_thinking_label.borrow().clone()),
-                        self.output_pad(),
-                    )));
+                let mut component_value = AssistantMessageComponent::new(
+                    Some((**assistant).clone()),
+                    self.hide_thinking_block.get(),
+                    Some(self.markdown_theme()),
+                    Some(self.hidden_thinking_label.borrow().clone()),
+                    self.output_pad(),
+                );
+                component_value.set_mermaid_mode_source(self.mermaid_mode_source());
+                self.chat_container.borrow_mut().add_child(component(component_value));
             }
             AgentMessage::ToolResult(_) => {}
             AgentMessage::Custom(object) => self.add_custom_message_to_chat(object),
@@ -8049,6 +8052,7 @@ impl InteractiveMode {
             })),
             on_mermaid_rendering_mode_change: callback!(|mode: Rc<InteractiveMode>, value| {
                 mode.settings_mut(|settings| settings.set_mermaid_rendering_mode(value));
+                mode.ui.request_render();
             }),
             on_hide_thinking_block_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
                 mode.hide_thinking_block.set(hidden);
@@ -12238,6 +12242,8 @@ impl InteractiveMode {
                         Some(self.hidden_thinking_label.borrow().clone()),
                         self.output_pad(),
                     );
+                    component_value.set_mermaid_mode_source(self.mermaid_mode_source());
+                    component_value.set_streaming(true);
                     component_value.update_content((**assistant).clone());
                     let component_ref = component(component_value);
                     self.transcript_tail_container
@@ -12338,6 +12344,7 @@ impl InteractiveMode {
                             .as_any_mut()
                             .and_then(|any| any.downcast_mut::<AssistantMessageComponent>())
                     {
+                        component_value.set_streaming(false);
                         component_value.update_content(assistant.clone());
                     }
                     self.move_streaming_component_to_chat();

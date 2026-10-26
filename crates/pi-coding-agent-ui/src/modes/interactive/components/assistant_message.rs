@@ -10,6 +10,7 @@ use pi_tui::tui::ComponentRef;
 use pi_tui::{Component, Container, Markdown, MarkdownOptions, MarkdownTheme, Spacer, Text};
 
 use crate::core::assistant_narration::is_server_narration_signature;
+use crate::core::settings_manager::MermaidRenderingMode;
 use crate::modes::interactive::theme::{ThemeColor, get_markdown_theme, with_theme};
 
 const OSC133_ZONE_START: &str = "\x1b]133;A\x07";
@@ -62,6 +63,8 @@ pub struct AssistantMessageComponent {
     trailing_status_slot: Option<TrailingStatusSlot>,
     last_message: Option<AssistantMessage>,
     has_tool_calls: bool,
+    mermaid_mode_source: Option<Rc<dyn Fn() -> MermaidRenderingMode>>,
+    is_streaming: bool,
 }
 
 impl AssistantMessageComponent {
@@ -86,11 +89,21 @@ impl AssistantMessageComponent {
             trailing_status_slot: None,
             last_message: None,
             has_tool_calls: false,
+            mermaid_mode_source: None,
+            is_streaming: false,
         };
         if let Some(message) = message {
             component.update_content(message);
         }
         component
+    }
+
+    pub fn set_mermaid_mode_source(&mut self, source: Rc<dyn Fn() -> MermaidRenderingMode>) {
+        self.mermaid_mode_source = Some(source);
+    }
+
+    pub fn set_streaming(&mut self, is_streaming: bool) {
+        self.is_streaming = is_streaming;
     }
 
     pub fn set_hide_thinking_block(&mut self, hide: bool) {
@@ -369,6 +382,20 @@ impl Component for AssistantMessageComponent {
         Some(&self.container)
     }
     fn render(&mut self, width: usize) -> Vec<JsString> {
+        if let Some(source) = &self.mermaid_mode_source {
+            let enabled = match source() {
+                MermaidRenderingMode::Off => false,
+                MermaidRenderingMode::Final => !self.is_streaming,
+                MermaidRenderingMode::Streaming => true,
+            };
+            for slot in &self.content_slots {
+                if let Some(SlotComponent::Markdown(markdown)) = &slot.component {
+                    markdown
+                        .borrow_mut()
+                        .set_mermaid_rendering(enabled && slot.content_type == ContentType::Text, self.is_streaming);
+                }
+            }
+        }
         let mut lines = self.container.render(width);
         if self.has_tool_calls || lines.is_empty() {
             return lines;

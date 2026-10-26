@@ -3,7 +3,7 @@
 //!
 //! Renders flowchart, sequence, state, class, and ER diagrams as Unicode art.
 //! Unsupported input and layouts exceeding the renderer's bounds return `None`.
-//! Warning detection and lossless UTF-16 input are not implemented.
+//! Scalar input is required; callers must preserve non-scalar UTF-16 source.
 
 use std::collections::HashMap;
 

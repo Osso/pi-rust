@@ -98,6 +98,235 @@ fn color_style(style: markdown_theme::Style) -> Box<dyn Fn(&JsString) -> JsStrin
 }
 
 #[test]
+fn mermaid_diagram_renders_as_art() {
+    let mut md = markdown("```mermaid\nflowchart LR\n  A[Start] --> B[Done]\n```");
+    md.set_mermaid_rendering(true, false);
+    assert!(plain(&mut md, 80).iter().any(|line| line.contains("───▶")));
+}
+
+struct MermaidTheme;
+
+impl MarkdownTheme for MermaidTheme {
+    fn heading(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn link(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn link_url(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn code(&self, text: &JsString) -> JsString {
+        apply_chalk(&[YELLOW], text)
+    }
+    fn code_block(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn code_block_border(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn quote(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn quote_border(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn hr(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn list_bullet(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn bold(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn italic(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn strikethrough(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn underline(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn mermaid_border(&self, text: &JsString) -> JsString {
+        apply_chalk(&[GRAY], text)
+    }
+    fn mermaid_text(&self, text: &JsString) -> JsString {
+        apply_chalk(&[CYAN], text)
+    }
+    fn mermaid_edge(&self, text: &JsString) -> JsString {
+        apply_chalk(&[MAGENTA], text)
+    }
+}
+
+#[test]
+fn mermaid_styles_semantic_spans_inside_code_style() {
+    let mut md = Markdown::new(
+        "```mermaid\nflowchart LR\n A[Start] --> B[Done]\n```",
+        0,
+        0,
+        Box::new(MermaidTheme),
+        None,
+        MarkdownOptions::default(),
+    );
+    md.set_mermaid_rendering(true, false);
+    let output = joined(&mut md, 80);
+    assert!(output.contains("\x1b[33m"));
+    assert!(output.contains("\x1b[90m"));
+    assert!(output.contains("\x1b[36m"));
+    assert!(output.contains("\x1b[35m"));
+}
+
+fn assert_historical_oracle_pin() {
+    let output = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir("/home/osso/.worktrees/pi-rust-source-532f7d12")
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap().trim(),
+        "532f7d12cd19235081bd4d6e425bde185652d86f"
+    );
+}
+
+#[test]
+fn mermaid_styling_matches_historical_oracle() {
+    use std::process::Command;
+    assert_historical_oracle_pin();
+    let text = "```mermaid\nflowchart LR\n A[Start] --> B[Done]\n```";
+    let script = r#"
+import {createMermaidMarkdownTransformer} from './packages/coding-agent/src/modes/interactive/components/mermaid.ts';
+import {Markdown} from './packages/tui/src/components/markdown.ts';
+import {Chalk} from 'chalk';
+const chalk = new Chalk({level: 3});
+const identity = text => text;
+const theme = new Proxy({}, {get: (_, key) => key === 'codeBlockIndent' ? '  ' : key === 'highlightCode' ? undefined : key === 'code' ? chalk.yellow : identity});
+const colors = {borderMuted: chalk.gray, text: chalk.cyan, accent: chalk.magenta, muted: identity, warning: identity};
+const transformer = createMermaidMarkdownTransformer({getMode: () => 'streaming', theme: {fg: (color, text) => colors[color](text), bold: identity}});
+const text = transformer(process.argv[1], {availableWidth: 80, isStreaming: false, messageType: 'assistant'});
+console.log(JSON.stringify(new Markdown(text, 0, 0, theme).render(80).map(line => line.trimEnd())));
+"#;
+    let output = Command::new("node")
+        .args(["--import", "tsx", "--input-type=module", "-e", script, text])
+        .current_dir("/home/osso/.worktrees/pi-rust-source-532f7d12")
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+    let mut md = Markdown::new(text, 0, 0, Box::new(MermaidTheme), None, MarkdownOptions::default());
+    md.set_mermaid_rendering(true, false);
+    let actual: Vec<String> = md
+        .render(80)
+        .iter()
+        .map(|line| line.trim_end().to_utf8().unwrap())
+        .collect();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn mermaid_mode_changes_invalidate_cached_tokens() {
+    let mut md = markdown("```mermaid\nflowchart LR\n A[Foo]:::highlight --> B[Bar]\n```");
+    assert!(joined(&mut md, 80).contains("```mermaid"));
+    md.set_mermaid_rendering(true, true);
+    assert!(joined(&mut md, 80).contains("Foo"));
+    assert!(!joined(&mut md, 80).contains("```mermaid"));
+    md.set_mermaid_rendering(true, false);
+    assert!(joined(&mut md, 80).contains("Mermaid diagram not rendered"));
+    md.set_mermaid_rendering(false, false);
+    assert!(!joined(&mut md, 80).contains("Mermaid diagram not rendered"));
+}
+
+#[test]
+fn mermaid_preserves_non_scalar_code() {
+    let mut text = JsString::from("```mermaid\nflowchart LR\n A[");
+    text.push_unit(0xd800);
+    text.push_str("] --> B\n```");
+    let mut md = Markdown::new(text, 0, 0, Box::new(ChalkTheme), None, MarkdownOptions::default());
+    md.set_mermaid_rendering(true, false);
+    let output = joined(&mut md, 80);
+    assert!(output.units().contains(&0xd800));
+    assert!(output.contains("```mermaid"));
+}
+
+#[test]
+fn mermaid_matches_historical_markdown_oracle() {
+    use std::process::Command;
+    assert_historical_oracle_pin();
+    let cases = [
+        ("```mermaid\nflowchart LR\n A[Start] --> B[Done]\n```", 80, true, false),
+        ("```mermaid\nflowchart LR\n A[👩‍💻] --> B[e\u{301}]\n```", 80, true, false),
+        (
+            "```mermaid\nsequenceDiagram\n Alice->>Bob: Hello\n Bob-->>Alice: Hi\n```",
+            80,
+            true,
+            false,
+        ),
+        (
+            "```mermaid\nflowchart LR\n A[plain ` tick] --> B[Done]\n```",
+            80,
+            true,
+            false,
+        ),
+        ("```mermaid\nflowchart LR\n A --> B\n```", 8, true, false),
+        ("```mermaid\npie\n title Pets\n```", 80, true, false),
+        (
+            "```mermaid\nflowchart LR\n A[Foo]:::highlight --> B[Bar]\n```",
+            80,
+            true,
+            false,
+        ),
+        (
+            "```mermaid\nflowchart LR\n A[Foo]:::highlight --> B[Bar]\n```",
+            80,
+            true,
+            true,
+        ),
+        ("> ```mermaid\n> flowchart LR\n> A --> B\n> ```", 80, true, false),
+        ("```mermaid\nflowchart LR\n A --> B\n```", 80, false, false),
+        (
+            "Before\n\n```mermaid\nflowchart LR\n A --> B\n```\nAfter",
+            80,
+            true,
+            false,
+        ),
+        (
+            "```mermaid\nflowchart LR\n A[Foo]:::highlight --> B[Bar]\n```\nAfter",
+            80,
+            true,
+            false,
+        ),
+    ];
+    let script = r#"
+import {createMermaidMarkdownTransformer} from './packages/coding-agent/src/modes/interactive/components/mermaid.ts';
+import {Markdown} from './packages/tui/src/components/markdown.ts';
+const [text, width, enabled, streaming] = JSON.parse(process.argv[1]);
+const transformed = createMermaidMarkdownTransformer({getMode: () => enabled ? 'streaming' : 'off'})(text, {availableWidth: width, isStreaming: streaming, messageType: 'assistant'});
+const identity = text => text;
+const theme = new Proxy({}, {get: (_, key) => key === 'codeBlockIndent' ? '  ' : key === 'highlightCode' ? undefined : identity});
+console.log(JSON.stringify(new Markdown(transformed, 0, 0, theme).render(width).map(line => line.trimEnd())));
+"#;
+    for (text, width, enabled, streaming) in cases {
+        let input = serde_json::json!([text, width, enabled, streaming]).to_string();
+        let output = Command::new("node")
+            .args(["--import", "tsx", "--input-type=module", "-e", script, &input])
+            .current_dir("/home/osso/.worktrees/pi-rust-source-532f7d12")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        let expected: Vec<String> = serde_json::from_slice(&output.stdout).unwrap();
+        let mut md = markdown(text);
+        md.set_mermaid_rendering(enabled, streaming);
+        let actual: Vec<String> = plain(&mut md, width)
+            .iter()
+            .map(|line| line.to_utf8().unwrap())
+            .collect();
+        assert_eq!(actual, expected, "{text:?}, width={width}, streaming={streaming}");
+    }
+}
+
+#[test]
 fn hides_html_comments() {
     let _guard = lock();
     let mut markdown = markdown("alpha\n\n<!-- -->\n\nbeta");

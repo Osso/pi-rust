@@ -1,8 +1,10 @@
 //! Ported from `coding-agent/src/modes/interactive/components/user-message.ts`.
 
 use pi_js_compat::{js_format, js_json::JsString};
+use std::cell::RefCell;
 use std::rc::Rc;
 
+use crate::core::settings_manager::MermaidRenderingMode;
 use crate::modes::interactive::theme::{ThemeBg, ThemeColor, get_markdown_theme, with_theme};
 use pi_tui::components::r#box::BoxComponent;
 use pi_tui::components::text::StyleFn;
@@ -20,6 +22,8 @@ pub struct UserMessageComponent {
     output_pad: usize,
     in_transit: bool,
     container: Container,
+    markdown: Option<Rc<RefCell<Markdown>>>,
+    mermaid_mode_source: Option<Rc<dyn Fn() -> MermaidRenderingMode>>,
 }
 
 impl UserMessageComponent {
@@ -30,9 +34,15 @@ impl UserMessageComponent {
             output_pad,
             in_transit: false,
             container: Container::new(),
+            markdown: None,
+            mermaid_mode_source: None,
         };
         component.rebuild();
         component
+    }
+
+    pub fn set_mermaid_mode_source(&mut self, source: Rc<dyn Fn() -> MermaidRenderingMode>) {
+        self.mermaid_mode_source = Some(source);
     }
 
     pub fn set_output_pad(&mut self, padding: usize) {
@@ -63,7 +73,7 @@ impl UserMessageComponent {
             ThemeColor::UserMessageText
         };
         let color: StyleFn = Rc::new(move |content: &JsString| with_theme(|theme| theme.fg(color_key, content)));
-        content_box.add_child(component(Markdown::with_shared_theme(
+        let markdown = Rc::new(RefCell::new(Markdown::with_shared_theme(
             self.text.clone(),
             0,
             0,
@@ -77,6 +87,8 @@ impl UserMessageComponent {
                 preserve_backslash_escapes: true,
             },
         )));
+        content_box.add_child(markdown.clone());
+        self.markdown = Some(markdown);
         if self.in_transit {
             let label = with_theme(|theme| theme.fg(ThemeColor::Muted, "⧗ sending…"));
             content_box.add_child(component(Text::new(label, 0, 0)));
@@ -91,6 +103,11 @@ impl Component for UserMessageComponent {
     }
 
     fn render(&mut self, width: usize) -> Vec<JsString> {
+        if let (Some(source), Some(markdown)) = (&self.mermaid_mode_source, &self.markdown) {
+            markdown
+                .borrow_mut()
+                .set_mermaid_rendering(source() != MermaidRenderingMode::Off, false);
+        }
         let mut lines = self.container.render(width);
         if lines.is_empty() {
             return lines;

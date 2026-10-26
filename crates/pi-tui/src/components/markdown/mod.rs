@@ -48,6 +48,22 @@ pub trait MarkdownTheme {
     fn strikethrough(&self, text: &JsString) -> JsString;
     fn underline(&self, text: &JsString) -> JsString;
 
+    fn mermaid_border(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn mermaid_text(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn mermaid_edge(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn mermaid_edge_label(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+    fn mermaid_warning(&self, text: &JsString) -> JsString {
+        text.clone()
+    }
+
     fn highlight_code(&self, _code: &JsString, _lang: Option<&JsString>) -> Option<Vec<JsString>> {
         None
     }
@@ -87,6 +103,8 @@ pub struct Markdown {
     cached_width: Option<usize>,
     cached_lines: Option<Vec<JsString>>,
     previous_token_caches: Vec<TokenRenderCache>,
+    mermaid_enabled: bool,
+    mermaid_streaming: bool,
     default_style_prefix: RefCell<Option<JsString>>,
 }
 
@@ -122,7 +140,17 @@ impl Markdown {
             cached_width: None,
             cached_lines: None,
             previous_token_caches: Vec::new(),
+            mermaid_enabled: false,
+            mermaid_streaming: false,
             default_style_prefix: RefCell::new(None),
+        }
+    }
+
+    pub fn set_mermaid_rendering(&mut self, enabled: bool, is_streaming: bool) {
+        if (self.mermaid_enabled, self.mermaid_streaming) != (enabled, is_streaming) {
+            self.mermaid_enabled = enabled;
+            self.mermaid_streaming = is_streaming;
+            self.invalidate();
         }
     }
 
@@ -187,7 +215,8 @@ impl Markdown {
     }
 
     fn render_and_wrap_token(&self, token: &Token, width: usize, next_type: Option<&str>) -> Vec<JsString> {
-        self.render_token(token, width, next_type, None)
+        self.render_mermaid(token, width)
+            .unwrap_or_else(|| self.render_token(token, width, next_type, None))
             .into_iter()
             .flat_map(|line| {
                 if is_image_line(&line) {
@@ -197,6 +226,63 @@ impl Markdown {
                 }
             })
             .collect()
+    }
+
+    fn render_mermaid(&self, token: &Token, width: usize) -> Option<Vec<JsString>> {
+        if !self.mermaid_enabled {
+            return None;
+        }
+        let Token::Code {
+            lang: Some(lang), text, ..
+        } = token
+        else {
+            return None;
+        };
+        let language = lang.to_utf8().ok()?;
+        if !language.split_whitespace().next()?.eq_ignore_ascii_case("mermaid") {
+            return None;
+        }
+        let art = crate::mermaid::render(&text.to_utf8().ok()?)?;
+        if art.width > width {
+            return None;
+        }
+        if !self.mermaid_streaming {
+            if let Some(warnings) = art.warnings.as_ref().filter(|warnings| !warnings.is_empty()) {
+                let suffix = if warnings.len() > 1 {
+                    format!(" (+{} more)", warnings.len() - 1)
+                } else {
+                    String::new()
+                };
+                let warning = JsString::from(format!("Mermaid diagram not rendered: {}{}", warnings[0], suffix));
+                let mut lines = self.render_token(token, width, None, None);
+                lines.push(JsString::default());
+                lines.push(self.theme.code(&self.theme.mermaid_warning(&warning)));
+                return Some(lines);
+            }
+        }
+        let lines: Vec<JsString> = art
+            .styled_lines
+            .into_iter()
+            .map(|line| {
+                let mut result = JsString::default();
+                for span in line.spans {
+                    let text = JsString::from(span.text);
+                    let styled = match span.style {
+                        crate::mermaid::Style::Empty => text,
+                        crate::mermaid::Style::Border => self.theme.mermaid_border(&text),
+                        crate::mermaid::Style::Text => self.theme.mermaid_text(&text),
+                        crate::mermaid::Style::Edge => self.theme.mermaid_edge(&text),
+                        crate::mermaid::Style::EdgeLabel => self.theme.mermaid_edge_label(&text),
+                    };
+                    result.push_str(styled);
+                }
+                if result.is_empty() {
+                    result = JsString::from("\u{00a0}");
+                }
+                self.theme.code(&result)
+            })
+            .collect();
+        Some(lines)
     }
 
     pub fn text(&self) -> &JsString {

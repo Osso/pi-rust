@@ -68,6 +68,8 @@ pub mod footer_status_source_throw;
 pub mod frozen_theme_assets;
 #[path = "interactive_child_view.rs"]
 pub mod interactive_child_view;
+#[path = "interactive_mermaid_red.rs"]
+pub mod interactive_mermaid_red;
 #[path = "interactive_tmux_keyboard.rs"]
 pub mod interactive_tmux_keyboard;
 #[path = "interactive_workflows.rs"]
@@ -104,6 +106,8 @@ pub mod shared_executable_script;
 pub mod shared_extensions;
 #[path = "support/oracle.rs"]
 pub mod shared_oracle;
+#[path = "support/pty.rs"]
+pub mod shared_pty;
 #[path = "support/render_owner.rs"]
 pub mod shared_render_owner;
 #[path = "../../pi-tui/tests/support/virtual_terminal.rs"]

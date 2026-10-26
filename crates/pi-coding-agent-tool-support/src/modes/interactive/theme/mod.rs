@@ -1870,6 +1870,26 @@ impl MarkdownTheme for PiMarkdownTheme {
         with_theme(|theme| theme.underline(text))
     }
 
+    fn mermaid_border(&self, text: &JsString) -> JsString {
+        with_theme(|theme| theme.fg(ThemeColor::BorderMuted, text))
+    }
+
+    fn mermaid_text(&self, text: &JsString) -> JsString {
+        with_theme(|theme| theme.fg(ThemeColor::Text, text))
+    }
+
+    fn mermaid_edge(&self, text: &JsString) -> JsString {
+        with_theme(|theme| theme.fg(ThemeColor::Accent, text))
+    }
+
+    fn mermaid_edge_label(&self, text: &JsString) -> JsString {
+        with_theme(|theme| theme.fg(ThemeColor::Muted, text))
+    }
+
+    fn mermaid_warning(&self, text: &JsString) -> JsString {
+        with_theme(|theme| theme.fg(ThemeColor::Warning, text))
+    }
+
     fn highlight_code(&self, code: &JsString, lang: Option<&JsString>) -> Option<Vec<JsString>> {
         let valid_lang = lang.filter(|language| supports_language(language));
         Some(match valid_lang {

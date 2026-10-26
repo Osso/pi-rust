@@ -162,6 +162,86 @@ fn assistant_message(content: Vec<AssistantContent>, stop_reason: StopReason) ->
     }
 }
 
+#[test]
+fn mermaid_mode_updates_existing_user_message() {
+    use pi_coding_agent::core::settings_manager::MermaidRenderingMode;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    theme();
+    let mode = Rc::new(Cell::new(MermaidRenderingMode::Off));
+    let mut message = UserMessageComponent::new("```mermaid\ngraph TD\n A --> B\n```", None, 0);
+    assert!(plain(&message.render(80)).contains("graph TD"));
+    let source = mode.clone();
+    message.set_mermaid_mode_source(Rc::new(move || source.get()));
+    assert!(plain(&message.render(80)).contains("graph TD"));
+    mode.set(MermaidRenderingMode::Final);
+    assert!(!plain(&message.render(80)).contains("graph TD"));
+    mode.set(MermaidRenderingMode::Off);
+    assert!(plain(&message.render(80)).contains("graph TD"));
+}
+
+#[test]
+fn assistant_mermaid_respects_streaming_and_excludes_thinking() {
+    use pi_coding_agent::core::settings_manager::MermaidRenderingMode;
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    theme();
+    let diagram = "```mermaid\ngraph TD\n A --> B\n```";
+    let mode = Rc::new(Cell::new(MermaidRenderingMode::Final));
+    let mut narration = ThinkingContent::new(diagram);
+    narration.thinking_signature = Some("Eg0KC0IJbmFycmF0aW9u".to_owned());
+    let mut message = AssistantMessageComponent::new(
+        Some(assistant_message(
+            vec![thinking(diagram), text(diagram), AssistantContent::Thinking(narration)],
+            StopReason::Stop,
+        )),
+        false,
+        None,
+        None,
+        0,
+    );
+    assert_eq!(
+        plain(&message.render(80))
+            .to_utf8()
+            .unwrap()
+            .matches("graph TD")
+            .count(),
+        3
+    );
+    let source = mode.clone();
+    message.set_mermaid_mode_source(Rc::new(move || source.get()));
+    message.set_streaming(true);
+    assert_eq!(
+        plain(&message.render(80))
+            .to_utf8()
+            .unwrap()
+            .matches("graph TD")
+            .count(),
+        3
+    );
+    message.set_streaming(false);
+    assert_eq!(
+        plain(&message.render(80))
+            .to_utf8()
+            .unwrap()
+            .matches("graph TD")
+            .count(),
+        1
+    );
+    mode.set(MermaidRenderingMode::Streaming);
+    message.set_streaming(true);
+    assert_eq!(
+        plain(&message.render(80))
+            .to_utf8()
+            .unwrap()
+            .matches("graph TD")
+            .count(),
+        1
+    );
+}
+
 fn text(value: &str) -> AssistantContent {
     AssistantContent::Text(TextContent::new(value))
 }
