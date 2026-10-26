@@ -52,10 +52,13 @@ if os.path.exists(".fixture-record-launch"):
         json.dump({"argv": args, "env": dict(os.environ), "cwd": os.getcwd(), "initialize": init}, record)
     send({"type": "control_response", "response": {"subtype": "success", "request_id": init["request_id"], "response": {}}})
     user = read()
+    with open(".fixture-first-user.json", "w", encoding="utf-8") as record:
+        json.dump(user, record, ensure_ascii=True)
     answer("launch recorded", "launch-msg")
     sys.exit(0)
 if args[:1] == ["-p"]:
     assert args == ["-p", "Reply: ok", "--model", "haiku", "--max-turns", "1", "--tools", "", "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config"], args
+    assert os.environ.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
     root = os.environ["CLAUDE_CONFIG_DIR"]
     with open(os.path.join(root, ".credentials.json"), "w", encoding="utf-8") as saved:
         json.dump({"claudeAiOauth": {"accessToken": "refreshed-for-usage", "expiresAt": 8640000000000}}, saved)
@@ -68,7 +71,7 @@ if "--debug-file" in args:
 assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"], args
 assert os.environ.get("ENABLE_CLAUDEAI_MCP_SERVERS") == "0"
 assert os.environ.get("DISABLE_AUTO_COMPACT") == "1"
-assert "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC" not in os.environ
+assert os.environ.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
 with open(".fixture-pid", "w", encoding="ascii") as pid_file:
     pid_file.write(str(os.getpid()))
 if os.path.exists(".fixture-stall-initialize"):
@@ -80,6 +83,8 @@ assert init["request"]["subtype"] == "initialize"
 send({"type": "control_response", "response": {"subtype": "success", "request_id": init["request_id"], "response": {}}})
 send({"type": "system", "subtype": "init", "session_id": "11111111-1111-4111-8111-111111111111"})
 user = read()
+with open(".fixture-first-user.json", "w", encoding="utf-8") as record:
+    json.dump(user, record, ensure_ascii=True)
 assert user["type"] == "user", user
 content = user["message"]["content"]
 text = content if isinstance(content, str) else "".join(item.get("text", "") for item in content)

@@ -181,6 +181,10 @@ impl LaunchOptions {
 }
 
 // SDK fT and ProcessTransport.initialize: preserve caller values except Node/debug plumbing.
+/// Bridge activation sets this on its own process.env (index.ts:2891), so every
+/// Claude Code child it spawns inherits it.
+pub const DISABLE_NONESSENTIAL_TRAFFIC: (&str, &str) = ("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1");
+
 fn sdk_environment(
     mut env: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
 ) -> std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> {
@@ -233,6 +237,7 @@ impl ClaudeProcess {
             .current_dir(&options.cwd)
             .env_clear()
             .envs(sdk_environment(std::env::vars_os().collect()))
+            .env(DISABLE_NONESSENTIAL_TRAFFIC.0, DISABLE_NONESSENTIAL_TRAFFIC.1)
             .env("ENABLE_CLAUDEAI_MCP_SERVERS", "0")
             .env("DISABLE_AUTO_COMPACT", "1")
             .stdin(Stdio::piped())
@@ -392,6 +397,28 @@ impl ClaudeProcess {
         )
         .await
     }
+}
+
+/// SDK `query()` with a string prompt writes this record (sdk.mjs:142 `mT`).
+pub fn string_prompt_message(text: JsString) -> JsValue {
+    JsValue::object([
+        ("type", JsValue::String("user".into())),
+        ("session_id", JsValue::String("".into())),
+        (
+            "message",
+            JsValue::object([
+                ("role", JsValue::String("user".into())),
+                (
+                    "content",
+                    JsValue::Array(vec![JsValue::object([
+                        ("type", JsValue::String("text".into())),
+                        ("text", JsValue::String(text)),
+                    ])]),
+                ),
+            ]),
+        ),
+        ("parent_tool_use_id", JsValue::Null),
+    ])
 }
 
 pub fn user_message(content: JsValue, steer: bool) -> JsValue {

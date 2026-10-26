@@ -259,6 +259,11 @@ Primary shape traces use a shared writer and immutable output/SDK-ID snapshots a
 
 Final verification source scope is `5ea18c8cc` (the merge of `37cfc6e87` with this logging lane) plus `/tmp/bridge-diag-final-source.patch`. The final ledger below records the bounded module suite and requested workspace/fmt/strict-crate checks. No network, live credentials, stash, push or spawned agents were used.
 
+## Child launch environment and string prompts (verifier 377, 2026-10-26)
+
+- `index.ts:2891` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` on `process.env`. Native provider/AskClaude/summary children (`process.rs`) and usage-refresh children (`usage.rs`) set it; the fake `claude` asserts it on both launch paths. Gap: TS mutates the whole pi process environment, so unrelated children spawned later (bash tool, other extensions) also inherit it; the native port scopes it to bridge children and does not mutate the host process environment.
+- AskClaude and isolated-summary string prompts use the SDK `mT` envelope (`session_id:""`, text-block array). Tests: `claude_bridge_sdk_askclaude_thinking_overrides_reach_child`, `claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch_session_mirrors` (RED `/tmp/bridge-f1f2-red.log`, GREEN `/tmp/bridge-f1f2-green.log`).
+
 ## Proof ledger
 
 Final logging source scope: `5ea18c8cc` plus `/tmp/bridge-diag-final-source.patch`, SHA-256 `77729122edddc4bf465b47c662825ee36dcf2c29673c50b3f8d1f55279228b3a`. No later Rust/fixture change invalidates this proof.

@@ -175,7 +175,14 @@ async fn claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch
     let AssistantContent::Text(text) = &result.content[0] else {
         panic!("summary text");
     };
-    assert_eq!(text.text, JsString::from("Claude: ") + first + "\npart two");
+    assert_eq!(text.text, JsString::from("Claude: ") + first.clone() + "\npart two");
+    assert_eq!(
+        pi_js_compat::js_json::parse_lossless(
+            std::fs::read_to_string(dir.path().join(".fixture-first-user.json")).unwrap()
+        )
+        .unwrap(),
+        super::sdk_launch_tests::sdk_string_prompt(first + "\npart two")
+    );
     assert_eq!(result.usage.total_tokens, 0.0);
     assert_eq!(count, 1);
     assert!(!dir.path().join("agent-summary").exists());

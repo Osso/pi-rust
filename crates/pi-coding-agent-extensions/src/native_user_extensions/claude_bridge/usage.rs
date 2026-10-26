@@ -228,6 +228,10 @@ async fn refresh_token(account: &UsageAccount, bridge: &BridgeProvider) -> Resul
     command
         .args(REFRESH_ARGS)
         .current_dir(std::env::temp_dir())
+        .env(
+            super::process::DISABLE_NONESSENTIAL_TRAFFIC.0,
+            super::process::DISABLE_NONESSENTIAL_TRAFFIC.1,
+        )
         .kill_on_drop(true)
         .stdin(std::process::Stdio::null());
     if let Some(dir) = config_dir {

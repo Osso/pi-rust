@@ -11,7 +11,7 @@ use pi_js_compat::callback_error::CallbackError;
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use serde_json::json;
 
-use super::process::{ClaudeProcess, user_message};
+use super::process::{ClaudeProcess, string_prompt_message};
 use super::provider::BridgeProvider;
 use super::stream::{result_error, string};
 use crate::core::extensions::types::{
@@ -468,7 +468,7 @@ impl AskRun<'_> {
     ) -> Result<(), CallbackError> {
         process.initialize(launch).await?;
         process
-            .write(&user_message(JsValue::String(string(self.args, "prompt")), false))
+            .write(&string_prompt_message(string(self.args, "prompt")))
             .await?;
 
         let mut interval = tokio::time::interval_at(

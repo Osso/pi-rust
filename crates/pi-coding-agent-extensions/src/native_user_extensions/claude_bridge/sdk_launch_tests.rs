@@ -6,6 +6,27 @@ use pi_ai::{
 };
 use pi_js_compat::js_json::{self, JsValue};
 
+pub(super) fn sdk_string_prompt(text: pi_js_compat::js_json::JsString) -> JsValue {
+    JsValue::object([
+        ("type", JsValue::String("user".into())),
+        ("session_id", JsValue::String("".into())),
+        (
+            "message",
+            JsValue::object([
+                ("role", JsValue::String("user".into())),
+                (
+                    "content",
+                    JsValue::Array(vec![JsValue::object([
+                        ("type", JsValue::String("text".into())),
+                        ("text", JsValue::String(text)),
+                    ])]),
+                ),
+            ]),
+        ),
+        ("parent_tool_use_id", JsValue::Null),
+    ])
+}
+
 async fn capture(launch: &process::LaunchOptions) -> JsValue {
     std::fs::write(launch.cwd.join(".fixture-record-launch"), "").unwrap();
     let mut child = ClaudeProcess::spawn_child(launch).unwrap();
@@ -153,6 +174,8 @@ async fn claude_bridge_sdk_launch_matches_offline_sdk_captures() {
         {
             env.insert("CLAUDE_CODE_SDK_READS_SESSION_STATE".into(), "1".into());
         }
+        // Bridge activation sets this on process.env (index.ts:2891), so every child inherits it.
+        env.insert("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC".into(), "1".into());
         env.insert("ENABLE_CLAUDEAI_MCP_SERVERS".into(), "0".into());
         env.insert("DISABLE_AUTO_COMPACT".into(), "1".into());
         env.insert(
@@ -239,6 +262,12 @@ async fn claude_bridge_sdk_askclaude_thinking_overrides_reach_child() {
             Some(true),
             "{:?}",
             result.content
+        );
+        // SDK query() writes a string prompt as this envelope (sdk.mjs:142 `mT`).
+        assert_eq!(
+            js_json::parse_lossless(std::fs::read_to_string(dir.path().join(".fixture-first-user.json")).unwrap())
+                .unwrap(),
+            sdk_string_prompt("record".into())
         );
         let record =
             js_json::parse_lossless(std::fs::read_to_string(dir.path().join(".fixture-launch.json")).unwrap()).unwrap();

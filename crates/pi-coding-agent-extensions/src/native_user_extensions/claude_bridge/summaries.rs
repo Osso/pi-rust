@@ -1,6 +1,6 @@
 //! Isolated one-shot summaries never resolve harness captures or mutate session mirrors.
 use super::{
-    process::{ClaudeProcess, LaunchOptions, user_message},
+    process::{ClaudeProcess, LaunchOptions, string_prompt_message},
     provider::{BridgeProvider, quota_rejection},
     stream::{result_error, string},
 };
@@ -181,9 +181,7 @@ async fn consume_query(
     model: &Model,
 ) -> Result<Attempt, CallbackError> {
     process.initialize(launch).await?;
-    process
-        .write(&user_message(JsValue::String(prompt.clone()), false))
-        .await?;
+    process.write(&string_prompt_message(prompt.clone())).await?;
     let mut assistant = JsString::default();
     let mut final_text = JsString::default();
     let mut error = None;
