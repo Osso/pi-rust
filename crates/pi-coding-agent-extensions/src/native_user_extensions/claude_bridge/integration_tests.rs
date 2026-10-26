@@ -8,7 +8,11 @@ use pi_ai::types::{
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::os::unix::fs::PermissionsExt;
 
-async fn setup() -> (tempfile::TempDir, ProviderConfig) {
+async fn setup() -> (
+    tempfile::TempDir,
+    ProviderConfig,
+    crate::core::extensions::types::LoadExtensionsResult,
+) {
     let dir = tempfile::tempdir().unwrap();
     let executable = dir.path().join("claude");
     std::fs::write(&executable, include_str!("fixtures/claude.py")).unwrap();
@@ -34,7 +38,7 @@ async fn setup() -> (tempfile::TempDir, ProviderConfig) {
         .expect("native bridge provider")
         .config
         .clone();
-    (dir, config)
+    (dir, config, loaded)
 }
 
 fn context(prompt: &str) -> Context {
@@ -68,7 +72,7 @@ fn model(config: &ProviderConfig) -> pi_ai::types::Model {
 
 #[tokio::test]
 async fn claude_bridge_fake_process_streams_lossless_text_and_usage() {
-    let (dir, config) = setup().await;
+    let (dir, config, _) = setup().await;
     let stream = config.stream_simple.as_ref().unwrap()(model(&config), context("hello"), Some(options(&dir))).unwrap();
     let result = tokio::time::timeout(std::time::Duration::from_secs(10), stream.result())
         .await
@@ -86,7 +90,7 @@ async fn claude_bridge_fake_process_streams_lossless_text_and_usage() {
 
 #[tokio::test]
 async fn claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_result() {
-    let (dir, config) = setup().await;
+    let (dir, config, _) = setup().await;
     std::fs::write(dir.path().join("fixture.txt"), "fixture from Pi read").unwrap();
     let cwd: JsString = dir.path().to_str().unwrap().into();
     let read = crate::core::tools::read::create_read_tool_definition(cwd, Default::default());
@@ -142,4 +146,49 @@ async fn claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_r
         panic!("text");
     };
     assert!(text.text.contains("fixture from Pi read"));
+}
+
+#[tokio::test]
+async fn claude_bridge_fake_process_askclaude_uses_registered_tool() {
+    use crate::core::auth_storage::AuthStorage;
+    use crate::core::extensions::ExtensionRunner;
+    use crate::core::model_registry::ModelRegistry;
+    use crate::core::session_manager::SessionManager;
+    use std::sync::{Arc, Mutex};
+    let (dir, _, loaded) = setup().await;
+    let definition = loaded.extensions[0]
+        .read()
+        .tools
+        .get("AskClaude")
+        .expect("opt-in AskClaude registration")
+        .definition
+        .clone();
+    let cwd: JsString = dir.path().to_str().unwrap().into();
+    let sessions = Arc::new(Mutex::new(SessionManager::in_memory(Some(&cwd), None).unwrap()));
+    let models = Arc::new(ModelRegistry::in_memory(AuthStorage::in_memory(Vec::<(JsString, JsValue)>::new())).unwrap());
+    let runner = ExtensionRunner::new(loaded.extensions, loaded.runtime, cwd, sessions, models, None);
+    let args = js_json::parse_lossless(r#"{"prompt":"explain this","isolated":true,"mode":"none"}"#).unwrap();
+    let output = (definition.execute)("ask1".into(), args, None, None, Some(runner.create_context()))
+        .await
+        .unwrap();
+    let pi_ai::types::TextOrImageContent::Text(text) = &output.content[0] else {
+        panic!("text");
+    };
+    assert_eq!(text.text, "Claude: explain this");
+    assert_eq!(
+        output
+            .details
+            .as_ref()
+            .and_then(|v| v.get("prompt"))
+            .and_then(JsValue::as_string),
+        Some(&JsString::from("explain this"))
+    );
+    assert_ne!(
+        output
+            .details
+            .as_ref()
+            .and_then(|v| v.get("error"))
+            .and_then(JsValue::as_bool),
+        Some(true)
+    );
 }

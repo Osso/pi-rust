@@ -23,4 +23,6 @@ Use failing behavioral tests before implementation. Test direct factory registra
 
 ## Status and gaps
 
-Implementation is in progress. No semantic deviations are approved for this extension. Unimplemented requirements must not be presented as completed parity.
+Implementation is in progress. Unimplemented requirements must not be presented as completed parity.
+
+Approved deviation (user decision 2026-10-25): forward frozen pi's `systemPromptOptions.rulesContent` as `<user_rules>\n{rulesContent}\n</user_rules>` at the position where the bridge appends custom sections. The source bridge reads `sections` (absent in the frozen API) and omits `rulesContent`; preserving that omission would lose the user's global instructions. Test exact projected text with rules present and absent.

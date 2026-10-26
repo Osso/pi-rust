@@ -1,4 +1,6 @@
 //! Native pi-claude-bridge, source snapshot 38d84cb549.
+mod ask_claude;
+pub mod ask_render;
 pub mod config;
 pub mod models;
 mod process;
@@ -68,6 +70,7 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
         },
     )
     .map_err(HandlerError::from)?;
+    ask_claude::register(pi, config.get("askClaude").unwrap_or(&JsValue::Null), bridge.clone())?;
     pi.on_agent_end(
         move |_,
               ctx: crate::core::extensions::types::ExtensionContext|
