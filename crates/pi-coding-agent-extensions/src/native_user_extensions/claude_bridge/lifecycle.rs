@@ -62,7 +62,7 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
         move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let bridge = compact_bridge.clone();
             Box::pin(async move {
-                bridge.mark_rebuild(&ctx.session_manager()?.get_session_id(), false)?;
+                bridge.mark_rebuild(&ctx.session_manager()?.get_session_id(), false, "session_compact")?;
                 Ok(None)
             })
         },
@@ -88,7 +88,7 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
         move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let bridge = tree_bridge.clone();
             Box::pin(async move {
-                bridge.mark_rebuild(&ctx.session_manager()?.get_session_id(), false)?;
+                bridge.mark_rebuild(&ctx.session_manager()?.get_session_id(), false, "session_tree")?;
                 Ok(None)
             })
         },

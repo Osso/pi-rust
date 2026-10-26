@@ -2,7 +2,7 @@
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
 type RebuildHook = Arc<
-    dyn Fn(&pi_js_compat::js_json::JsString, bool) -> Result<(), pi_js_compat::callback_error::CallbackError>
+    dyn Fn(&pi_js_compat::js_json::JsString, bool, &str) -> Result<(), pi_js_compat::callback_error::CallbackError>
         + Send
         + Sync,
 >;
@@ -21,6 +21,7 @@ impl Ownership {
         &self,
         session: &pi_js_compat::js_json::JsString,
         rotate: bool,
+        event: &str,
     ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
         let hooks = {
             let mut hooks = self.hooks.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -28,7 +29,7 @@ impl Ownership {
             hooks.iter().map(|(_, hook)| hook.clone()).collect::<Vec<_>>()
         };
         for hook in hooks {
-            hook(session, rotate)?;
+            hook(session, rotate, event)?;
         }
         Ok(())
     }

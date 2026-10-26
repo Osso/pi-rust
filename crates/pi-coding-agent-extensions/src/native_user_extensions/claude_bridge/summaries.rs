@@ -337,17 +337,17 @@ async fn run_summary(
                     .ok_or_else(|| CallbackError::new(error.clone()))?
                     .reject(name, reset, super::account_state::now_seconds()?)?
             };
-            let next = if let Some(pending) = &mut pending {
-                pending.pop_front()
-            } else {
-                next
-            };
             bridge.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
                 "compact summary: {name} quota rejected; {}",
                 next.as_ref()
                     .map(|n| format!("retrying on {n}"))
                     .unwrap_or_else(|| "no account left".into())
             ))?;
+            let next = if let Some(pending) = &mut pending {
+                pending.pop_front()
+            } else {
+                next
+            };
             let next = match next {
                 Some(next) => next,
                 None => {

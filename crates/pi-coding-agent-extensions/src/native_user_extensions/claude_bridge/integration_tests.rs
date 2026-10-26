@@ -368,7 +368,7 @@ async fn claude_bridge_rewrite_discards_a_parked_query_and_reimports_authoritati
     };
     user.content = UserContent::Text("compacted history".into());
     sponsor
-        .mark_rebuild(opts.stream.session_id.as_ref().unwrap(), false)
+        .mark_rebuild(opts.stream.session_id.as_ref().unwrap(), false, "session_compact")
         .unwrap();
     let output = bridge
         .stream(model(&config), ctx, Some(opts))
@@ -475,6 +475,16 @@ async fn claude_bridge_debug_primary_query_is_not_a_remaining_reentrant_query() 
         .await
         .unwrap();
     assert_eq!(done.stop_reason, StopReason::Stop);
+    bridge.captures = Arc::new(std::sync::Mutex::new(prompt_capture::PromptCaptures::default()));
+    let mut unknown = context("unresolved capture");
+    unknown.system_prompt = Some("no captured prompt".into());
+    let diagnostic = bridge
+        .stream(model(&config), unknown, Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(diagnostic.stop_reason, StopReason::Error);
     let fresh = bridge
         .stream(model(&config), context("hello"), Some(options(&dir)))
         .unwrap()
@@ -500,8 +510,19 @@ async fn claude_bridge_debug_primary_query_is_not_a_remaining_reentrant_query() 
             "provider: streamClaudeAgentSdk called, activeQuery=true, lastMsgRole=user, isReentrant=true",
             "provider: streamClaudeAgentSdk called, activeQuery=true, lastMsgRole=toolResult, isReentrant=true",
             "provider: streamClaudeAgentSdk called, activeQuery=false, lastMsgRole=user, isReentrant=false",
+            "provider: streamClaudeAgentSdk called, activeQuery=false, lastMsgRole=user, isReentrant=false",
         ]
     );
+    let diagnostics = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-diag.log")).unwrap();
+    let row = diagnostics
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .find(|row| {
+            stream::string(row, "moduleInstanceId") == module.as_str()
+                && stream::string(row, "label") == "prompt_capture_unresolved"
+        })
+        .unwrap();
+    assert_eq!(row.get("reentrantUserQuery"), Some(&JsValue::Bool(false)));
 }
 
 #[tokio::test]
@@ -626,6 +647,131 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
         logs.module_id.as_str()
     );
     assert_eq!(entry.get("message").unwrap().as_string().unwrap().units(), &[0xdfff]);
+}
+
+#[tokio::test]
+async fn claude_bridge_primary_shape_reset_after_completed_query_uses_previous_trace() {
+    assert_primary_shape_reset(false).await;
+}
+
+#[tokio::test]
+async fn claude_bridge_primary_shape_reset_before_parked_replacement_uses_active_snapshot() {
+    assert_primary_shape_reset(true).await;
+}
+
+async fn assert_primary_shape_reset(parked: bool) {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(
+        js_json::parse_lossless(r#"{"shapeTrace":true}"#).unwrap(),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+        dir.path().join("cc-shape"),
+        dir.path().join("agent-shape"),
+    ));
+    let mut opts = options(&dir);
+    opts.stream.session_id = Some(
+        if parked {
+            "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+        } else {
+            "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+        }
+        .into(),
+    );
+    let key = opts.stream.session_id.clone().unwrap();
+    let first = bridge
+        .stream(
+            model(&config),
+            if parked {
+                read_context("shape-parked")
+            } else {
+                context("restream")
+            },
+            Some(opts.clone()),
+        )
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(
+        first.stop_reason,
+        if parked { StopReason::ToolUse } else { StopReason::Stop }
+    );
+    let old_pid = std::fs::read_to_string(dir.path().join(".fixture-pid")).unwrap();
+    let path = logging::agent_dir().unwrap().join("claude-bridge-shapes.jsonl");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let previous = before
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .find(|row| {
+            stream::string(row, "piSessionId") == key
+                && stream::string(row, "phase") == if parked { "pi_tool_boundary" } else { "pi_final" }
+        })
+        .unwrap();
+    let mut next = if parked {
+        read_context("compacted history")
+    } else {
+        context("hello")
+    };
+    if parked {
+        bridge.mark_rebuild(&key, false, "session_compact").unwrap();
+        next.messages.push(Message::Assistant(Box::new(first)));
+        next.messages.push(Message::ToolResult(ToolResultMessage {
+            role: ToolResultRole::Tag,
+            tool_call_id: "toolu_fallback".into(),
+            tool_name: "read".into(),
+            content: vec![pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new(
+                "old result",
+            ))],
+            details: None,
+            is_error: false,
+            timestamp: 2.0,
+        }));
+    }
+    let output = bridge
+        .stream(model(&config), next, Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop, "{:?}", output.error_message);
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while std::path::Path::new(&format!("/proc/{old_pid}")).exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    let text = std::fs::read_to_string(path).unwrap();
+    let (line, row) = text
+        .lines()
+        .find_map(|line| {
+            let row = js_json::parse_lossless(line).unwrap();
+            (row.get("traceId") == previous.get("traceId") && stream::string(&row, "phase") == "turn_reset")
+                .then_some((line, row))
+        })
+        .expect("turn_reset appended to previous primary trace");
+    let mut expected = pi_js_compat::js_json::JsObject::new();
+    expected.insert("timestamp".into(), row.get("timestamp").unwrap().clone());
+    expected.insert("pid".into(), JsValue::Number(std::process::id().into()));
+    expected.insert("traceId".into(), previous.get("traceId").unwrap().clone());
+    expected.insert("piSessionId".into(), JsValue::String(key));
+    expected.insert("source".into(), JsValue::String("pi".into()));
+    expected.insert("phase".into(), JsValue::String("turn_reset".into()));
+    expected.insert(
+        "sdkMessageId".into(),
+        JsValue::String(if parked { "msg_parked" } else { "msg_new" }.into()),
+    );
+    expected.insert(
+        "blockTypes".into(),
+        js_json::parse_lossless(if parked { r#"["toolCall"]"# } else { r#"["text"]"# }).unwrap(),
+    );
+    expected.insert(
+        "toolCallIds".into(),
+        js_json::parse_lossless(if parked { r#"["toolu_fallback"]"# } else { "[]" }).unwrap(),
+    );
+    assert_eq!(line, js_json::stringify_lossless(&JsValue::Object(expected)));
 }
 
 #[tokio::test]
@@ -893,34 +1039,64 @@ async fn claude_bridge_shutdown_reports_exact_live_context_handler_and_prompt_co
 
 #[tokio::test]
 async fn claude_bridge_empty_prompt_writes_unconditional_source_diagnostic() {
-    let (dir, config, _) = setup().await;
-    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
-    let mut ctx = context("");
-    ctx.messages.clear();
-    let output = bridge
-        .stream(model(&config), ctx, Some(options(&dir)))
-        .unwrap()
-        .result()
-        .await
-        .unwrap();
-    assert_eq!(output.stop_reason, StopReason::Stop);
-    let log = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-diag.log")).unwrap();
-    let rows = log
-        .lines()
-        .map(|line| js_json::parse_lossless(line).unwrap())
-        .filter(|row| stream::string(row, "moduleInstanceId") == bridge.logs.as_ref().unwrap().module_id.as_str())
-        .collect::<Vec<_>>();
-    let row = rows
-        .iter()
-        .find(|r| stream::string(r, "label") == "empty_prompt")
-        .expect("unconditional empty-prompt diagnostic");
-    let mut fields = row.as_object().unwrap().clone();
-    fields.shift_remove(&JsString::from("ts"));
-    fields.shift_remove(&JsString::from("moduleInstanceId"));
-    assert_eq!(
-        js_json::stringify_lossless(&JsValue::Object(fields)),
-        r#"{"label":"empty_prompt","contextLength":0,"isReentrant":false,"activeQueryContexts":0,"activeQueryExists":false,"sharedSession":null,"messageRoles":""}"#
-    );
+    for reentrant in [false, true] {
+        let (dir, config, _) = setup().await;
+        let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+        if reentrant {
+            let mut primary = options(&dir);
+            primary.stream.session_id = Some("empty-prompt-primary".into());
+            let output = bridge
+                .stream(model(&config), read_context("tool-round-trip"), Some(primary))
+                .unwrap()
+                .result()
+                .await
+                .unwrap();
+            assert_eq!(output.stop_reason, StopReason::ToolUse);
+        }
+        let mut ctx = context("");
+        ctx.messages.clear();
+        let output = bridge
+            .stream(model(&config), ctx, Some(options(&dir)))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        if reentrant {
+            bridge
+                .shutdown(&"empty-prompt-primary".into(), &"cleanup".into())
+                .await
+                .unwrap();
+        }
+        assert_eq!(output.stop_reason, StopReason::Stop);
+        let log = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-diag.log")).unwrap();
+        let row = log
+            .lines()
+            .map(|line| js_json::parse_lossless(line).unwrap())
+            .find(|row| {
+                stream::string(row, "moduleInstanceId") == bridge.logs.as_ref().unwrap().module_id.as_str()
+                    && stream::string(row, "label") == "empty_prompt"
+            })
+            .expect("unconditional empty-prompt diagnostic");
+        let mut fields = row.as_object().unwrap().clone();
+        fields.shift_remove(&JsString::from("ts"));
+        fields.shift_remove(&JsString::from("moduleInstanceId"));
+        let expected = JsValue::object([
+            ("label", JsValue::String("empty_prompt".into())),
+            ("contextLength", JsValue::Number(0.0)),
+            ("isReentrant", JsValue::Bool(reentrant)),
+            (
+                "activeQueryContexts",
+                JsValue::Number(if reentrant { 1.0 } else { 0.0 }),
+            ),
+            ("activeQueryExists", JsValue::Bool(false)),
+            ("sharedSession", JsValue::Null),
+            ("messageRoles", JsValue::String("".into())),
+        ]);
+        assert_eq!(
+            js_json::stringify_lossless(&JsValue::Object(fields)),
+            js_json::stringify_lossless(&expected)
+        );
+    }
 }
 
 #[tokio::test]

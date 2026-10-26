@@ -201,9 +201,9 @@ impl SessionStore {
         let old = self.mirrors.get(key);
         let cursor = old.map_or(cursor, |m| m.cursor.max(cursor));
         if let Some(logs) = &self.verification_logs {
-            logs.debug(format!(
+            logs.debug(pi_js_compat::js_format!(
                 "provider: query done, session={}, cursor={}",
-                &id[..id.len().min(8)],
+                super::logging::truncate_session_id(&id),
                 cursor
             ))?;
         }
@@ -245,9 +245,9 @@ impl SessionStore {
     pub fn delete_ephemeral(&self, key: &JsString, id: &str, cwd: &Path) -> Result<(), CallbackError> {
         if self.mirrors.get(key).is_some_and(|mirror| mirror.id == id) {
             if let Some(logs) = &self.verification_logs {
-                logs.debug(format!(
+                logs.debug(pi_js_compat::js_format!(
                     "provider: query done, ignoring captured session {} to preserve shared session",
-                    &id[..id.len().min(8)]
+                    super::logging::truncate_session_id(id)
                 ))?;
             }
             return Ok(());
@@ -259,13 +259,13 @@ impl SessionStore {
             Err(e) => return Err(CallbackError::new(e.to_string())),
         }
         if let Some(logs) = &self.verification_logs {
-            logs.debug(format!(
+            logs.debug(pi_js_compat::js_format!(
                 "provider: query done, deleted ephemeral session {} to preserve shared session",
-                &id[..id.len().min(8)]
+                super::logging::truncate_session_id(id)
             ))?;
-            logs.debug(format!(
+            logs.debug(pi_js_compat::js_format!(
                 "provider: query done, ignoring captured session {} to preserve shared session",
-                &id[..id.len().min(8)]
+                super::logging::truncate_session_id(id)
             ))?;
         }
         let companion = path.with_extension("");
@@ -289,6 +289,9 @@ impl SessionStore {
         self.sync(key, context, cwd, model, false)
     }
 
+    pub(super) fn mirror_id(&self, key: &JsString) -> Option<&str> {
+        self.mirrors.get(key).map(|m| m.id.as_str())
+    }
     pub(super) fn mirror_count(&self) -> usize {
         self.mirrors.len()
     }
@@ -306,7 +309,7 @@ impl SessionStore {
             .or_else(|| self.mirrors.get(&JsString::from("(none)")))
             .map_or(JsValue::Null, |m| {
                 JsValue::object([
-                    ("sessionId", JsValue::String(m.id[..m.id.len().min(8)].into())),
+                    ("sessionId", JsValue::String(super::logging::truncate_session_id(&m.id))),
                     ("cursor", JsValue::Number(m.cursor as f64)),
                 ])
             })
@@ -338,15 +341,15 @@ impl SessionStore {
                 let id = mirror.id.clone();
                 if let Some(logs) = &self.verification_logs {
                     logs.debug(if missed.is_empty() {
-                        format!(
+                        pi_js_compat::js_format!(
                             "Case 3: resuming session {}, cursor={}",
-                            &id[..id.len().min(8)],
+                            super::logging::truncate_session_id(&id),
                             mirror.cursor
                         )
                     } else {
-                        format!(
+                        pi_js_compat::js_format!(
                             "Case 3: advanced cursor past trailing assistant, resuming session {}, cursor={}",
-                            &id[..id.len().min(8)],
+                            super::logging::truncate_session_id(&id),
                             prior.len()
                         )
                     })?;
@@ -368,9 +371,9 @@ impl SessionStore {
         }
         if key == "(none)" && mirror.is_some_and(|m| !m.rebuild && prior.len() < m.cursor) {
             if let (Some(logs), Some(mirror)) = (&self.verification_logs, mirror) {
-                logs.debug(format!(
+                logs.debug(pi_js_compat::js_format!(
                     "Case 1 synthetic: clean start for shorter context, preserving shared session {}, cursor={}",
-                    &mirror.id[..mirror.id.len().min(8)],
+                    super::logging::truncate_session_id(&mirror.id),
                     mirror.cursor
                 ))?;
                 logs.debug(format!(
@@ -485,11 +488,11 @@ impl SessionStore {
         }
         if let Some(logs) = &self.verification_logs {
             match mirror {
-                None => logs.debug(format!("Case 2: first turn with {} prior messages → session {}{}, {} records", prior.len(), &id[..id.len().min(8)], old_id.as_ref().map(|old| format!(" seeded from recorded session {}", &old[..old.len().min(8)])).unwrap_or_default(), writer.records.len()))?,
-                Some(m) if !m.rotate => logs.debug(format!("Case 4: {} missed messages, {} total → rewrote session {} (same id), {} records", prior.len().saturating_sub(m.cursor), prior.len(), &id[..id.len().min(8)], writer.records.len()))?,
-                Some(m) => logs.debug(format!("Case 4 post-abort: {} total → new session {} (was {}, rotated to avoid race with orphan writer), {} records", prior.len(), &id[..id.len().min(8)], &m.id[..m.id.len().min(8)], writer.records.len()))?,
+                None => logs.debug(pi_js_compat::js_format!("Case 2: first turn with {} prior messages → session {}{}, {} records", prior.len(), super::logging::truncate_session_id(&id), old_id.as_ref().map(|old| pi_js_compat::js_format!(" seeded from recorded session {}", super::logging::truncate_session_id(old))).unwrap_or_default(), writer.records.len()))?,
+                Some(m) if !m.rotate => logs.debug(pi_js_compat::js_format!("Case 4: {} missed messages, {} total → rewrote session {} (same id), {} records", (prior.len() as i64 - m.cursor as i64), prior.len(), super::logging::truncate_session_id(&id), writer.records.len()))?,
+                Some(m) => logs.debug(pi_js_compat::js_format!("Case 4 post-abort: {} total → new session {} (was {}, rotated to avoid race with orphan writer), {} records", prior.len(), super::logging::truncate_session_id(&id), super::logging::truncate_session_id(&m.id), writer.records.len()))?,
             }
-            logs.debug_session_paths(&id[..id.len().min(8)], cwd, &path)?;
+            logs.debug_session_paths(&super::logging::truncate_session_id(&id), cwd, &path)?;
         }
         if let Some(logs) = &self.verification_logs {
             logs.debug(format!(
