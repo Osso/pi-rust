@@ -27,7 +27,7 @@ pub struct LaunchOptions {
     pub account_retries_remaining: bool,
     pub ask_mode: Option<String>,
     pub isolated: bool,
-    pub has_tools: bool,
+    pub mcp_manifest: Option<JsValue>,
 }
 
 impl LaunchOptions {
@@ -41,33 +41,24 @@ impl LaunchOptions {
         ]
         .map(str::to_owned)
         .to_vec();
+        self.append_sdk_arguments(&mut args)?;
+        self.append_extra_arguments(&mut args);
+        args.extend(["--settings".into(), js_json::stringify_lossless(&self.settings())]);
+        Ok(args)
+    }
+
+    fn append_sdk_arguments(&self, args: &mut Vec<String>) -> Result<(), CallbackError> {
         if let Some(effort) = &self.effort {
             args.extend(["--effort".into(), effort.clone()]);
         }
+        if self.summary {
+            args.extend(["--max-turns".into(), "1".into(), "--model".into(), self.model.clone()]);
+        }
+        self.append_debug_arguments(args)?;
         if let Some(resume) = &self.resume {
             args.push(format!("--resume={resume}"));
         }
-        if self.summary {
-            args.extend([
-                "--tools".into(),
-                "".into(),
-                "--setting-sources".into(),
-                "".into(),
-                "--max-turns".into(),
-                "1".into(),
-            ]);
-        } else if let Some(mode) = &self.ask_mode {
-            args.extend(["--disallowedTools".into(), disallowed_tools(mode).join(",")]);
-            args.push("--setting-sources=user,project".into());
-        } else {
-            args.extend(["--tools".into(), "WebSearch".into()]);
-            if self.has_tools {
-                args.extend([
-                    "--mcp-config".into(),
-                    r#"{"mcpServers":{"custom-tools":{"type":"sdk","name":"custom-tools"}}}"#.into(),
-                ]);
-            }
-        }
+        self.append_tool_arguments(args);
         if !self.summary {
             args.extend(["--permission-mode".into(), "bypassPermissions".into()]);
         }
@@ -77,27 +68,54 @@ impl LaunchOptions {
         if self.isolated {
             args.push("--no-session-persistence".into());
         }
-        args.extend(["--model".into(), self.model.clone()]);
-        if self.summary
-            || self.ask_mode.is_some()
-            || self.provider.get("strictMcpConfig").and_then(JsValue::as_bool) != Some(false)
-        {
+        Ok(())
+    }
+
+    fn append_debug_arguments(&self, args: &mut Vec<String>) -> Result<(), CallbackError> {
+        if let Some(path) = self.cli_debug.as_ref().and_then(|debug| debug.debug_file.as_ref()) {
+            let path = path
+                .to_str()
+                .ok_or_else(|| CallbackError::new("Invalid Claude debug path"))?;
+            args.extend(["--debug-file".into(), path.into()]);
+        }
+        Ok(())
+    }
+
+    fn append_tool_arguments(&self, args: &mut Vec<String>) {
+        if self.summary {
+            args.extend([
+                "--tools".into(),
+                "".into(),
+                "--setting-sources=".into(),
+                "--strict-mcp-config".into(),
+            ]);
+        } else if let Some(mode) = &self.ask_mode {
+            args.extend(["--disallowedTools".into(), disallowed_tools(mode).join(",")]);
+            args.push("--setting-sources=user,project".into());
+        } else {
+            args.extend(["--tools".into(), "WebSearch".into()]);
+        }
+    }
+
+    fn append_extra_arguments(&self, args: &mut Vec<String>) {
+        if self.summary {
+            return;
+        }
+        // AskClaude inserts strict before model; the provider inserts model first.
+        if self.ask_mode.is_some() {
+            args.push("--strict-mcp-config".into());
+        }
+        if self.model.len() > 1 && self.model.starts_with('-') {
+            args.push(format!("--model={}", self.model));
+        } else {
+            args.extend(["--model".into(), self.model.clone()]);
+        }
+        if self.ask_mode.is_none() && self.provider.get("strictMcpConfig").and_then(JsValue::as_bool) != Some(false) {
             args.push("--strict-mcp-config".into());
         }
         if self.effort.is_some() {
             args.extend(["--thinking-display".into(), "summarized".into()]);
         }
-        if let Some(path) = self.cli_debug.as_ref().and_then(|debug| debug.debug_file.as_ref()) {
-            args.push("--debug".into());
-            args.extend([
-                "--debug-file".into(),
-                path.to_str()
-                    .ok_or_else(|| CallbackError::new("Invalid Claude debug path"))?
-                    .into(),
-            ]);
-        }
-        args.extend(["--settings".into(), js_json::stringify_lossless(&self.settings())]);
-        Ok(args)
     }
 
     fn settings(&self) -> JsValue {
@@ -127,32 +145,68 @@ impl LaunchOptions {
 
     fn initialize(&self) -> JsValue {
         let mut request = vec![("subtype", JsValue::String("initialize".into()))];
-        if self.has_tools {
+        if !self.summary && self.ask_mode.is_none() {
             request.push((
                 "hooks",
                 js_json::parse_lossless(r#"{"PostToolBatch":[{"hookCallbackIds":["hook_0"]}]}"#)
                     .expect("static hook JSON"),
             ));
-            request.push((
-                "sdkMcpServers",
-                JsValue::Array(vec![JsValue::String("custom-tools".into())]),
-            ));
+            if let Some(manifest) = &self.mcp_manifest {
+                request.push((
+                    "sdkMcpServers",
+                    JsValue::Array(vec![JsValue::String("custom-tools".into())]),
+                ));
+                request.push((
+                    "sdkMcpServerManifests",
+                    JsValue::object([("custom-tools", manifest.clone())]),
+                ));
+            }
         }
         if let Some(append) = &self.append {
             request.push(("appendSystemPrompt", JsValue::String(append.clone())));
         }
-        if let Some(system) = &self.summary_system_prompt {
-            request.push(("systemPrompt", JsValue::Array(vec![JsValue::String(system.clone())])));
+        if self.summary {
+            let system = self.summary_system_prompt.clone().unwrap_or_default();
+            request.push(("systemPrompt", JsValue::Array(vec![JsValue::String(system)])));
         }
         if self.ask_mode.is_some() || self.summary {
             request.push(("skills", JsValue::Array(Vec::new())));
         }
         JsValue::object([
-            ("type", JsValue::String("control_request".into())),
             ("request_id", JsValue::String("1".into())),
+            ("type", JsValue::String("control_request".into())),
             ("request", JsValue::object(request)),
         ])
     }
+}
+
+// SDK fT and ProcessTransport.initialize: preserve caller values except Node/debug plumbing.
+fn sdk_environment(
+    mut env: std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString>,
+) -> std::collections::BTreeMap<std::ffi::OsString, std::ffi::OsString> {
+    for (key, value) in [
+        ("CLAUDE_CODE_ENTRYPOINT", "sdk-ts"),
+        ("CLAUDE_AGENT_SDK_VERSION", "0.3.293"),
+    ] {
+        if env.get(std::ffi::OsStr::new(key)).is_none_or(|value| value.is_empty()) {
+            env.insert(key.into(), value.into());
+        }
+    }
+    if !env.keys().any(|key| {
+        key.as_encoded_bytes()
+            .eq_ignore_ascii_case(b"CLAUDE_CODE_SDK_READS_SESSION_STATE")
+    }) {
+        env.insert("CLAUDE_CODE_SDK_READS_SESSION_STATE".into(), "1".into());
+    }
+    env.remove(std::ffi::OsStr::new("NODE_OPTIONS"));
+    env.remove(std::ffi::OsStr::new("DEBUG"));
+    let debug = env
+        .get(std::ffi::OsStr::new("DEBUG_CLAUDE_AGENT_SDK"))
+        .and_then(|value| value.to_str());
+    if debug.is_some_and(|value| ["1", "true", "yes", "on"].contains(&value.trim().to_ascii_lowercase().as_str())) {
+        env.insert("DEBUG".into(), "1".into());
+    }
+    env
 }
 
 pub struct ClaudeProcess {
@@ -164,16 +218,23 @@ pub struct ClaudeProcess {
 
 impl ClaudeProcess {
     pub fn spawn_child(options: &LaunchOptions) -> Result<Self, CallbackError> {
-        let mut command = Command::new(&options.executable);
+        let script = [b".js".as_slice(), b".mjs", b".tsx", b".ts", b".jsx"]
+            .iter()
+            .any(|suffix| options.executable.as_os_str().as_encoded_bytes().ends_with(suffix));
+        let mut command = if script {
+            let mut command = Command::new("node");
+            command.arg(&options.executable);
+            command
+        } else {
+            Command::new(&options.executable)
+        };
         command
             .args(options.arguments()?)
             .current_dir(&options.cwd)
-            .env("CLAUDE_CODE_ENTRYPOINT", "sdk-ts")
-            .env("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC", "1")
+            .env_clear()
+            .envs(sdk_environment(std::env::vars_os().collect()))
             .env("ENABLE_CLAUDEAI_MCP_SERVERS", "0")
             .env("DISABLE_AUTO_COMPACT", "1")
-            .env_remove("NODE_OPTIONS")
-            .env_remove("DEBUG")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

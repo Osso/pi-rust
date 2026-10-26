@@ -1,4 +1,4 @@
-use pi_ai::types::{Model, ModelCost};
+use pi_ai::types::{Model, ModelCost, ModelThinkingLevel, ThinkingLevel};
 use pi_js_compat::js_json::JsValue;
 
 const FAMILIES: [&str; 4] = ["fable", "opus", "sonnet", "haiku"];
@@ -75,6 +75,26 @@ pub fn project_models(models: Vec<Model>, settings: &JsValue) -> Vec<Model> {
         model.cost = ModelCost::default();
     }
     models
+}
+
+/// Missing map entries use the bridge table; null/invalid entries suppress effort.
+pub fn effort(model: &Model, reasoning: Option<ThinkingLevel>) -> Option<&'static str> {
+    let (key, default) = match reasoning? {
+        ThinkingLevel::Minimal => (ModelThinkingLevel::Minimal, Some("low")),
+        ThinkingLevel::Low => (ModelThinkingLevel::Low, Some("low")),
+        ThinkingLevel::Medium => (ModelThinkingLevel::Medium, Some("medium")),
+        ThinkingLevel::High => (ModelThinkingLevel::High, Some("high")),
+        ThinkingLevel::Xhigh => (ModelThinkingLevel::Xhigh, Some("max")),
+        ThinkingLevel::Max => (ModelThinkingLevel::Max, None),
+        ThinkingLevel::Ultra => (ModelThinkingLevel::Ultra, None),
+    };
+    match model.thinking_level_map.as_ref().and_then(|map| map.get(&key)) {
+        None => default,
+        Some(None) => None,
+        Some(Some(mapped)) => ["low", "medium", "high", "xhigh", "max"]
+            .into_iter()
+            .find(|value| mapped == *value),
+    }
 }
 
 pub fn resolve_model<'a>(models: &'a [Model], input: &str) -> Option<&'a Model> {
