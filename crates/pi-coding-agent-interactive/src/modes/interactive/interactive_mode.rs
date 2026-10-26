@@ -4314,7 +4314,9 @@ impl InteractiveMode {
     fn read_agent_log_preview_unchecked(&self, log_path: &JsString) -> std::io::Result<JsString> {
         let log_size = std::fs::metadata(encode_node_utf8(log_path))?.len() as usize;
         if log_size <= MAX_AGENT_LOG_VIEW_BYTES {
-            return std::fs::read_to_string(encode_node_utf8(log_path)).map(JsString::from);
+            // readFileSync(logPath, "utf8")
+            let bytes = std::fs::read(encode_node_utf8(log_path))?;
+            return Ok(JsString::from(String::from_utf8_lossy(&bytes).as_ref()));
         }
         let start_offset = log_size - MAX_AGENT_LOG_VIEW_BYTES;
         let bytes = std::fs::read(encode_node_utf8(log_path))?;
@@ -13773,6 +13775,21 @@ mod ui_tests {
                     expected["output"]
                 );
                 assert!(mode.session().cwd().ends_with("/owner"));
+            })
+            .await;
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn agent_log_preview_replaces_invalid_utf8() {
+        tokio::task::LocalSet::new()
+            .run_until(async {
+                let (mode, _terminal, _faux, temp) = build_mode().await;
+                let path = temp.path().join("agent.log");
+                std::fs::write(&path, b"before\xe2\x82after\xff end").unwrap();
+                assert_eq!(
+                    mode.read_agent_log_preview(&path.to_str().unwrap().into()),
+                    JsString::from("before\u{fffd}after\u{fffd} end")
+                );
             })
             .await;
     }
