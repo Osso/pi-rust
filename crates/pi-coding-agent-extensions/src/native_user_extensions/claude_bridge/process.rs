@@ -11,6 +11,7 @@ pub const CLAUDE_MD_EXCLUDES: [&str; 3] = ["**/CLAUDE.md", "**/AGENTS.md", "**/.
 
 pub struct LaunchOptions {
     pub executable: PathBuf,
+    pub cli_debug: Option<super::logging::CliDebug>,
     pub cwd: PathBuf,
     pub model: String,
     pub provider: JsValue,
@@ -85,6 +86,15 @@ impl LaunchOptions {
         }
         if self.effort.is_some() {
             args.extend(["--thinking-display".into(), "summarized".into()]);
+        }
+        if let Some(path) = self.cli_debug.as_ref().and_then(|debug| debug.debug_file.as_ref()) {
+            args.push("--debug".into());
+            args.extend([
+                "--debug-file".into(),
+                path.to_str()
+                    .ok_or_else(|| CallbackError::new("Invalid Claude debug path"))?
+                    .into(),
+            ]);
         }
         args.extend(["--settings".into(), js_json::stringify_lossless(&self.settings())]);
         Ok(args)
@@ -186,10 +196,16 @@ impl ClaudeProcess {
             .stderr
             .take()
             .ok_or_else(|| CallbackError::new("Claude stderr unavailable"))?;
+        let debug = options.cli_debug.clone();
         let stderr = tokio::spawn(async move {
             use tokio::io::AsyncReadExt;
             let mut text = String::new();
             stderr.read_to_string(&mut text).await?;
+            if let Some(debug) = debug {
+                debug
+                    .stderr(&text)
+                    .map_err(|e| std::io::Error::other(pi_js_compat::js_json::encode_node_utf8(&e.message)))?;
+            }
             Ok(text)
         });
         let process = Self {

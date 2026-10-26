@@ -288,6 +288,22 @@ fn migrate(home: &Path, name: &str, dir: &Path) -> Result<()> {
         }
         let source = freshest(home, name, dir)?;
         let (content, _) = read_credentials(&source)?;
+        let source_kind = if source == dir.join(".credentials.json") {
+            "isolated"
+        } else if source == home.join(".claude").join(format!("{name}.credentials.json")) {
+            "named"
+        } else {
+            "active"
+        };
+        super::auth_trace::record(
+            &super::auth_trace::AuthProfile {
+                home: home.into(),
+                name: name.into(),
+            },
+            "prepare",
+            Some(source_kind),
+        )
+        .map_err(|_| ProfileError::Message("Cannot write Claude authentication trace"))?;
         atomic_write(&dir.join(".credentials.json"), &content)?;
         atomic_write(&owner, b"shared-v1\n")
     })();
@@ -333,6 +349,15 @@ pub fn prepare_profile(home: &Path, name: &str) -> std::result::Result<PathBuf, 
             migrate(home, name, &dir)?;
             read_credentials(&dir.join(".credentials.json"))?;
             fs::set_permissions(dir.join(".credentials.json"), fs::Permissions::from_mode(0o600))?;
+            super::auth_trace::record(
+                &super::auth_trace::AuthProfile {
+                    home: home.into(),
+                    name: name.into(),
+                },
+                "prepared",
+                Some("isolated"),
+            )
+            .map_err(|_| ProfileError::Message("Cannot write Claude authentication trace"))?;
             Ok(dir)
         })(),
     )

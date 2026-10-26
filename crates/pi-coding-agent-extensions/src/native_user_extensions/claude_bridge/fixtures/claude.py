@@ -52,6 +52,10 @@ if args[:1] == ["-p"]:
     with open(os.path.join(root, ".credentials.json"), "w", encoding="utf-8") as saved:
         json.dump({"claudeAiOauth": {"accessToken": "refreshed-for-usage", "expiresAt": 8640000000000}}, saved)
     sys.exit(1)  # Inference fails after persisting a successfully renewed grant.
+if "--debug" in args:
+    print("fixture debug line", file=sys.stderr, flush=True)
+    with open(args[args.index("--debug-file") + 1], "w", encoding="utf-8") as debug:
+        debug.write("fixture CLI debug log\n")
 assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"], args
 assert os.environ.get("ENABLE_CLAUDEAI_MCP_SERVERS") == "0"
 assert os.environ.get("DISABLE_AUTO_COMPACT") == "1"

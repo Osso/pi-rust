@@ -52,6 +52,7 @@ pub struct BridgeProvider {
     ownership: Arc<super::ownership::Ownership>,
     pub(super) ui: SharedUi,
     pub(super) mode: Arc<Mutex<Option<crate::core::extensions::types::ExtensionMode>>>,
+    pub(super) logs: Result<super::logging::Logs, CallbackError>,
     pub(super) startup_notice: Arc<Mutex<Option<super::startup_notice::StartupNotice>>>,
     pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
@@ -97,6 +98,7 @@ impl BridgeProvider {
             ui: Arc::new(Mutex::new(None)),
             mode: Arc::new(Mutex::new(None)),
             startup_notice: Arc::new(Mutex::new(None)),
+            logs: super::logging::Logs::new(),
             ownership,
             accounts: Arc::new(Mutex::new(accounts)),
             usage_runtime: super::usage::UsageRuntime::default(),
@@ -255,13 +257,74 @@ impl BridgeProvider {
             let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, &bridge, native_id);
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
-            let (result, preserve_shared_session) = match launch {
+            let auth_profile = launch
+                .as_ref()
+                .ok()
+                .and_then(|launch| launch.cli_debug.as_ref())
+                .and_then(|debug| debug.profile.clone());
+            let (mut result, preserve_shared_session) = match launch {
                 Ok(launch) => (
                     actor.run(&launch, &context, &options).await,
                     launch.preserve_shared_session,
                 ),
-                Err(error) => (Err(error), false),
+                Err(error) => {
+                    let error = if error.message.starts_with("prompt-capture:") {
+                        match bridge.logs.as_ref().map_err(|e| e.clone()).and_then(|logs| {
+                            let mut data = pi_js_compat::js_json::JsObject::new();
+                            data.insert(
+                                "promptChars".into(),
+                                JsValue::Number(context.system_prompt.as_ref().map_or(0, JsString::len) as f64),
+                            );
+                            data.insert("error".into(), JsValue::String(error.message.clone()));
+                            data.insert(
+                                "knownKeys".into(),
+                                JsValue::Number(
+                                    bridge
+                                        .captures
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .known_count() as f64,
+                                ),
+                            );
+                            data.insert(
+                                "reentrantUserQuery".into(),
+                                JsValue::Bool(
+                                    bridge
+                                        .state
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .queries
+                                        .len()
+                                        > 1,
+                                ),
+                            );
+                            logs.diag("prompt_capture_unresolved", data)
+                        }) {
+                            Ok(()) => error,
+                            Err(log_error) => log_error,
+                        }
+                    } else {
+                        error
+                    };
+                    (Err(error), false)
+                }
             };
+            if let Some(profile) = auth_profile {
+                let trace = super::auth_trace::record(&profile, "settled", Some("isolated")).and_then(|()| {
+                    let error = result.as_ref().err().map(|e| &e.message).or(actor
+                        .decoder
+                        .output
+                        .error_message
+                        .as_ref());
+                    if let Some(error) = error {
+                        super::auth_trace::record_failure(&profile, error)?;
+                    }
+                    Ok(())
+                });
+                if let Err(error) = trace {
+                    result = Err(error);
+                }
+            }
             let mut state = bridge.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if actor.quota_failed {
                 state.quota_retry.insert(key.clone());
@@ -400,6 +463,7 @@ impl BridgeProvider {
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let store = sessions.as_mut().map_err(|e| e.clone())?;
         let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        store.verification_logs = Some(self.logs.as_ref().map_err(|e| e.clone())?.clone());
         store.verification_ui = self
             .ui
             .lock()
@@ -437,7 +501,8 @@ impl BridgeProvider {
             }
             state.throttled.get_mut(&key).and_then(|p| p.profiles.pop_front())
         };
-        let result = self.launch_options_for_profile(model, context, options, cwd.clone(), pending.as_deref());
+        let result =
+            self.launch_options_for_profile(model, context, options, cwd.clone(), pending.as_deref(), "provider");
         let mut launch = match result {
             Err(e) if e.message == super::account_state::ACCOUNTS_EXHAUSTED => {
                 let signal = options.stream.request.signal.clone().unwrap_or_default();
@@ -449,7 +514,8 @@ impl BridgeProvider {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .throttled
                     .insert(key.clone(), PendingProfiles { prompt_key, profiles });
-                let mut launch = self.launch_options_for_profile(model, context, options, cwd, first.as_deref())?;
+                let mut launch =
+                    self.launch_options_for_profile(model, context, options, cwd, first.as_deref(), "provider")?;
                 launch.account_request_started_at = first.map(|_| (self.usage_runtime.now)() / 1000.0);
                 launch
             }
@@ -500,8 +566,9 @@ impl BridgeProvider {
         context: &Context,
         options: &SimpleStreamOptions,
         cwd: PathBuf,
+        tag: &str,
     ) -> Result<LaunchOptions, CallbackError> {
-        self.launch_options_for_profile(model, context, options, cwd, None)
+        self.launch_options_for_profile(model, context, options, cwd, None, tag)
     }
 
     pub(super) fn launch_options_for_profile(
@@ -511,6 +578,7 @@ impl BridgeProvider {
         options: &SimpleStreamOptions,
         cwd: PathBuf,
         pending: Option<&str>,
+        tag: &str,
     ) -> Result<LaunchOptions, CallbackError> {
         let account = {
             let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -526,7 +594,22 @@ impl BridgeProvider {
                 None => None,
             }
         };
+        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
+        let profile = if let Some((name, _)) = &account {
+            let accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            accounts
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .as_ref()
+                .map(|manager| super::auth_trace::AuthProfile {
+                    home: manager.home().into(),
+                    name: name.clone(),
+                })
+        } else {
+            None
+        };
         Ok(LaunchOptions {
+            cli_debug: Some(logs.cli(tag, profile)?),
             executable: self.executable.clone()?,
             cwd,
             model: super::models::cli_model_id(&model.id, &self.settings),
@@ -592,6 +675,8 @@ struct QueryActor {
     native_id: Arc<Mutex<Option<String>>>,
     ui: SharedUi,
     warnings: super::rate_limit::WarningState,
+    logs: Result<super::logging::Logs, CallbackError>,
+    shape: Option<super::shape_trace::ShapeTrace>,
 }
 
 impl QueryActor {
@@ -623,6 +708,8 @@ impl QueryActor {
             native_id,
             ui: bridge.ui.clone(),
             warnings: Default::default(),
+            logs: bridge.logs.clone(),
+            shape: None,
         }
     }
 
@@ -633,6 +720,22 @@ impl QueryActor {
         options: &SimpleStreamOptions,
     ) -> Result<(), CallbackError> {
         validate_tools(&self.tools)?;
+        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
+        logs.debug(format!(
+            "provider: fresh query model={} msgs={} tools={} resume={} effort={}",
+            launch.model,
+            context.messages.len(),
+            self.tools.len(),
+            launch.resume.as_deref().unwrap_or("none"),
+            launch.effort.as_deref().unwrap_or("default")
+        ))?;
+        if launch.provider.get("shapeTrace").and_then(JsValue::as_bool) == Some(true) {
+            self.shape = Some(super::shape_trace::ShapeTrace::new(
+                super::logging::agent_dir()?.join("claude-bridge-shapes.jsonl"),
+                4 * 1024 * 1024,
+                options.stream.session_id.as_ref(),
+            )?);
+        }
         let signal = options.stream.request.signal.clone().unwrap_or_default();
         if signal.aborted() {
             self.mark_aborted();
@@ -672,6 +775,8 @@ impl QueryActor {
                 frame = process.read() => match frame? {
                     None => break,
                     Some(mut frame) => {
+                        if let Some(path)=std::env::var_os("CLAUDE_BRIDGE_RECORD_STREAM").filter(|s|!s.is_empty()) {super::logging::append_line(Path::new(&path),&frame)?;}
+                        if let Some(shape)=&mut self.shape {shape.record_sdk(&frame)?;}
                         self.settle_account_frame(&mut frame, launch)?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
@@ -687,6 +792,12 @@ impl QueryActor {
             }
         }
         process.close().await?;
+        if let Some(shape) = &mut self.shape {
+            shape.record_pi(
+                "pi_final",
+                &js_json::to_value(&self.decoder.output).map_err(|e| CallbackError::new(e.to_string()))?,
+            )?;
+        }
         Ok(())
     }
 
@@ -794,6 +905,12 @@ impl QueryActor {
             }
         }
         if self.decoder.parked {
+            if let Some(shape) = &mut self.shape {
+                shape.record_pi(
+                    "pi_tool_boundary",
+                    &js_json::to_value(&self.decoder.output).map_err(|e| CallbackError::new(e.to_string()))?,
+                )?;
+            }
             self.current.take();
         }
         Ok(())
@@ -821,6 +938,12 @@ impl QueryActor {
                 self.accept_results(&context, process).await?;
             }
             QueryCommand::Resume { sender, context } => {
+                if let Some(shape) = &mut self.shape {
+                    shape.record_pi(
+                        "turn_reset",
+                        &js_json::to_value(&self.decoder.output).map_err(|e| CallbackError::new(e.to_string()))?,
+                    )?;
+                }
                 self.current = Some(sender);
                 self.decoder = StreamDecoder::with_tools(&self.model, self.tools.iter().map(|t| t.name.clone()));
                 if matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {

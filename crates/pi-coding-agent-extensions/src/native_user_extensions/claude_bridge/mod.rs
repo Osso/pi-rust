@@ -3,9 +3,11 @@ pub mod account_profiles;
 pub mod account_state;
 mod ask_claude;
 pub mod ask_render;
+mod auth_trace;
 pub mod config;
 pub mod convert;
 mod lifecycle;
+mod logging;
 pub mod models;
 mod native_prefix;
 mod ownership;
@@ -16,6 +18,7 @@ mod rate_limit;
 mod session_records;
 mod session_verify;
 mod sessions;
+mod shape_trace;
 mod startup_notice;
 pub mod stream;
 mod summaries;
@@ -74,6 +77,14 @@ fn activate_with_ownership(pi: &ExtensionApi, ownership: Arc<ownership::Ownershi
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner) =
         Some(startup_notice::StartupNotice::from_config(&config, agent_dir));
+    bridge
+        .logs
+        .as_ref()
+        .map_err(|e| HandlerError::new(e.message.clone()))?
+        .debug(pi_js_compat::js_format!(
+            "loadConfig: {}",
+            pi_js_compat::js_json::stringify_lossless(&config)
+        ))?;
     let models = models::project_models(
         pi_ai::providers::models_data::provider_models("anthropic").unwrap_or_default(),
         &settings,

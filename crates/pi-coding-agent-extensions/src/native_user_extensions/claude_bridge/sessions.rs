@@ -21,6 +21,7 @@ pub struct SessionStore {
     pub claude_dir: PathBuf,
     agent_dir: PathBuf,
     mirrors: HashMap<JsString, Mirror>,
+    pub verification_logs: Option<super::logging::Logs>,
     pub verification_ui: Option<Arc<dyn crate::core::extensions::types::ExtensionUiContext>>,
 }
 
@@ -50,6 +51,7 @@ impl SessionStore {
             agent_dir,
             mirrors: HashMap::new(),
             verification_ui: None,
+            verification_logs: None,
         }
     }
 
@@ -271,6 +273,9 @@ impl SessionStore {
         }
         session_records::write_records(&path, &writer.records)?;
         for warning in super::session_verify::verify_written_session(&path, &id, writer.records.len())? {
+            if let Some(logs) = &self.verification_logs {
+                logs.session_warning(&path, cwd, &warning)?;
+            }
             if let Some(ui) = &self.verification_ui {
                 let cwd: JsString = cwd
                     .to_str()

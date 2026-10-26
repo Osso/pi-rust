@@ -316,6 +316,7 @@ impl AskRun<'_> {
             },
             &Default::default(),
             PathBuf::from(self.cwd.to_utf8().map_err(|e| CallbackError::new(e.to_string()))?),
+            "askclaude",
         )?;
         launch.model = super::models::resolve_model(&catalog, &requested)
             .map(|m| super::models::cli_model_id(&m.id, &self.bridge.settings))
@@ -355,6 +356,7 @@ impl AskRun<'_> {
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
             let store = sessions.as_mut().map_err(|e| e.clone())?;
+            store.verification_logs = Some(self.bridge.logs.as_ref().map_err(|e| e.clone())?.clone());
             store.verification_ui = self
                 .bridge
                 .ui

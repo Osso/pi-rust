@@ -206,12 +206,19 @@ async fn run_summary(
     unprojected.tools = None;
     let signal = options.stream.request.signal.clone().unwrap_or_default();
     let mut pending: Option<VecDeque<String>> = None;
-    let mut launch = match bridge.launch_options(model, &unprojected, options, cwd.clone()) {
+    let mut launch = match bridge.launch_options(model, &unprojected, options, cwd.clone(), "compact-summary") {
         Err(e) if e.message == super::account_state::ACCOUNTS_EXHAUSTED => {
             let profiles = bridge.recheck_accounts(&model.id, &signal).await?;
             pending = (!profiles.is_empty()).then(|| profiles.into());
             let name = pending.as_mut().and_then(VecDeque::pop_front);
-            bridge.launch_options_for_profile(model, &unprojected, options, cwd.clone(), name.as_deref())?
+            bridge.launch_options_for_profile(
+                model,
+                &unprojected,
+                options,
+                cwd.clone(),
+                name.as_deref(),
+                "compact-summary",
+            )?
         }
         other => other?,
     };
@@ -230,6 +237,14 @@ async fn run_summary(
         }
         let checked_at = (bridge.usage_runtime.now)() / 1000.0;
         let attempt = consume(&launch, &prompt).await?;
+        if let Some(debug) = &launch.cli_debug
+            && let Some(profile) = &debug.profile
+        {
+            super::auth_trace::record(profile, "settled", Some("isolated"))?;
+            if let Some(error) = &attempt.error {
+                super::auth_trace::record_failure(profile, error)?;
+            }
+        }
         if let (Some(error), Some(reset), Some(name)) = (&attempt.error, attempt.quota, &launch.account_profile) {
             let next = {
                 let mut accounts = bridge
@@ -249,7 +264,14 @@ async fn run_summary(
                 next
             };
             let next = next.ok_or_else(|| CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED))?;
-            launch = bridge.launch_options_for_profile(model, &unprojected, options, cwd.clone(), Some(&next))?;
+            launch = bridge.launch_options_for_profile(
+                model,
+                &unprojected,
+                options,
+                cwd.clone(),
+                Some(&next),
+                "compact-summary",
+            )?;
             continue;
         }
         if let Some(error) = attempt.error {

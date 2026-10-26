@@ -73,6 +73,9 @@ fn snapshot(node: &CaptureRef) -> Capture {
 }
 
 impl PromptCaptures {
+    pub fn known_count(&self) -> usize {
+        self.captures.len()
+    }
     pub fn record(&mut self, prompt: &JsString, options: &BuildSystemPromptOptions, source: &str) {
         if prompt.is_empty() {
             return;

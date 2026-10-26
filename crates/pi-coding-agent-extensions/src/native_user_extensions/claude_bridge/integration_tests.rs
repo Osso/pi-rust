@@ -453,6 +453,66 @@ async fn claude_bridge_rate_limit_failures_are_labeled_without_losing_utf16() {
 }
 
 #[tokio::test]
+async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic_formats() {
+    let (dir, config, _) = setup().await;
+    let mut bridge = provider::BridgeProvider::new(
+        js_json::parse_lossless(r#"{"shapeTrace":true}"#).unwrap(),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    bridge.logs.as_mut().unwrap().enabled = true;
+    let mut options = options(&dir);
+    options.stream.session_id = Some("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa".into());
+    let output = bridge
+        .stream(model(&config), context("hello"), Some(options))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop);
+    let logs = bridge.logs.as_ref().unwrap();
+    let path = super::logging::debug_path().unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    assert!(text.contains(&format!("[{}] provider: fresh query", logs.module_id)));
+    assert!(text.contains("[cli-stderr provider#1] fixture debug line"));
+    let cli = std::fs::read_dir(path.parent().unwrap().join("cc-cli-logs"))
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .any(|p| std::fs::read_to_string(p).unwrap() == "fixture CLI debug log\n");
+    assert!(cli);
+    let shapes =
+        std::fs::read_to_string(super::logging::agent_dir().unwrap().join("claude-bridge-shapes.jsonl")).unwrap();
+    let shapes = shapes
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .collect::<Vec<_>>();
+    assert!(shapes.iter().any(|v| {
+        v.get("phase")
+            .and_then(JsValue::as_string)
+            .is_some_and(|s| s == "pi_final")
+    }));
+    let mut data = pi_js_compat::js_json::JsObject::new();
+    data.insert("message".into(), JsValue::String(JsString::from_utf16(vec![0xdfff])));
+    logs.diag("fixture_diagnostic", data).unwrap();
+    let diagnostics =
+        std::fs::read_to_string(super::logging::agent_dir().unwrap().join("claude-bridge-diag.log")).unwrap();
+    let entry = diagnostics
+        .lines()
+        .map(|line| js_json::parse_lossless(line).unwrap())
+        .find(|v| {
+            v.get("label")
+                .and_then(JsValue::as_string)
+                .is_some_and(|s| s == "fixture_diagnostic")
+        })
+        .unwrap();
+    assert_eq!(
+        entry.get("moduleInstanceId").unwrap().as_string().unwrap(),
+        logs.module_id.as_str()
+    );
+    assert_eq!(entry.get("message").unwrap().as_string().unwrap().units(), &[0xdfff]);
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();

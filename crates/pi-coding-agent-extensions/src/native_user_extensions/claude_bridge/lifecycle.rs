@@ -42,6 +42,18 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
                     Ok(())
                 }
             });
+            let result = result.and_then(|()| {
+                if start_bridge.settings.get("shapeTrace").and_then(JsValue::as_bool) == Some(true) {
+                    let session = ctx.session_manager()?.get_session_id();
+                    let mut trace = super::shape_trace::ShapeTrace::new(
+                        super::logging::agent_dir()?.join("claude-bridge-shapes.jsonl"),
+                        4 * 1024 * 1024,
+                        Some(&session),
+                    )?;
+                    trace.record_pi("session_start", &JsValue::Array(Vec::new()))?;
+                }
+                Ok(())
+            });
             Box::pin(async { result.map(|()| None) })
         },
     )
