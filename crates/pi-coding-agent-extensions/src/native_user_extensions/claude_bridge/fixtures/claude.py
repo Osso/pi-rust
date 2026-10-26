@@ -157,7 +157,7 @@ elif text in ["assert-ask-history", "assert-ask-existing"]:
         assert resume == "existing-native", args
     else:
         project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())
-        root = os.environ["CLAUDE_CONFIG_DIR"]
+        root = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
         with open(os.path.join(root, "projects", project, resume + ".jsonl"), encoding="utf-8") as saved:
             records = [json.loads(line) for line in saved if line.strip()]
         assert records[0]["message"]["content"] == "prior question \udfff", records

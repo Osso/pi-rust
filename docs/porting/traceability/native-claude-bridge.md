@@ -303,3 +303,7 @@ Integrated checkpoint: stream implementation `895647444` plus `native-ext/claude
 ## UTF-8 file decoding (readability audit 2026-10-26)
 
 `config.rs::read_config` and `write_startup_notice` (source `config.ts:48,75`) use `String::from_utf8_lossy` because the source reads them with Node `readFile*(path, "utf-8")`, i.e. WHATWG UTF-8 decoding with U+FFFD replacement of maximal invalid subparts; Rust's lossy decoder applies the same replacement rule, so output is identical. A fallible decode would turn source "replace and continue" into an error. Readability-audit P1 (lossy conversion) rejected on this basis; invalid UTF-8 input is otherwise an adversarial-input gap under the parity bar.
+
+## CLAUDE_CONFIG_DIR export (laptop live trial, 2026-10-26)
+
+The source sets `CLAUDE_CONFIG_DIR` on the Claude child only for a selected account profile (index.ts:937 and the provider/AskClaude spreads); otherwise the child inherits the parent environment. Native had defaulted the launch directory to the session store's `~/.claude` and exported it, which makes the real Claude CLI read its global config (OAuth account) from inside that directory: live result `Failed to authenticate: OAuth session expired and could not be refreshed`, after which `pi -p` waits like the source does on an auth-error result. Fixed by exporting only profile directories. RED/GREEN: `sdk_launch_tests::claude_bridge_sdk_effort_honors_model_overrides_and_undefined_levels` (`assert_inherited_config_dir`; /tmp/bridge-configdir-red.log, /tmp/bridge-configdir-green.log).

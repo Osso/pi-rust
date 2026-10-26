@@ -679,9 +679,6 @@ impl BridgeProvider {
             .clone();
         launch.preserve_shared_session = store.preserve_unowned(&key, context);
         launch.resume = store.sync(&key, context, &cwd, &launch.model, true)?;
-        if launch.claude_dir.is_none() {
-            launch.claude_dir = Some(store.claude_dir.clone());
-        }
         self.logs
             .as_ref()
             .map_err(|e| e.clone())?

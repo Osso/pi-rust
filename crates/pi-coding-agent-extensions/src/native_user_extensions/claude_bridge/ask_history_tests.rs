@@ -298,7 +298,7 @@ async fn claude_bridge_askclaude_shared_history_imports_once_and_resumes_native_
         let mut bridge = provider::BridgeProvider::new(JsValue::Null, Ok(executable), "AskClaude".into());
         bridge.logs.as_mut().unwrap().enabled = true;
         *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
-            dir.path().join("cc"),
+            super::integration_tests::default_claude_dir(),
             dir.path().join("agent"),
         ));
         let cwd: JsString = dir.path().to_str().unwrap().into();

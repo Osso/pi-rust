@@ -41,6 +41,14 @@ pub(super) async fn setup() -> (
     (dir, config, loaded)
 }
 
+/// Where a real Claude CLI keeps sessions when the bridge exports no CLAUDE_CONFIG_DIR.
+pub(super) fn default_claude_dir() -> std::path::PathBuf {
+    match std::env::var_os("CLAUDE_CONFIG_DIR") {
+        Some(dir) => dir.into(),
+        None => std::path::PathBuf::from(std::env::var_os("HOME").expect("test HOME")).join(".claude"),
+    }
+}
+
 fn context(prompt: &str) -> Context {
     Context {
         system_prompt: None,
@@ -357,7 +365,7 @@ async fn claude_bridge_rewrite_discards_a_parked_query_and_reimports_authoritati
         ownership,
     );
     *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
-        dir.path().join("cc-rewrite"),
+        default_claude_dir(),
         dir.path().join("agent-rewrite"),
     ));
     let opts = options(&dir);
@@ -679,7 +687,7 @@ async fn assert_primary_shape_reset(parked: bool) {
         "AskClaude".into(),
     );
     *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
-        dir.path().join("cc-shape"),
+        default_claude_dir(),
         dir.path().join("agent-shape"),
     ));
     let mut opts = options(&dir);
@@ -1314,7 +1322,7 @@ async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
         "AskClaude".into(),
     );
     *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
-        dir.path().join("claude-data"),
+        default_claude_dir(),
         dir.path().join("agent"),
     ));
     let result = tokio::time::timeout(

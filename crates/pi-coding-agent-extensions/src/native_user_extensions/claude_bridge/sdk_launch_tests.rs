@@ -27,6 +27,17 @@ pub(super) fn sdk_string_prompt(text: pi_js_compat::js_json::JsString) -> JsValu
     ])
 }
 
+/// Without a selected account profile the source leaves CLAUDE_CONFIG_DIR to the
+/// inherited environment (index.ts:937, 2754); exporting the default ~/.claude makes
+/// Claude Code look for its global config inside that directory.
+fn assert_inherited_config_dir(record: &JsValue) {
+    let child = record
+        .get("env")
+        .and_then(|env| env.get("CLAUDE_CONFIG_DIR"))
+        .map(|value| value.as_string().unwrap().to_utf8().unwrap());
+    assert_eq!(child, std::env::var("CLAUDE_CONFIG_DIR").ok());
+}
+
 async fn capture(launch: &process::LaunchOptions) -> JsValue {
     std::fs::write(launch.cwd.join(".fixture-record-launch"), "").unwrap();
     let mut child = ClaudeProcess::spawn_child(launch).unwrap();
@@ -271,6 +282,7 @@ async fn claude_bridge_sdk_askclaude_thinking_overrides_reach_child() {
         );
         let record =
             js_json::parse_lossless(std::fs::read_to_string(dir.path().join(".fixture-launch.json")).unwrap()).unwrap();
+        assert_inherited_config_dir(&record);
         let argv = record.get("argv").unwrap().as_array().unwrap();
         let effort = argv
             .iter()
@@ -376,6 +388,7 @@ async fn claude_bridge_sdk_effort_honors_model_overrides_and_undefined_levels() 
         );
         let actual =
             js_json::parse_lossless(std::fs::read_to_string(dir.path().join(".fixture-launch.json")).unwrap()).unwrap();
+        assert_inherited_config_dir(&actual);
         let argv = actual.get("argv").unwrap().as_array().unwrap();
         let effort = argv
             .iter()

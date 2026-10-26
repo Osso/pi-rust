@@ -385,9 +385,6 @@ impl AskRun<'_> {
                 .unwrap_or_else(std::sync::PoisonError::into_inner)
                 .clone();
             launch.resume = store.sync_ask(&self.session_id, &context, &launch.cwd, &launch.model)?;
-            if launch.claude_dir.is_none() {
-                launch.claude_dir = Some(store.claude_dir.clone());
-            }
         }
         launch.effort = match string(self.args, "thinking")
             .to_utf8()
