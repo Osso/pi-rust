@@ -47,7 +47,7 @@ fn startup_resolves_atlas_from_user_settings_package_path() {
         &agent.join("settings.json"),
         r#"{"packages":["../../../Repos/pi-atlas"]}"#,
     );
-    let (_, stderr) = run_print(&agent, temp.path());
+    let (_, stderr) = run_startup(&agent, temp.path());
     assert!(!stderr.contains("Failed to load extension"), "{stderr}");
     assert!(
         !stderr.contains("Extension does not export a valid factory function"),
