@@ -9,6 +9,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+# Display-column measurement for the vendored Mermaid renderer.
+unicode-width = "=0.2.0"
 # Shared JS string/number/Base64 semantics.
 pi-js-compat = { version = "=0.0.0", path = "../pi-js-compat" }
 # Grapheme cluster segmentation matching the Unicode 17.0 tables used by Node's Intl.Segmenter.
@@ -36,6 +38,10 @@ tokio = { version = "=1.53.3", features = ["macros", "rt", "rt-multi-thread", "t
 
 [lints]
 workspace = true
+
+[[test]]
+name = "mermaid_core"
+path = "tests/mermaid_core.rs"
 
 [[test]]
 name = "terminal_stream"
