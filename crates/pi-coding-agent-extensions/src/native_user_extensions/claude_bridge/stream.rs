@@ -123,6 +123,13 @@ impl StreamDecoder {
         }
     }
 
+    pub fn finish_events(&mut self) -> Vec<AssistantMessageEvent> {
+        let mut events = Vec::new();
+        self.start(&mut events);
+        events.push(self.finish());
+        events
+    }
+
     pub fn finish(&self) -> AssistantMessageEvent {
         match self.output.stop_reason {
             StopReason::Error => AssistantMessageEvent::Error {
@@ -297,8 +304,11 @@ impl StreamDecoder {
             }
             (AssistantContent::ToolCall(block), "input_json_delta") => {
                 block.partial_json.get_or_insert_default().push_str(text.clone());
-                let parsed = pi_ai::utils::json_parse::parse_streaming_json(block.partial_json.as_ref());
-                if let JsValue::Object(args) = parsed {
+                // Source parsePartialJson is strict JSON.parse: incomplete or invalid
+                // deltas retain the last successful arguments, including at block stop.
+                if let Ok(JsValue::Object(args)) =
+                    js_json::parse_lossless(block.partial_json.clone().unwrap_or_default())
+                {
                     block.arguments = args;
                 }
             }
@@ -376,7 +386,7 @@ impl StreamDecoder {
         message: &JsValue,
         events: &mut Vec<AssistantMessageEvent>,
     ) -> Result<(), CallbackError> {
-        if self.parked {
+        if self.parked || message.get("content").is_none() {
             return Ok(());
         }
         let synthetic = string(message, "model") == "<synthetic>";
@@ -396,12 +406,12 @@ impl StreamDecoder {
         if let Some(blocks) = message.get("content").and_then(JsValue::as_array) {
             for block in blocks {
                 if synthetic {
-                    if string(block, "type") == "text" {
+                    if string(block, "type") == "text" && !string(block, "text").is_empty() {
                         self.output
                             .content
                             .push(AssistantContent::Text(TextContent::new(string(block, "text"))));
                     }
-                } else {
+                } else if string(block, "type") != "text" || !string(block, "text").is_empty() {
                     self.append_complete_block(block, events)?;
                 }
             }
@@ -508,6 +518,93 @@ mod tests {
             .iter()
             .flat_map(|line| decoder.decode(&js_json::parse_lossless(*line).unwrap()).unwrap())
             .collect()
+    }
+
+    #[test]
+    fn claude_bridge_partial_json_retains_initial_arguments_until_complete() {
+        let mut decoder = decoder();
+        frames(
+            &mut decoder,
+            &[
+                r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call","name":"mcp__custom-tools__bash","input":{"command":"seed"}}}}"#,
+            ],
+        );
+        let fixture = js_json::parse_lossless(include_str!("fixtures/stream-semantics-oracle.json")).unwrap();
+        for step in fixture.get("partial").unwrap().as_array().unwrap() {
+            let delta = string(step, "delta");
+            let frame = js_json::parse_lossless(r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta"}}}"#).unwrap();
+            let mut frame = frame;
+            frame
+                .get_mut("event")
+                .unwrap()
+                .get_mut("delta")
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .insert("partial_json".into(), JsValue::String(delta.clone()));
+            let events = decoder.decode(&frame).unwrap();
+            let [
+                AssistantMessageEvent::ToolCallDelta {
+                    content_index,
+                    delta: actual,
+                    partial,
+                },
+            ] = events.as_slice()
+            else {
+                panic!("toolcall_delta");
+            };
+            assert_eq!(*content_index, 0);
+            assert_eq!(actual, &delta);
+            let AssistantContent::ToolCall(call) = &partial.content[0] else {
+                panic!("tool call");
+            };
+            assert_eq!(JsValue::Object(call.arguments.clone()), *step.get("arguments").unwrap());
+            assert_eq!(call.partial_json.as_ref(), Some(&string(step, "accumulated")));
+        }
+        let events = frames(
+            &mut decoder,
+            &[
+                r#"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#,
+                r#"{"type":"stream_event","event":{"type":"message_stop"}}"#,
+            ],
+        );
+        let AssistantMessageEvent::ToolCallEnd { tool_call, .. } = &events[0] else {
+            panic!("toolcall_end");
+        };
+        assert_eq!(
+            JsValue::Object(tool_call.arguments.clone()),
+            js_json::parse_lossless(r#"{"command":"new \ud800","nested":{"key":1},"timeout":120}"#).unwrap()
+        );
+        assert_eq!(tool_call.partial_json, None);
+        assert_eq!(tool_call.index, None);
+        assert!(matches!(
+            events[1],
+            AssistantMessageEvent::Done {
+                reason: DoneReason::ToolUse,
+                ..
+            }
+        ));
+        assert_eq!(decoder.output.usage.total_tokens, 0.0);
+    }
+
+    #[test]
+    fn claude_bridge_incomplete_json_at_stop_preserves_initial_arguments() {
+        let mut decoder = decoder();
+        frames(
+            &mut decoder,
+            &[
+                r#"{"type":"stream_event","event":{"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"call","name":"mcp__custom-tools__bash","input":{"command":"seed"}}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\":\"unfinished"}}}"#,
+                r#"{"type":"stream_event","event":{"type":"content_block_stop","index":0}}"#,
+            ],
+        );
+        let AssistantContent::ToolCall(call) = &decoder.output.content[0] else {
+            panic!("tool call");
+        };
+        assert_eq!(
+            JsValue::Object(call.arguments.clone()),
+            js_json::parse_lossless(r#"{"command":"seed","timeout":120}"#).unwrap()
+        );
     }
 
     #[test]
