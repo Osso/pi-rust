@@ -601,7 +601,12 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
     let path = super::logging::debug_path().unwrap();
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains(&format!("[{}] provider: fresh query", logs.module_id)));
-    assert!(text.contains("[cli-stderr provider#1] fixture debug line"));
+    // index.ts:109 splits each stderr chunk on /\r?\n/ only; a bare CR stays inside the record.
+    assert!(
+        text.contains("[cli-stderr provider#1] fixture debug\rline\n"),
+        "{text:?}"
+    );
+    assert!(text.contains("[cli-stderr provider#1] second line\n"), "{text:?}");
     let messages = text
         .lines()
         .filter_map(|line| {
@@ -1413,6 +1418,42 @@ async fn claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_r
         "[{module}] provider: tool results, 1 results, 1 waiting handlers, ctx.msgs=3\n"
     )));
     assert!(log.contains(&format!("[{module}] mcp handler: read [tool-read] → waiting\n")));
+}
+
+/// index.ts:1852-1859 records only messages the SDK yields; it handles control
+/// traffic internally. Re-runs the round trip in a child test process because
+/// CLAUDE_BRIDGE_RECORD_STREAM is process-wide.
+#[test]
+fn claude_bridge_record_stream_appends_only_sdk_yielded_messages() {
+    let dir = tempfile::tempdir().unwrap();
+    let record = dir.path().join("stream.jsonl");
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "native_user_extensions::claude_bridge::integration_tests::claude_bridge_fake_process_tool_call_executes_pi_read_and_returns_its_result",
+        ])
+        .env("CLAUDE_BRIDGE_RECORD_STREAM", &record)
+        .output()
+        .unwrap();
+    assert!(
+        String::from_utf8(output.stdout.clone())
+            .unwrap()
+            .contains("running 1 test"),
+        "{output:?}"
+    );
+    assert!(output.status.success(), "{output:?}");
+    let types = std::fs::read_to_string(&record)
+        .unwrap()
+        .lines()
+        .map(|line| {
+            let frame = js_json::parse_lossless(line).unwrap();
+            stream::string(&frame, "type").to_utf8().unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(types.first().map(String::as_str), Some("system"), "{types:?}");
+    assert_eq!(types.last().map(String::as_str), Some("result"), "{types:?}");
+    assert!(types.iter().any(|kind| kind == "stream_event"), "{types:?}");
+    assert!(!types.iter().any(|kind| kind.starts_with("control_")), "{types:?}");
 }
 
 #[tokio::test]

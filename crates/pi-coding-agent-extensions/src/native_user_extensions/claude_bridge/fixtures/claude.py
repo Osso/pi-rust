@@ -65,7 +65,7 @@ if args[:1] == ["-p"]:
     sys.exit(1)  # Inference fails after persisting a successfully renewed grant.
 if "--debug-file" in args:
     assert "--debug" not in args, args
-    print("fixture debug line", file=sys.stderr, flush=True)
+    print("fixture debug\rline\r\nsecond line", file=sys.stderr, flush=True)
     with open(args[args.index("--debug-file") + 1], "w", encoding="utf-8") as debug:
         debug.write("fixture CLI debug log\n")
 assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"], args

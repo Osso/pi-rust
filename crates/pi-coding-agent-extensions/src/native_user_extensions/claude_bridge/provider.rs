@@ -1040,7 +1040,9 @@ impl QueryActor {
                 frame = process.read() => match frame? {
                     None => break,
                     Some(mut frame) => {
-                        if let Some(path)=std::env::var_os("CLAUDE_BRIDGE_RECORD_STREAM").filter(|s|!s.is_empty()) {super::logging::append_line(Path::new(&path),&frame)?;}
+                        // The SDK consumes these frames itself (sdk.mjs readMessages); only yielded messages are recorded (index.ts:1858).
+                        let sdk_internal = ["control_request", "control_response", "control_cancel_request", "keep_alive", "transcript_mirror"].iter().any(|kind| string(&frame,"type") == *kind);
+                        if !sdk_internal && let Some(path)=std::env::var_os("CLAUDE_BRIDGE_RECORD_STREAM").filter(|s|!s.is_empty()) {super::logging::append_line(Path::new(&path),&frame)?;}
                         if let Some(shape)=&self.shape {shape.lock().unwrap_or_else(std::sync::PoisonError::into_inner).record_sdk(&frame)?;}
                         self.settle_account_frame(&mut frame, launch)?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {

@@ -374,7 +374,12 @@ impl CliDebug {
             }
             *pending = tail.slice(tail.len().saturating_sub(4096), tail.len());
         }
-        for line in text.split(['\n', '\r']).filter(|line| !line.is_empty()) {
+        // index.ts:109 `data.split(/\r?\n/)`: a bare CR stays inside the record.
+        for line in text
+            .split('\n')
+            .map(|line| line.strip_suffix('\r').unwrap_or(line))
+            .filter(|line| !line.is_empty())
+        {
             self.logs
                 .debug(format!("[cli-stderr {}#{}] {line}", self.tag, self.seq))?;
         }
