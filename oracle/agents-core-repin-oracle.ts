@@ -503,8 +503,92 @@ async function runBackgroundFailure(request: Request): Promise<unknown> {
 	return notifications;
 }
 
+type ReciprocalManager = {
+	setMetadataControlDbPath(db: unknown): void;
+	persistForRecovery(): void;
+	getSessionFile(): string;
+};
+type ReciprocalStore = {
+	restoreFromSessionManager(manager: ReciprocalManager): void;
+	listAgents(): Array<{ id: string }>;
+	listMailboxMessages(): unknown[];
+};
+type ReciprocalToolResult = { content: unknown; details?: unknown; isError?: boolean };
+type ReciprocalTool = {
+	name: string;
+	execute(id: string, params: unknown, signal: undefined, update: undefined, ctx: unknown): Promise<ReciprocalToolResult>;
+};
+
+async function runReciprocal(request: Request): Promise<unknown> {
+	const runtime = await load<{
+		default(api: unknown, options: unknown): void;
+		createMultiAgentRuntimeHandles(): unknown;
+		waitNotifications(store: unknown, handles: unknown, signal: AbortSignal, ctx: unknown): Promise<unknown>;
+	}>("runtime.ts");
+	const { SessionManager } = await load<{
+		SessionManager: { open(path: unknown): ReciprocalManager };
+	}>("../../../src/core/session-manager.ts");
+	const { MultiAgentStore } = await load<{
+		MultiAgentStore: new () => ReciprocalStore;
+	}>("../../../src/core/multi-agent-store.ts");
+	const manager = SessionManager.open(request.sessionPath);
+	manager.setMetadataControlDbPath(request.db);
+	const store = new MultiAgentStore();
+	store.restoreFromSessionManager(manager);
+	const handles = runtime.createMultiAgentRuntimeHandles() as { dispatches: Map<string, Promise<unknown>> };
+	const tools = new Map<string, ReciprocalTool>();
+	const createChildSession = async () => {
+		const messages: unknown[] = [];
+		return {
+			messages,
+			prompt: async () => {
+				messages.push({ role: "assistant", content: [{ type: "text", text: "scripted reciprocal child finished" }] });
+			},
+		};
+	};
+	runtime.default({
+		on: () => {},
+		registerCommand: () => {},
+		registerTool: (tool: ReciprocalTool) => tools.set(tool.name, tool),
+	}, { store, runtimeHandles: handles, createChildSession, desktopNotifier: () => undefined });
+	const ctx = {
+		cwd: request.cwd, controlDbPath: request.db, sessionManager: manager,
+		modelRegistry: { getAll: () => [] },
+	};
+	const invoke = async (name: string, params: unknown): Promise<unknown> => {
+		const tool = tools.get(name);
+		if (!tool) throw new Error(`missing reciprocal tool ${name}`);
+		const result = await tool.execute("reciprocal", params, undefined, undefined, ctx);
+		return { content: result.content, details: result.details ?? null, isError: result.isError ?? null };
+	};
+	let operation: unknown = null;
+	if (request.action === "attach") {
+		operation = await invoke("attach_session_agent", { path: request.childPath, displayName: "reciprocal-child" });
+	} else if (request.action === "send") {
+		operation = await invoke("send_agent_message", { toAgentId: request.agentId, body: "Continue with the saved task: café 😀", threadId: "reciprocal-thread" });
+	} else if (request.action === "spawn") {
+		operation = await invoke("spawn_agent", { prompt: "Finish the reciprocal fixture", displayName: "reciprocal-finished", parentId: request.agentId });
+		await Promise.all(handles.dispatches.values());
+	} else if (request.action !== "read") {
+		throw new Error(`unknown reciprocal action ${request.action}`);
+	}
+	const agents = store.listAgents();
+	const views = await Promise.all(agents.map((agent) => invoke("agent_viewer", { agentId: agent.id })));
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 5000);
+	let wait: unknown = null;
+	try {
+		if (request.wait) wait = await runtime.waitNotifications(store, handles, controller.signal, ctx);
+	} finally {
+		clearTimeout(timer);
+	}
+	return { operation, snapshot: { agents, mailbox: store.listMailboxMessages(), list: await invoke("list_agents", {}), views, wait } };
+}
+
 async function execute(request: Request): Promise<unknown> {
 	switch (request.op) {
+		case "reciprocal":
+			return runReciprocal(request);
 		case "backgroundFailure":
 			return runBackgroundFailure(request);
 		case "settlementAbort":

@@ -2384,3 +2384,249 @@ async fn wait_slice_uses_latest_model_request_and_does_not_cancel_active_agents(
     controller_signal.abort(None);
     waiting.await.unwrap();
 }
+
+// Each phase opens the previous implementation's files. No DB seeding or JSON
+// projection is used to transfer state between extension implementations.
+fn reciprocal_session_files(test: &TestDir) -> JsString {
+    let mut parent = SessionManager::open(&test.session_path, None, None).expect("open parent");
+    parent
+        .set_metadata_control_db_path(Some(&test.control_db_path.clone().into()), Default::default())
+        .expect("parent metadata DB");
+    parent.persist_for_recovery().expect("persist parent");
+    let mut child = SessionManager::create(
+        &test.cwd.clone().into(),
+        Some(&test._dir.path().join("sessions").display().to_string().into()),
+        None,
+    )
+    .expect("child manager");
+    child
+        .set_metadata_control_db_path(Some(&test.control_db_path.clone().into()), Default::default())
+        .expect("child metadata DB");
+    child.persist_for_recovery().expect("persist child");
+    child.get_session_file().expect("child path").clone()
+}
+
+fn reciprocal_ts_phase(ts: &mut repin_oracle::TsOracle, test: &TestDir, phase: Value) -> Value {
+    let mut request = json!({
+        "op":"reciprocal", "cwd":test.cwd, "db":test.control_db_path,
+        "sessionPath":test.session_path,
+    });
+    for (key, value) in phase.as_object().expect("phase object") {
+        request.as_object_mut().unwrap().insert(key.clone(), value.clone());
+    }
+    let response = ts.request(&request);
+    assert_eq!(response["ok"], json!(true), "{response:?}");
+    response["output"].clone()
+}
+
+fn reciprocal_tool_result(result: AgentToolResult) -> Value {
+    json!({"content":result.content,"details":result.details,"isError":result.is_error})
+}
+
+async fn reciprocal_native_phase(test: &TestDir, phase: &Value) -> Value {
+    use pi_coding_agent::bundled_extensions::agents_core::runtime::wait_notifications;
+    use pi_coding_agent::bundled_extensions::agents_core::viewer::{
+        AgentViewerParams, ListAgentsParams, agent_viewer, list_agents,
+    };
+    use pi_coding_agent::bundled_extensions::agents_core::wait_runtime::WaitNotificationsWake;
+    let persistence = TestPersistence {
+        control_db_path: test.control_db_path.clone(),
+        session_path: test.session_path.clone(),
+    };
+    let store = Arc::new(MultiAgentStore::from_session_manager(&persistence, Default::default()).unwrap());
+    let manager = Arc::new(Mutex::new(
+        SessionManager::open(&test.session_path, None, None).unwrap(),
+    ));
+    let (_runner, ctx) = test_context_with(test, manager, None, None, false).await;
+    let handles = create_multi_agent_runtime_handles();
+    let operation = reciprocal_native_operation(&store, &handles, &ctx, phase).await;
+    let agents = store.list_agents();
+    let views: Vec<Value> = agents
+        .iter()
+        .map(|agent| {
+            reciprocal_tool_result(
+                agent_viewer(
+                    &store,
+                    &AgentViewerParams {
+                        agent_id: agent.id.clone(),
+                        session_id: None,
+                        store_session_id: None,
+                        trace: None,
+                    },
+                    Some(&ctx),
+                )
+                .unwrap(),
+            )
+        })
+        .collect();
+    let wait = if phase["wait"].as_bool() == Some(true) {
+        let wake = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            wait_notifications(&store, &handles, None, Some(&ctx)),
+        )
+        .await
+        .expect("bounded wait")
+        .unwrap();
+        match wake {
+            WaitNotificationsWake::Agent { agent } => json!({"kind":"agent","agent":agent}),
+            other => panic!("expected persisted terminal wake, got {other:?}"),
+        }
+    } else {
+        Value::Null
+    };
+    json!({"operation":operation,"snapshot":{
+        "agents":agents,"mailbox":store.list_mailbox_messages().unwrap(),
+        "list":reciprocal_tool_result(list_agents(&store,&ListAgentsParams::default()).unwrap()),
+        "views":views,"wait":wait,
+    }})
+}
+
+async fn reciprocal_native_operation(
+    store: &Arc<MultiAgentStore>,
+    handles: &pi_coding_agent::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    ctx: &ExtensionContext,
+    phase: &Value,
+) -> Value {
+    let result = match phase["action"].as_string().unwrap().to_utf8().unwrap().as_str() {
+        "attach" | "spawn" => {
+            let request = if phase["action"] == json!("attach") {
+                json!({"method":"agents.attachSession","params":{
+                    "path":phase["childPath"],"displayName":"reciprocal-child",
+                }})
+            } else {
+                json!({"method":"agents.spawn","params":{
+                    "prompt":"Finish the reciprocal fixture", "displayName":"reciprocal-finished",
+                    "parentId":phase["agentId"],
+                }})
+            };
+            return reciprocal_native_dispatch(store, handles, ctx, &request).await;
+        }
+        "send" => send_agent_message(
+            store,
+            &SendAgentMessageParams {
+                to_agent_id: phase["agentId"].as_string().unwrap().clone(),
+                message: "Continue with the saved task: café 😀".into(),
+                thread_id: Some("reciprocal-thread".into()),
+                ..Default::default()
+            },
+            Some(ctx),
+            None,
+        )
+        .unwrap(),
+        "read" => return Value::Null,
+        other => panic!("unknown phase {other}"),
+    };
+    reciprocal_tool_result(result)
+}
+
+async fn reciprocal_native_dispatch(
+    store: &Arc<MultiAgentStore>,
+    handles: &pi_coding_agent::bundled_extensions::agents_core::runtime::MultiAgentRuntimeHandles,
+    ctx: &ExtensionContext,
+    request: &Value,
+) -> Value {
+    let handler = create_multi_agent_pi_request_handler(&MultiAgentExtensionOptions {
+        store: Some(store.clone()),
+        runtime_handles: Some(handles.clone()),
+        create_child_session: Some(fake_factory("scripted reciprocal child finished", false)),
+        desktop_notifier: Some(Arc::new(RecordingNotifier::default())),
+        ..Default::default()
+    });
+    let details = handler.handle(request, ctx, None, None).await.unwrap();
+    let dispatches: Vec<_> = handles.dispatches.lock().unwrap().values().cloned().collect();
+    for dispatch in dispatches {
+        dispatch.await.unwrap();
+    }
+    handler.dispose();
+    json!({"details":details})
+}
+
+async fn reciprocal_extension_roundtrip(ts_first: bool) {
+    let test = test_dir();
+    let child_path = reciprocal_session_files(&test);
+    let child_bytes = std::fs::read(child_path.to_utf8().unwrap()).unwrap();
+    let mut ts = repin_oracle::TsOracle::spawn(
+        "agents-core-repin-oracle.ts",
+        "packages/coding-agent/extensions/agents-core/src",
+    );
+    let attach = json!({"action":"attach","childPath":child_path});
+    let attached = if ts_first {
+        reciprocal_ts_phase(&mut ts, &test, attach)
+    } else {
+        reciprocal_native_phase(&test, &attach).await
+    };
+    assert_eq!(attached["operation"]["details"]["dispatched"], json!(false));
+    let agent = &attached["snapshot"]["agents"][0];
+    assert_eq!(agent["lifecycle"], json!("waiting_for_input"));
+    assert_eq!(agent["transcript"]["path"], json!(child_path));
+    let id = agent["id"].clone();
+    let read = json!({"action":"read"});
+    let peer = if ts_first {
+        reciprocal_native_phase(&test, &read).await
+    } else {
+        reciprocal_ts_phase(&mut ts, &test, read.clone())
+    };
+    assert_eq!(
+        peer["snapshot"], attached["snapshot"],
+        "first persisted extension handoff"
+    );
+    let send = json!({"action":"send","agentId":id});
+    let sent = if ts_first {
+        reciprocal_native_phase(&test, &send).await
+    } else {
+        reciprocal_ts_phase(&mut ts, &test, send)
+    };
+    assert_eq!(sent["snapshot"]["mailbox"].as_array().unwrap().len(), 1);
+    assert_eq!(sent["snapshot"]["mailbox"][0]["status"], json!("pending"));
+    assert_eq!(sent["snapshot"]["mailbox"][0]["toAgentId"], id);
+    assert_eq!(
+        sent["operation"]["details"]["message"]["body"],
+        json!("Continue with the saved task: café 😀")
+    );
+    let peer = if ts_first {
+        reciprocal_ts_phase(&mut ts, &test, read.clone())
+    } else {
+        reciprocal_native_phase(&test, &read).await
+    };
+    assert_eq!(peer["snapshot"], sent["snapshot"], "reciprocal mailbox continuation");
+    let spawn = json!({"action":"spawn","agentId":id,"wait":true});
+    let closed = if ts_first {
+        reciprocal_ts_phase(&mut ts, &test, spawn)
+    } else {
+        reciprocal_native_phase(&test, &spawn).await
+    };
+    assert_eq!(closed["snapshot"]["agents"].as_array().unwrap().len(), 2);
+    assert_eq!(closed["snapshot"]["agents"][1]["lifecycle"], json!("completed"));
+    assert_eq!(
+        closed["snapshot"]["agents"][1]["result"]["summary"],
+        json!("scripted reciprocal child finished")
+    );
+    assert_ne!(closed["snapshot"]["agents"][1]["id"], id);
+    assert_eq!(closed["snapshot"]["wait"]["kind"], json!("agent"));
+    assert_eq!(closed["snapshot"]["wait"]["agent"], closed["snapshot"]["agents"][1]);
+    let read_terminal = json!({"action":"read","wait":true});
+    let peer = if ts_first {
+        reciprocal_native_phase(&test, &read_terminal).await
+    } else {
+        reciprocal_ts_phase(&mut ts, &test, read_terminal)
+    };
+    assert_eq!(
+        peer["snapshot"], closed["snapshot"],
+        "terminal outbox and exact list/view/wait handoff"
+    );
+    assert_eq!(
+        std::fs::read(child_path.to_utf8().unwrap()).unwrap(),
+        child_bytes,
+        "attaching/messaging/dispatching does not rewrite attached child history"
+    );
+}
+
+#[tokio::test]
+async fn reciprocal_agents_core_ts_rust_ts_extension_persistence() {
+    reciprocal_extension_roundtrip(true).await;
+}
+
+#[tokio::test]
+async fn reciprocal_agents_core_rust_ts_rust_extension_persistence() {
+    reciprocal_extension_roundtrip(false).await;
+}
