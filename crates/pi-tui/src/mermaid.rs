@@ -98,8 +98,17 @@ enum Oversize {
     Cells,
 }
 
+fn strip_terminal_controls(source: &str) -> String {
+    source
+        .chars()
+        .filter(|ch| !matches!(*ch, '\u{0000}'..='\u{0008}' | '\u{000b}'..='\u{000c}' | '\u{000e}'..='\u{001f}' | '\u{007f}'..='\u{009f}'))
+        .collect()
+}
+
 /// Render at natural width, or return `None` when no bounded layout is available.
 pub fn render(src: &str) -> Option<MermaidArt> {
+    let source = strip_terminal_controls(src);
+    let src = source.as_str();
     let styles = &MermaidStyles::default();
     let max_width = None;
     if src.trim().is_empty() {

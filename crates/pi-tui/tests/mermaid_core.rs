@@ -66,6 +66,11 @@ fn compare_with_oracle(diagrams: &[&str]) {
 }
 
 #[test]
+fn diagram_labels_strip_terminal_controls() {
+    compare_with_oracle(&["flowchart LR\n A[hello\u{001b}[31m] --> B[done]"]);
+}
+
+#[test]
 fn unsupported_and_empty_input_return_none() {
     for source in ["", "pie\n title Pets\n \"Dogs\" : 4"] {
         assert!(mermaid::render(source).is_none());
