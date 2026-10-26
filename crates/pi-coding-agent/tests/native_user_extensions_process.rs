@@ -27,6 +27,28 @@ fn run_print(agent: &Path, temp: &Path) -> (i32, String) {
 }
 
 #[test]
+fn startup_resolves_atlas_from_user_settings_package_path() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let agent = temp.path().join(".config/pi/agent");
+    let package = temp.path().join("Repos/pi-atlas");
+    write(
+        &package.join("package.json"),
+        r#"{"name":"@mohndoe/pi-atlas","pi":{"extensions":["./src/index.ts"]}}"#,
+    );
+    write(&package.join("src/index.ts"), "export default function () {}\n");
+    write(
+        &agent.join("settings.json"),
+        r#"{"packages":["../../../Repos/pi-atlas"]}"#,
+    );
+    let (_, stderr) = run_print(&agent, temp.path());
+    assert!(!stderr.contains("Failed to load extension"), "{stderr}");
+    assert!(
+        !stderr.contains("Extension does not export a valid factory function"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn startup_resolves_native_ports_from_user_package_and_extension_paths() {
     let temp = tempfile::tempdir().expect("temp dir");
     let agent = temp.path().join("agent");
