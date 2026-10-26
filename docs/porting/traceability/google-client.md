@@ -63,3 +63,9 @@ Frozen Generative90/Vertex105 await SDK generateContentStream directly; their pr
 ## Current whole-module renewal
 
 The shared SDK path now has separate Studio and Vertex module counters; an isolated native process is compared against four sequential actual-source calls and must produce suffixes1,1,2,2. Missing/empty/duplicate IDs generate; missing function name retains the literal undefined prefix. ADC keyFilename is captured before onPayload but credential file I/O occurs only in request header authentication, matching the source ordering. Default/header/body/SSE behavior remains covered by the original66 actual-source scenarios. New direct helper/conversion, replay/thinking/config/URL/auth/counter cases and34 native shared/API behaviors are recorded in the [lane ledger](../ai-api-repin-proof.md). The two old signed-empty retention tests were replaced with source-proven drop semantics and a complete following-tool-call assertion, not weakened protocol assertions.
+
+## UTF-8 file decoding (2026-10-26)
+
+| Frozen SDK source | Contract | Proof |
+|---|---|---|
+| `google-auth-library/build/src/auth/googleauth.js:545-553 (`createReadStream` + `setEncoding("utf8")`)` | Invalid credential/cache/INI bytes become U+FFFD; other data survives; genuine I/O errors unchanged | `google_client::utf8_tests::adc_file_replaces_invalid_utf8`; RED `/tmp/utf8-ai-red.log`, GREEN `/tmp/utf8-ai-green.log` (offline, no provider request) |
