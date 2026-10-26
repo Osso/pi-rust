@@ -569,6 +569,40 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_prompt_skips_invalid_images_and_uses_source_text_or_continue_fallback() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    for (raw, expected) in [
+        (
+            r#"[{"type":"text","text":"image-prompt"},{"type":"image","data":"","mimeType":"image/png"},{"type":"image","data":"AA==","mimeType":""},{"type":"image","data":"AQ==","mimeType":"image/png"}]"#,
+            "image accepted",
+        ),
+        (
+            r#"[{"type":"text","text":"text-fallback"},{"type":"image","data":"","mimeType":"image/png"}]"#,
+            "text accepted",
+        ),
+        (r#"[{"type":"image","data":"AA==","mimeType":""}]"#, "continued"),
+    ] {
+        let mut ctx = context("");
+        let Message::User(user) = &mut ctx.messages[0] else {
+            panic!("user");
+        };
+        user.content = js_json::from_value(&js_json::parse_lossless(raw).unwrap()).unwrap();
+        let output = bridge
+            .stream(model(&config), ctx, Some(options(&dir)))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        assert_eq!(output.stop_reason, StopReason::Stop, "{:?}", output.error_message);
+        let AssistantContent::Text(text) = &output.content[0] else {
+            panic!("text");
+        };
+        assert_eq!(text.text, expected);
+    }
+}
+
+#[tokio::test]
 async fn claude_bridge_missed_steers_preserve_results_mark_rebuild_and_log_source_outcomes() {
     for missing in [true, false] {
         let (dir, config, _) = setup().await;

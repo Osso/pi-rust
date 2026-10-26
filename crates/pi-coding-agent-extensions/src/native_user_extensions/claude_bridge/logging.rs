@@ -348,43 +348,11 @@ pub(super) fn stop_reason(reason: pi_ai::types::StopReason) -> &'static str {
     }
 }
 pub(super) fn prompt_info(context: &pi_ai::types::Context) -> Result<(JsString, bool), CallbackError> {
-    let mut turn = context
-        .messages
-        .iter()
-        .rev()
-        .take_while(|m| matches!(m, pi_ai::types::Message::User(_)))
-        .collect::<Vec<_>>();
-    turn.reverse();
-    let values = turn
-        .iter()
-        .map(|m| js_json::to_value(m).map_err(|e| CallbackError::new(e.to_string())))
-        .collect::<Result<Vec<_>, _>>()?;
-    let texts = values
-        .iter()
-        .map(|message| {
-            let content = message.get("content").unwrap_or(&JsValue::Null);
-            if let Some(text) = content.as_string() {
-                return text.clone();
-            }
-            JsString::join(
-                content
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter(|b| super::stream::string(b, "type") == "text")
-                    .map(|b| super::stream::string(b, "text")),
-                "\n",
-            )
-        })
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>();
-    let images = values.iter().any(|m| {
-        m.get("content")
-            .and_then(JsValue::as_array)
-            .is_some_and(|blocks| blocks.iter().any(|b| super::stream::string(b, "type") == "image"))
-    });
-    Ok((JsString::join(texts, "\n"), images))
+    let prompt = super::prompt::extract(context)?;
+    let images = prompt.has_images();
+    Ok((prompt.text, images))
 }
+
 pub(super) fn append_line(path: &Path, value: &JsValue) -> Result<(), CallbackError> {
     append_text(path, &(js_json::stringify_lossless(value) + "\n"))
 }

@@ -14,6 +14,7 @@ pub mod models;
 mod native_prefix;
 mod ownership;
 mod process;
+mod prompt;
 pub mod prompt_capture;
 mod provider;
 mod rate_limit;
