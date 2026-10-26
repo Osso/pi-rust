@@ -813,7 +813,7 @@ fn supervisor_requests_prioritize_approvals_and_validate_responses() {
         &db,
         approval,
         &JsString::from("claim"),
-        &SupervisorResponse::Complete { reason: "done".into() },
+        &pi_js_compat::js_json!({"kind":"complete","reason":"done"}),
     )
     .expect_err("invalid");
     assert_eq!(
@@ -824,11 +824,16 @@ fn supervisor_requests_prioritize_approvals_and_validate_responses() {
         &db,
         approval,
         &JsString::from("claim"),
-        &SupervisorResponse::Approve { reason: "ok".into() },
+        &pi_js_compat::js_json!({"kind":"approve","reason":"ok"}),
     )
     .expect("complete");
     let read = read_supervisor_request(&db, approval).expect("read").expect("request");
-    assert_eq!(read.response, Some(SupervisorResponse::Approve { reason: "ok".into() }));
+    assert_eq!(
+        read.response
+            .as_ref()
+            .map(|value| js_json::from_value::<SupervisorResponse>(value).unwrap()),
+        Some(SupervisorResponse::Approve { reason: "ok".into() })
+    );
 
     let next = claim_next_supervisor_request(&db, &JsString::from("claim-2"))
         .expect("claim")
@@ -855,7 +860,9 @@ fn supervisor_recovery_completes_expired_requests() {
     pi_coding_agent::core::session_control_db::recover_supervisor_requests(&db).expect("recover");
     let read = read_supervisor_request(&db, expired).expect("read").expect("request");
     assert_eq!(
-        read.response,
+        read.response
+            .as_ref()
+            .map(|value| js_json::from_value::<SupervisorResponse>(value).unwrap()),
         Some(SupervisorResponse::Error {
             reason: "Supervisor request deadline expired".into()
         })
@@ -1865,9 +1872,7 @@ fn supervisor_advisory_claim_requires_matching_response_kind() {
         &db,
         id,
         &JsString::from("token"),
-        &SupervisorResponse::Advisory {
-            answer: "answer".into(),
-        },
+        &pi_js_compat::js_json!({"answer":"answer","kind":"advisory"}),
     )
     .expect("complete");
 }

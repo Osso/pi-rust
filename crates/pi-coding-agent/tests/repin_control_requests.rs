@@ -14,6 +14,76 @@ fn response_error(ts: &mut oracle::TsOracle, name: &str, args: Value) -> JsStrin
     response["output"][0]["error"]["message"].as_string().unwrap().clone()
 }
 
+fn claimed_goal_request(source: &mut oracle::TsOracle, path: &str) -> i64 {
+    let id = call(
+        source,
+        "postSupervisorRequest",
+        json!([path, {"senderSessionId":"sender","projectId":"project","kind":"goal_idle_review",
+            "payload":{"question":"next"},"deadlineAt":"2099-01-01T00:00:00.000Z"}]),
+    )
+    .as_f64()
+    .unwrap() as i64;
+    assert_eq!(
+        call(source, "claimNextSupervisorRequest", json!([path, "claim"]))["id"],
+        json!(id)
+    );
+    id
+}
+
+fn assert_supervisor_response_wire(source: &mut oracle::TsOracle, path: &str, id: i64, expected: &str) {
+    let peer = source.request(&json!({"id":1,"steps":[
+        {"op":"callWire","args":["readSupervisorRequest",js_json::stringify_lossless(&json!([path,id]))]},
+        {"op":"fixtureSql","args":[path,"SELECT response_json FROM supervisor_requests WHERE id = ?",[id]]}
+    ]}));
+    assert_eq!(peer["output"][0]["ok"], json!(true), "{peer:?}");
+    assert_eq!(peer["output"][1]["ok"], json!(true), "{peer:?}");
+    assert_eq!(peer["output"][1]["value"][0]["response_json"], json!(expected));
+    let peer_wire = peer["output"][0]["value"].as_string().unwrap().to_utf8().unwrap();
+    let native = read_supervisor_request(path, id).unwrap().unwrap();
+    let native_wire = js_json::stringify_lossless(&js_json::to_value(&native).unwrap());
+    assert_eq!(native_wire, peer_wire);
+    let native_response = js_json::to_value(&native.response.unwrap()).unwrap();
+    assert_eq!(js_json::stringify_lossless(&native_response), expected);
+}
+
+#[test]
+fn supervisor_ts_completion_preserves_response_wire_on_native_read() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite");
+    let path = path.to_str().unwrap();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
+    for expected in [
+        r#"{"kind":"continue","reason":"more work","instructions":"run the next task"}"#,
+        r#"{"kind":"continue","extra":{"z":"\ud800","a":2},"reason":"more work","instructions":"run the next task"}"#,
+    ] {
+        let id = claimed_goal_request(&mut source, path);
+        let response = js_json::parse_lossless(expected).unwrap();
+        call(
+            &mut source,
+            "completeSupervisorRequest",
+            json!([path, id, "claim", response]),
+        );
+        assert_supervisor_response_wire(&mut source, path, id, expected);
+    }
+}
+
+#[test]
+fn supervisor_native_completion_preserves_ts_response_wire_in_sqlite_and_peer_read() {
+    let temporary = tempfile::tempdir().unwrap();
+    let path = temporary.path().join("control.sqlite");
+    let path = path.to_str().unwrap();
+    let mut source = oracle::TsOracle::spawn("control-db-oracle.mts", "packages/coding-agent/src");
+    for expected in [
+        r#"{"kind":"continue","reason":"more work","instructions":"run the next task"}"#,
+        r#"{"kind":"continue","extra":{"z":"\ud800","a":2},"reason":"more work","instructions":"run the next task"}"#,
+    ] {
+        let id = claimed_goal_request(&mut source, path);
+        let response = js_json::parse_lossless(expected).unwrap();
+        complete_supervisor_request(path, id, &JsString::from("claim"), &response).unwrap();
+        assert_supervisor_response_wire(&mut source, path, id, expected);
+    }
+}
+
 #[test]
 fn supervisor_priority_exclusive_claim_requeue_and_response_kind_match_peer() {
     let temporary = tempfile::tempdir().unwrap();
@@ -53,9 +123,7 @@ fn supervisor_priority_exclusive_claim_requeue_and_response_kind_match_peer() {
             json!([path, approval.id, "foreign"])
         )
     );
-    let invalid = SupervisorResponse::Advisory {
-        answer: "wrong response domain".into(),
-    };
+    let invalid = json!({"answer":"wrong response domain","kind":"advisory"});
     let error = complete_supervisor_request(&path, approval.id, &JsString::from("native-first"), &invalid).unwrap_err();
     assert_eq!(
         *error.message(),
@@ -80,9 +148,7 @@ fn supervisor_priority_exclusive_claim_requeue_and_response_kind_match_peer() {
         &path,
         approval.id,
         &JsString::from("peer-final"),
-        &SupervisorResponse::Approve {
-            reason: "allowed".into(),
-        },
+        &json!({"kind":"approve","reason":"allowed"}),
     )
     .unwrap();
     assert_eq!(
@@ -147,9 +213,7 @@ fn supervisor_recovery_expires_deadlines_and_requeues_unexpired_peer_claims() {
         call(&mut source, "readSupervisorRequest", json!([path, future_id]))["status"],
         json!("pending")
     );
-    let old = SupervisorResponse::Approve {
-        reason: "late owner".into(),
-    };
+    let old = json!({"kind":"approve","reason":"late owner"});
     assert!(complete_supervisor_request(&path, future_id, &JsString::from("dead-peer-claim"), &old).is_err());
     let claimed = claim_next_supervisor_request(&path, &JsString::from("replacement"))
         .unwrap()
@@ -199,7 +263,7 @@ fn cancelled_peer_request_stays_cancelled_and_rejects_completion() {
             &db,
             id,
             &JsString::from("claim"),
-            &SupervisorResponse::Advisory { answer: "late".into() }
+            &json!({"answer":"late","kind":"advisory"})
         )
         .is_err()
     );

@@ -269,9 +269,7 @@ fn execute_call(function: &str, args: &[Value]) -> Result<Value, JsString> {
                 .map_err(|error| error.message().to_owned())?,
         ),
         "completeSupervisorRequest" => {
-            let response: SupervisorResponse =
-                js_json::from_value(&arg(args, 3)?.clone()).map_err(|error| JsString::from(error.to_string()))?;
-            complete_supervisor_request(arg_str(args, 0)?, arg_i64(args, 1)?, arg_str(args, 2)?, &response)
+            complete_supervisor_request(arg_str(args, 0)?, arg_i64(args, 1)?, arg_str(args, 2)?, arg(args, 3)?)
                 .map_err(|error| error.message().to_owned())?;
             Ok(Value::Null)
         }

@@ -324,9 +324,7 @@ fn complete_expired_request(input: &RunSupervisorRequestInput) -> Result<RunSupe
         &input.control_db_path,
         input.request.id,
         &required_claim_token(&input.request)?,
-        &SupervisorResponse::Error {
-            reason: "Supervisor request deadline expired".into(),
-        },
+        &pi_js_compat::js_json!({"kind":"error","reason":"Supervisor request deadline expired"}),
     )?;
     Ok(RunSupervisorRequestOutcome::Completed)
 }
@@ -342,7 +340,7 @@ fn complete_evaluated_request(
         &input.control_db_path,
         input.request.id,
         &required_claim_token(&input.request)?,
-        &response,
+        &js_json::to_value(&response).map_err(|error| ControlDbError::new(error.to_string()))?,
     )?;
     Ok(RunSupervisorRequestOutcome::Completed)
 }

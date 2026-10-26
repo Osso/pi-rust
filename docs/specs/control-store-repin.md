@@ -31,6 +31,7 @@ Control DB directory creation follows Node dirname/mkdir semantics and the share
 - [x] Assign missing mailbox birth on INSERT; enforce unique imported channel origins and restriction request IDs.
 - [x] Preserve channel origins, count origin-tagged same-session messages as pending, and advance cursors monotonically across peers.
 - [x] Expire old channel messages during DB initialization.
+- [x] Preserve supervisor response JSON key order and unknown fields through public reads and completion writes; validate response kind without normalizing the stored object. Typed consumers may project fields without changing the persisted value.
 - [x] Preserve cancelled supervisor status; cancel only matching sender's pending/claimed requests, clear claim token and reject late completion.
 - [x] Retry missing-birth enqueues idempotently without accepting changed message identity.
 - [x] Claim before delivery; reject stale payload deletion; CAS-delete after explicit delivery and never consume foreign-host rows locally.
