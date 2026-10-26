@@ -157,3 +157,9 @@ The first integration run exposed fixture ordering/ownership failures; it was no
 reported as passing. Its hung test groups were cancelled and verified exited.
 The corrected fixtures retain every original output/revision/completion assertion.
 No full workspace test suite, live provider, push or deployment was run.
+
+## UTF-8 artifact decoding (2026-10-26)
+
+| Common-pin source | Contract | Proof |
+|---|---|---|
+| `extensions/pyrun/src/detached-evaluation.ts:328` | `readFileSync(path, "utf8")`: invalid artifact bytes replace with U+FFFD; complete following records survive; incomplete tail excluded | `detached_evaluation::utf8_tests::complete_artifact_records_replace_invalid_utf8`; RED `/tmp/utf8-pyrun-red.log`, GREEN `/tmp/utf8-pyrun-green.log` |
