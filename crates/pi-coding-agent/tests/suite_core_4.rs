@@ -68,6 +68,8 @@ pub mod raw_resource_diagnostics;
 pub mod raw_status_indicator;
 #[path = "raw_summary_components.rs"]
 pub mod raw_summary_components;
+#[path = "reminder_process_crash.rs"]
+pub mod reminder_process_crash;
 #[path = "repin_control_agents.rs"]
 pub mod repin_control_agents;
 #[path = "repin_control_channel.rs"]
