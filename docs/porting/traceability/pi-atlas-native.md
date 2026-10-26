@@ -6,7 +6,7 @@ Source: `@mohndoe/pi-atlas` 0.2.1, commit `38d84cb549cce66dd76d45a5020d132f74780
 
 | Snapshot module / behavior | Native implementation | Behavioral proof |
 | --- | --- | --- |
-| `index.ts`: sole `/atlas` registration, description, `hasUI` guard, loading/dashboard phases, cancellation, overlay sizing | `command.rs`, hidden registration in `native_user_extensions/mod.rs`, startup registration in `pi-coding-agent/src/main.rs` | `settings_package_loads_atlas_native_command`; `headless_atlas_does_not_parse_or_write_files`; `loads_disk_logs_then_opens_six_tab_dashboard_and_closes`; `cancellation_closes_loading_but_worker_still_writes_cache` |
+| `index.ts`: sole `/atlas` registration, description, `hasUI` guard, loading/dashboard phases, cancellation, overlay sizing | `command.rs`, hidden registration in `native_user_extensions/mod.rs`, startup registration in `pi-coding-agent/src/main.rs` | `startup_resolves_atlas_from_user_settings_package_path` runs the actual `pi -p hi` binary under isolated HOME and literal `../../../Repos/pi-atlas` settings; `settings_package_loads_atlas_native_command`; `headless_atlas_does_not_parse_or_write_files`; `loads_disk_logs_then_opens_six_tab_dashboard_and_closes`; `cancellation_closes_loading_but_worker_still_writes_cache` |
 | `types.ts`, `helpers/session.helper.ts`, `helpers/usage.helper.ts`: ordered aggregate construction, numeric merges, usage fields | `data.rs` | frozen parser/summary fixtures; exact TS-cache byte round trip, including escaped UTF-16 keys/text |
 | `parser.ts`: dispatch, corrupt-line accounting, identity-first merges, explicit/implicit skills, all source cost-relevant entries, sanitized tool names, edit/write language attribution | `parser.rs`, `data.rs` | `aggregates_session_messages_skills_and_language_edits`; `matches_frozen_parser_fixtures_including_utf16`; `corrupt_lines_report_node_error_class_and_retain_valid_entries` |
 | `cache.ts`: recursive JSONL traversal, sorted SHA-256 signature, cache validation, version, timestamp, parse progress, debug environment settings, sorted aggregates, diagnostics | `cache.rs`; existing shared SHA-256 helper made public, unchanged algorithm | cache exchange, nested discovery/invalidation, post-parse timestamp test; external TS reverse-reader and Node signature comparison |
@@ -39,3 +39,15 @@ All oracle executions used a scratch copy of the snapshot with its `node_modules
 The native cache interchange test reads the TS-written `fixtures/cache.json`, reconstructs native aggregates, and writes byte-identical JSON. Its retained `atlas-cache-interchange` test artifact is then read by the snapshot's real `readCache()`; the snapshot's real `computeSignature()` also matches the native SHA-256 over the same files, sizes and fractional modification milliseconds. This proves both file-format directions, not only a native self-roundtrip.
 
 Fixtures live beside the native module under `fixtures/`. Source generation scripts were run in `/tmp/pi-atlas-oracle-native`; clocks were frozen at `2026-10-25T12:00:00.000Z` for domain/cache fixtures. UTC was explicit for hourly fixtures. Palette fixtures use a fresh process per level with `FORCE_COLOR=0..3`, `COLORTERM=''`, and `TERM=dumb`; changing `chalk.level` after `.hex()` builder creation does not change captured color escape sequences.
+
+## Final integration proof
+
+Merged canonical master `9b9c08990` (the real-startup resource-loader registry wiring). The real-process atlas test was RED with the atlas factory absent from the shared registry (`Failed to load extension ... pi-atlas/src/index.ts`) and GREEN after its hidden registration was added there. Existing regex-replace and disable-broadcast registrations are preserved.
+
+- `cargo test -j3 -p pi-coding-agent-extensions --lib native_user_extensions::pi_atlas`: 22 passed.
+- `cargo test -j3 -p pi-coding-agent --test suite_extensions native_user_extensions_process::startup_resolves_atlas_from_user_settings_package_path -- --exact`: passed; actual binary, isolated HOME, literal relative package path, no load failure.
+- `cargo check -j3 --workspace --all-targets` and `cargo fmt --check`: passed.
+- `cargo clippy -j3 -p pi-coding-agent-extensions -p pi-coding-agent-tools -p pi-coding-agent --all-targets --all-features -- -D warnings`: passed.
+- `python3 scripts/source-inventory.py`: 686 rows / 186679 lines, zero mismatches; TS reverse-cache reader and Node signature check also passed on the final native cache artifact.
+
+Proof logs are `/tmp/pi-atlas-*-final.log`, `/tmp/pi-atlas-process-red.log`, and `/tmp/pi-atlas-process-green.log`; the final reverse-cache artifact is `/var/tmp/osso/pi-test-_oa9ixwf/atlas-cache-interchange`. No network, live provider, deployment, push, stash, or subagent was used. Readability tools were unavailable; manual review separated table metadata/rows, domain aggregation, filesystem effects, UI state and layout. No warning suppressions or lossy UTF-16 projections were added.

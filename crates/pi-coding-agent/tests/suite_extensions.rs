@@ -1,5 +1,10 @@
 // Process-local integration fixtures; process-sensitive fixtures keep standalone targets.
 
+#[path = "native_user_extensions.rs"]
+pub mod native_user_extensions;
+#[path = "native_user_extensions_process.rs"]
+pub mod native_user_extensions_process;
+
 #[path = "extension_context_supervisor_cancellation.rs"]
 pub mod extension_context_supervisor_cancellation;
 #[path = "extension_session_read_view.rs"]

@@ -59,11 +59,10 @@ impl Table {
         let total: usize = widths.iter().sum();
         if total > content {
             let mut used = 0;
-            for (index, col) in self.columns.iter().enumerate().filter(|(_, col)| col.width.is_some()) {
+            for (index, _) in self.columns.iter().enumerate().filter(|(_, col)| col.width.is_some()) {
                 let scaled = (widths[index] as f64 * content as f64 / total as f64).floor() as usize;
                 widths[index] = scaled.max(1);
                 used += widths[index];
-                let _ = col;
             }
             if let Some(index) = self.columns.iter().position(|col| col.width.is_none()) {
                 widths[index] = content.saturating_sub(used).max(1);
