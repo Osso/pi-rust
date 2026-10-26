@@ -35,12 +35,16 @@ impl JsonCliRunner {
         tokio::fs::write(request_path, serialized.as_bytes())
             .await
             .map_err(|error| HandlerError::new(error.to_string()))?;
+        let request_arg = request_path
+            .to_str()
+            .ok_or_else(|| HandlerError::new("regex-replace request path is not valid UTF-8"))?
+            .to_owned();
         let cwd = request.get("cwd").and_then(JsValue::as_string).cloned();
         let result = self
             .pi
             .exec(
                 encode_node_utf8(&self.binary_path),
-                vec![request_path.to_string_lossy().into_owned()],
+                vec![request_arg],
                 Some(ExtensionExecOptions {
                     cwd,
                     signal,
