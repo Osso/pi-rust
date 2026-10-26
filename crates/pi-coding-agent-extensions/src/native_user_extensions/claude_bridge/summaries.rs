@@ -28,7 +28,25 @@ pub(super) fn stream(
     let (sender, stream) = create_assistant_message_event_stream();
     tokio::spawn(async move {
         let signal = options.stream.request.signal.clone().unwrap_or_default();
-        let result = run_summary(&bridge, &model, &context, &options).await;
+        let mut terminal_logged = false;
+        let result = run_summary(&bridge, &model, &context, &options, &mut terminal_logged).await;
+        let logging = if let Err(error) = &result
+            && !terminal_logged
+        {
+            bridge.logs.as_ref().map_err(|e| e.clone()).and_then(|logs| {
+                logs.debug_error(
+                    if signal.aborted() {
+                        "compact summary: aborted while the query threw"
+                    } else {
+                        "runIsolatedSummary threw; pushing terminal error"
+                    },
+                    error,
+                )
+            })
+        } else {
+            Ok(())
+        };
+        let result = logging.and(result);
         let now = match super::account_state::now_seconds() {
             Ok(now) => now * 1000.0,
             Err(error) => {
@@ -123,15 +141,21 @@ async fn consume(
     launch: &LaunchOptions,
     prompt: &JsString,
     signal: &pi_js_compat::abort::AbortSignal,
+    model: &Model,
+    terminal_logged: &mut bool,
 ) -> Result<Attempt, CallbackError> {
     if signal.aborted() {
+        if let Some(debug) = &launch.cli_debug {
+            debug.logs.debug("compact summary: aborted")?;
+        }
+        *terminal_logged = true;
         return Err(CallbackError::new("Operation aborted"));
     }
     let mut process = ClaudeProcess::spawn_child(launch)?;
     let result = tokio::select! {
         biased;
         _ = signal.wait() => None,
-        result = consume_query(&mut process, launch, prompt) => Some(result),
+        result = consume_query(&mut process, launch, prompt, model) => Some(result),
     };
     match result {
         Some(Ok(attempt)) => Ok(attempt),
@@ -141,6 +165,10 @@ async fn consume(
         }
         None => {
             process.cancel().await?;
+            if let Some(debug) = &launch.cli_debug {
+                debug.logs.debug("compact summary: aborted")?;
+            }
+            *terminal_logged = true;
             Err(CallbackError::new("Operation aborted"))
         }
     }
@@ -150,6 +178,7 @@ async fn consume_query(
     process: &mut ClaudeProcess,
     launch: &LaunchOptions,
     prompt: &JsString,
+    model: &Model,
 ) -> Result<Attempt, CallbackError> {
     process.initialize(launch).await?;
     process
@@ -160,7 +189,20 @@ async fn consume_query(
     let mut error = None;
     let mut quota = None;
     let mut rejection = None;
+    let mut first = true;
     while let Some(frame) = process.read().await? {
+        if first && let Some(debug) = &launch.cli_debug {
+            debug.logs.debug(pi_js_compat::js_format!(
+                "compact summary: first event type={}",
+                string(&frame, "type")
+            ))?;
+        }
+        first = false;
+        if string(&frame, "type") == "result"
+            && let Some(debug) = &launch.cli_debug
+        {
+            debug.logs.debug_served_context("compact summary", &frame, model)?;
+        }
         match string(&frame, "type")
             .to_utf8()
             .map_err(|e| CallbackError::new(e.to_string()))?
@@ -214,6 +256,7 @@ async fn run_summary(
     model: &Model,
     context: &Context,
     options: &SimpleStreamOptions,
+    terminal_logged: &mut bool,
 ) -> Result<JsString, CallbackError> {
     let prompt = extract_prompt(
         context,
@@ -262,16 +305,25 @@ async fn run_summary(
         {
             return Err(CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED));
         }
+        bridge.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "compact summary: spawn model={} registeredModel={} promptLen={}",
+            launch.model,
+            model.id,
+            prompt.len()
+        ))?;
         let checked_at = (bridge.usage_runtime.now)() / 1000.0;
-        let attempt = consume(&launch, &prompt, &signal).await?;
-        if let Some(debug) = &launch.cli_debug
-            && let Some(profile) = &debug.profile
-        {
-            super::auth_trace::record(profile, "settled", Some("isolated"))?;
-            if let Some(error) = &attempt.error {
+        let attempt = consume(&launch, &prompt, &signal, model, terminal_logged).await;
+        if let Some(profile) = launch.cli_debug.as_ref().and_then(|d| d.profile.as_ref()) {
+            let error = match &attempt {
+                Ok(attempt) => attempt.error.as_ref(),
+                Err(error) => Some(&error.message),
+            };
+            if let Some(error) = error {
                 super::auth_trace::record_failure(profile, error)?;
             }
+            super::auth_trace::record(profile, "settled", Some("isolated"))?;
         }
+        let attempt = attempt?;
         if let (Some(error), Some(reset), Some(name)) = (&attempt.error, attempt.quota, &launch.account_profile) {
             let next = {
                 let mut accounts = bridge
@@ -290,7 +342,23 @@ async fn run_summary(
             } else {
                 next
             };
-            let next = next.ok_or_else(|| CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED))?;
+            bridge.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+                "compact summary: {name} quota rejected; {}",
+                next.as_ref()
+                    .map(|n| format!("retrying on {n}"))
+                    .unwrap_or_else(|| "no account left".into())
+            ))?;
+            let next = match next {
+                Some(next) => next,
+                None => {
+                    *terminal_logged = true;
+                    bridge.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+                        "compact summary: error {}",
+                        super::account_state::ACCOUNTS_EXHAUSTED
+                    ))?;
+                    return Err(CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED));
+                }
+            };
             launch = bridge.launch_options_for_profile(
                 model,
                 &unprojected,
@@ -302,6 +370,12 @@ async fn run_summary(
             continue;
         }
         if let Some(error) = attempt.error {
+            *terminal_logged = true;
+            bridge
+                .logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug(pi_js_compat::js_format!("compact summary: error {}", error))?;
             return Err(CallbackError::new(error));
         }
         if pending.is_some()
@@ -316,8 +390,19 @@ async fn run_summary(
             }
         }
         if attempt.text.trim().is_empty() {
+            *terminal_logged = true;
+            bridge
+                .logs
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .debug("compact summary: error Claude Code summary returned empty text")?;
             return Err(CallbackError::new("Claude Code summary returned empty text"));
         }
+        bridge
+            .logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug(format!("compact summary: done textLen={}", attempt.text.len()))?;
         return Ok(attempt.text);
     }
 }

@@ -173,6 +173,10 @@ impl BridgeProvider {
             .as_ref()
             .is_some_and(|options| options.stream.cache_retention == Some(pi_ai::types::CacheRetention::None))
         {
+            self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+                "provider: one-off summarizer call (cacheRetention none) routed to isolated summary, msgs={}",
+                context.messages.len()
+            ))?;
             return Ok(super::summaries::stream(
                 self.clone(),
                 model,
@@ -1033,6 +1037,10 @@ impl QueryActor {
         if string(frame, "type") != "result" {
             return Ok(());
         }
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug_served_context("result", frame, &self.model)?;
         let rejection = self.rate_limit_rejection.take();
         let result_error = super::stream::result_error(frame);
         if let (Some(error), Some(rejection)) = (&result_error, &rejection) {
