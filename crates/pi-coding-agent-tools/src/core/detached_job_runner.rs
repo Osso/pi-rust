@@ -277,7 +277,7 @@ pub fn create_detached_job_terminal_input(
     })
 }
 
-pub(crate) fn sha256_hex(data: &[u8]) -> String {
+pub fn sha256_hex(data: &[u8]) -> String {
     let digest = Sha256::digest(data);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
