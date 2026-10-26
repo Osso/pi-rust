@@ -288,6 +288,13 @@ pub fn create_first_party_extension_factories(
         .collect()
 }
 
+/// Native ports that user extension paths resolve to (see `docs/specs/native-user-extensions.md`).
+fn native_user_extension_registry() -> Arc<ExtensionRegistry> {
+    let mut registry = ExtensionRegistry::new();
+    pi_coding_agent_extensions::native_user_extensions::register(&mut registry);
+    Arc::new(registry)
+}
+
 /// `core/debug-repl.ts` is an approved gap: the provider reports the gap
 /// instead of returning a fake REPL.
 pub fn debug_repl_gap_provider() -> crate::bundled_extensions::debug::DebugReplControllerProvider {
@@ -601,6 +608,7 @@ async fn create_runtime(
         additional_prompt_template_paths: options.additional_prompt_template_paths.clone(),
         additional_theme_paths: options.additional_theme_paths.clone(),
         extension_factories: options.extension_factories.clone(),
+        extension_registry: Some(native_user_extension_registry()),
         no_extensions: parsed.no_extensions.is_some_and(|value| value),
         no_skills: parsed.no_skills.is_some_and(|value| value),
         no_prompt_templates: parsed.no_prompt_templates.is_some_and(|value| value),
@@ -1847,7 +1855,9 @@ async fn run_main_inner(args: &[String], options: MainOptions) -> Result<Option<
         entrypoint: std::env::current_exe()
             .ok()
             .map(|path| JsString::from(path.display().to_string())),
-        extensions_loader: Arc::new(DefaultProjectTrustExtensionsLoader::default()),
+        extensions_loader: Arc::new(DefaultProjectTrustExtensionsLoader {
+            extension_registry: Some(native_user_extension_registry()),
+        }),
         config_selector: Rc::new(TuiConfigSelector {
             terminal: Rc::new(RefCell::new(pi_tui::terminal::ProcessTerminal::new())),
         }),
