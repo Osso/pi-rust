@@ -387,6 +387,36 @@ fn project_spec_reads_only_markdown_inside_docs_specs() {
 }
 
 #[test]
+fn project_spec_replaces_invalid_utf8_in_index_and_content() {
+    let temp = TempDir::new().unwrap();
+    let specs = temp.path().join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), b"index\xff survives").unwrap();
+    std::fs::write(specs.join("feature.md"), b"before\xe2\x82after\xff end").unwrap();
+    assert_eq!(
+        futures_block(read_project_spec(&temp.path().display().to_string(), "feature.md")).unwrap(),
+        "before\u{fffd}after\u{fffd} end"
+    );
+    assert_eq!(
+        futures_block(read_project_spec(&temp.path().display().to_string(), "README.md")).unwrap(),
+        "index\u{fffd} survives"
+    );
+}
+
+#[test]
+fn project_spec_replaces_invalid_utf8_in_content_with_valid_index() {
+    let temp = TempDir::new().unwrap();
+    let specs = temp.path().join("docs/specs");
+    std::fs::create_dir_all(&specs).unwrap();
+    std::fs::write(specs.join("README.md"), "index").unwrap();
+    std::fs::write(specs.join("feature.md"), b"before\xe2\x82after\xff end").unwrap();
+    assert_eq!(
+        futures_block(read_project_spec(&temp.path().display().to_string(), "feature.md")).unwrap(),
+        "before\u{fffd}after\u{fffd} end"
+    );
+}
+
+#[test]
 fn project_spec_reports_a_missing_spec_index() {
     let temp = TempDir::new().unwrap();
     let error = futures_block(read_project_spec(&temp.path().display().to_string(), "README.md")).unwrap_err();

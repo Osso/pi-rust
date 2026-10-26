@@ -40,9 +40,9 @@ pub async fn read_project_spec(project_cwd: &str, spec_path: &str) -> Result<Str
             "Architect project spec path must remain inside docs/specs",
         ));
     }
-    tokio::fs::read_to_string(&canonical_path)
-        .await
-        .map_err(project_io_error)
+    // readFile(canonicalPath, "utf8")
+    let bytes = tokio::fs::read(&canonical_path).await.map_err(project_io_error)?;
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
 fn project_io_error(error: std::io::Error) -> HandlerError {
@@ -57,7 +57,8 @@ async fn find_project_root(start_cwd: &str) -> Result<PathBuf, HandlerError> {
     };
     loop {
         let index = candidate.join(SPEC_INDEX_PATH.iter().collect::<PathBuf>());
-        if tokio::fs::read_to_string(&index).await.is_ok() {
+        // readFile(index, "utf8"): only readability matters for root discovery.
+        if tokio::fs::read(&index).await.is_ok() {
             return Ok(candidate);
         }
         let parent = candidate
