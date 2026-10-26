@@ -110,13 +110,14 @@ impl BridgeProvider {
                 .collect::<Result<Vec<_>, _>>()?;
             super::account_state::AccountManager::new(home, names).map(Some)
         })();
+        let logs = super::logging::Logs::new();
         let bridge = Self {
             state: Arc::new(Mutex::new(QueryState::default())),
             identity: Arc::new(()),
             ui: Arc::new(Mutex::new(None)),
             mode: Arc::new(Mutex::new(None)),
             startup_notice: Arc::new(Mutex::new(None)),
-            logs: super::logging::Logs::new(),
+            logs: logs.clone(),
             #[cfg(test)]
             steer_write_fault: Arc::new(Mutex::new(None)),
             ownership,
@@ -126,7 +127,7 @@ impl BridgeProvider {
             sessions: Arc::new(Mutex::new(super::sessions::SessionStore::from_environment())),
             executable,
             ask_name,
-            captures: super::prompt_capture::shared_captures(),
+            captures: super::prompt_capture::shared_captures(logs),
         };
         let state = Arc::downgrade(&bridge.state);
         let sessions = Arc::downgrade(&bridge.sessions);
@@ -368,7 +369,6 @@ impl BridgeProvider {
                                 "promptChars".into(),
                                 JsValue::Number(context.system_prompt.as_ref().map_or(0, JsString::len) as f64),
                             );
-                            data.insert("error".into(), JsValue::String(error.message.clone()));
                             data.insert(
                                 "knownKeys".into(),
                                 JsValue::Number(
@@ -391,6 +391,7 @@ impl BridgeProvider {
                                         > 1,
                                 ),
                             );
+                            data.insert("error".into(), JsValue::String(error.message.clone()));
                             logs.diag("prompt_capture_unresolved", data)
                         }) {
                             Ok(()) => error,
