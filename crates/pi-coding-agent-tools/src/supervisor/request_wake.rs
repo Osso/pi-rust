@@ -27,7 +27,7 @@ pub struct SupervisorRequestWakeServer {
     socket_path: JsString,
     generation: watch::Sender<u64>,
     generation_rx: watch::Receiver<u64>,
-    shutdown: pi_js_compat::abort::AbortController,
+    shutdown: Mutex<pi_js_compat::abort::AbortController>,
     accept_task: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -38,7 +38,7 @@ impl SupervisorRequestWakeServer {
             socket_path: get_supervisor_request_socket_path(control_db_path),
             generation,
             generation_rx,
-            shutdown: pi_js_compat::abort::AbortController::new(),
+            shutdown: Mutex::new(pi_js_compat::abort::AbortController::new()),
             accept_task: Mutex::new(None),
         }
     }
@@ -59,7 +59,7 @@ impl SupervisorRequestWakeServer {
         let listener = listen_with_stale_socket_recovery(&self.socket_path).await?;
         set_private_socket_mode(Path::new(&encode_node_utf8(&self.socket_path)))?;
         let generation = self.generation.clone();
-        let shutdown = self.shutdown.signal();
+        let shutdown = self.renew_shutdown_signal();
         let task = tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -82,24 +82,42 @@ impl SupervisorRequestWakeServer {
 
     pub async fn wait_for_wake_after(&self, observed_generation: u64, signal: &AbortSignal) {
         let mut receiver = self.generation_rx.clone();
-        let shutdown = self.shutdown.signal();
-        if signal.aborted() || self.current_generation() > observed_generation {
-            return;
-        }
-        tokio::select! {
-            _ = receiver.changed() => {}
-            _ = signal.wait() => {}
-            _ = shutdown.wait() => {}
+        let shutdown = self.shutdown().signal();
+        loop {
+            if signal.aborted() || *receiver.borrow_and_update() > observed_generation {
+                return;
+            }
+            tokio::select! {
+                changed = receiver.changed() => {
+                    if changed.is_err() {
+                        return;
+                    }
+                }
+                _ = signal.wait() => return,
+                _ = shutdown.wait() => return,
+            }
         }
     }
 
     pub async fn close(&self) -> Result<(), JsString> {
-        self.shutdown.abort(None);
+        self.shutdown().abort(None);
         if let Some(task) = self.accept_task().take() {
             task.abort();
         }
         remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         Ok(())
+    }
+
+    fn renew_shutdown_signal(&self) -> AbortSignal {
+        let mut controller = self.shutdown();
+        if controller.signal().aborted() {
+            *controller = pi_js_compat::abort::AbortController::new();
+        }
+        controller.signal()
+    }
+
+    fn shutdown(&self) -> std::sync::MutexGuard<'_, pi_js_compat::abort::AbortController> {
+        self.shutdown.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn accept_task(&self) -> std::sync::MutexGuard<'_, Option<tokio::task::JoinHandle<()>>> {
@@ -111,7 +129,7 @@ impl SupervisorRequestWakeServer {
 
 impl Drop for SupervisorRequestWakeServer {
     fn drop(&mut self) {
-        self.shutdown.abort(None);
+        self.shutdown().abort(None);
         if let Some(task) = self
             .accept_task
             .get_mut()
@@ -119,8 +137,8 @@ impl Drop for SupervisorRequestWakeServer {
             .take()
         {
             task.abort();
+            remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
         }
-        remove_socket_file_if_present(Path::new(&encode_node_utf8(&self.socket_path)));
     }
 }
 

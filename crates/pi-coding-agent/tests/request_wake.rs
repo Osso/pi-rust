@@ -139,6 +139,83 @@ async fn close_resolves_pending_waiters() {
         .unwrap();
 }
 
+async fn ping_and_wait_for_accept(server: &SupervisorRequestWakeServer) {
+    use tokio::io::AsyncReadExt;
+
+    let mut stream = UnixStream::connect(encode_node_utf8(server.socket_path()))
+        .await
+        .expect("listener must accept connections");
+    let mut response = Vec::new();
+    tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut response))
+        .await
+        .expect("accepted connection must close")
+        .unwrap();
+    assert!(response.is_empty());
+}
+
+#[tokio::test]
+async fn historical_wake_does_not_resolve_a_wait_for_the_current_generation() {
+    let (_directory, path) = socket_path();
+    let server = SupervisorRequestWakeServer::new(&path);
+    server.start().await.unwrap();
+    ping_and_wait_for_accept(&server).await;
+    assert_eq!(server.current_generation(), 1);
+
+    let signal = AbortSignal::default();
+    let waiter = server.wait_for_wake_after(1, &signal);
+    tokio::pin!(waiter);
+    assert!(
+        futures_util::poll!(&mut waiter).is_pending(),
+        "a historical ping must not wake the waiter"
+    );
+    ping_and_wait_for_accept(&server).await;
+    waiter.await;
+    assert_eq!(server.current_generation(), 2);
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn close_then_start_reopens_the_listener_without_resetting_generation() {
+    let (_directory, path) = socket_path();
+    let server = SupervisorRequestWakeServer::new(&path);
+    server.start().await.unwrap();
+    ping_and_wait_for_accept(&server).await;
+    assert_eq!(server.current_generation(), 1);
+    server.close().await.unwrap();
+    server.start().await.unwrap();
+
+    ping_and_wait_for_accept(&server).await;
+    assert_eq!(server.current_generation(), 2);
+    // The EOF handshake above lets the accept loop run before the next connection.
+    ping_and_wait_for_accept(&server).await;
+    assert_eq!(server.current_generation(), 3);
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn dropping_a_rejected_candidate_preserves_the_active_owners_socket() {
+    let (_directory, path) = socket_path();
+    let owner = SupervisorRequestWakeServer::new(&path);
+    owner.start().await.unwrap();
+    {
+        let candidate = SupervisorRequestWakeServer::new(&path);
+        assert_eq!(
+            candidate.start().await.unwrap_err(),
+            JsString::from(format!(
+                "Supervisor request socket is already active: {}",
+                socket_file(&path)
+            ))
+        );
+    }
+
+    assert!(
+        Path::new(&socket_file(&path)).exists(),
+        "rejected candidate must not unlink the owner's socket"
+    );
+    ping_and_wait_for_accept(&owner).await;
+    owner.close().await.unwrap();
+}
+
 #[test]
 fn notifying_a_missing_socket_is_silent() {
     notify_supervisor_request(&"/tmp/pi-rust-missing-supervisor/control.sqlite".into());
