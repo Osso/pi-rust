@@ -19,6 +19,8 @@ pub struct LaunchOptions {
     pub resume: Option<String>,
     pub claude_dir: Option<PathBuf>,
     pub account_profile: Option<String>,
+    pub account_request_started_at: Option<f64>,
+    pub account_retries_remaining: bool,
     pub ask_mode: Option<String>,
     pub isolated: bool,
     pub has_tools: bool,

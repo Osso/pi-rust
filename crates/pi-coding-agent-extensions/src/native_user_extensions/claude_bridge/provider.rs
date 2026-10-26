@@ -31,6 +31,12 @@ struct QueryHandle {
 struct QueryState {
     next_id: u64,
     queries: HashMap<u64, QueryHandle>,
+    throttled: HashMap<JsString, PendingProfiles>,
+}
+
+struct PendingProfiles {
+    prompt_key: JsValue,
+    profiles: std::collections::VecDeque<String>,
 }
 
 #[derive(Clone)]
@@ -42,6 +48,7 @@ pub struct BridgeProvider {
     pub ask_name: String,
     pub captures: Arc<Mutex<super::prompt_capture::PromptCaptures>>,
     pub accounts: SharedAccounts,
+    pub(super) usage_runtime: super::usage::UsageRuntime,
 }
 
 impl BridgeProvider {
@@ -61,6 +68,7 @@ impl BridgeProvider {
         Self {
             state: Arc::new(Mutex::new(QueryState::default())),
             accounts: Arc::new(Mutex::new(accounts)),
+            usage_runtime: super::usage::UsageRuntime::default(),
             settings,
             sessions: Arc::new(Mutex::new(super::sessions::SessionStore::from_environment())),
             executable,
@@ -131,11 +139,19 @@ impl BridgeProvider {
         tokio::spawn(async move {
             let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, bridge.accounts.clone());
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
-            let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone());
+            let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let result = match launch {
                 Ok(launch) => actor.run(&launch, &context, &options).await,
                 Err(error) => Err(error),
             };
+            if actor.decoder.output.stop_reason != StopReason::Error {
+                bridge
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .throttled
+                    .remove(&key);
+            }
             let failed = result.is_err() || actor.decoder.output.stop_reason == StopReason::Aborted;
             if let Some(id) = actor.native_session.take() {
                 let mut sessions = bridge
@@ -178,14 +194,16 @@ impl BridgeProvider {
         }
     }
 
-    fn prepare_launch(
+    async fn prepare_launch(
         &self,
         model: &Model,
         context: &Context,
         options: &SimpleStreamOptions,
         cwd: PathBuf,
     ) -> Result<LaunchOptions, CallbackError> {
-        let mut launch = self.launch_options(model, context, options, cwd.clone())?;
+        let mut launch = self
+            .prepare_account_launch(model, context, options, cwd.clone())
+            .await?;
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let store = sessions.as_mut().map_err(|e| e.clone())?;
         let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
@@ -196,6 +214,77 @@ impl BridgeProvider {
         Ok(launch)
     }
 
+    async fn prepare_account_launch(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+        cwd: PathBuf,
+    ) -> Result<LaunchOptions, CallbackError> {
+        let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        let users = context
+            .messages
+            .iter()
+            .filter(|m| matches!(m, pi_ai::types::Message::User(_)))
+            .collect::<Vec<_>>();
+        let prompt_key = JsValue::Array(vec![
+            JsValue::Number(users.len() as f64),
+            js_json::to_value(&users.last()).map_err(|e| CallbackError::new(e.to_string()))?,
+        ]);
+        let pending = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if state.throttled.get(&key).is_some_and(|p| p.prompt_key != prompt_key) {
+                state.throttled.remove(&key);
+            }
+            state.throttled.get_mut(&key).and_then(|p| p.profiles.pop_front())
+        };
+        let result = self.launch_options_for_profile(model, context, options, cwd.clone(), pending.as_deref());
+        let mut launch = match result {
+            Err(e) if e.message == super::account_state::ACCOUNTS_EXHAUSTED => {
+                let home = {
+                    let accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                    accounts
+                        .as_ref()
+                        .map_err(|e| e.clone())?
+                        .as_ref()
+                        .ok_or_else(|| CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED))?
+                        .home()
+                        .to_path_buf()
+                };
+                let service = super::usage::UsageService {
+                    bridge: self.clone(),
+                    home,
+                    config_dir: None,
+                    runtime: self.usage_runtime.clone(),
+                };
+                let signal = options.stream.request.signal.clone().unwrap_or_default();
+                let profiles = service.recheck(&model.id, &signal).await.map_err(CallbackError::new)?;
+                let mut profiles: std::collections::VecDeque<_> = profiles.into();
+                let first = profiles.pop_front();
+                self.state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .throttled
+                    .insert(key.clone(), PendingProfiles { prompt_key, profiles });
+                let mut launch = self.launch_options_for_profile(model, context, options, cwd, first.as_deref())?;
+                launch.account_request_started_at = first.map(|_| (self.usage_runtime.now)() / 1000.0);
+                launch
+            }
+            other => other?,
+        };
+        if pending.is_some() {
+            launch.account_request_started_at = Some((self.usage_runtime.now)() / 1000.0);
+        }
+        launch.account_retries_remaining = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .throttled
+            .get(&key)
+            .is_some_and(|p| !p.profiles.is_empty());
+        Ok(launch)
+    }
+
     pub fn launch_options(
         &self,
         model: &Model,
@@ -203,10 +292,28 @@ impl BridgeProvider {
         options: &SimpleStreamOptions,
         cwd: PathBuf,
     ) -> Result<LaunchOptions, CallbackError> {
+        self.launch_options_for_profile(model, context, options, cwd, None)
+    }
+
+    fn launch_options_for_profile(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+        cwd: PathBuf,
+        pending: Option<&str>,
+    ) -> Result<LaunchOptions, CallbackError> {
         let account = {
             let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             match accounts.as_mut().map_err(|e| e.clone())? {
-                Some(manager) => Some(manager.prepare_selected(super::account_state::now_seconds()?)?),
+                Some(manager) => Some(if let Some(name) = pending {
+                    (
+                        name.into(),
+                        super::account_profiles::prepare_profile(manager.home(), name)?,
+                    )
+                } else {
+                    manager.prepare_selected(super::account_state::now_seconds()?)?
+                }),
                 None => None,
             }
         };
@@ -243,6 +350,8 @@ impl BridgeProvider {
             resume: None,
             claude_dir: account.as_ref().map(|(_, dir)| dir.clone()),
             account_profile: account.map(|(name, _)| name),
+            account_request_started_at: None,
+            account_retries_remaining: false,
             ask_mode: None,
             isolated: false,
             has_tools: context
@@ -317,7 +426,7 @@ impl QueryActor {
                 frame = process.read() => match frame? {
                     None => break,
                     Some(mut frame) => {
-                        self.settle_account_frame(&mut frame, launch.account_profile.as_deref())?;
+                        self.settle_account_frame(&mut frame, launch)?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
                         }
@@ -335,7 +444,7 @@ impl QueryActor {
         Ok(())
     }
 
-    fn settle_account_frame(&mut self, frame: &mut JsValue, account: Option<&str>) -> Result<(), CallbackError> {
+    fn settle_account_frame(&mut self, frame: &mut JsValue, launch: &LaunchOptions) -> Result<(), CallbackError> {
         if string(frame, "type") == "rate_limit_event" {
             if let Some(info) = frame.get("rate_limit_info")
                 && string(info, "status") == "rejected"
@@ -348,10 +457,16 @@ impl QueryActor {
             return Ok(());
         }
         let rejection = self.rate_limit_rejection.take();
-        let Some(name) = account else {
+        let Some(name) = launch.account_profile.as_deref() else {
             return Ok(());
         };
         let Some(error) = super::stream::result_error(frame) else {
+            if let Some(checked_at) = launch.account_request_started_at {
+                let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Some(manager) = accounts.as_mut().map_err(|e| e.clone())? {
+                    manager.recover(name, checked_at)?;
+                }
+            }
             return Ok(());
         };
         let disabled = error
@@ -381,6 +496,7 @@ impl QueryActor {
             && manager
                 .reject(name, reset, super::account_state::now_seconds()?)?
                 .is_none()
+            && !launch.account_retries_remaining
         {
             *frame = JsValue::object([
                 ("type", JsValue::String("result".into())),

@@ -13,6 +13,7 @@ mod provider;
 mod session_records;
 mod sessions;
 pub mod stream;
+mod usage;
 
 use crate::core::extensions::{
     ExtensionRegistry,
@@ -87,6 +88,7 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
         },
     )
     .map_err(HandlerError::from)?;
+    usage::register(pi, bridge.clone())?;
     ask_claude::register(pi, config.get("askClaude").unwrap_or(&JsValue::Null), bridge.clone())?;
     pi.on_agent_end(
         move |_,

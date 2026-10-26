@@ -6,6 +6,51 @@ use pi_js_compat::js_json::JsString;
 use std::sync::{Arc, Mutex};
 
 #[tokio::test]
+async fn claude_bridge_usage_events_are_claimed_without_overwriting_an_earlier_claim() {
+    use crate::core::event_bus::{EventBus, EventBusController, EventRequest};
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir(dir.path().join(".pi")).unwrap();
+    std::fs::write(
+        dir.path().join(".pi/claude-bridge.json"),
+        r#"{"provider":{"accountProfiles":[]}}"#,
+    )
+    .unwrap();
+    let mut registry = ExtensionRegistry::new();
+    register(&mut registry);
+    let bus = Arc::new(EventBusController::new());
+    let loaded = registry
+        .load_extensions(
+            &["<native:pi-claude-bridge>".into()],
+            &JsString::from(dir.path().to_str().unwrap()),
+            Some(bus.clone()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(loaded.errors.is_empty());
+    let mut all = EventRequest::new(JsValue::Null);
+    assert!(
+        bus.emit_request(&"claude-bridge:usage-all-request".into(), &mut all)
+            .is_empty()
+    );
+    let response = all.response.expect("usage-all handler claims request").await.unwrap();
+    assert_eq!(response, JsValue::Array(Vec::new()));
+    let mut single = EventRequest::new(JsValue::object([("args", JsValue::String("reset".into()))]));
+    bus.emit_request(&"claude-bridge:usage-request".into(), &mut single);
+    assert!(
+        single.response.is_some(),
+        "single usage request is claimed synchronously"
+    );
+    let mut claimed = EventRequest::new(JsValue::Null);
+    claimed.response = Some(Box::pin(async { Ok(JsValue::String("previous claim".into())) }));
+    bus.emit_request(&"claude-bridge:usage-all-request".into(), &mut claimed);
+    assert_eq!(
+        claimed.response.unwrap().await.unwrap(),
+        JsValue::String("previous claim".into())
+    );
+}
+
+#[tokio::test]
 async fn claude_bridge_settings_package_loads_hidden_native_factory_and_registers_models() {
     let dir = tempfile::tempdir().unwrap();
     let agent = dir.path().join("pi/agent");

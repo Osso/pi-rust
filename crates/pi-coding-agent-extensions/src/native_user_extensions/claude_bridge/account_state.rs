@@ -245,6 +245,10 @@ impl AccountManager {
             blocked: IndexMap::new(),
         })
     }
+    pub fn home(&self) -> &Path {
+        &self.home
+    }
+
     pub fn selected_profile(&mut self) -> Result<Option<String>, CallbackError> {
         if let Some(shared) = read_state(&self.home)? {
             self.load_shared(shared);

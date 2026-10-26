@@ -46,6 +46,12 @@ def answer(text, message_id):
 
 
 args = sys.argv[1:]
+if args[:1] == ["-p"]:
+    assert args == ["-p", "Reply: ok", "--model", "haiku", "--max-turns", "1", "--tools", "", "--no-session-persistence", "--setting-sources", "project", "--strict-mcp-config"], args
+    root = os.environ["CLAUDE_CONFIG_DIR"]
+    with open(os.path.join(root, ".credentials.json"), "w", encoding="utf-8") as saved:
+        json.dump({"claudeAiOauth": {"accessToken": "refreshed-for-usage", "expiresAt": 8640000000000}}, saved)
+    sys.exit(1)  # Inference fails after persisting a successfully renewed grant.
 assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-format", "stream-json"], args
 assert os.environ.get("ENABLE_CLAUDEAI_MCP_SERVERS") == "0"
 assert os.environ.get("DISABLE_AUTO_COMPACT") == "1"
