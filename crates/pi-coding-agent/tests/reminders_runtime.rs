@@ -189,29 +189,30 @@ async fn reminders_runtime() {
     for _ in 0..10 {
         tokio::task::yield_now().await;
     }
-    let messages = sent.lock().unwrap();
-    assert_eq!(messages.len(), 1);
-    let (message, options) = &messages[0];
-    assert_eq!(message.custom_type, "reminder");
-    assert!(message.display);
-    assert_eq!(message.details.as_ref().unwrap()["id"], pi_js_compat::js_json!(1));
-    assert!(
-        !message.details.as_ref().unwrap()["deliveryToken"]
-            .as_string()
-            .unwrap()
-            .is_empty()
-    );
-    let pi_coding_agent::core::extensions::types::CustomMessageContent::Text(text) = &message.content else {
-        panic!("expected reminder text")
-    };
-    assert!(text.to_utf8().unwrap().contains("context, not authorization"));
-    let options = options.as_ref().unwrap();
-    assert_eq!(
-        options.deliver_as,
-        Some(pi_coding_agent::core::extensions::types::MessageDelivery::FollowUp)
-    );
-    assert_eq!(options.trigger_turn, Some(true));
-    drop(messages);
+    {
+        let messages = sent.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        let (message, options) = &messages[0];
+        assert_eq!(message.custom_type, "reminder");
+        assert!(message.display);
+        assert_eq!(message.details.as_ref().unwrap()["id"], pi_js_compat::js_json!(1));
+        assert!(
+            !message.details.as_ref().unwrap()["deliveryToken"]
+                .as_string()
+                .unwrap()
+                .is_empty()
+        );
+        let pi_coding_agent::core::extensions::types::CustomMessageContent::Text(text) = &message.content else {
+            panic!("expected reminder text")
+        };
+        assert!(text.to_utf8().unwrap().contains("context, not authorization"));
+        let options = options.as_ref().unwrap();
+        assert_eq!(
+            options.deliver_as,
+            Some(pi_coding_agent::core::extensions::types::MessageDelivery::FollowUp)
+        );
+        assert_eq!(options.trigger_turn, Some(true));
+    }
     handlers.session_shutdown[0]
         .call(
             SessionShutdownEvent {
