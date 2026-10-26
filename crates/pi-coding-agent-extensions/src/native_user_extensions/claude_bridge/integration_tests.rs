@@ -475,6 +475,19 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
     let text = std::fs::read_to_string(&path).unwrap();
     assert!(text.contains(&format!("[{}] provider: fresh query", logs.module_id)));
     assert!(text.contains("[cli-stderr provider#1] fixture debug line"));
+    let messages = text
+        .lines()
+        .filter_map(|line| {
+            line.split_once(&format!("[{}] ", logs.module_id))
+                .map(|(_, message)| message)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        messages
+            .contains(&"provider: streamClaudeAgentSdk called, activeQuery=false, lastMsgRole=user, isReentrant=false")
+    );
+    assert!(messages.contains(&"consumeQuery: for-await loop exited, wasAborted=false, capturedSessionId=11111111"));
+    assert!(messages.contains(&"provider: clearing activeQuery before final stream completion"));
     let cli = std::fs::read_dir(path.parent().unwrap().join("cc-cli-logs"))
         .unwrap()
         .map(|e| e.unwrap().path())

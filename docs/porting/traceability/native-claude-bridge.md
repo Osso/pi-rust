@@ -53,6 +53,22 @@ Additional implementation/proof issues found during the same audit:
 - **Provider metadata/wire details.** Native `launch_options_for_profile` uses generic reasoning mapping, not source `index.ts:2434–2446` thinkingLevelMap overrides/null suppression. SDK init/argv fidelity beyond exercised frames remains incomplete: source provider installs PostToolBatch even with no MCP tools; native initializes it only when `has_tools`. Native source tests do not establish full argument ordering or every control frame.
 - **Lighter-proof limits.** Native partial tool JSON uses the shared incremental parser while source keeps the previous arguments until `JSON.parse` succeeds. Source tool-result extraction normalizes empty/unsupported blocks to a blank text block, while native sends typed content directly. Wrong-type/pathological JSON remains outside the standing parity bar, but ordinary incomplete JSON and empty tool output are realistic and still require regression tests.
 
+## Logging call sites
+
+Audit in progress against extension snapshot `38d84cb549cce66dd76d45a5020d132f74780393`. Paths below are relative to `claude_bridge/`. Debug calls use the existing `Logs::debug` gate (`CLAUDE_BRIDGE_DEBUG=1`) and `CLAUDE_BRIDGE_DEBUG_PATH` or the agent directory's `claude-bridge.log`. Diagnostics remain unconditional at `claude-bridge-diag.log`; auth and shape keep their existing private JSONL sinks. This checkpoint is not exhaustive logging parity.
+
+| TS call site (`src/index.ts`) | Native call site | Fields / condition | Proof |
+| --- | --- | --- | --- |
+| 2195 provider entry | `provider.rs::BridgeProvider::stream` | activeQuery, lastMsgRole, isReentrant | fake normal query exact line |
+| 1971 consume loop exit | `provider.rs::QueryActor::run` | wasAborted, capturedSessionId (8 chars) | fake normal query exact line |
+| 2602 final stream completion | `provider.rs::BridgeProvider::stream` completion task | successful run, before finish | fake normal query exact line |
+| 2744 AskClaude launch | `ask_claude.rs::AskRun::run` | mode, model, cliModel, effort, isolated, resume, skills, promptLen | fake shared-history query, imported and existing-native |
+| 2807 AskClaude native tool | `ask_claude.rs::AskRun::run` | tool_use content_block_start name | insertion; tool-flow proof pending |
+| 2832 AskClaude result usage | `ask_claude.rs::AskRun::run` | in, out, cacheRead, cacheWrite, turns; only with usage | insertion; usage-flow proof pending |
+| 2849 AskClaude completion | `ask_claude.rs::AskRun::run` | stopReason, resultSubtype, sdkMessages, textDeltas, responseLen, toolCalls | fake shared-history query exact field order |
+
+Checkpoint proof: both focused subprocess tests passed after observed assertion failures; workspace all-target check (`-j3`), strict extensions all-target/all-feature clippy and fmt check passed. Logs: `/tmp/bridge-diag-check-1.log`, `/tmp/bridge-diag-clippy-1.log`. Inventory: 686 rows / 186679 lines, unchanged. These checks cover only this checkpoint; later logging insertions invalidate the affected scope.
+
 ## Proof ledger
 
 - `7c4960437`: real-binary package discovery/startup and offline Opus/Haiku listing; workspace all-target check, fmt and strict changed-crate clippy passed.

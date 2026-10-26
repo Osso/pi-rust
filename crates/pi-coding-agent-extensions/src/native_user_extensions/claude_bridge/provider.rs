@@ -161,6 +161,22 @@ impl BridgeProvider {
         let options = options.unwrap_or_default();
         let (sender, stream) = create_assistant_message_event_stream();
         let results = recent_tool_result_ids(&context);
+        let active_query = !self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .queries
+            .is_empty();
+        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "provider: streamClaudeAgentSdk called, activeQuery={}, lastMsgRole={}, isReentrant={}",
+            active_query,
+            context.messages.last().map_or("undefined", |m| match m {
+                pi_ai::types::Message::User(_) => "user",
+                pi_ai::types::Message::Assistant(_) => "assistant",
+                pi_ai::types::Message::ToolResult(_) => "toolResult",
+            }),
+            active_query
+        ))?;
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let session_key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
         let stale_ids = state
@@ -353,7 +369,14 @@ impl BridgeProvider {
             } else {
                 Ok(())
             };
-            match result.and(persist) {
+            let result = result.and(persist).and_then(|()| {
+                bridge
+                    .logs
+                    .as_ref()
+                    .map_err(|e| e.clone())?
+                    .debug("provider: clearing activeQuery before final stream completion")
+            });
+            match result {
                 Err(error) => actor.fail(error),
                 Ok(()) => actor.finish(),
             };
@@ -791,6 +814,14 @@ impl QueryActor {
                 }
             }
         }
+        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "consumeQuery: for-await loop exited, wasAborted={}, capturedSessionId={}",
+            signal.aborted(),
+            self.native_session
+                .as_deref()
+                .map(|s| &s[..s.len().min(8)])
+                .unwrap_or("none")
+        ))?;
         process.close().await?;
         if let Some(shape) = &mut self.shape {
             shape.record_pi(
