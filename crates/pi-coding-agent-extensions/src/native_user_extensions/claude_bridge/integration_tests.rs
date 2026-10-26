@@ -828,6 +828,134 @@ async fn claude_bridge_fake_process_askclaude_uses_registered_tool() {
 }
 
 #[tokio::test]
+async fn claude_bridge_empty_results_emit_source_events_content_and_usage() {
+    for (prompt, tags, text_blocks, input, output, error) in [
+        (
+            "empty-assistant-result",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            7.0,
+            3.0,
+            None,
+        ),
+        (
+            "missing-content-result",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            0.0,
+            0.0,
+            None,
+        ),
+        ("empty-stream-result", vec!["start", "done"], 0, 7.0, 3.0, None),
+        (
+            "empty-stream-text",
+            vec!["start", "text_start", "text_delta", "text_end", "done"],
+            1,
+            13.0,
+            6.0,
+            None,
+        ),
+        (
+            "empty-is-error-result",
+            vec!["start", "error"],
+            0,
+            0.0,
+            0.0,
+            Some(JsString::from("Claude Code reported an error")),
+        ),
+        (
+            "text-is-error-result",
+            vec!["start", "error"],
+            0,
+            0.0,
+            0.0,
+            Some(JsString::from("failed ") + JsString::from_utf16(vec![0xdfff])),
+        ),
+        (
+            "empty-synthetic-error",
+            vec!["start", "error"],
+            0,
+            7.0,
+            0.0,
+            Some(JsString::from("Claude Code reported an error")),
+        ),
+    ] {
+        let (dir, config, _) = setup().await;
+        let mut stream =
+            config.stream_simple.as_ref().unwrap()(model(&config), context(prompt), Some(options(&dir))).unwrap();
+        let mut events = Vec::new();
+        while let Some(event) = stream.next().await {
+            events.push(js_json::to_value(&event.unwrap()).unwrap());
+        }
+        let actual: Vec<_> = events
+            .iter()
+            .map(|event| super::stream::string(event, "type"))
+            .collect();
+        assert_eq!(
+            actual,
+            tags.iter().map(|tag| JsString::from(*tag)).collect::<Vec<_>>(),
+            "{prompt}"
+        );
+        let result = stream.result().await.unwrap();
+        assert_eq!(result.content.len(), text_blocks, "{prompt}");
+        for content in &result.content {
+            let AssistantContent::Text(text) = content else {
+                panic!("{prompt}: text");
+            };
+            assert_eq!(text.text, "", "{prompt}");
+        }
+        assert_eq!(result.usage.input, input, "{prompt}");
+        assert_eq!(result.usage.output, output, "{prompt}");
+        let cache_read = if prompt == "empty-stream-text" { 40.0 } else { 0.0 };
+        assert_eq!(result.usage.total_tokens, input + output + cache_read, "{prompt}");
+        assert_eq!(result.error_message, error, "{prompt}");
+        assert_eq!(
+            result.stop_reason,
+            if error.is_some() {
+                StopReason::Error
+            } else {
+                StopReason::Stop
+            },
+            "{prompt}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn claude_bridge_empty_tool_results_normalize_mcp_content_and_preserve_error() {
+    for empty_block in [false, true] {
+        let (dir, config, _) = setup().await;
+        let stream = config.stream_simple.as_ref().unwrap();
+        let mut ctx = read_context("empty-tool-result");
+        let first = stream(model(&config), ctx.clone(), Some(options(&dir)))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        assert_eq!(first.stop_reason, StopReason::ToolUse);
+        assert_eq!(first.usage.total_tokens, 10.0);
+        append_read_result(&mut ctx, first, "".into());
+        let Some(Message::ToolResult(result)) = ctx.messages.last_mut() else {
+            panic!("result");
+        };
+        result.is_error = true;
+        if !empty_block {
+            result.content.clear();
+        }
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(3),
+            stream(model(&config), ctx, Some(options(&dir))).unwrap().result(),
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+        assert_eq!(result.content.len(), 1);
+        assert_eq!(result.usage.total_tokens, 0.0);
+    }
+}
+
+#[tokio::test]
 async fn claude_bridge_askclaude_cancels_initialization_and_reaps_on_result_errors() {
     use std::sync::Arc;
     for stall in [true, false] {

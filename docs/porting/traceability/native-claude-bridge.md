@@ -68,3 +68,18 @@ Additional implementation/proof issues found during the same audit:
 - `0ddafa3cd`: 40 bridge tests; offline HTTP and CLI refresh, capacity and throttled pending requests; workspace/fmt/clippy passed.
 - `4b4826a72`: 47 bridge tests; summaries/lifecycle/rebuild/terminating tools; workspace/fmt/clippy passed.
 - `c4bc63836`: 53 bridge tests; `/tmp/claude-bridge-item5-gate-{1,2,3,4}.log` records focused tests, workspace all-target check `-j3`, fmt and strict extensions clippy. Code unchanged by this audit documentation commit; proof remains valid. Source inventory is 686 rows / 186679 lines.
+
+
+## Stream partial JSON and empty-result slice (2026-10-25)
+
+| Source boundary | Native behavior | Proof |
+|---|---|---|
+| `index.ts::parsePartialJson`, `processStreamEvent` input deltas and block stop | Strict lossless JSON parse replaces arguments only on success. Incomplete/invalid accumulated JSON retains initial or last successful arguments; stop applies tool argument mapping and removes stream metadata. | Native RED/GREEN delta/stop tests; unchanged TS helper executed with tsx, including nested input and unpaired UTF-16 (`fixtures/stream-semantics-oracle.{mjs,json}`). |
+| `extract-tool-results.ts::toolResultToMcpContent` | Live MCP results filter empty text, unsupported blocks and incomplete images, retaining valid text/images; an empty result becomes one blank text block. Transcript conversion still uses its distinct empty string representation. | Frozen TS conversion/extraction values compared natively; offline child asserts the complete MCP response for both empty arrays and empty text, with `isError: true`. |
+| `processAssistantMessage`, successful `result`, `finalizeCurrentStream` | Empty completed assistant text is skipped, missing assistant content does not record usage, streamed empty text remains observable, result-only empty/missing text emits one empty text block, and contentless turns start before their terminal event. Empty synthetic text is omitted. | Offline child modes assert event order, final content, errors and usage for seven cases. |
+| `resultErrorText` success-shaped `is_error` | Empty/missing result text uses `Claude Code reported an error`; nonempty failure text retains UTF-16. Neither creates successful text content. | Offline empty/nonempty failure modes, with exact error text and zero/retained usage assertions. |
+
+This closes the baseline partial-tool-JSON and empty/unsupported live-result normalization findings above, not the other baseline findings. No network or live credentials were used. RED evidence: `/tmp/bridge-stream-red.log`; pre-merge GREEN/gates: `/tmp/bridge-stream-precommit-{tests,check,clippy,fmt}.log` (69 bridge tests; workspace all-target check `-j3`; strict extensions all-target/all-feature clippy; formatting).
+
+
+Integrated checkpoint: stream implementation `895647444` plus `native-ext/claude-bridge` at `3d6eb518ca15c5b24095957493833eac19dff841`. `/tmp/bridge-stream-merged-{tests,check,clippy,fmt}.log` covers the combined tree: 75 bridge tests pass; `cargo check -j3 --workspace --all-targets`, `cargo clippy -j3 -p pi-coding-agent-extensions --all-targets --all-features -- -D warnings`, and `cargo fmt --check` pass. Manual readability review covered the stream/conversion/provider changes and tests. Subsequent changes to this checkpoint are documentation only.

@@ -1008,7 +1008,9 @@ impl QueryActor {
 
     fn finish(&mut self) {
         if let Some(sender) = self.current.take() {
-            sender.push(self.decoder.finish());
+            for event in self.decoder.finish_events() {
+                sender.push(event);
+            }
             sender.end(None);
         }
     }
@@ -1061,7 +1063,9 @@ impl QueryActor {
                 let value = JsValue::object([
                     (
                         "content",
-                        js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
+                        super::convert::tool_result_to_mcp_content(
+                            &js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
+                        ),
                     ),
                     ("isError", JsValue::Bool(result.is_error)),
                 ]);
