@@ -65,7 +65,35 @@ user = read()
 assert user["type"] == "user", user
 content = user["message"]["content"]
 text = content if isinstance(content, str) else "".join(item.get("text", "") for item in content)
-if text == "account-quota":
+if "--max-turns" in args:
+    assert "--resume" not in args and not any(arg.startswith("--resume=") for arg in args), args
+    assert args[args.index("--tools") + 1] == "", args
+    assert args[args.index("--setting-sources") + 1] == "", args
+    assert "--no-session-persistence" in args and "--strict-mcp-config" in args
+    assert "--permission-mode" not in args
+    assert json.loads(args[args.index("--settings") + 1]) == {"autoMemoryEnabled": False}
+    assert init["request"]["skills"] == []
+    assert "appendSystemPrompt" not in init["request"]
+    assert "systemPrompt" in init["request"]
+    if text.startswith("part one"):
+        assert init["request"]["systemPrompt"] == ["summary system \ud800"]
+    if "summary-error" in text:
+        send({"type": "result", "subtype": "success", "is_error": True, "result": "summary failed \udfff"})
+    else:
+        answer("Claude: " + text, "summary-msg")
+elif text in ["assert-lifecycle-rebuild", "assert-session-cleared"]:
+    resume = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--resume=")), None)
+    assert resume, args
+    if text == "assert-session-cleared":
+        assert resume != "11111111-1111-4111-8111-111111111111", args
+    project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())
+    root = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
+    with open(os.path.join(root, "projects", project, resume + ".jsonl"), encoding="utf-8") as saved:
+        records = [json.loads(line) for line in saved if line.strip()]
+    assert records[0]["message"]["content"] == "hello", records
+    assert records[1]["message"]["content"][0]["text"] == "Claude: hello", records
+    answer("rebuilt", "rebuild-msg")
+elif text == "account-quota":
     root = os.environ["CLAUDE_CONFIG_DIR"]
     name = os.path.basename(root)
     if name == "a":
@@ -89,6 +117,26 @@ elif text == "assert-history":
     assert records[1]["message"]["content"][0]["text"] == "Claude: earlier \udfff", records
     assert all(record["sessionId"] == resume for record in records), records
     answer("history restored", "history-msg")
+elif text == "short-unowned":
+    assert not any(arg.startswith("--resume=") for arg in args), args
+    answer("short caller", "short-msg")
+elif text == "assert-preserved-native":
+    assert "--resume=11111111-1111-4111-8111-111111111111" in args, args
+    answer("preserved", "preserved-msg")
+elif text == "terminating-tool":
+    event({"type": "message_start", "message": {"id": "ending-msg"}})
+    event({"type": "content_block_start", "index": 0, "content_block": {"type": "tool_use", "id": "ending", "name": "mcp__custom-tools__end_turn", "input": {"reason": "done"}}})
+    event({"type": "content_block_stop", "index": 0})
+    event({"type": "message_delta", "delta": {"stop_reason": "tool_use"}})
+    event({"type": "message_stop"})
+    result = control("ending-call", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "end_turn", "arguments": {}, "_meta": {"claudecode/toolUseId": "ending"}}})
+    assert result["result"]["content"][0]["text"] == "complete \udfff", result
+    send({"type": "control_request", "request_id": "post-batch", "request": {"subtype": "hook_callback", "callback_id": "hook_0", "input": {"hook_event_name": "PostToolBatch"}}})
+    response = read()
+    assert response["response"]["response"] == {"continue": False}, response
+    with open(".fixture-end-turn-settled", "w", encoding="utf-8") as marker:
+        marker.write("settled")
+    send({"type": "result", "subtype": "success", "result": "", "session_id": "11111111-1111-4111-8111-111111111111"})
 elif text == "tool-round-trip":
     manifest = control("mcp-init", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fake-claude", "version": "1"}}})
     assert manifest["result"]["capabilities"]["tools"] == {}, manifest

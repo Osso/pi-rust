@@ -111,6 +111,28 @@ fn native_prefix_keeps_parallel_results_and_file_attachments_but_not_unsettled_t
 }
 
 #[test]
+fn claude_bridge_reuse_advances_cursor_past_each_trailing_assistant_without_rewriting_jsonl() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("cc");
+    let mut store = SessionStore::at(root.clone(), dir.path().join("agent"));
+    let key = JsString::from("owned");
+    store.record(&key, "native-id".into(), 1, dir.path()).unwrap();
+    let first: pi_ai::types::Context = js_json::from_value(&js_json::parse_lossless(r#"{"messages":[{"role":"user","content":"u","timestamp":1},{"role":"assistant","api":"x","provider":"x","model":"x","content":[{"type":"text","text":"a1"}],"stopReason":"stop","usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"timestamp":2},{"role":"user","content":"next","timestamp":3}]}"#).unwrap()).unwrap();
+    assert_eq!(
+        store.sync(&key, &first, dir.path(), "m", true).unwrap(),
+        Some("native-id".into())
+    );
+    let mut second = first.clone();
+    let assistant = second.messages[1].clone();
+    second.messages.insert(2, assistant);
+    assert_eq!(
+        store.sync(&key, &second, dir.path(), "m", true).unwrap(),
+        Some("native-id".into())
+    );
+    assert!(!root.exists(), "REUSE must not rewrite the native transcript");
+}
+
+#[test]
 fn session_associations_survive_restart_and_rotate_on_abort() {
     let dir = tempfile::tempdir().unwrap();
     let cwd = dir.path();

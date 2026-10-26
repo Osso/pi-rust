@@ -8,7 +8,7 @@ use pi_ai::types::{
 use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::os::unix::fs::PermissionsExt;
 
-async fn setup() -> (
+pub(super) async fn setup() -> (
     tempfile::TempDir,
     ProviderConfig,
     crate::core::extensions::types::LoadExtensionsResult,
@@ -62,7 +62,7 @@ fn options(dir: &tempfile::TempDir) -> SimpleStreamOptions {
     options
 }
 
-fn model(config: &ProviderConfig) -> pi_ai::types::Model {
+pub(super) fn model(config: &ProviderConfig) -> pi_ai::types::Model {
     let mut model = pi_ai::providers::models_data::builtin_model("anthropic", "claude-opus-5-5").unwrap();
     model.api = config.api.clone().unwrap();
     model.provider = "claude-bridge".into();
@@ -131,6 +131,94 @@ async fn claude_bridge_profile_queries_writeback_and_share_quota_selection() {
     );
     let mut peer = account_state::AccountManager::new(home, vec!["a".into(), "b".into()]).unwrap();
     assert_eq!(peer.selected_profile().unwrap().as_deref(), Some("b"));
+}
+
+#[tokio::test]
+async fn claude_bridge_one_off_summary_uses_raw_system_prompt_and_does_not_touch_session_mirrors() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+        dir.path().join("cc-summary"),
+        dir.path().join("agent-summary"),
+    ));
+    let mut ctx = context("part one");
+    let mut first = JsString::from("part one ");
+    first.push_unit(0xdfff);
+    let Message::User(user) = &mut ctx.messages[0] else {
+        panic!("user");
+    };
+    user.content = UserContent::Text(first.clone());
+    ctx.messages.extend(context("part two").messages);
+    let mut system = JsString::from("summary system ");
+    system.push_unit(0xd800);
+    ctx.system_prompt = Some(system);
+    let mut opts = options(&dir);
+    opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
+    let mut events = bridge.stream(model(&config), ctx, Some(opts)).unwrap();
+    let mut count = 0;
+    while let Some(event) = events.next().await {
+        assert!(matches!(
+            event.unwrap(),
+            pi_ai::types::AssistantMessageEvent::Done { .. }
+        ));
+        count += 1;
+    }
+    let result = events.result().await.unwrap();
+    assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    let AssistantContent::Text(text) = &result.content[0] else {
+        panic!("summary text");
+    };
+    assert_eq!(text.text, JsString::from("Claude: ") + first + "\npart two");
+    assert_eq!(result.usage.total_tokens, 0.0);
+    assert_eq!(count, 1);
+    assert!(!dir.path().join("agent-summary").exists());
+    assert!(!dir.path().join("cc-summary").exists());
+}
+
+#[tokio::test]
+async fn claude_bridge_short_unowned_caller_preserves_the_longer_native_session() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+        dir.path().join("cc-unowned"),
+        dir.path().join("agent-unowned"),
+    ));
+    let mut opts = options(&dir);
+    opts.stream.session_id = None;
+    let mut history = context("hello");
+    let first = bridge
+        .stream(model(&config), history.clone(), Some(opts.clone()))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(first.stop_reason, StopReason::Stop);
+    history.messages.push(Message::Assistant(Box::new(first)));
+    let script = include_str!("fixtures/claude.py");
+    std::fs::write(
+        dir.path().join("claude"),
+        script.replace(
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222",
+        ),
+    )
+    .unwrap();
+    let short = bridge
+        .stream(model(&config), context("short-unowned"), Some(opts.clone()))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(short.stop_reason, StopReason::Stop, "{:?}", short.error_message);
+    std::fs::write(dir.path().join("claude"), script).unwrap();
+    history.messages.extend(context("assert-preserved-native").messages);
+    let resumed = bridge
+        .stream(model(&config), history, Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(resumed.stop_reason, StopReason::Stop, "{:?}", resumed.error_message);
 }
 
 #[tokio::test]

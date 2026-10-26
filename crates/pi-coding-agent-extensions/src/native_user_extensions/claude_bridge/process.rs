@@ -15,8 +15,11 @@ pub struct LaunchOptions {
     pub model: String,
     pub provider: JsValue,
     pub append: Option<JsString>,
+    pub summary_system_prompt: Option<JsString>,
+    pub summary: bool,
     pub effort: Option<String>,
     pub resume: Option<String>,
+    pub preserve_shared_session: bool,
     pub claude_dir: Option<PathBuf>,
     pub account_profile: Option<String>,
     pub account_request_started_at: Option<f64>,
@@ -43,7 +46,16 @@ impl LaunchOptions {
         if let Some(resume) = &self.resume {
             args.push(format!("--resume={resume}"));
         }
-        if let Some(mode) = &self.ask_mode {
+        if self.summary {
+            args.extend([
+                "--tools".into(),
+                "".into(),
+                "--setting-sources".into(),
+                "".into(),
+                "--max-turns".into(),
+                "1".into(),
+            ]);
+        } else if let Some(mode) = &self.ask_mode {
             args.extend(["--disallowedTools".into(), disallowed_tools(mode).join(",")]);
             args.push("--setting-sources=user,project".into());
         } else {
@@ -55,15 +67,20 @@ impl LaunchOptions {
                 ]);
             }
         }
-        args.extend(["--permission-mode".into(), "bypassPermissions".into()]);
-        if self.ask_mode.is_none() {
+        if !self.summary {
+            args.extend(["--permission-mode".into(), "bypassPermissions".into()]);
+        }
+        if self.ask_mode.is_none() && !self.summary {
             args.push("--include-partial-messages".into());
         }
         if self.isolated {
             args.push("--no-session-persistence".into());
         }
         args.extend(["--model".into(), self.model.clone()]);
-        if self.ask_mode.is_some() || self.provider.get("strictMcpConfig").and_then(JsValue::as_bool) != Some(false) {
+        if self.summary
+            || self.ask_mode.is_some()
+            || self.provider.get("strictMcpConfig").and_then(JsValue::as_bool) != Some(false)
+        {
             args.push("--strict-mcp-config".into());
         }
         if self.effort.is_some() {
@@ -74,6 +91,9 @@ impl LaunchOptions {
     }
 
     fn settings(&self) -> JsValue {
+        if self.summary {
+            return JsValue::object([("autoMemoryEnabled", JsValue::Bool(false))]);
+        }
         let mut fields = vec![
             (
                 "autoMemoryEnabled",
@@ -111,7 +131,10 @@ impl LaunchOptions {
         if let Some(append) = &self.append {
             request.push(("appendSystemPrompt", JsValue::String(append.clone())));
         }
-        if self.ask_mode.is_some() {
+        if let Some(system) = &self.summary_system_prompt {
+            request.push(("systemPrompt", JsValue::Array(vec![JsValue::String(system.clone())])));
+        }
+        if self.ask_mode.is_some() || self.summary {
             request.push(("skills", JsValue::Array(Vec::new())));
         }
         JsValue::object([

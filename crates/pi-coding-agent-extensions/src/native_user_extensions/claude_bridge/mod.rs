@@ -5,6 +5,7 @@ mod ask_claude;
 pub mod ask_render;
 pub mod config;
 pub mod convert;
+mod lifecycle;
 pub mod models;
 mod native_prefix;
 mod process;
@@ -13,6 +14,7 @@ mod provider;
 mod session_records;
 mod sessions;
 pub mod stream;
+mod summaries;
 mod usage;
 
 use crate::core::extensions::{
@@ -88,15 +90,27 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
         },
     )
     .map_err(HandlerError::from)?;
+    lifecycle::register(pi, bridge.clone())?;
     usage::register(pi, bridge.clone())?;
     ask_claude::register(pi, config.get("askClaude").unwrap_or(&JsValue::Null), bridge.clone())?;
     pi.on_agent_end(
-        move |_,
+        move |event: crate::core::extensions::types::AgentEndEvent,
               ctx: crate::core::extensions::types::ExtensionContext|
               -> crate::core::extensions::types::BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let bridge = bridge.clone();
             Box::pin(async move {
-                bridge.end_turn(&ctx.session_manager()?.get_session_id());
+                let messages = pi_agent_core::harness::messages::convert_to_llm(&event.messages)
+                    .map_err(|e| HandlerError::new(e.message().clone()))?;
+                bridge
+                    .end_turn(
+                        &ctx.session_manager()?.get_session_id(),
+                        pi_ai::types::Context {
+                            system_prompt: None,
+                            messages,
+                            tools: None,
+                        },
+                    )
+                    .await?;
                 Ok(None)
             })
         },
@@ -109,6 +123,8 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
 mod account_profile_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod lifecycle_tests;
 #[cfg(test)]
 mod registration_tests;
 #[cfg(test)]

@@ -18,13 +18,14 @@ type SharedAccounts = Arc<Mutex<Result<Option<super::account_state::AccountManag
 
 pub enum QueryCommand {
     Resume { sender: Sender, context: Context },
-    EndTurn,
+    EndTurn { context: Context },
 }
 
 struct QueryHandle {
     sender: mpsc::UnboundedSender<QueryCommand>,
     tool_ids: Arc<Mutex<HashSet<String>>>,
     session: JsString,
+    settled: tokio::sync::watch::Receiver<bool>,
 }
 
 #[derive(Default)]
@@ -83,6 +84,17 @@ impl BridgeProvider {
         mut context: Context,
         options: Option<SimpleStreamOptions>,
     ) -> Result<AssistantMessageEventStream, CallbackError> {
+        if options
+            .as_ref()
+            .is_some_and(|options| options.stream.cache_retention == Some(pi_ai::types::CacheRetention::None))
+        {
+            return Ok(super::summaries::stream(
+                self.clone(),
+                model,
+                context,
+                options.unwrap_or_default(),
+            ));
+        }
         if let Some(tools) = &mut context.tools {
             tools.retain(|tool| tool.name != self.ask_name && tool.name != "web_search");
         }
@@ -125,6 +137,7 @@ impl BridgeProvider {
         state.next_id += 1;
         let id = state.next_id;
         let (commands, receive) = mpsc::unbounded_channel();
+        let (settled, completion) = tokio::sync::watch::channel(false);
         let tool_ids = Arc::new(Mutex::new(HashSet::new()));
         state.queries.insert(
             id,
@@ -132,6 +145,7 @@ impl BridgeProvider {
                 sender: commands,
                 tool_ids: tool_ids.clone(),
                 session: options.stream.session_id.clone().unwrap_or_default(),
+                settled: completion,
             },
         );
         let bridge = self.clone();
@@ -140,58 +154,106 @@ impl BridgeProvider {
             let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, bridge.accounts.clone());
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
-            let result = match launch {
-                Ok(launch) => actor.run(&launch, &context, &options).await,
-                Err(error) => Err(error),
+            let (result, preserve_shared_session) = match launch {
+                Ok(launch) => (
+                    actor.run(&launch, &context, &options).await,
+                    launch.preserve_shared_session,
+                ),
+                Err(error) => (Err(error), false),
             };
+            let mut state = bridge.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             if actor.decoder.output.stop_reason != StopReason::Error {
-                bridge
-                    .state
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .throttled
-                    .remove(&key);
+                state.throttled.remove(&key);
             }
+            let owned = state.queries.remove(&id).is_some();
             let failed = result.is_err() || actor.decoder.output.stop_reason == StopReason::Aborted;
-            if let Some(id) = actor.native_session.take() {
+            let persist = if owned && let Some(native_id) = actor.native_session.take() {
                 let mut sessions = bridge
                     .sessions
                     .lock()
                     .unwrap_or_else(std::sync::PoisonError::into_inner);
-                if let Ok(store) = sessions.as_mut() {
-                    if let Err(error) = store.record(&key, id, context.messages.len(), &cwd) {
-                        actor.fail(error);
+                sessions.as_mut().map_err(|e| e.clone()).and_then(|store| {
+                    if preserve_shared_session {
+                        store.delete_ephemeral(&key, &native_id, &cwd)?;
+                    } else {
+                        store.complete(&key, native_id, actor.latest_cursor, &cwd)?;
                     }
                     if failed {
                         store.mark_rebuild(&key, true);
                     }
-                }
-            }
-            if let Err(error) = result {
-                actor.fail(error);
-            }
-            bridge
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .queries
-                .remove(&id);
+                    Ok(())
+                })
+            } else {
+                Ok(())
+            };
+            match result.and(persist) {
+                Err(error) => actor.fail(error),
+                Ok(()) => actor.finish(),
+            };
+            settled.send_replace(true);
         });
         Ok(stream)
     }
 
-    pub fn end_turn(&self, session: &JsString) {
-        for query in self
+    pub fn clear_sessions(&self) -> Result<(), CallbackError> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+            .map_err(|e| e.clone())?
+            .clear();
+        Ok(())
+    }
+
+    pub fn mark_rebuild(&self, session: &JsString, rotate: bool) -> Result<(), CallbackError> {
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+            .map_err(|e| e.clone())?
+            .mark_rebuild(session, rotate);
+        Ok(())
+    }
+
+    pub async fn end_turn(&self, session: &JsString, context: Context) -> Result<(), CallbackError> {
+        let last_assistant = context.messages.iter().rev().find_map(|message| match message {
+            pi_ai::types::Message::Assistant(message) => Some(message),
+            _ => None,
+        });
+        if last_assistant.is_none_or(|m| m.stop_reason != StopReason::ToolUse) {
+            return Ok(());
+        }
+        let results = recent_tool_result_ids(&context);
+        let owner = self
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .queries
             .values()
-        {
-            if &query.session == session {
-                let _closed = query.sender.send(QueryCommand::EndTurn);
+            .find(|query| {
+                &query.session == session
+                    && query
+                        .tool_ids
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .iter()
+                        .any(|id| results.contains(id))
+            })
+            .map(|q| (q.sender.clone(), q.settled.clone()));
+        if let Some((sender, mut settled)) = owner {
+            if sender.send(QueryCommand::EndTurn { context }).is_err() && !*settled.borrow() {
+                return Err(CallbackError::new(
+                    "Claude query ended before terminating tool delivery",
+                ));
+            }
+            while !*settled.borrow_and_update() {
+                settled
+                    .changed()
+                    .await
+                    .map_err(|_| CallbackError::new("Claude query ended without settlement"))?;
             }
         }
+        Ok(())
     }
 
     async fn prepare_launch(
@@ -207,6 +269,7 @@ impl BridgeProvider {
         let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let store = sessions.as_mut().map_err(|e| e.clone())?;
         let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        launch.preserve_shared_session = store.preserve_unowned(&key, context);
         launch.resume = store.sync(&key, context, &cwd, &launch.model, true)?;
         if launch.claude_dir.is_none() {
             launch.claude_dir = Some(store.claude_dir.clone());
@@ -241,24 +304,8 @@ impl BridgeProvider {
         let result = self.launch_options_for_profile(model, context, options, cwd.clone(), pending.as_deref());
         let mut launch = match result {
             Err(e) if e.message == super::account_state::ACCOUNTS_EXHAUSTED => {
-                let home = {
-                    let accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                    accounts
-                        .as_ref()
-                        .map_err(|e| e.clone())?
-                        .as_ref()
-                        .ok_or_else(|| CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED))?
-                        .home()
-                        .to_path_buf()
-                };
-                let service = super::usage::UsageService {
-                    bridge: self.clone(),
-                    home,
-                    config_dir: None,
-                    runtime: self.usage_runtime.clone(),
-                };
                 let signal = options.stream.request.signal.clone().unwrap_or_default();
-                let profiles = service.recheck(&model.id, &signal).await.map_err(CallbackError::new)?;
+                let profiles = self.recheck_accounts(&model.id, &signal).await?;
                 let mut profiles: std::collections::VecDeque<_> = profiles.into();
                 let first = profiles.pop_front();
                 self.state
@@ -285,6 +332,32 @@ impl BridgeProvider {
         Ok(launch)
     }
 
+    pub(super) async fn recheck_accounts(
+        &self,
+        model: &str,
+        signal: &pi_js_compat::abort::AbortSignal,
+    ) -> Result<Vec<String>, CallbackError> {
+        let home = {
+            let accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            accounts
+                .as_ref()
+                .map_err(|e| e.clone())?
+                .as_ref()
+                .ok_or_else(|| CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED))?
+                .home()
+                .to_path_buf()
+        };
+        super::usage::UsageService {
+            bridge: self.clone(),
+            home,
+            config_dir: None,
+            runtime: self.usage_runtime.clone(),
+        }
+        .recheck(model, signal)
+        .await
+        .map_err(CallbackError::new)
+    }
+
     pub fn launch_options(
         &self,
         model: &Model,
@@ -295,7 +368,7 @@ impl BridgeProvider {
         self.launch_options_for_profile(model, context, options, cwd, None)
     }
 
-    fn launch_options_for_profile(
+    pub(super) fn launch_options_for_profile(
         &self,
         model: &Model,
         context: &Context,
@@ -347,7 +420,10 @@ impl BridgeProvider {
                 }
                 .to_owned()
             }),
+            summary_system_prompt: None,
+            summary: false,
             resume: None,
+            preserve_shared_session: false,
             claude_dir: account.as_ref().map(|(_, dir)| dir.clone()),
             account_profile: account.map(|(name, _)| name),
             account_request_started_at: None,
@@ -375,6 +451,7 @@ struct QueryActor {
     native_session: Option<String>,
     accounts: SharedAccounts,
     rate_limit_rejection: Option<JsValue>,
+    latest_cursor: usize,
 }
 
 impl QueryActor {
@@ -400,6 +477,7 @@ impl QueryActor {
             native_session: None,
             accounts,
             rate_limit_rejection: None,
+            latest_cursor: context.messages.len(),
         }
     }
 
@@ -419,7 +497,6 @@ impl QueryActor {
                     process.interrupt().await?;
                     self.decoder.output.stop_reason = StopReason::Aborted;
                     self.decoder.output.error_message = Some("Aborted".into());
-                    self.finish();
                     return Ok(());
                 }
                 command = self.commands.recv() => if let Some(command) = command { self.deliver(command, &mut process).await?; },
@@ -440,7 +517,6 @@ impl QueryActor {
             }
         }
         process.close().await?;
-        self.finish();
         Ok(())
     }
 
@@ -469,28 +545,9 @@ impl QueryActor {
             }
             return Ok(());
         };
-        let disabled = error
-            == "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access";
-        let subscription = rejection.as_ref().is_some_and(|info| {
-            let window = string(info, "rateLimitType");
-            let known = [
-                "five_hour",
-                "seven_day",
-                "seven_day_opus",
-                "seven_day_sonnet",
-                "seven_day_overage_included",
-            ]
-            .iter()
-            .any(|name| window == *name);
-            known && string(info, "errorCode") != "credits_required"
-        });
-        if !disabled && !subscription {
+        let Some(reset) = quota_rejection(&error, rejection.as_ref()) else {
             return Ok(());
-        }
-        let reset = rejection
-            .as_ref()
-            .and_then(|info| info.get("resetsAt"))
-            .and_then(JsValue::as_f64);
+        };
         let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(manager) = accounts.as_mut().map_err(|e| e.clone())?
             && manager
@@ -517,6 +574,14 @@ impl QueryActor {
         }
         let events = self.decoder.decode(frame)?;
         for event in events {
+            if !self.decoder.parked
+                && matches!(
+                    event,
+                    AssistantMessageEvent::Done { .. } | AssistantMessageEvent::Error { .. }
+                )
+            {
+                continue;
+            }
             if let AssistantMessageEvent::ToolCallEnd { tool_call, .. } = &event {
                 self.tool_ids
                     .lock()
@@ -548,29 +613,43 @@ impl QueryActor {
 
     async fn deliver(&mut self, command: QueryCommand, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
         match command {
-            QueryCommand::EndTurn => self.turn_ended = true,
+            QueryCommand::EndTurn { context } => {
+                self.turn_ended = true;
+                self.latest_cursor += 1 + recent_tool_result_ids(&context).len();
+                self.accept_results(&context, process).await?;
+            }
             QueryCommand::Resume { sender, context } => {
                 self.current = Some(sender);
                 self.decoder = StreamDecoder::with_tools(&self.model, self.tools.iter().map(|t| t.name.clone()));
                 if matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {
                     process.write(&user_message(prompt_content(&context)?, true)).await?;
                 }
-                for message in &context.messages {
-                    if let pi_ai::types::Message::ToolResult(result) = message {
-                        let value = JsValue::object([
-                            (
-                                "content",
-                                js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
-                            ),
-                            ("isError", JsValue::Bool(result.is_error)),
-                        ]);
-                        self.pending_results.insert(result.tool_call_id.clone(), value);
-                    }
-                }
-                self.flush_results(process).await?;
+                self.latest_cursor = self.latest_cursor.max(context.messages.len());
+                self.accept_results(&context, process).await?;
             }
         }
         Ok(())
+    }
+
+    async fn accept_results(&mut self, context: &Context, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
+        for message in context
+            .messages
+            .iter()
+            .rev()
+            .take_while(|m| !matches!(m, pi_ai::types::Message::Assistant(_)))
+        {
+            if let pi_ai::types::Message::ToolResult(result) = message {
+                let value = JsValue::object([
+                    (
+                        "content",
+                        js_json::to_value(&result.content).map_err(|e| CallbackError::new(e.to_string()))?,
+                    ),
+                    ("isError", JsValue::Bool(result.is_error)),
+                ]);
+                self.pending_results.insert(result.tool_call_id.clone(), value);
+            }
+        }
+        self.flush_results(process).await
     }
 
     async fn flush_results(&mut self, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
@@ -675,6 +754,19 @@ impl QueryActor {
     }
 }
 
+fn recent_tool_result_ids(context: &Context) -> HashSet<String> {
+    context
+        .messages
+        .iter()
+        .rev()
+        .take_while(|m| !matches!(m, pi_ai::types::Message::Assistant(_)))
+        .filter_map(|message| match message {
+            pi_ai::types::Message::ToolResult(result) => Some(result.tool_call_id.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 fn control_response(request: &JsValue, response: JsValue) -> JsValue {
     JsValue::object([
         ("type", JsValue::String("control_response".into())),
@@ -687,6 +779,30 @@ fn control_response(request: &JsValue, response: JsValue) -> JsValue {
             ]),
         ),
     ])
+}
+
+pub(super) fn quota_rejection(error: &JsString, rejection: Option<&JsValue>) -> Option<Option<f64>> {
+    if error
+        == "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access"
+    {
+        return Some(None);
+    }
+    let info = rejection?;
+    let window = string(info, "rateLimitType");
+    let subscription = [
+        "five_hour",
+        "seven_day",
+        "seven_day_opus",
+        "seven_day_sonnet",
+        "seven_day_overage_included",
+    ]
+    .iter()
+    .any(|name| window == *name);
+    if subscription && string(info, "errorCode") != "credits_required" {
+        Some(info.get("resetsAt").and_then(JsValue::as_f64))
+    } else {
+        None
+    }
 }
 
 fn mcp_result(message: &JsValue, tools: &[Tool]) -> Result<JsValue, CallbackError> {

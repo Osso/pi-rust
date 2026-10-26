@@ -112,6 +112,51 @@ impl SessionStore {
         std::fs::write(&temp, js_json::stringify_lossless(&content)).map_err(|e| CallbackError::new(e.to_string()))?;
         std::fs::rename(temp, path).map_err(|e| CallbackError::new(e.to_string()))
     }
+    pub fn complete(&mut self, key: &JsString, id: String, cursor: usize, cwd: &Path) -> Result<(), CallbackError> {
+        let old = self.mirrors.get(key);
+        let cursor = old.map_or(cursor, |m| m.cursor.max(cursor));
+        let rebuild = old.is_some_and(|m| m.rebuild);
+        let rotate = old.is_some_and(|m| m.rotate);
+        self.record(key, id, cursor, cwd)?;
+        if rebuild {
+            self.mark_rebuild(key, rotate);
+        }
+        Ok(())
+    }
+
+    pub fn preserve_unowned(&self, key: &JsString, context: &Context) -> bool {
+        let prior = context
+            .messages
+            .iter()
+            .rev()
+            .take_while(|m| matches!(m, Message::User(_)))
+            .count();
+        let count = context.messages.len() - prior;
+        key == "(none)" && self.mirrors.get(key).is_some_and(|m| !m.rebuild && count < m.cursor)
+    }
+
+    pub fn delete_ephemeral(&self, key: &JsString, id: &str, cwd: &Path) -> Result<(), CallbackError> {
+        if self.mirrors.get(key).is_some_and(|mirror| mirror.id == id) {
+            return Ok(());
+        }
+        let path = session_records::session_path(&self.claude_dir, cwd, id)?;
+        match std::fs::remove_file(&path) {
+            Ok(()) => {}
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(CallbackError::new(e.to_string())),
+        }
+        let companion = path.with_extension("");
+        match std::fs::remove_dir_all(companion) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(CallbackError::new(e.to_string())),
+        }
+    }
+
+    pub fn clear(&mut self) {
+        self.mirrors.clear();
+    }
+
     pub fn mark_rebuild(&mut self, key: &JsString, rotate: bool) {
         if let Some(mirror) = self.mirrors.get_mut(key) {
             mirror.rebuild = true;
@@ -136,7 +181,13 @@ impl SessionStore {
         if let Some(mirror) = mirror.filter(|m| !m.rebuild && prior.len() >= m.cursor) {
             let missed = &prior[mirror.cursor..];
             if missed.is_empty() || matches!(missed, [Message::Assistant(_)]) {
-                return Ok(Some(mirror.id.clone()));
+                let id = mirror.id.clone();
+                if !missed.is_empty()
+                    && let Some(mirror) = self.mirrors.get_mut(key)
+                {
+                    mirror.cursor = prior.len();
+                }
+                return Ok(Some(id));
             }
         }
         if key == "(none)" && mirror.is_some_and(|m| !m.rebuild && prior.len() < m.cursor) {
