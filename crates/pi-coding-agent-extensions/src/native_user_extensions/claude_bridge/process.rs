@@ -262,6 +262,15 @@ impl ClaudeProcess {
         Ok(())
     }
 
+    pub async fn terminate(mut self) -> Result<(), CallbackError> {
+        self.child.kill().await.map_err(|e| CallbackError::new(e.to_string()))?;
+        self.stderr
+            .await
+            .map_err(|e| CallbackError::new(e.to_string()))?
+            .map_err(|e| CallbackError::new(e.to_string()))?;
+        Ok(())
+    }
+
     pub async fn interrupt(&mut self) -> Result<(), CallbackError> {
         self.write(
             &js_json::parse_lossless(

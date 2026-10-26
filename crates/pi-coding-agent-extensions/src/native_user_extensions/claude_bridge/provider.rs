@@ -19,6 +19,7 @@ type SharedAccounts = Arc<Mutex<Result<Option<super::account_state::AccountManag
 pub enum QueryCommand {
     Resume { sender: Sender, context: Context },
     EndTurn { context: Context },
+    Shutdown { reason: JsString },
 }
 
 struct QueryHandle {
@@ -26,6 +27,8 @@ struct QueryHandle {
     tool_ids: Arc<Mutex<HashSet<String>>>,
     session: JsString,
     settled: tokio::sync::watch::Receiver<bool>,
+    native_id: Arc<Mutex<Option<String>>>,
+    stale: bool,
 }
 
 #[derive(Default)]
@@ -33,6 +36,7 @@ struct QueryState {
     next_id: u64,
     queries: HashMap<u64, QueryHandle>,
     throttled: HashMap<JsString, PendingProfiles>,
+    quota_retry: HashSet<JsString>,
 }
 
 struct PendingProfiles {
@@ -100,22 +104,30 @@ impl BridgeProvider {
         }
         let options = options.unwrap_or_default();
         let (sender, stream) = create_assistant_message_event_stream();
-        let results: HashSet<_> = context
-            .messages
-            .iter()
-            .filter_map(|message| match message {
-                pi_ai::types::Message::ToolResult(v) => Some(v.tool_call_id.clone()),
-                _ => None,
-            })
-            .collect();
+        let results = recent_tool_result_ids(&context);
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let session_key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        let stale_ids = state
+            .queries
+            .iter()
+            .filter_map(|(id, q)| (q.stale && q.session == session_key).then_some(*id))
+            .collect::<Vec<_>>();
+        let rewritten = !stale_ids.is_empty();
+        for id in stale_ids {
+            if let Some(query) = state.queries.remove(&id) {
+                let _closed = query.sender.send(QueryCommand::Shutdown {
+                    reason: "Context was compacted; this query was discarded.".into(),
+                });
+            }
+        }
         let owner = state.queries.values().find(|query| {
-            query
-                .tool_ids
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .iter()
-                .any(|id| results.contains(id))
+            query.session == session_key
+                && query
+                    .tool_ids
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .iter()
+                    .any(|id| results.contains(id))
         });
         if let Some(owner) = owner {
             owner
@@ -123,6 +135,38 @@ impl BridgeProvider {
                 .send(QueryCommand::Resume { sender, context })
                 .map_err(|_| CallbackError::new("Claude query ended before tool result delivery"))?;
             return Ok(stream);
+        }
+        if matches!(context.messages.last(), Some(pi_ai::types::Message::ToolResult(_)))
+            && !state.quota_retry.contains(&session_key)
+            && !rewritten
+        {
+            if state.queries.is_empty() {
+                self.sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_mut()
+                    .map_err(|e| e.clone())?
+                    .advance_cursor(&session_key, context.messages.len());
+            }
+            drop(state);
+            let output = pi_ai::types::AssistantMessage::empty(
+                &model.api,
+                &model.provider,
+                &model.id,
+                super::account_state::now_seconds()? * 1000.0,
+            );
+            sender.push(AssistantMessageEvent::Done {
+                reason: pi_ai::types::DoneReason::Stop,
+                message: output,
+            });
+            sender.end(None);
+            return Ok(stream);
+        }
+        let quota_retry = state.quota_retry.remove(&session_key);
+        if (rewritten || quota_retry) && !matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {
+            context.messages.push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
+                role: pi_ai::types::UserRole::Tag,content: pi_ai::types::UserContent::Text("[Your context was compacted. What precedes this is a summary plus the most recent messages, ending with the tool result you were waiting for. Continue the task from there.]".into()),input_source: None,provider_native: None,timestamp: super::account_state::now_seconds()? * 1000.0,
+            }));
         }
         let cwd = options
             .stream
@@ -137,6 +181,7 @@ impl BridgeProvider {
         state.next_id += 1;
         let id = state.next_id;
         let (commands, receive) = mpsc::unbounded_channel();
+        let native_id = Arc::new(Mutex::new(None));
         let (settled, completion) = tokio::sync::watch::channel(false);
         let tool_ids = Arc::new(Mutex::new(HashSet::new()));
         state.queries.insert(
@@ -144,14 +189,24 @@ impl BridgeProvider {
             QueryHandle {
                 sender: commands,
                 tool_ids: tool_ids.clone(),
-                session: options.stream.session_id.clone().unwrap_or_default(),
+                session: session_key,
                 settled: completion,
+                native_id: native_id.clone(),
+                stale: false,
             },
         );
         let bridge = self.clone();
         drop(state);
         tokio::spawn(async move {
-            let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, bridge.accounts.clone());
+            let mut actor = QueryActor::new(
+                &model,
+                &context,
+                sender,
+                receive,
+                tool_ids,
+                bridge.accounts.clone(),
+                native_id,
+            );
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let (result, preserve_shared_session) = match launch {
@@ -162,6 +217,9 @@ impl BridgeProvider {
                 Err(error) => (Err(error), false),
             };
             let mut state = bridge.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if actor.quota_failed {
+                state.quota_retry.insert(key.clone());
+            }
             if actor.decoder.output.stop_reason != StopReason::Error {
                 state.throttled.remove(&key);
             }
@@ -206,12 +264,55 @@ impl BridgeProvider {
     }
 
     pub fn mark_rebuild(&self, session: &JsString, rotate: bool) -> Result<(), CallbackError> {
-        self.sessions
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-            .map_err(|e| e.clone())?
-            .mark_rebuild(session, rotate);
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = sessions.as_mut().map_err(|e| e.clone())?;
+        let mut active = false;
+        for query in state.queries.values_mut().filter(|q| &q.session == session) {
+            query.stale = true;
+            active = true;
+            if let Some(id) = query
+                .native_id
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .clone()
+            {
+                store.seed_live_session(session, id);
+            }
+        }
+        store.mark_rebuild(session, rotate || active);
+        Ok(())
+    }
+
+    pub async fn shutdown(&self, session: &JsString, reason: &JsString) -> Result<(), CallbackError> {
+        let queries = {
+            let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let ids = state
+                .queries
+                .iter()
+                .filter_map(|(id, q)| (&q.session == session).then_some(*id))
+                .collect::<Vec<_>>();
+            ids.into_iter()
+                .filter_map(|id| state.queries.remove(&id))
+                .collect::<Vec<_>>()
+        };
+        for query in queries {
+            let mut settled = query.settled;
+            if query
+                .sender
+                .send(QueryCommand::Shutdown { reason: reason.clone() })
+                .is_err()
+                && !*settled.borrow()
+            {
+                return Err(CallbackError::new("Claude query ended before shutdown delivery"));
+            }
+            while !*settled.borrow_and_update() {
+                settled
+                    .changed()
+                    .await
+                    .map_err(|_| CallbackError::new("Claude query ended without settlement"))?;
+            }
+        }
         Ok(())
     }
 
@@ -452,6 +553,8 @@ struct QueryActor {
     accounts: SharedAccounts,
     rate_limit_rejection: Option<JsValue>,
     latest_cursor: usize,
+    quota_failed: bool,
+    native_id: Arc<Mutex<Option<String>>>,
 }
 
 impl QueryActor {
@@ -462,6 +565,7 @@ impl QueryActor {
         commands: mpsc::UnboundedReceiver<QueryCommand>,
         tool_ids: Arc<Mutex<HashSet<String>>>,
         accounts: SharedAccounts,
+        native_id: Arc<Mutex<Option<String>>>,
     ) -> Self {
         let tools = context.tools.clone().unwrap_or_default();
         Self {
@@ -478,6 +582,8 @@ impl QueryActor {
             accounts,
             rate_limit_rejection: None,
             latest_cursor: context.messages.len(),
+            quota_failed: false,
+            native_id,
         }
     }
 
@@ -488,24 +594,44 @@ impl QueryActor {
         options: &SimpleStreamOptions,
     ) -> Result<(), CallbackError> {
         validate_tools(&self.tools)?;
-        let mut process = ClaudeProcess::spawn(launch).await?;
-        process.write(&user_message(prompt_content(context)?, false)).await?;
         let signal = options.stream.request.signal.clone().unwrap_or_default();
+        let mut process = tokio::select! {
+            biased;
+            _ = signal.wait() => { self.mark_aborted(); return Ok(()); },
+            command = self.commands.recv() => { return Err(shutdown_reason(command)); },
+            process = ClaudeProcess::spawn(launch) => process?,
+        };
+        let prompt = user_message(prompt_content(context)?, false);
+        tokio::select! {
+            biased;
+            _ = signal.wait() => { self.mark_aborted(); process.terminate().await?; return Ok(()); },
+            command = self.commands.recv() => { let error = shutdown_reason(command); process.terminate().await?; return Err(error); },
+            result = process.write(&prompt) => result?,
+        };
         loop {
             tokio::select! {
                 _ = signal.wait() => {
-                    process.interrupt().await?;
-                    self.decoder.output.stop_reason = StopReason::Aborted;
-                    self.decoder.output.error_message = Some("Aborted".into());
+                    self.mark_aborted();
+                    self.pending_calls.clear(); self.pending_results.clear();
+                    process.terminate().await?;
                     return Ok(());
                 }
-                command = self.commands.recv() => if let Some(command) = command { self.deliver(command, &mut process).await?; },
+                command = self.commands.recv() => match command {
+                    Some(QueryCommand::Shutdown { reason }) => {
+                        self.pending_calls.clear(); self.pending_results.clear();
+                        self.tool_ids.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+                        process.terminate().await?; return Err(CallbackError::new(reason));
+                    }
+                    Some(command) => self.deliver(command,&mut process).await?,
+                    None => { process.terminate().await?; return Err(CallbackError::new("Claude query command channel closed")); },
+                },
                 frame = process.read() => match frame? {
                     None => break,
                     Some(mut frame) => {
                         self.settle_account_frame(&mut frame, launch)?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
+                            *self.native_id.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = self.native_session.clone();
                         }
                         if string(&frame,"type") == "control_request" { self.control(&frame,&mut process).await?; }
                         else {
@@ -548,6 +674,7 @@ impl QueryActor {
         let Some(reset) = quota_rejection(&error, rejection.as_ref()) else {
             return Ok(());
         };
+        self.quota_failed = true;
         let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         if let Some(manager) = accounts.as_mut().map_err(|e| e.clone())?
             && manager
@@ -566,6 +693,15 @@ impl QueryActor {
             ]);
         }
         Ok(())
+    }
+
+    fn mark_aborted(&mut self) {
+        self.decoder.output.stop_reason = StopReason::Aborted;
+        self.decoder.output.error_message = Some("Operation aborted".into());
+        self.tool_ids
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clear();
     }
 
     fn decode(&mut self, frame: &JsValue) -> Result<(), CallbackError> {
@@ -613,6 +749,7 @@ impl QueryActor {
 
     async fn deliver(&mut self, command: QueryCommand, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
         match command {
+            QueryCommand::Shutdown { reason } => return Err(CallbackError::new(reason)),
             QueryCommand::EndTurn { context } => {
                 self.turn_ended = true;
                 self.latest_cursor += 1 + recent_tool_result_ids(&context).len();
@@ -754,6 +891,14 @@ impl QueryActor {
     }
 }
 
+fn shutdown_reason(command: Option<QueryCommand>) -> CallbackError {
+    match command {
+        Some(QueryCommand::Shutdown { reason }) => CallbackError::new(reason),
+        Some(_) => CallbackError::new("Claude query received tool results before initialization"),
+        None => CallbackError::new("Claude query command channel closed"),
+    }
+}
+
 fn recent_tool_result_ids(context: &Context) -> HashSet<String> {
     context
         .messages
@@ -841,6 +986,49 @@ fn validate_tools(tools: &[Tool]) -> Result<(), CallbackError> {
 }
 
 pub fn prompt_content(context: &Context) -> Result<JsValue, CallbackError> {
+    let mut turn = context
+        .messages
+        .iter()
+        .rev()
+        .take_while(|m| matches!(m, pi_ai::types::Message::User(_)))
+        .collect::<Vec<_>>();
+    turn.reverse();
+    if turn.len() > 1 {
+        let values = turn
+            .iter()
+            .map(|m| js_json::to_value(m).map_err(|e| CallbackError::new(e.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_image = values.iter().any(|v| {
+            v.get("content")
+                .and_then(JsValue::as_array)
+                .is_some_and(|blocks| blocks.iter().any(|b| string(b, "type") == "image"))
+        });
+        if has_image {
+            let mut blocks = Vec::new();
+            for message in turn {
+                let single = Context {
+                    system_prompt: None,
+                    messages: vec![message.clone()],
+                    tools: None,
+                };
+                if let JsValue::Array(content) = prompt_content(&single)? {
+                    blocks.extend(content);
+                }
+            }
+            return Ok(JsValue::Array(blocks));
+        }
+        let text = JsString::join(
+            values
+                .iter()
+                .map(|v| super::convert::content_text(v.get("content").unwrap_or(&JsValue::Null)))
+                .filter(|s| !s.is_empty()),
+            "\n",
+        );
+        return Ok(JsValue::Array(vec![JsValue::object([
+            ("type", JsValue::String("text".into())),
+            ("text", JsValue::String(text)),
+        ])]));
+    }
     let Some(pi_ai::types::Message::User(user)) = context.messages.last() else {
         return Ok(JsValue::String("[continue]".into()));
     };

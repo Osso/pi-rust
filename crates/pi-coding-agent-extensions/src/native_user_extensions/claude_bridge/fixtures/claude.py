@@ -56,6 +56,11 @@ assert args[:5] == ["--output-format", "stream-json", "--verbose", "--input-form
 assert os.environ.get("ENABLE_CLAUDEAI_MCP_SERVERS") == "0"
 assert os.environ.get("DISABLE_AUTO_COMPACT") == "1"
 assert os.environ.get("CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC") == "1"
+with open(".fixture-pid", "w", encoding="ascii") as pid_file:
+    pid_file.write(str(os.getpid()))
+if os.path.exists(".fixture-stall-initialize"):
+    import time
+    time.sleep(300)
 init = read()
 assert init["type"] == "control_request"
 assert init["request"]["subtype"] == "initialize"
@@ -117,6 +122,15 @@ elif text == "assert-history":
     assert records[1]["message"]["content"][0]["text"] == "Claude: earlier \udfff", records
     assert all(record["sessionId"] == resume for record in records), records
     answer("history restored", "history-msg")
+elif text == "[Your context was compacted. What precedes this is a summary plus the most recent messages, ending with the tool result you were waiting for. Continue the task from there.]":
+    resume = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--resume=")), None)
+    assert resume and resume != "11111111-1111-4111-8111-111111111111", args
+    project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())
+    root = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
+    with open(os.path.join(root, "projects", project, resume + ".jsonl"), encoding="utf-8") as saved:
+        records = [json.loads(line) for line in saved if line.strip()]
+    assert records[0]["message"]["content"] == "compacted history", records
+    answer("rewritten continuation", "rewrite-msg")
 elif text == "short-unowned":
     assert not any(arg.startswith("--resume=") for arg in args), args
     answer("short caller", "short-msg")
@@ -137,7 +151,7 @@ elif text == "terminating-tool":
     with open(".fixture-end-turn-settled", "w", encoding="utf-8") as marker:
         marker.write("settled")
     send({"type": "result", "subtype": "success", "result": "", "session_id": "11111111-1111-4111-8111-111111111111"})
-elif text == "tool-round-trip":
+elif text in ["tool-round-trip", "steer-round-trip"]:
     manifest = control("mcp-init", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fake-claude", "version": "1"}}})
     assert manifest["result"]["capabilities"]["tools"] == {}, manifest
     tools = control("mcp-list", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
@@ -149,7 +163,19 @@ elif text == "tool-round-trip":
     event({"type": "content_block_stop", "index": 0})
     event({"type": "message_delta", "delta": {"stop_reason": "tool_use"}})
     event({"type": "message_stop"})
-    result = control("mcp-call", {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read", "arguments": {"path": "DO_NOT_EXECUTE_MCP_ARGUMENTS"}, "_meta": {"claudecode/toolUseId": "tool-read"}}})
+    call = {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "read", "arguments": {"path": "DO_NOT_EXECUTE_MCP_ARGUMENTS"}, "_meta": {"claudecode/toolUseId": "tool-read"}}}
+    if text == "steer-round-trip":
+        send({"type": "control_request", "request_id": "mcp-call", "request": {"subtype": "mcp_message", "server_name": "custom-tools", "message": call}})
+        steer = read()
+        assert steer["type"] == "user" and steer["priority"] == "next", steer
+        assert steer["message"]["content"] == [{"type": "text", "text": "steer one\nsteer two"}], steer
+        response = read()
+        assert response["type"] == "control_response", response
+        result = response["response"]["response"]["mcp_response"]
+    else:
+        result = control("mcp-call", call)
+    with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
+        json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
 elif text == "error":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})

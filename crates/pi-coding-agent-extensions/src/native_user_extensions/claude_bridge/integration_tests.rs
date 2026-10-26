@@ -222,6 +222,184 @@ async fn claude_bridge_short_unowned_caller_preserves_the_longer_native_session(
 }
 
 #[tokio::test]
+async fn claude_bridge_orphaned_tool_results_finish_without_launching_a_new_query() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(
+        JsValue::Null,
+        Err(pi_js_compat::callback_error::CallbackError::new("must not launch")),
+        "AskClaude".into(),
+    );
+    let context: Context = js_json::from_value(&js_json::parse_lossless(r#"{"messages":[{"role":"toolResult","toolCallId":"gone","toolName":"read","content":[{"type":"text","text":"orphaned"}],"isError":false,"timestamp":1}]}"#).unwrap()).unwrap();
+    let result = bridge
+        .stream(model(&config), context, Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(result.stop_reason, StopReason::Stop);
+    assert!(result.content.is_empty());
+}
+
+#[tokio::test]
+async fn claude_bridge_cancellation_during_initialize_ends_the_stream_and_reaps_the_child() {
+    let (dir, config, _) = setup().await;
+    std::fs::write(dir.path().join(".fixture-stall-initialize"), "").unwrap();
+    let controller = pi_js_compat::abort::AbortController::new();
+    let mut opts = options(&dir);
+    opts.stream.request.signal = Some(controller.signal());
+    let stream = config.stream_simple.as_ref().unwrap()(model(&config), context("wait"), Some(opts)).unwrap();
+    let pid: u32 = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(dir.path().join(".fixture-pid"))
+                && let Ok(pid) = text.parse()
+            {
+                break pid;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    controller.abort(None);
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1), stream.result())
+        .await
+        .expect("abort must cover initialize")
+        .unwrap();
+    assert_eq!(result.stop_reason, StopReason::Aborted);
+    assert_eq!(result.error_message.unwrap(), "Operation aborted");
+    tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        while std::path::Path::new(&format!("/proc/{pid}")).exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("Claude child must exit and be reaped");
+}
+
+fn read_context(prompt: &str) -> Context {
+    let mut ctx = context(prompt);
+    ctx.tools = Some(vec![Tool::new(
+        "read",
+        "Read a fixture",
+        serde_json::json!({"type":"object","properties":{"path":{"type":"string"}}}),
+    )]);
+    ctx
+}
+fn append_read_result(ctx: &mut Context, assistant: pi_ai::types::AssistantMessage, text: JsString) {
+    ctx.messages.push(Message::Assistant(Box::new(assistant)));
+    ctx.messages.push(Message::ToolResult(ToolResultMessage {
+        role: ToolResultRole::Tag,
+        tool_call_id: "tool-read".into(),
+        tool_name: "read".into(),
+        content: vec![pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new(
+            text,
+        ))],
+        details: None,
+        is_error: false,
+        timestamp: 2.0,
+    }));
+}
+
+#[tokio::test]
+async fn claude_bridge_rewrite_discards_a_parked_query_and_reimports_authoritative_history() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+        dir.path().join("cc-rewrite"),
+        dir.path().join("agent-rewrite"),
+    ));
+    let opts = options(&dir);
+    let mut ctx = read_context("tool-round-trip");
+    let first = bridge
+        .stream(model(&config), ctx.clone(), Some(opts.clone()))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(first.stop_reason, StopReason::ToolUse);
+    append_read_result(&mut ctx, first, "stale result".into());
+    let Message::User(user) = &mut ctx.messages[0] else {
+        panic!("user");
+    };
+    user.content = UserContent::Text("compacted history".into());
+    bridge
+        .mark_rebuild(opts.stream.session_id.as_ref().unwrap(), false)
+        .unwrap();
+    let output = bridge
+        .stream(model(&config), ctx, Some(opts))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop, "{:?}", output.error_message);
+    let AssistantContent::Text(text) = &output.content[0] else {
+        panic!("continuation text");
+    };
+    assert_eq!(text.text, "rewritten continuation");
+}
+
+#[tokio::test]
+async fn claude_bridge_steers_all_trailing_user_messages_before_releasing_tool_results() {
+    let (dir, config, _) = setup().await;
+    let stream = config.stream_simple.as_ref().unwrap();
+    let mut ctx = read_context("steer-round-trip");
+    let first = stream(model(&config), ctx.clone(), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(first.stop_reason, StopReason::ToolUse);
+    append_read_result(&mut ctx, first, "steered result".into());
+    ctx.messages.extend(context("steer one").messages);
+    ctx.messages.extend(context("steer two").messages);
+    let output = stream(model(&config), ctx, Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop, "{:?}", output.error_message);
+    let AssistantContent::Text(text) = &output.content[0] else {
+        panic!("tool result text");
+    };
+    assert_eq!(text.text, "steered result");
+}
+
+#[tokio::test]
+async fn claude_bridge_concurrent_sessions_do_not_cross_route_identical_tool_ids() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let mut a = options(&dir);
+    let mut b = options(&dir);
+    a.stream.session_id = Some("session-a".into());
+    b.stream.session_id = Some("session-b".into());
+    let mut context_a = read_context("tool-round-trip");
+    let mut context_b = context_a.clone();
+    let first_a = bridge
+        .stream(model(&config), context_a.clone(), Some(a.clone()))
+        .unwrap();
+    let first_b = bridge
+        .stream(model(&config), context_b.clone(), Some(b.clone()))
+        .unwrap();
+    let (first_a, first_b) = tokio::join!(first_a.result(), first_b.result());
+    append_read_result(&mut context_a, first_a.unwrap(), "result a".into());
+    append_read_result(&mut context_b, first_b.unwrap(), "result b".into());
+    let result_a = bridge.stream(model(&config), context_a, Some(a)).unwrap();
+    let result_b = bridge.stream(model(&config), context_b, Some(b)).unwrap();
+    let (result_a, result_b) = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::join!(result_a.result(), result_b.result())
+    })
+    .await
+    .unwrap();
+    for (result, expected) in [(result_a.unwrap(), "result a"), (result_b.unwrap(), "result b")] {
+        assert_eq!(result.stop_reason, StopReason::Stop);
+        let AssistantContent::Text(text) = &result.content[0] else {
+            panic!("text");
+        };
+        assert_eq!(text.text, expected);
+    }
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();

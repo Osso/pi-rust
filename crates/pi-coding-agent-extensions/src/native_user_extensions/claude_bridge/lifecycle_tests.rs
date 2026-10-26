@@ -53,6 +53,7 @@ pub(super) fn runner(
         .unwrap();
     runner
 }
+
 #[tokio::test]
 async fn claude_bridge_lifecycle_tree_navigation_rebuilds_its_session_before_reuse() {
     let (dir, config, loaded) = integration_tests::setup().await;
@@ -171,6 +172,56 @@ async fn claude_bridge_lifecycle_agent_end_delivers_terminating_tool_result_and_
     assert_eq!(
         std::fs::read_to_string(dir.path().join(".fixture-end-turn-settled")).unwrap(),
         "settled"
+    );
+}
+
+#[tokio::test]
+async fn claude_bridge_shutdown_finishes_active_stream_and_reaps_its_process() {
+    let (dir, config, loaded) = integration_tests::setup().await;
+    let model = integration_tests::model(&config);
+    let runner = runner(dir.path(), loaded, Some(model.clone()));
+    let controller = pi_js_compat::abort::AbortController::new();
+    let mut opts = pi_ai::request::SimpleStreamOptions::default();
+    opts.stream.cwd = Some(dir.path().to_str().unwrap().into());
+    opts.stream.session_id = Some(runner.create_context().session_manager().unwrap().get_session_id());
+    opts.stream.request.signal = Some(controller.signal());
+    let context = js_json::from_value(
+        &js_json::parse_lossless(r#"{"messages":[{"role":"user","content":"wait","timestamp":1}]}"#).unwrap(),
+    )
+    .unwrap();
+    let stream = config.stream_simple.as_ref().unwrap()(model, context, Some(opts)).unwrap();
+    let pid: u32 = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            if let Ok(text) = std::fs::read_to_string(dir.path().join(".fixture-pid"))
+                && let Ok(pid) = text.parse()
+            {
+                break pid;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    runner
+        .emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+            reason: SessionShutdownReason::Quit,
+            target_session_file: None,
+        }))
+        .await;
+    let result = tokio::time::timeout(std::time::Duration::from_millis(100), stream.result()).await;
+    if result.is_err() {
+        controller.abort(None);
+        tokio::time::timeout(std::time::Duration::from_secs(1), stream.result())
+            .await
+            .unwrap()
+            .unwrap();
+    }
+    let result = result.expect("shutdown must settle the active stream").unwrap();
+    assert_eq!(result.stop_reason, pi_ai::types::StopReason::Error);
+    assert_eq!(result.error_message.unwrap(), "pi session shut down");
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        "shutdown must await child cleanup"
     );
 }
 

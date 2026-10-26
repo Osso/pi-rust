@@ -124,6 +124,21 @@ impl SessionStore {
         Ok(())
     }
 
+    pub fn seed_live_session(&mut self, key: &JsString, id: String) {
+        self.mirrors.entry(key.clone()).or_insert(Mirror {
+            id,
+            cursor: 0,
+            rebuild: true,
+            rotate: true,
+        });
+    }
+
+    pub fn advance_cursor(&mut self, key: &JsString, cursor: usize) {
+        if let Some(mirror) = self.mirrors.get_mut(key) {
+            mirror.cursor = cursor;
+        }
+    }
+
     pub fn preserve_unowned(&self, key: &JsString, context: &Context) -> bool {
         let prior = context
             .messages

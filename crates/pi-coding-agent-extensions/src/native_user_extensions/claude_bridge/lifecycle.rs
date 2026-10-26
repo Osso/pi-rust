@@ -42,6 +42,20 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
         },
     )
     .map_err(HandlerError::new)?;
+    let shutdown_bridge = bridge.clone();
+    pi.on_session_shutdown(
+        move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let bridge = shutdown_bridge.clone();
+            Box::pin(async move {
+                bridge
+                    .shutdown(&ctx.session_manager()?.get_session_id(), &"pi session shut down".into())
+                    .await?;
+                bridge.clear_sessions()?;
+                Ok(None)
+            })
+        },
+    )
+    .map_err(HandlerError::new)?;
     let tree_bridge = bridge.clone();
     pi.on_session_tree(
         move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
