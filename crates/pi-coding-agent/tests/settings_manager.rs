@@ -77,6 +77,62 @@ fn settings(value: Value) -> Settings {
 }
 
 #[test]
+fn mermaid_mode_defaults_merges_and_persists_without_losing_siblings() {
+    use pi_coding_agent::core::settings_manager::MermaidRenderingMode::{Final, Off, Streaming};
+    let workspace = Workspace::new();
+    assert_eq!(workspace.manager().get_mermaid_rendering_mode(), Streaming);
+    workspace.write_global(r#"{"markdown":{"mermaid":"off","codeBlockIndent":"--","extra":1}}"#);
+    workspace.write_project(r#"{"markdown":{"mermaid":"final","projectExtra":2}}"#);
+    let mut manager = workspace.manager();
+    assert_eq!(manager.get_mermaid_rendering_mode(), Final);
+    assert_eq!(workspace.untrusted().get_mermaid_rendering_mode(), Off);
+    manager.set_mermaid_rendering_mode(Streaming);
+    manager.flush();
+    assert_eq!(
+        workspace.global()["markdown"],
+        json!({"mermaid":"streaming","codeBlockIndent":"--","extra":1})
+    );
+    assert_eq!(manager.get_mermaid_rendering_mode(), Final);
+    workspace.write_project(r#"{"markdown":{"mermaid":"invalid"}}"#);
+    assert_eq!(workspace.manager().get_mermaid_rendering_mode(), Streaming);
+}
+
+#[test]
+fn historical_mermaid_settings_are_bidirectionally_compatible() {
+    use pi_coding_agent::core::settings_manager::MermaidRenderingMode::{Final, Off};
+    let workspace = Workspace::new();
+    workspace.write_global(r#"{"markdown":{"mermaid":"off","codeBlockIndent":"--","extra":1},"unknown":true}"#);
+    let invoke = |action: &str| -> Value {
+        let output = std::process::Command::new("/home/osso/.worktrees/pi-rust-source-532f7d12/node_modules/.bin/tsx")
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../oracle/historical-mermaid-settings.ts"
+            ))
+            .arg(&workspace.project_dir)
+            .arg(&workspace.agent_dir)
+            .arg(action)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        serde_json::from_slice(&output.stdout).unwrap()
+    };
+    assert_eq!(invoke("write-final"), json!({"mode":"final","indent":"--"}));
+    let mut rust = workspace.manager();
+    assert_eq!(rust.get_mermaid_rendering_mode(), Final);
+    assert_eq!(
+        fs::read_to_string(workspace.agent_dir.join("settings.json")).unwrap(),
+        "{\n  \"markdown\": {\n    \"mermaid\": \"final\",\n    \"codeBlockIndent\": \"--\",\n    \"extra\": 1\n  },\n  \"unknown\": true\n}"
+    );
+    rust.set_mermaid_rendering_mode(Off);
+    rust.flush();
+    assert_eq!(invoke("read"), json!({"mode":"off","indent":"--"}));
+    assert_eq!(
+        fs::read_to_string(workspace.agent_dir.join("settings.json")).unwrap(),
+        "{\n  \"markdown\": {\n    \"mermaid\": \"off\",\n    \"codeBlockIndent\": \"--\",\n    \"extra\": 1\n  },\n  \"unknown\": true\n}"
+    );
+}
+
+#[test]
 fn reminder_delivery_session_uses_merged_settings_and_preserves_utf16() {
     let workspace = Workspace::new();
     workspace.write_global(r#"{"reminders":{"deliverySessionId":"global","extra":1},"unknown":true}"#);

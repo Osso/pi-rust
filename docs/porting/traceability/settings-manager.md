@@ -12,6 +12,10 @@ Frozen settings-manager has no tuiMode/fullscreen known API. Removed typed gette
 Frozen source: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, `packages/coding-agent/src/core/settings-manager.ts`.
 Rust: `crates/pi-coding-agent-settings/src/core/settings_manager.rs`. Governing [contract](../../specs/settings-manager.md); [percentage helper](compaction-threshold.md).
 
+## Historical Mermaid settings
+
+The explicitly authorized historical `532f7d12` setting restores `markdown.mermaid` and the `MermaidRenderingMode` getter/setter. The focused manager tests cover defaults, project overrides, invalid values and nested sibling preservation. `historical_mermaid_settings_are_bidirectionally_compatible` uses the historical TypeScript manager to write a file read by Rust, then reads the Rust update in TypeScript; both persisted objects are checked exactly.
+
 ## Reminder settings delta
 
 `be6413897` adds the optional `reminders.deliverySessionId` type and reads it through `getMergedSettings`; it adds no settings setter. Rust retains the existing lossless settings object and provides `get_reminders_delivery_session_id() -> Option<&JsString>`. The native focused test covers trusted/project merge, untrusted project exclusion, lone-surrogate preservation, and unrelated global writes. The existing bidirectional frozen settings fixture now includes reminder objects in both scopes and checks their persistence through TS and Rust writes; it uses the common-pin oracle, whose generic merge and persistence logic applies to this field. The delta also contains unrelated settings changes outside this slice.

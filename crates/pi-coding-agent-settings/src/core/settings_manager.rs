@@ -412,10 +412,29 @@ pub struct ThinkingBudgetsSettings {
     pub high: Option<f64>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MermaidRenderingMode {
+    Off,
+    Final,
+    Streaming,
+}
+
+impl MermaidRenderingMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::Final => "final",
+            Self::Streaming => "streaming",
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MarkdownSettings {
     pub code_block_indent: Option<JsString>,
+    pub mermaid: Option<MermaidRenderingMode>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -1925,6 +1944,25 @@ impl SettingsManager {
         nested_string(&self.settings, "markdown", "codeBlockIndent")
             .cloned()
             .unwrap_or_else(|| "  ".into())
+    }
+
+    pub fn get_mermaid_rendering_mode(&self) -> MermaidRenderingMode {
+        match nested_string(&self.settings, "markdown", "mermaid") {
+            Some(value) if value == "off" => MermaidRenderingMode::Off,
+            Some(value) if value == "final" => MermaidRenderingMode::Final,
+            _ => MermaidRenderingMode::Streaming,
+        }
+    }
+
+    pub fn set_mermaid_rendering_mode(&mut self, mode: MermaidRenderingMode) {
+        set_nested(
+            &mut self.global_settings,
+            "markdown",
+            "mermaid",
+            Value::String(mode.as_str().into()),
+        );
+        self.mark_modified("markdown", Some("mermaid"));
+        self.save();
     }
 
     pub fn get_warnings(&self) -> Settings {

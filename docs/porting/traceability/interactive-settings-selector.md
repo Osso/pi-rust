@@ -18,7 +18,7 @@ Authority: common-pin851-line module. [Contract](../../specs/interactive-setting
 
 ## Old-only deletion
 
-Frozen has no Mermaid/cache-miss settings. Their APIs, callbacks, rows and consumers were deleted in55746332; unknown legacy JSON remains untouched. [Cache removal](cache-stats.md).
+The common pin has no Mermaid/cache-miss settings. The authorized historical Mermaid row is restored from `532f7d12`, including its choices and callback; the focused selector test covers search, default display and selection. Cache-miss settings remain removed. [Cache removal](cache-stats.md).
 
 ## Exclusions
 

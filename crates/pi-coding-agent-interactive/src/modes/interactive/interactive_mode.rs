@@ -7931,6 +7931,7 @@ impl InteractiveMode {
                 }
             },
             hide_thinking_block: self.hide_thinking_block.get(),
+            mermaid_rendering_mode: self.settings(|settings| settings.get_mermaid_rendering_mode()),
             hide_tool_output: self.settings(|settings| settings.get_hide_tool_output()),
             hide_coordination_messages: self.settings(|settings| settings.get_hide_coordination_messages()),
             collapse_changelog: self.settings(|settings| settings.get_collapse_changelog()),
@@ -8046,6 +8047,9 @@ impl InteractiveMode {
                     });
                 }
             })),
+            on_mermaid_rendering_mode_change: callback!(|mode: Rc<InteractiveMode>, value| {
+                mode.settings_mut(|settings| settings.set_mermaid_rendering_mode(value));
+            }),
             on_hide_thinking_block_change: callback!(|mode: Rc<InteractiveMode>, hidden: bool| {
                 mode.hide_thinking_block.set(hidden);
                 mode.settings_mut(|settings| settings.set_hide_thinking_block(hidden));

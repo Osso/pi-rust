@@ -16,7 +16,7 @@ use pi_tui::tui::{ComponentRef, Container, component};
 use pi_tui::{Component, SelectItem, SelectList, SelectListLayoutOptions, Spacer, Text};
 
 use crate::core::http_dispatcher::{HTTP_IDLE_TIMEOUT_CHOICES, format_http_idle_timeout_ms};
-use crate::core::settings_manager::{DefaultProjectTrust, Settings, TreeFilterMode};
+use crate::core::settings_manager::{DefaultProjectTrust, MermaidRenderingMode, Settings, TreeFilterMode};
 use crate::modes::interactive::components::dynamic_border::dynamic_border;
 use crate::modes::interactive::components::keybinding_hints::key_display_text;
 use crate::modes::interactive::theme::{
@@ -133,6 +133,7 @@ pub struct SettingsConfig {
     pub terminal_theme: TerminalTheme,
     pub available_themes: Vec<JsString>,
     pub hide_thinking_block: bool,
+    pub mermaid_rendering_mode: MermaidRenderingMode,
     pub hide_tool_output: bool,
     pub hide_coordination_messages: bool,
     pub collapse_changelog: bool,
@@ -166,6 +167,7 @@ pub struct SettingsCallbacks {
     pub on_theme_change: Rc<dyn Fn(&JsString)>,
     pub on_theme_preview: Option<ThemePreviewFn>,
     pub on_hide_thinking_block_change: Rc<dyn Fn(bool)>,
+    pub on_mermaid_rendering_mode_change: Rc<dyn Fn(MermaidRenderingMode)>,
     pub on_hide_tool_output_change: Rc<dyn Fn(bool)>,
     pub on_hide_coordination_messages_change: Rc<dyn Fn(bool)>,
     pub on_collapse_changelog_change: Rc<dyn Fn(bool)>,
@@ -1076,6 +1078,14 @@ fn base_items(
             submenu: None,
         },
         SettingItem {
+            id: "mermaid-rendering".into(),
+            label: "Mermaid diagrams".into(),
+            description: Some("Render Mermaid code blocks as Unicode diagrams".into()),
+            current_value: config.mermaid_rendering_mode.as_str().into(),
+            values: Some(vec!["off".into(), "final".into(), "streaming".into()]),
+            submenu: None,
+        },
+        SettingItem {
             id: "hide-tool-output".into(),
             label: "Hide tool output".into(),
             description: Some("Hide tool results in the transcript; tool calls stay visible".into()),
@@ -1281,6 +1291,16 @@ fn build_change_handler(callbacks: Rc<SettingsCallbacks>) -> SettingsChangeHandl
                 }
             }
             "hide-thinking" => (callbacks.on_hide_thinking_block_change)(boolean),
+            "mermaid-rendering" => {
+                let mode = if new_value == "off" {
+                    MermaidRenderingMode::Off
+                } else if new_value == "final" {
+                    MermaidRenderingMode::Final
+                } else {
+                    MermaidRenderingMode::Streaming
+                };
+                (callbacks.on_mermaid_rendering_mode_change)(mode);
+            }
             "hide-tool-output" => (callbacks.on_hide_tool_output_change)(boolean),
             "hide-coordination-messages" => (callbacks.on_hide_coordination_messages_change)(boolean),
             "collapse-changelog" => (callbacks.on_collapse_changelog_change)(boolean),

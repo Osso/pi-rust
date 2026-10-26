@@ -145,6 +145,7 @@ fn callbacks(events: &Events, preview: bool) -> Rc<SettingsCallbacks> {
         on_theme_change: text(events, "onThemeChange"),
         on_theme_preview: preview.then(|| text(events, "onThemePreview")),
         on_hide_thinking_block_change: owned(events, "onHideThinkingBlockChange", JsValue::Bool),
+        on_mermaid_rendering_mode_change: owned(events, "onMermaidRenderingModeChange", enum_value),
         on_hide_tool_output_change: owned(events, "onHideToolOutputChange", JsValue::Bool),
         on_hide_coordination_messages_change: owned(events, "onHideCoordinationMessagesChange", JsValue::Bool),
         on_collapse_changelog_change: owned(events, "onCollapseChangelogChange", JsValue::Bool),
@@ -197,6 +198,7 @@ fn native_config(value: &Value) -> SettingsConfig {
         },
         available_themes: value["availableThemes"].as_array().unwrap().iter().map(raw).collect(),
         hide_thinking_block: value["hideThinkingBlock"].as_bool().unwrap(),
+        mermaid_rendering_mode: serde_json::from_value(value["mermaidRenderingMode"].clone()).unwrap(),
         hide_tool_output: value["hideToolOutput"].as_bool().unwrap(),
         hide_coordination_messages: value["hideCoordinationMessages"].as_bool().unwrap(),
         collapse_changelog: value["collapseChangelog"].as_bool().unwrap(),
@@ -287,7 +289,7 @@ fn request(steps: Vec<Value>) -> Value {
     json!({
         "config":{"autoCompact":true,"showImages":true,"imageWidthCells":80,"autoResizeImages":true,"blockImages":false,"enableSkillCommands":true,"steeringMode":"one-at-a-time","followUpMode":"all","transport":"sse","httpIdleTimeoutMs":300000,
             "thinkingLevel":"low","availableThinkingLevels":["off","minimal","low","medium","high","xhigh","max","ultra"],"currentTheme":units("dark"),"terminalTheme":"dark","availableThemes":[units("dark"),units("light"),units("fancy")],
-            "hideThinkingBlock":false,"hideToolOutput":false,"hideCoordinationMessages":false,"collapseChangelog":false,"enableInstallTelemetry":true,"doubleEscapeAction":"fork","treeFilterMode":"default","showHardwareCursor":false,"editorPaddingX":0,"outputPad":0,"autocompleteMaxVisible":5,"quietStartup":false,"defaultProjectTrust":"ask","clearOnShrink":false,"showTerminalProgress":true,"warningsJson":"{}"},
+            "hideThinkingBlock":false,"mermaidRenderingMode":"streaming","hideToolOutput":false,"hideCoordinationMessages":false,"collapseChangelog":false,"enableInstallTelemetry":true,"doubleEscapeAction":"fork","treeFilterMode":"default","showHardwareCursor":false,"editorPaddingX":0,"outputPad":0,"autocompleteMaxVisible":5,"quietStartup":false,"defaultProjectTrust":"ask","clearOnShrink":false,"showTerminalProgress":true,"warningsJson":"{}"},
         "images":true,"colors":colors(0),"previewColors":colors(1),"preview":true,"changeThemeOnPreview":false,"fail":"","width":120,"children":false,"steps":steps
     })
 }
@@ -333,6 +335,15 @@ fn settings_state_callbacks_and_submenu_sequences_match_frozen() {
         let mut steps = enter(label);
         steps.extend([key("\r"), key("\u{1b}")]);
         cases.push(("setting-toggle", request(steps)));
+    }
+    for mode in ["off", "final", "streaming"] {
+        let mut case = request({
+            let mut steps = enter("Mermaid diagrams");
+            steps.extend([key("\r"), key("\r"), key("\u{1b}")]);
+            steps
+        });
+        case["config"]["mermaidRenderingMode"] = json!(mode);
+        cases.push(("mermaid-modes", case));
     }
     let mut warnings = request({
         let mut steps = enter("Warnings");

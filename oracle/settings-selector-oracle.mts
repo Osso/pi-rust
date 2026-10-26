@@ -33,6 +33,21 @@ async function main(): Promise<void> {
             warnings: JSON.parse(request.config.warningsJson),
         };
         const component = new SettingsSelectorComponent(config, callbacks);
+        // Restore only the row and callback from 532f7d12 settings-selector.ts:543-549, 821-823.
+        // Keep the common-pin SettingsList and every other selector behavior unchanged.
+        const list = component.getSettingsList() as any;
+        const position = list.items.findIndex((item: { id: string }) => item.id === "hide-thinking");
+        if (position < 0 || list.items !== list.filteredItems) throw new Error("unexpected common-pin settings list");
+        list.items.splice(position + 1, 0, {
+            id: "mermaid-rendering", label: "Mermaid diagrams",
+            description: "Render Mermaid code blocks as Unicode diagrams",
+            currentValue: config.mermaidRenderingMode, values: ["off", "final", "streaming"],
+        });
+        const onChange = list.onChange;
+        list.onChange = (id: string, value: string) => {
+            if (id === "mermaid-rendering") (callbacks as any).onMermaidRenderingModeChange(value);
+            else onChange(id, value);
+        };
         let invalidations = 0;
         const extra = { render: () => [`extra${invalidations}${String.fromCharCode(0xd800)}`], invalidate: () => { invalidations++; } };
         const snapshot = (error?: string): unknown => ({

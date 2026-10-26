@@ -44,6 +44,7 @@ struct Recorder {
     previews: RefCell<Vec<JsString>>,
     warnings: RefCell<Vec<Settings>>,
     thinking: RefCell<Vec<ThinkingLevel>>,
+    mermaid: RefCell<Vec<pi_coding_agent::core::settings_manager::MermaidRenderingMode>>,
 }
 
 fn noop<T: 'static>(_: T) -> Rc<dyn Fn()> {
@@ -54,7 +55,8 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
     let theme_recorder = recorder.clone();
     let preview_recorder = recorder.clone();
     let warnings_recorder = recorder.clone();
-    let thinking_recorder = recorder;
+    let thinking_recorder = recorder.clone();
+    let mermaid_recorder = recorder;
     Rc::new(SettingsCallbacks {
         on_auto_compact_change: Rc::new(|_| {}),
         on_show_images_change: Rc::new(|_| {}),
@@ -72,6 +74,7 @@ fn callbacks(recorder: Rc<Recorder>) -> Rc<SettingsCallbacks> {
             preview_recorder.previews.borrow_mut().push(theme.clone());
         })),
         on_hide_thinking_block_change: Rc::new(|_| {}),
+        on_mermaid_rendering_mode_change: Rc::new(move |mode| mermaid_recorder.mermaid.borrow_mut().push(mode)),
         on_hide_tool_output_change: Rc::new(|_| {}),
         on_hide_coordination_messages_change: Rc::new(|_| {}),
         on_collapse_changelog_change: Rc::new(|_| {}),
@@ -109,6 +112,7 @@ fn config() -> SettingsConfig {
         terminal_theme: TerminalTheme::Dark,
         available_themes: vec![JsString::from("dark"), JsString::from("light")],
         hide_thinking_block: false,
+        mermaid_rendering_mode: pi_coding_agent::core::settings_manager::MermaidRenderingMode::Streaming,
         hide_tool_output: false,
         hide_coordination_messages: false,
         collapse_changelog: false,
@@ -153,8 +157,8 @@ fn plain(component: &mut SettingsSelectorComponent) -> JsString {
 }
 
 #[test]
-fn removed_mermaid_and_cache_notice_options_are_not_searchable() {
-    for label in ["Mermaid diagrams", "Cache miss notices"] {
+fn removed_cache_notice_option_is_not_searchable() {
+    for label in ["Cache miss notices"] {
         let mut component = selector(config(), Rc::new(Recorder::default()));
         type_label(&mut component, label);
         let output = plain(&mut component);
@@ -163,6 +167,21 @@ fn removed_mermaid_and_cache_notice_options_are_not_searchable() {
             "removed option still visible: {output:?}"
         );
     }
+}
+
+#[test]
+fn mermaid_setting_is_searchable_and_defaults_to_streaming() {
+    let recorder = Rc::new(Recorder::default());
+    let mut component = selector(config(), recorder.clone());
+    type_label(&mut component, "Mermaid diagrams");
+    let output = plain(&mut component);
+    assert!(output.contains("Mermaid diagrams"), "{output:?}");
+    assert!(output.contains("streaming"), "{output:?}");
+    component.handle_input(&JsString::from("\r"));
+    assert_eq!(
+        *recorder.mermaid.borrow(),
+        vec![pi_coding_agent::core::settings_manager::MermaidRenderingMode::Off]
+    );
 }
 
 #[test]

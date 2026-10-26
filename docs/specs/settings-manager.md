@@ -10,11 +10,12 @@ Frozen source: `4f9e6f8a4`, `core/settings-manager.ts` and `core/compaction-thre
 - Compaction percentage is optional, finite, greater than zero and at most 100; present null/invalid values error. Idle compaction defaults true. Both transcript-hide flags default false. Shell paths are returned literally; session directories retain source normalization.
 - Agent-profile reads clone configured JSON without whole-profile validation; built-ins apply only when the configured entry is absent or null. Consumers project fields only when accessed. A truthy non-string model fails at model matching with `modelReference.trim is not a function`; unrelated malformed tools must not erase a valid configured context.
 - `reminders.deliverySessionId` is an optional UTF-16 string in the merged settings object. The Rust accessor returns it without normalization; absent or null values return none. Global and trusted project objects merge under the ordinary one-level rule, and unknown reminder fields survive unrelated writes. There is no dedicated setter in TypeScript.
+- `markdown.mermaid` selects `off`, `final`, or `streaming`; missing or unrecognized values read as `streaming`. The setter writes the global immediate child and preserves other markdown fields; trusted project settings override it.
 - Settings presence does not implement retry timing, compaction triggering/scheduling, display suppression, relay startup, or reminder delivery. Those behaviors belong to their separate module contracts.
 
 ## Staged exclusions
 
-The old-only renderer/cache settings APIs and typed package autoload field have been removed. Legacy JSON keys remain ordinary unknown data. PackageFilter reuses the existing lossless ModelProperties extras/key-order authority; typed edits replace known values in place. No old-only interpretation or parallel property-order carrier remains.
+The old-only cache settings APIs and typed package autoload field have been removed. Legacy JSON keys remain ordinary unknown data. PackageFilter reuses the existing lossless ModelProperties extras/key-order authority; typed edits replace known values in place. No old-only interpretation or parallel property-order carrier remains.
 
 ## Proof
 
