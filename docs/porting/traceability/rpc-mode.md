@@ -184,3 +184,7 @@ The actual frozen RPC surface oracle executes ignored widget/header/footer/edito
 ## Parallel process-fixture publication
 
 Final process integration first ran29 cases concurrently:19 passed and10 native children failed before RPC startup with missing theme/dark.json. `mode_harness::create_package_dir` reused one length-padded directory and used directory existence as a completeness signal while another test was copying files. The helper now creates a unique PID/atomic-sequence package directory per invocation, completes every theme copy before spawning children, and preserves the exact requested path length for token estimates. No protocol assertion, normalizer, production behavior, or test concurrency is relaxed. `rpc-mode-final-process.log` is the original fixture RED; post-fix integration29/29 GREEN ataf555494 (`rpc-mode-final-process-isolated.log`). Owned lib module9/9 passed at that integration revision.
+
+## Historical intermittent observation timeout (acceptance 2026-10-26)
+
+The one-off frozen RPC observation failure (empty source stderr, before import) is a deadline artifact: 19/20 exact-test runs sharing one CPU (`taskset -c 0`) fail identically at the 20 s deadline, while 40/40 ordinary runs pass. It falls under the accepted scheduling/timing gap category; no product change. Evidence: /tmp/accept-intermittents/REPORT.md.

@@ -48,3 +48,7 @@ All84 frozen lines, three public functions, options and private projection/lifec
 Protected strict no-emit fixture typecheck and Biome pass; warning-mode scoped test Clippy passes with zero diagnostics in the new terminal/archive test files. Manual changed-line Rust/TS readability audit found no new structural issue; metrics executable unavailable. Source rows remain locked; exact revision/command ledger `/tmp/storage3-proof-ledger.md`. Historical shape notes are superseded by the current Result/f64/native-callback contract above.
 
 Gap: exceptional OS/runtime faults, adversarial persisted shapes and numeric extremes follow current parity exclusions; no new fault carriers or scheduling emulation.
+
+## Historical intermittent artifact-cleanup failure (acceptance 2026-10-26)
+
+`reciprocal_terminal_publication_ack_and_real_artifact_cleanup` failed once ("finally must run actual detached artifact cleanup"). It did not reproduce in 40 exact runs, the original suite under concurrent RPC load, or 3 suite runs at 128 threads. The historical log lacks direction/path detail, so no root cause or fix is claimed; `b88fc55b0` retained-path diagnostics will identify the direction and path on any recurrence. Status: open, unreproduced. Evidence: /tmp/accept-intermittents/REPORT.md.
