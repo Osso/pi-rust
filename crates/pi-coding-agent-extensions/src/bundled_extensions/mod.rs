@@ -36,6 +36,7 @@ mod hosted_deadline;
 pub mod r#loop;
 pub mod openai_remote_compact;
 pub mod pyrun;
+pub mod reminders;
 pub mod run_plan;
 pub mod safe;
 pub mod self_restart;
