@@ -257,14 +257,18 @@ impl SettingsStorage for FileSettingsStorage {
             None
         };
 
-        let current =
-            if file_exists {
-                Some(fs::read_to_string(path).map_err(|error| {
-                    SettingsFailure::new(pi_js_compat::node_fs::node_read_error(&error, source_path))
-                })?)
-            } else {
-                None
-            };
+        let current = if file_exists {
+            // readFileSync(path, "utf-8"): invalid bytes become U+FFFD.
+            Some(
+                fs::read(path)
+                    .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+                    .map_err(|error| {
+                        SettingsFailure::new(pi_js_compat::node_fs::node_read_error(&error, source_path))
+                    })?,
+            )
+        } else {
+            None
+        };
         let next = apply(current.as_deref());
         if let Some(next) = next {
             if !dir.exists() {

@@ -36,3 +36,34 @@ fn escaped_unpaired_units_survive_getters_and_writes() {
     assert!(written.contains(r#""theme": "light\udfff""#), "{written}");
     assert!(written.contains(r#""ext\udc00""#), "{written}");
 }
+
+/// settings-manager.ts:282 reads with `readFileSync(path, "utf-8")`: an invalid
+/// byte becomes U+FFFD and every other setting in that scope still loads.
+#[test]
+fn invalid_utf8_bytes_decode_like_node_without_dropping_the_scope() {
+    let directory = tempfile::tempdir().unwrap();
+    let agent_dir = directory.path().join("agent");
+    let cwd = directory.path().join("project");
+    std::fs::create_dir_all(&agent_dir).unwrap();
+    std::fs::create_dir_all(cwd.join(".pi")).unwrap();
+    std::fs::write(
+        agent_dir.join("settings.json"),
+        b"{\"theme\":\"light\",\"defaultModel\":\"kept\",\"externalEditor\":\"editor caf\xe9\"}",
+    )
+    .unwrap();
+    std::fs::write(cwd.join(".pi/settings.json"), b"{\"shellPath\":\"/bin/s\xe9\"}").unwrap();
+    let mut manager = SettingsManager::create(
+        &cwd.to_str().unwrap().into(),
+        Some(&agent_dir.to_str().unwrap().into()),
+        SettingsManagerCreateOptions::default(),
+    )
+    .unwrap();
+    assert!(manager.drain_errors().is_empty());
+    assert_eq!(manager.get_theme_setting(), Some(&JsString::from("light")));
+    assert_eq!(manager.get_default_model(), Some(&JsString::from("kept")));
+    assert_eq!(
+        manager.get_external_editor_command(),
+        JsString::from("editor caf\u{fffd}")
+    );
+    assert_eq!(manager.get_shell_path(), Some(JsString::from("/bin/s\u{fffd}")));
+}

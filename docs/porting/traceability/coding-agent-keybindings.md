@@ -47,3 +47,7 @@ KeybindingsManager::create accepts Option<&JsString>; stored config_path remains
 Frozen default app keybindings omit app.message.copy; remove that extra native default. The loaded-config differential was RED on precisely that extra action ID. Explicit user mappings remain governed by the existing manager.
 
 Gap: Windows suspend/paste defaults are not executed on this Linux host; malformed UTF-8 configuration files and prototype-inherited lookups are pathological/runtime-oddity exclusions under the user-observable policy. No new proof matrix or carrier is introduced for them.
+
+## File decoding (compat re-audit 2026-10-26)
+
+Source reads with `readFileSync(path, "utf-8")` (keybindings.ts:404-408); native reads bytes and decodes with U+FFFD replacement of invalid sequences (same rule as Node), so a stray Latin-1 byte no longer drops the file. RED/GREEN: `differential_keybindings::invalid_utf8_bytes_decode_like_node_and_keep_overrides` (/tmp/config-utf8-red*.log, /tmp/config-utf8-green.log).

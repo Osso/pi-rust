@@ -344,8 +344,9 @@ fn load_raw_config(path: &JsString) -> Option<JsObject> {
     if !std::path::Path::new(&encoded_path).exists() {
         return None;
     }
-    let content = std::fs::read_to_string(&encoded_path).ok()?;
-    match js_json::parse_lossless(content).ok()? {
+    // readFileSync(path, "utf-8"): invalid bytes become U+FFFD.
+    let bytes = std::fs::read(&encoded_path).ok()?;
+    match js_json::parse_lossless(String::from_utf8_lossy(&bytes).into_owned()).ok()? {
         JsValue::Object(object) => Some(object),
         _ => None,
     }
