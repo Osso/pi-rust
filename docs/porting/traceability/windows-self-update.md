@@ -31,3 +31,7 @@ behaviorally on real files (`crates/pi-coding-agent/tests/windows_self_update.rs
 ## Proof inventory
 
 - Behavioral cases: 8.
+
+## Retained UTF-8 boundary (2026-10-26)
+
+`process_shared_objects` retains strict `/proc/self/maps` reading. It substitutes for frozen `process.report.getReport().sharedObjects`, not a TS user-file reader; native-addon/Windows runtime gap. See the [complete file-read audit](../utf8-decoding-sweep.md).

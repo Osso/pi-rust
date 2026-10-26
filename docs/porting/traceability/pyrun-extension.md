@@ -163,3 +163,7 @@ No full workspace test suite, live provider, push or deployment was run.
 | Common-pin source | Contract | Proof |
 |---|---|---|
 | `extensions/pyrun/src/detached-evaluation.ts:328` | `readFileSync(path, "utf8")`: invalid artifact bytes replace with U+FFFD; complete following records survive; incomplete tail excluded | `detached_evaluation::utf8_tests::complete_artifact_records_replace_invalid_utf8`; RED `/tmp/utf8-pyrun-red.log`, GREEN `/tmp/utf8-pyrun-green.log` |
+
+## Retained UTF-8 boundary (2026-10-26)
+
+`detached_runner.rs:155,164` activation/checksummed-manifest reads remain strict (parent-approved machine-written corruption exclusion); `runner.rs:647` reads kernel `/proc/.../stat`, not user text. Frozen counterparts: `detached-runner.ts:366,370` and `runner.ts:113`. See the [complete file-read audit](../utf8-decoding-sweep.md).

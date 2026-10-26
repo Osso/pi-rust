@@ -68,4 +68,4 @@ The shared SDK path now has separate Studio and Vertex module counters; an isola
 
 | Frozen SDK source | Contract | Proof |
 |---|---|---|
-| `google-auth-library/build/src/auth/googleauth.js:545-553 (`createReadStream` + `setEncoding("utf8")`)` | Invalid credential/cache/INI bytes become U+FFFD; other data survives; genuine I/O errors unchanged | `google_client::utf8_tests::adc_file_replaces_invalid_utf8`; RED `/tmp/utf8-ai-red.log`, GREEN `/tmp/utf8-ai-green.log` (offline, no provider request) |
+| `google-auth-library/build/src/auth/googleauth.js:545-553` (`createReadStream` + `setEncoding("utf8")`) | Invalid ADC file bytes become U+FFFD; other data survives; genuine I/O errors unchanged | `google_client::utf8_tests::adc_file_replaces_invalid_utf8`; RED `/tmp/utf8-ai-red.log`, GREEN `/tmp/utf8-ai-green.log` (offline, no provider request) |
