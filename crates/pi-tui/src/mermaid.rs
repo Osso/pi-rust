@@ -67,7 +67,6 @@ impl Default for MermaidStyles {
 pub struct MermaidArt {
     pub styled_lines: Vec<Line>,
     pub plain_lines: Vec<String>,
-    /// Warnings are not yet implemented; `None` means unknown, not no warnings.
     pub warnings: Option<Vec<String>>,
     pub width: usize,
 }
@@ -107,22 +106,42 @@ pub fn render(src: &str) -> Option<MermaidArt> {
         return None;
     }
 
-    let outcome: Option<Result<MermaidArt, Oversize>> = parse_graph(src)
-        .map(|graph| {
-            if graph.groups.is_empty() {
-                layout_flowchart(&graph, styles, max_width)
-            } else {
-                render_grouped(&graph, styles, max_width)
+    let flow = parse_graph(src);
+    let mut art = if let Some(graph) = flow {
+        let mut art = if graph.groups.is_empty() {
+            layout_flowchart(&graph, styles, max_width)
+        } else {
+            render_grouped(&graph, styles, max_width)
+        }
+        .ok()?;
+        art.warnings = Some(graph.warnings);
+        art
+    } else {
+        let exceeded = std::rc::Rc::new(std::cell::Cell::new(false));
+        let draw = |source: &str| {
+            parse_state(source, &exceeded)
+                .map(|graph| layout_flowchart(&graph, styles, max_width))
+                .or_else(|| {
+                    parse_class(source, &exceeded).map(|(graph, infos)| render_class(&graph, &infos, styles, max_width))
+                })
+                .or_else(|| {
+                    parse_er(source, &exceeded).map(|(graph, infos)| render_class(&graph, &infos, styles, max_width))
+                })
+                .or_else(|| parse_sequence(source, &exceeded).map(|seq| layout_sequence(&seq, styles, max_width)))
+        };
+        match draw(src) {
+            Some(result) => result.ok()?,
+            None => {
+                if exceeded.get() {
+                    return None;
+                }
+                let body = src.trim_end();
+                let (prefix, dropped) = body.rsplit_once('\n')?;
+                let mut art = draw(prefix)?.ok()?;
+                art.warnings = Some(vec![format!("dropped, unreadable final line: \"{}\"", dropped.trim())]);
+                art
             }
-        })
-        .or_else(|| parse_state(src).map(|graph| layout_flowchart(&graph, styles, max_width)))
-        .or_else(|| parse_class(src).map(|(graph, infos)| render_class(&graph, &infos, styles, max_width)))
-        .or_else(|| parse_er(src).map(|(graph, infos)| render_class(&graph, &infos, styles, max_width)))
-        .or_else(|| parse_sequence(src).map(|seq| layout_sequence(&seq, styles, max_width)));
-
-    let mut art = match outcome {
-        Some(Ok(art)) => art,
-        Some(Err(_)) | None => return None,
+        }
     };
     art.width = art.plain_lines.iter().map(|line| line.width()).max().unwrap_or(0);
     Some(art)
@@ -189,6 +208,8 @@ struct Graph {
     node_group: Vec<Option<usize>>,
     cur_group: Option<usize>,
     over_cap: bool,
+    exceeded: std::rc::Rc<std::cell::Cell<bool>>,
+    warnings: Vec<String>,
     dir: Dir,
 }
 
@@ -203,6 +224,7 @@ impl Graph {
         }
         if self.nodes.len() >= MAX_NODES {
             self.over_cap = true;
+            self.exceeded.set(true);
             return None;
         }
         let label = label.unwrap_or(id).to_string();
@@ -248,6 +270,8 @@ fn parse_graph(src: &str) -> Option<Graph> {
         node_group: Vec::new(),
         cur_group: None,
         over_cap: false,
+        exceeded: std::rc::Rc::new(std::cell::Cell::new(false)),
+        warnings: Vec::new(),
         dir,
     };
 
@@ -344,6 +368,9 @@ fn parse_statement(st: &str, graph: &mut Graph) {
     let mut i = 0;
 
     let Some((mut prev, ni)) = parse_node_group(&chars, i, graph) else {
+        graph
+            .warnings
+            .push(format!("dropped, does not start with a node: \"{st}\""));
         return;
     };
     i = ni;
@@ -354,10 +381,15 @@ fn parse_statement(st: &str, graph: &mut Graph) {
             break;
         }
         let Some((left, right, line, label, ni)) = parse_link(&chars, i) else {
+            let remainder: String = chars[i..].iter().collect();
+            graph
+                .warnings
+                .push(format!("dropped, expected a link: \"{remainder}\""));
             break;
         };
         i = skip_spaces(&chars, ni);
         let Some((next, ni)) = parse_node_group(&chars, i, graph) else {
+            graph.warnings.push(format!("dropped, link has no target: \"{st}\""));
             break;
         };
         i = ni;
@@ -423,7 +455,7 @@ fn parse_node(chars: &[char], start: usize, graph: &mut Graph) -> Option<(usize,
     }
     let id: String = chars[id_start..i].iter().collect();
 
-    let (shape, label, after) = match chars.get(i) {
+    let (shape, label, after, unclosed) = match chars.get(i) {
         Some('[') => {
             if chars.get(i + 1) == Some(&'[') {
                 read_shape(chars, i + 2, "]]", Shape::Rect)
@@ -450,16 +482,27 @@ fn parse_node(chars: &[char], start: usize, graph: &mut Graph) -> Option<(usize,
             }
         }
         Some('>') => read_shape(chars, i + 1, "]", Shape::Rect),
-        _ => (None, None, i),
+        _ => (None, None, i, None),
     };
 
+    if let Some(closer) = unclosed {
+        graph
+            .warnings
+            .push(format!("node \"{id}\": label is missing its closing `{closer}`"));
+    }
     let shape = shape.unwrap_or(Shape::Rect);
     let label = label.as_deref();
     let idx = graph.node_index(&id, label, shape)?;
     Some((idx, after))
 }
 
-fn read_shape(chars: &[char], start: usize, closer: &str, shape: Shape) -> (Option<Shape>, Option<String>, usize) {
+fn read_shape<'a>(
+    chars: &[char],
+    start: usize,
+    closer: &'a str,
+    shape: Shape,
+) -> (Option<Shape>, Option<String>, usize, Option<&'a str>) {
+    let closer_text = closer;
     let closer: Vec<char> = closer.chars().collect();
     let mut i = start;
     let mut text = String::new();
@@ -481,12 +524,12 @@ fn read_shape(chars: &[char], start: usize, closer: &str, shape: Shape) -> (Opti
         }
         if !in_quotes && chars[i..].starts_with(closer.as_slice()) {
             let label = clean_label(&text);
-            return (Some(shape), Some(label), i + closer.len());
+            return (Some(shape), Some(label), i + closer.len(), None);
         }
         text.push(c);
         i += 1;
     }
-    (Some(shape), Some(clean_label(&text)), chars.len())
+    (Some(shape), Some(clean_label(&text)), chars.len(), Some(closer_text))
 }
 
 fn clean_label(raw: &str) -> String {
@@ -742,7 +785,7 @@ fn non_empty(s: String) -> Option<String> {
     if s.is_empty() { None } else { Some(s) }
 }
 
-fn parse_state(src: &str) -> Option<Graph> {
+fn parse_state(src: &str, exceeded: &std::rc::Rc<std::cell::Cell<bool>>) -> Option<Graph> {
     let mut statements: Vec<String> = Vec::new();
     for raw_line in src.lines() {
         split_statements(raw_line, &mut statements);
@@ -765,6 +808,8 @@ fn parse_state(src: &str) -> Option<Graph> {
         node_group: Vec::new(),
         cur_group: None,
         over_cap: false,
+        exceeded: exceeded.clone(),
+        warnings: Vec::new(),
         dir: Dir::Down,
     };
 
@@ -881,6 +926,7 @@ fn parse_transition(st: &str, graph: &mut Graph) -> Option<()> {
         let to = state_endpoint(graph, to_id, false)?;
         if graph.edges.len() >= MAX_EDGES {
             graph.over_cap = true;
+            graph.exceeded.set(true);
             return Some(());
         }
         graph.edges.push(Edge {
@@ -946,7 +992,7 @@ struct ClassInfo {
     methods: Vec<String>,
 }
 
-fn parse_class(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
+fn parse_class(src: &str, exceeded: &std::rc::Rc<std::cell::Cell<bool>>) -> Option<(Graph, Vec<ClassInfo>)> {
     let mut statements: Vec<String> = Vec::new();
     for raw_line in src.lines() {
         split_statements(raw_line, &mut statements);
@@ -969,6 +1015,8 @@ fn parse_class(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
         node_group: Vec::new(),
         cur_group: None,
         over_cap: false,
+        exceeded: exceeded.clone(),
+        warnings: Vec::new(),
         dir: Dir::Down,
     };
     let mut infos: Vec<ClassInfo> = Vec::new();
@@ -1030,6 +1078,7 @@ fn parse_class(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
             let t = graph.node_index(&to, None, Shape::Rect)?;
             sync_infos(&graph, &mut infos);
             if graph.edges.len() >= MAX_EDGES {
+                exceeded.set(true);
                 return None;
             }
             graph.edges.push(Edge {
@@ -1168,7 +1217,7 @@ fn display_generics(s: &str) -> String {
     out
 }
 
-fn parse_er(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
+fn parse_er(src: &str, exceeded: &std::rc::Rc<std::cell::Cell<bool>>) -> Option<(Graph, Vec<ClassInfo>)> {
     let mut statements: Vec<String> = Vec::new();
     for raw_line in src.lines() {
         split_statements(raw_line, &mut statements);
@@ -1186,6 +1235,8 @@ fn parse_er(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
         node_group: Vec::new(),
         cur_group: None,
         over_cap: false,
+        exceeded: exceeded.clone(),
+        warnings: Vec::new(),
         dir: Dir::Down,
     };
     let mut infos: Vec<ClassInfo> = Vec::new();
@@ -1209,6 +1260,7 @@ fn parse_er(src: &str) -> Option<(Graph, Vec<ClassInfo>)> {
             let f = er_entity(&mut graph, &mut infos, lhs)?;
             let t = er_entity(&mut graph, &mut infos, rhs)?;
             if graph.edges.len() >= MAX_EDGES {
+                exceeded.set(true);
                 return None;
             }
             let rel_label = label_part.map(clean_label).unwrap_or_default();
@@ -1344,7 +1396,7 @@ fn render_class(
     Ok(MermaidArt {
         styled_lines,
         plain_lines,
-        warnings: None,
+        warnings: Some(Vec::new()),
         width: 0,
     })
 }
@@ -1734,7 +1786,7 @@ fn layout_flowchart(graph: &Graph, styles: &MermaidStyles, max_width: Option<usi
     Ok(MermaidArt {
         styled_lines,
         plain_lines,
-        warnings: None,
+        warnings: Some(Vec::new()),
         width: 0,
     })
 }
@@ -1968,7 +2020,7 @@ fn render_grouped(graph: &Graph, styles: &MermaidStyles, max_width: Option<usize
     Ok(MermaidArt {
         styled_lines,
         plain_lines,
-        warnings: None,
+        warnings: Some(Vec::new()),
         width: 0,
     })
 }
@@ -2044,6 +2096,8 @@ fn build_scope(
         node_group: Vec::new(),
         cur_group: None,
         over_cap: false,
+        exceeded: std::rc::Rc::new(std::cell::Cell::new(false)),
+        warnings: Vec::new(),
         dir: graph.dir,
     };
     layout_canvas(&synth, &extras, max_width)
@@ -2988,6 +3042,7 @@ enum SeqItem {
 }
 
 struct Sequence {
+    exceeded: std::rc::Rc<std::cell::Cell<bool>>,
     labels: Vec<String>,
     index: HashMap<String, usize>,
     items: Vec<SeqItem>,
@@ -3002,6 +3057,7 @@ impl Sequence {
             return Some(i);
         }
         if self.labels.len() >= MAX_NODES {
+            self.exceeded.set(true);
             return None;
         }
         self.index.insert(id.to_string(), self.labels.len());
@@ -3010,7 +3066,7 @@ impl Sequence {
     }
 }
 
-fn parse_sequence(src: &str) -> Option<Sequence> {
+fn parse_sequence(src: &str, exceeded: &std::rc::Rc<std::cell::Cell<bool>>) -> Option<Sequence> {
     let mut statements: Vec<String> = Vec::new();
     for raw_line in src.lines() {
         split_statements(raw_line, &mut statements);
@@ -3025,6 +3081,7 @@ fn parse_sequence(src: &str) -> Option<Sequence> {
     }
 
     let mut seq = Sequence {
+        exceeded: exceeded.clone(),
         labels: Vec::new(),
         index: HashMap::new(),
         items: Vec::new(),
@@ -3054,6 +3111,7 @@ fn parse_sequence(src: &str) -> Option<Sequence> {
                 let rest = st[first.len()..].trim();
                 let (text_part, anchor) = parse_note_anchor(rest, &mut seq)?;
                 if seq.items.len() >= MAX_EDGES {
+                    exceeded.set(true);
                     return None;
                 }
                 seq.items.push(SeqItem::Note {
@@ -3070,6 +3128,7 @@ fn parse_sequence(src: &str) -> Option<Sequence> {
                     blocks.push(true);
                 }
                 if seq.items.len() >= MAX_EDGES {
+                    exceeded.set(true);
                     return None;
                 }
                 seq.items.push(SeqItem::Divider {
@@ -3080,6 +3139,7 @@ fn parse_sequence(src: &str) -> Option<Sequence> {
             "end" => {
                 if blocks.pop() == Some(true) {
                     if seq.items.len() >= MAX_EDGES {
+                        exceeded.set(true);
                         return None;
                     }
                     seq.items.push(SeqItem::Divider {
@@ -3097,6 +3157,7 @@ fn parse_sequence(src: &str) -> Option<Sequence> {
                     });
                 }
                 if seq.items.len() >= MAX_EDGES {
+                    exceeded.set(true);
                     return None;
                 }
                 seq.items.push(SeqItem::Message {
@@ -3396,7 +3457,7 @@ fn layout_sequence(seq: &Sequence, styles: &MermaidStyles, max_width: Option<usi
     Ok(MermaidArt {
         styled_lines,
         plain_lines,
-        warnings: None,
+        warnings: Some(Vec::new()),
         width: 0,
     })
 }

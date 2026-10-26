@@ -1,30 +1,16 @@
-# components/mermaid.ts
+# Historical Mermaid renderer
 
-Source: `coding-agent/src/modes/interactive/components/mermaid.ts`
-Rust: none.
+The current common TypeScript pin does not render Mermaid. The user approved porting the historical feature from `532f7d12`, a separate lineage locked in `delta-lock.json`. Its `grok-mermaid` 0.2.2 JavaScript oracle and the vendored Apache-2.0 Rust renderer provenance are pinned separately; see [oracle gate](../oracle-gate.md) and [vendor provenance](../vendor/grok-mermaid-PROVENANCE.md).
 
-Status: gap (user decision 2026-10-18).
+## Status
 
-`mermaid.ts` delegates diagram parsing and layout to the third-party
-`grok-mermaid` package (~632 KB, ten modules under `node_modules/grok-mermaid`).
-That library has no Rust port and is not a workspace dependency, so the
-transformer is not ported. Mermaid fenced code blocks therefore render as ordinary
-Markdown code blocks.
+The renderer core and historical `markdown.mermaid` setting are implemented, but interactive Markdown is not yet wired to the renderer. Mermaid blocks still render as code in the application. Do not classify the feature as complete until the interactive process and frozen reference tests pass.
 
-## Exported symbols
+| Historical behavior | Rust status and proof |
+| --- | --- |
+| Flowchart, sequence, state, class and ER rendering | `pi-tui/src/mermaid.rs`; focused differential compares normal output, width, styles and Unicode graphemes with the pinned JavaScript package. |
+| Flowchart warnings and strict-parser final-line retry | Focused warning, retry and oversize differentials pass; interactive warning presentation remains pending. |
+| `markdown.mermaid` off/final/streaming settings | Settings and selector behavior with bidirectional historical settings fixtures; interactive mode is not yet wired. |
+| Streaming/final mode, width fallback, theme spans and thinking exclusion | Pending interactive integration and behavioral proof. |
 
-| TypeScript export | Rust item | Status |
-|---|---|---|
-| `createMermaidMarkdownTransformer` | none | gap |
-
-## Gaps
-
-- `createMermaidMarkdownTransformer`, `codeSpan`, `styleSpan`, `themedLines`,
-  `isMermaid`, and all mode/width/warning branches are unported because they depend
-  on `grok-mermaid` output (`MermaidArt`, `Span`, `render`).
-- `MermaidRenderingMode` handling (`off`, `streaming`, `on`) is therefore absent;
-  callers pass no mermaid transformer.
-
-## Discrepancies
-
-None (intentional, approved gap).
+Non-scalar UTF-16 Mermaid input remains a recorded exotic-input gap. Integration must retain the original fenced block without replacing text when scalar rendering is not possible.

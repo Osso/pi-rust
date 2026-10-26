@@ -21,8 +21,12 @@ fn normal_diagrams_match_locked_js() {
         "sequenceDiagram\n Alice->>Bob: 👩‍💻 e\u{301}",
         "flowchart LR\n A[👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻👩‍💻] --> B[Done]",
     ];
+    compare_with_oracle(&diagrams);
+}
+
+fn compare_with_oracle(diagrams: &[&str]) {
     let oracle = "/home/osso/.worktrees/pi-rust-source-532f7d12/node_modules/grok-mermaid/dist/index.js";
-    for diagram in diagrams {
+    for &diagram in diagrams {
         let output = Command::new("node")
             .args([
                 "--input-type=module",
@@ -37,7 +41,7 @@ fn normal_diagrams_match_locked_js() {
         let actual = mermaid::render(diagram).unwrap();
         assert_eq!(serde_json::json!(actual.plain_lines), expected["plain"], "{diagram}");
         assert_eq!(actual.width, expected["width"], "{diagram}");
-        assert_eq!(actual.warnings, None);
+        assert_eq!(serde_json::json!(actual.warnings), expected["warnings"], "{diagram}");
         let styled: Vec<Vec<Value>> = actual
             .styled_lines
             .iter()
@@ -66,4 +70,39 @@ fn unsupported_and_empty_input_return_none() {
     for source in ["", "pie\n title Pets\n \"Dogs\" : 4"] {
         assert!(mermaid::render(source).is_none());
     }
+}
+
+#[test]
+fn streaming_and_warning_outputs_match_locked_js() {
+    compare_with_oracle(&[
+        "flowchart TD\n A --> B\n ?bad",
+        "flowchart TD\n A --> B\n A nonsense",
+        "flowchart TD\n A --> B\n B -->",
+        "flowchart TD\n A --> B\n C[unfinished",
+        "flowchart TD\n A --> B\n ?bad\n B -->\n C((unfinished",
+        "flowchart TD\n A --> B\n C[(unfinished",
+        "stateDiagram-v2\n [*] --> Idle\n Idle -->",
+        "classDiagram\n Animal <|-- Dog\n class",
+        "erDiagram\n CUSTOMER ||--o{ ORDER : places\n CUSTOMER ||--",
+        "sequenceDiagram\n Alice->>Bob: Hello\n Alice->>",
+    ]);
+}
+
+#[test]
+fn strict_streaming_retry_produces_art() {
+    let source = "sequenceDiagram\n Alice->>Bob: Hello\n Alice->>";
+    assert!(
+        mermaid::render(source).is_some(),
+        "incomplete final line must be dropped"
+    );
+}
+
+#[test]
+fn oversized_strict_diagram_does_not_retry() {
+    let mut source = String::from("sequenceDiagram\n");
+    for n in 0..128 {
+        source.push_str(&format!("participant P{n}\n"));
+    }
+    source.push_str("participant Extra");
+    assert!(mermaid::render(&source).is_none());
 }

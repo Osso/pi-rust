@@ -27,7 +27,7 @@ The explicitly authorized historical `532f7d12` setting restores `markdown.merma
 DISCREPANCY (preserved): frozen `deepMergeSettings` promises recursive merging in its comment but merges only one object level; nested grandchildren are replaced, as the existing differential and native test assert.
 
 Gap: adversarial/wrong-typed JSON, numeric extremes, unsupported OS/runtime fault shapes and scheduling races follow the repository parity bar; existing lossless carriers remain intact.
-Renderer-mode APIs were removed as recorded above. Coupled cache/selector deletion now also removes get/set_show_cache_miss_notices, get/set_mermaid_rendering_mode, MermaidRenderingMode and MarkdownSettings.mermaid; raw legacy JSON keys remain ordinary unknown data rather than being scrubbed. [Removal classification](cache-stats.md). PackageFilter.autoload was removed in the successor persistence correction; any legacy JSON key remains ordinary unknown data.
+The common-pin cache/selector deletion removed get/set_show_cache_miss_notices; historical Mermaid mode APIs were later restored as described above. [Removal classification](cache-stats.md). PackageFilter.autoload was removed in the successor persistence correction; any legacy JSON key remains ordinary unknown data.
 
 ## Exported types / lifecycle
 
@@ -36,7 +36,7 @@ Renderer-mode APIs were removed as recorded above. Coupled cache/selector deleti
 | `Settings` | ordered lossless `JsObject` (`Settings`) | every snapshot; unknown root/nested and relay preserved by bidirectional fixture |
 | `CompactionSettings`, `BranchSummarySettings`, `RetrySettings`, `ProviderRetrySettings` | matching option-bearing structs; required effective view structs | leaf getters/views; defaults and numeric validation differential |
 | `TerminalSettings`, `ImageSettings`, `ThinkingBudgetsSettings`, `WarningSettings` | matching option-bearing structs | snapshots and numeric/media setters |
-| `MarkdownSettings` | struct with codeBlockIndent; old-only mermaid field removed | code indent observed; former renderer API removed |
+| `MarkdownSettings` | struct with codeBlockIndent and historical mermaid mode | code indent and restored historical renderer setting observed |
 | `AgentProfileThinkingLevel`, `AgentProfileSettings` | corresponding Rust enum/struct; native context enum | default profiles, project agent object replacement, null fallback |
 | `PermissionRulesSettings` | raw `Settings["permissionRules"]` object, not a separate Rust named type | concrete allow-map overlay assertions |
 | `DefaultProjectTrust`, `TransportSetting` | native trust enum and `pi_ai::types::Transport` | trust/scoped read/write and transport migrations |
