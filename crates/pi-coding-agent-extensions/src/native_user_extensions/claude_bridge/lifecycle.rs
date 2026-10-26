@@ -74,6 +74,7 @@ pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), 
         move |_, ctx: ExtensionContext| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
             let bridge = shutdown_bridge.clone();
             Box::pin(async move {
+                bridge.report_leaks("session_shutdown")?;
                 bridge
                     .shutdown(&ctx.session_manager()?.get_session_id(), &"pi session shut down".into())
                     .await?;

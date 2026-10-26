@@ -23,13 +23,21 @@ pub enum QueryCommand {
     Shutdown { reason: JsString },
 }
 
+#[derive(Default)]
+struct QueryObservations {
+    session_id: Option<String>,
+    active: bool,
+    pending_tool_calls: usize,
+    prompt_stream: bool,
+}
+
 struct QueryHandle {
     sender: mpsc::UnboundedSender<QueryCommand>,
     stop: pi_js_compat::abort::AbortController,
     tool_ids: Arc<Mutex<HashSet<String>>>,
     session: JsString,
     settled: tokio::sync::watch::Receiver<bool>,
-    native_id: Arc<Mutex<Option<String>>>,
+    observations: Arc<Mutex<QueryObservations>>,
     stale: bool,
 }
 
@@ -294,7 +302,7 @@ impl BridgeProvider {
         state.next_id += 1;
         let id = state.next_id;
         let (commands, receive) = mpsc::unbounded_channel();
-        let native_id = Arc::new(Mutex::new(None));
+        let observations = Arc::new(Mutex::new(QueryObservations::default()));
         let (settled, completion) = tokio::sync::watch::channel(false);
         let tool_ids = Arc::new(Mutex::new(HashSet::new()));
         let stop = pi_js_compat::abort::AbortController::new();
@@ -307,7 +315,7 @@ impl BridgeProvider {
                 tool_ids: tool_ids.clone(),
                 session: session_key,
                 settled: completion,
-                native_id: native_id.clone(),
+                observations: observations.clone(),
                 stale: false,
             },
         );
@@ -321,7 +329,7 @@ impl BridgeProvider {
                 (receive, stop_signal),
                 tool_ids,
                 &bridge,
-                native_id,
+                observations,
             );
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
@@ -443,11 +451,41 @@ impl BridgeProvider {
 
                 Ok(()) => actor.finish(),
             };
+            {
+                let mut observation = actor
+                    .observations
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                observation.active = false;
+                observation.prompt_stream = false;
+                observation.pending_tool_calls = 0;
+            }
             settled.send_replace(true);
         });
         Ok(stream)
     }
 
+    pub(super) fn report_leaks(&self, label: &str) -> Result<(), CallbackError> {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let (mut contexts, mut calls, mut streams) = (0, 0, 0);
+        for query in state.queries.values() {
+            let observation = query
+                .observations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            if observation.active {
+                contexts += 1;
+                calls += observation.pending_tool_calls;
+                streams += usize::from(observation.prompt_stream);
+            }
+        }
+        if contexts == 0 && calls == 0 && streams == 0 {
+            return Ok(());
+        }
+        self.logs.as_ref().map_err(|e| e.clone())?.debug(format!(
+            "WARNING: {label} left state behind — contexts={contexts} pendingToolCalls={calls} promptStreams={streams}"
+        ))
+    }
     pub fn clear_sessions(&self) -> Result<(), CallbackError> {
         self.ownership.release(&self.identity);
         self.sessions
@@ -777,7 +815,7 @@ struct QueryActor {
     rate_limit_rejection: Option<JsValue>,
     latest_cursor: usize,
     quota_failed: bool,
-    native_id: Arc<Mutex<Option<String>>>,
+    observations: Arc<Mutex<QueryObservations>>,
     ui: SharedUi,
     warnings: super::rate_limit::WarningState,
     logs: Result<super::logging::Logs, CallbackError>,
@@ -792,7 +830,7 @@ impl QueryActor {
         commands: (mpsc::UnboundedReceiver<QueryCommand>, pi_js_compat::abort::AbortSignal),
         tool_ids: Arc<Mutex<HashSet<String>>>,
         bridge: &BridgeProvider,
-        native_id: Arc<Mutex<Option<String>>>,
+        observations: Arc<Mutex<QueryObservations>>,
     ) -> Self {
         let tools = context.tools.clone().unwrap_or_default();
         Self {
@@ -811,7 +849,7 @@ impl QueryActor {
             rate_limit_rejection: None,
             latest_cursor: context.messages.len(),
             quota_failed: false,
-            native_id,
+            observations,
             ui: bridge.ui.clone(),
             warnings: Default::default(),
             logs: bridge.logs.clone(),
@@ -839,6 +877,14 @@ impl QueryActor {
             return Ok(());
         }
         let mut process = ClaudeProcess::spawn_child(launch)?;
+        {
+            let mut observation = self
+                .observations
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            observation.active = true;
+            observation.prompt_stream = true;
+        }
         let stop = self.stop.clone();
         let outcome = tokio::select! {
             biased;
@@ -889,7 +935,7 @@ impl QueryActor {
                         self.settle_account_frame(&mut frame, launch)?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
-                            *self.native_id.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = self.native_session.clone();
+                            self.observations.lock().unwrap_or_else(std::sync::PoisonError::into_inner).session_id = self.native_session.clone();
                         }
                         if string(&frame,"type") == "control_request" { self.control(&frame,process).await?; }
                         else {
@@ -1013,7 +1059,17 @@ impl QueryActor {
         Ok(())
     }
 
+    fn publish_pending_count(&self) {
+        self.observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pending_tool_calls = self.pending_calls.len();
+    }
     fn drain_pending_calls(&mut self, reason: &JsString) -> Vec<JsValue> {
+        self.observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .pending_tool_calls = 0;
         self.pending_results.clear();
         std::mem::take(&mut self.pending_calls)
             .into_values()
@@ -1264,6 +1320,7 @@ impl QueryActor {
             if let (Some(request), Some(result)) =
                 (self.pending_calls.shift_remove(&id), self.pending_results.remove(&id))
             {
+                self.publish_pending_count();
                 self.send_mcp_response(&request, Ok(result), process).await?;
             }
         }
@@ -1311,6 +1368,7 @@ impl QueryActor {
                             }
                         ))?;
                     self.pending_calls.insert(id, frame.clone());
+                    self.publish_pending_count();
                     self.flush_results(process).await?;
                 } else {
                     self.send_mcp_response(frame, Ok(mcp_result(message, &self.tools)?), process)
@@ -1383,9 +1441,10 @@ fn mark_local_rebuild(
         query.stale = true;
         active = true;
         if let Some(id) = query
-            .native_id
+            .observations
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .session_id
             .clone()
         {
             store.seed_live_session(session, id);
@@ -1608,7 +1667,7 @@ mod teardown_tests {
             (commands, stop.signal()),
             Arc::new(Mutex::new(HashSet::new())),
             &bridge,
-            Arc::new(Mutex::new(None)),
+            Arc::new(Mutex::new(QueryObservations::default())),
         );
         for (tool, id) in [("first", 1.0), ("second", 2.0)] {
             let frame = JsValue::object([
