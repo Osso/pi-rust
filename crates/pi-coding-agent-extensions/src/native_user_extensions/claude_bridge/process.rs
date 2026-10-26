@@ -17,6 +17,7 @@ pub struct LaunchOptions {
     pub append: Option<JsString>,
     pub effort: Option<String>,
     pub resume: Option<String>,
+    pub claude_dir: Option<PathBuf>,
     pub ask_mode: Option<String>,
     pub isolated: bool,
     pub has_tools: bool,
@@ -141,6 +142,9 @@ impl ClaudeProcess {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .kill_on_drop(true);
+        if let Some(dir) = &options.claude_dir {
+            command.env("CLAUDE_CONFIG_DIR", dir);
+        }
         let mut child = command
             .spawn()
             .map_err(|e| CallbackError::new(format!("Failed to spawn Claude Code: {e}")))?;

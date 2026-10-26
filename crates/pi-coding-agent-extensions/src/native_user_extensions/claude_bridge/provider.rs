@@ -35,6 +35,7 @@ struct QueryState {
 #[derive(Clone)]
 pub struct BridgeProvider {
     state: Arc<Mutex<QueryState>>,
+    pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
     pub executable: Result<PathBuf, CallbackError>,
     pub ask_name: String,
@@ -46,6 +47,7 @@ impl BridgeProvider {
         Self {
             state: Arc::new(Mutex::new(QueryState::default())),
             settings,
+            sessions: Arc::new(Mutex::new(super::sessions::SessionStore::from_environment())),
             executable,
             ask_name,
             captures: super::prompt_capture::shared_captures(),
@@ -113,11 +115,27 @@ impl BridgeProvider {
         drop(state);
         tokio::spawn(async move {
             let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids);
-            let launch = bridge.launch_options(&model, &context, &options, cwd);
+            let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+            let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone());
             let result = match launch {
                 Ok(launch) => actor.run(&launch, &context, &options).await,
                 Err(error) => Err(error),
             };
+            let failed = result.is_err() || actor.decoder.output.stop_reason == StopReason::Aborted;
+            if let Some(id) = actor.native_session.take() {
+                let mut sessions = bridge
+                    .sessions
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if let Ok(store) = sessions.as_mut() {
+                    if let Err(error) = store.record(&key, id, context.messages.len(), &cwd) {
+                        actor.fail(error);
+                    }
+                    if failed {
+                        store.mark_rebuild(&key, true);
+                    }
+                }
+            }
             if let Err(error) = result {
                 actor.fail(error);
             }
@@ -143,6 +161,22 @@ impl BridgeProvider {
                 let _closed = query.sender.send(QueryCommand::EndTurn);
             }
         }
+    }
+
+    fn prepare_launch(
+        &self,
+        model: &Model,
+        context: &Context,
+        options: &SimpleStreamOptions,
+        cwd: PathBuf,
+    ) -> Result<LaunchOptions, CallbackError> {
+        let mut launch = self.launch_options(model, context, options, cwd.clone())?;
+        let mut sessions = self.sessions.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let store = sessions.as_mut().map_err(|e| e.clone())?;
+        let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+        launch.resume = store.sync(&key, context, &cwd, &launch.model, true)?;
+        launch.claude_dir = Some(store.claude_dir.clone());
+        Ok(launch)
     }
 
     pub fn launch_options(
@@ -183,6 +217,7 @@ impl BridgeProvider {
                 .to_owned()
             }),
             resume: None,
+            claude_dir: None,
             ask_mode: None,
             isolated: false,
             has_tools: context
@@ -203,6 +238,7 @@ struct QueryActor {
     pending_calls: HashMap<String, JsValue>,
     pending_results: HashMap<String, JsValue>,
     turn_ended: bool,
+    native_session: Option<String>,
 }
 
 impl QueryActor {
@@ -224,6 +260,7 @@ impl QueryActor {
             pending_calls: HashMap::new(),
             pending_results: HashMap::new(),
             turn_ended: false,
+            native_session: None,
         }
     }
 
@@ -250,6 +287,9 @@ impl QueryActor {
                 frame = process.read() => match frame? {
                     None => break,
                     Some(frame) => {
+                        if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
+                            self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
+                        }
                         if string(&frame,"type") == "control_request" { self.control(&frame,&mut process).await?; }
                         else {
                             self.decode(&frame)?;

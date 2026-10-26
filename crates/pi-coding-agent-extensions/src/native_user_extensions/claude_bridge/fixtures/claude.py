@@ -59,7 +59,19 @@ user = read()
 assert user["type"] == "user", user
 content = user["message"]["content"]
 text = content if isinstance(content, str) else "".join(item.get("text", "") for item in content)
-if text == "tool-round-trip":
+if text == "assert-history":
+    resume = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--resume=")), None)
+    assert resume, "history must be imported and resumed"
+    project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())
+    root = os.environ.get("CLAUDE_CONFIG_DIR", os.path.expanduser("~/.claude"))
+    with open(os.path.join(root, "projects", project, resume + ".jsonl"), encoding="utf-8") as saved:
+        records = [json.loads(line) for line in saved if line.strip()]
+    assert records[0]["message"]["content"] == "earlier \udfff", records
+    assert records[1]["parentUuid"] == records[0]["uuid"], records
+    assert records[1]["message"]["content"][0]["text"] == "Claude: earlier \udfff", records
+    assert all(record["sessionId"] == resume for record in records), records
+    answer("history restored", "history-msg")
+elif text == "tool-round-trip":
     manifest = control("mcp-init", {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "fake-claude", "version": "1"}}})
     assert manifest["result"]["capabilities"]["tools"] == {}, manifest
     tools = control("mcp-list", {"jsonrpc": "2.0", "id": 2, "method": "tools/list"})

@@ -4,9 +4,12 @@ pub mod ask_render;
 pub mod config;
 pub mod convert;
 pub mod models;
+mod native_prefix;
 mod process;
 pub mod prompt_capture;
 mod provider;
+mod session_records;
+mod sessions;
 pub mod stream;
 
 use crate::core::extensions::{
@@ -93,6 +96,8 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
 mod integration_tests;
 #[cfg(test)]
 mod registration_tests;
+#[cfg(test)]
+mod session_tests;
 
 fn register_prompt_captures(
     pi: &ExtensionApi,

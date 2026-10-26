@@ -71,6 +71,49 @@ fn model(config: &ProviderConfig) -> pi_ai::types::Model {
 }
 
 #[tokio::test]
+async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
+    let (dir, config, _) = setup().await;
+    let stream_fn = config.stream_simple.as_ref().unwrap();
+    let prior: JsString = JsString::from("earlier ") + JsString::from_utf16(vec![0xdfff]);
+    let mut history = context("");
+    let Message::User(user) = &mut history.messages[0] else {
+        panic!("user")
+    };
+    user.content = UserContent::Text(prior);
+    let result = stream_fn(model(&config), history.clone(), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    history.messages.push(Message::Assistant(Box::new(result)));
+    history.messages.extend(context("assert-history").messages);
+    let bridge = provider::BridgeProvider::new(
+        JsValue::object([] as [(&str, JsValue); 0]),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+        dir.path().join("claude-data"),
+        dir.path().join("agent"),
+    ));
+    let result = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        bridge
+            .stream(model(&config), history, Some(options(&dir)))
+            .unwrap()
+            .result(),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(result.stop_reason, StopReason::Stop, "{:?}", result.error_message);
+    let AssistantContent::Text(text) = &result.content[0] else {
+        panic!("text")
+    };
+    assert_eq!(text.text, "history restored");
+}
+
+#[tokio::test]
 async fn claude_bridge_fake_process_streams_lossless_text_and_usage() {
     let (dir, config, _) = setup().await;
     let stream = config.stream_simple.as_ref().unwrap()(model(&config), context("hello"), Some(options(&dir))).unwrap();
