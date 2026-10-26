@@ -63,3 +63,9 @@ Index audit covers worker invocation/parse/abort, all operation adapters, MIME l
 | gap | adversarial JSON, exotic fds, OS faults and scheduling races | Approved user-observable parity exclusions. |
 
 Proof log/revision mapping: [lane ledger](../bundled-ext-b-proof.md). Both backend and index rows close. The temporary detached-job gap is fixed, not accepted as a deviation.
+
+## UTF-8 decoding sweep (2026-10-26)
+
+| Frozen source | Contract | Native proof |
+|---|---|---|
+| `extensions/bwrap/src/fs-worker.cjs:182,285` | `readFile(..., "utf8")` replaces invalid bytes for grep/readText; adjacent text survives | `bwrap::worker::utf8_tests::{grep_lines_replace_invalid_utf8,read_text_replaces_invalid_utf8}`; RED `/tmp/utf8-bwrap-red.log`, GREEN `/tmp/utf8-bwrap-green.log` |

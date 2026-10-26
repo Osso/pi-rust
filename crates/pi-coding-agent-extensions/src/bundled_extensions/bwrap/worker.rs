@@ -294,8 +294,9 @@ fn format_grep_file(
 }
 
 fn read_grep_lines(file_path: &Path) -> Result<Option<Vec<String>>, String> {
-    match std::fs::read_to_string(file_path) {
-        Ok(content) => Ok(Some(normalize_grep_lines(&content))),
+    // readFile(filePath, "utf8")
+    match std::fs::read(file_path) {
+        Ok(content) => Ok(Some(normalize_grep_lines(&String::from_utf8_lossy(&content)))),
         Err(error) if is_expected_grep_read_error(&error) => Ok(None),
         Err(error) => Err(error.to_string()),
     }
@@ -479,8 +480,10 @@ fn run_worker_operation(operation: &str, payload: &Value, workspace: &Path) -> R
         }
         "readText" => {
             let path = resolve_workspace_path(path_value.as_ref(), workspace, false)?;
-            let text = std::fs::read_to_string(&path).map_err(|error| error.to_string())?;
-            Ok(json!({"text": text}))
+            // readFile(filePath, "utf8")
+            let bytes = std::fs::read(&path).map_err(|error| error.to_string())?;
+            let text = String::from_utf8_lossy(&bytes);
+            Ok(json!({"text": text.as_ref()}))
         }
         other => Err(format!("unknown op: {other}").into()),
     }
@@ -509,3 +512,30 @@ pub fn run_bwrap_fs_worker(args: &[String]) -> i32 {
 #[cfg(test)]
 #[path = "worker_matching_tests.rs"]
 mod matching_tests;
+
+#[cfg(test)]
+mod utf8_tests {
+    use super::*;
+
+    #[test]
+    fn grep_lines_replace_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("notes.txt");
+        std::fs::write(&path, b"before\xe2\x82after\xff\nkept\n").unwrap();
+        assert_eq!(
+            read_grep_lines(&path).unwrap(),
+            Some(vec!["before\u{fffd}after\u{fffd}".into(), "kept".into(), "".into()])
+        );
+    }
+
+    #[test]
+    fn read_text_replaces_invalid_utf8() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.txt"), b"before\xe2\x82after\xff end").unwrap();
+        let payload = json!({"workspace": dir.path().display().to_string(), "path":"notes.txt"});
+        assert_eq!(
+            run_operation_json("readText", &payload).unwrap(),
+            json!({"text":"before\u{fffd}after\u{fffd} end"})
+        );
+    }
+}
