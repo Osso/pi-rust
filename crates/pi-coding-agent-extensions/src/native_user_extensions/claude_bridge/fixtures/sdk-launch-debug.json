@@ -1,0 +1,45 @@
+{
+  "argv": [
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "stream-json",
+    "--effort",
+    "xhigh",
+    "--debug-file",
+    "<debug-file>",
+    "--resume=existing",
+    "--tools",
+    "WebSearch",
+    "--permission-mode",
+    "bypassPermissions",
+    "--include-partial-messages",
+    "--model",
+    "claude-opus-5-5[1m]",
+    "--strict-mcp-config",
+    "--thinking-display",
+    "summarized",
+    "--settings",
+    "{\"autoMemoryEnabled\":false,\"claudeMdExcludes\":[\"**/CLAUDE.md\",\"**/AGENTS.md\",\"**/.claude/rules/**\"],\"includeGitInstructions\":false}"
+  ],
+  "env": {},
+  "cwd": "<cwd>",
+  "initialize": {
+    "request_id": "<request-id>",
+    "type": "control_request",
+    "request": {
+      "subtype": "initialize",
+      "hooks": {
+        "PostToolBatch": [
+          {
+            "hookCallbackIds": [
+              "hook_0"
+            ]
+          }
+        ]
+      },
+      "appendSystemPrompt": "append \ud800"
+    }
+  }
+}

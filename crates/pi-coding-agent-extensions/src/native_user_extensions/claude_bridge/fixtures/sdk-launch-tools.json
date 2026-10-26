@@ -1,0 +1,76 @@
+{
+  "argv": [
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--input-format",
+    "stream-json",
+    "--effort",
+    "xhigh",
+    "--resume=existing",
+    "--tools",
+    "WebSearch",
+    "--permission-mode",
+    "bypassPermissions",
+    "--include-partial-messages",
+    "--model",
+    "claude-opus-5-5[1m]",
+    "--strict-mcp-config",
+    "--thinking-display",
+    "summarized",
+    "--settings",
+    "{\"autoMemoryEnabled\":false,\"claudeMdExcludes\":[\"**/CLAUDE.md\",\"**/AGENTS.md\",\"**/.claude/rules/**\"],\"includeGitInstructions\":false}"
+  ],
+  "env": {},
+  "cwd": "<cwd>",
+  "initialize": {
+    "request_id": "<request-id>",
+    "type": "control_request",
+    "request": {
+      "subtype": "initialize",
+      "hooks": {
+        "PostToolBatch": [
+          {
+            "hookCallbackIds": [
+              "hook_0"
+            ]
+          }
+        ]
+      },
+      "sdkMcpServers": [
+        "custom-tools"
+      ],
+      "sdkMcpServerManifests": {
+        "custom-tools": {
+          "initializeResult": {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {
+              "tools": {}
+            },
+            "serverInfo": {
+              "name": "custom-tools",
+              "version": "1.0.0"
+            }
+          },
+          "toolsListResult": {
+            "tools": [
+              {
+                "name": "edit",
+                "description": "Edit text",
+                "inputSchema": {
+                  "type": "object",
+                  "properties": {
+                    "text": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      },
+      "appendSystemPrompt": "append \ud800"
+    }
+  }
+}

@@ -594,6 +594,10 @@ impl ModelRegistry {
             self.models_path.as_ref().expect("custom models have a path")
         )
     }
+    pub fn get_provider(&self, provider: &str) -> Option<ProviderConfigInput> {
+        lock(&self.state).registered.get(provider).cloned()
+    }
+
     pub fn register_provider(&self, provider: &str, config: ProviderConfigInput) -> Result<(), CallbackError> {
         validate_provider_config(provider, &config)?;
         self.apply_provider_config(provider, &config)?;
