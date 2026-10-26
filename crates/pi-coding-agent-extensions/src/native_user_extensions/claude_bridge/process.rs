@@ -200,11 +200,24 @@ impl ClaudeProcess {
         let stderr = tokio::spawn(async move {
             use tokio::io::AsyncReadExt;
             let mut text = String::new();
-            stderr.read_to_string(&mut text).await?;
-            if let Some(debug) = debug {
-                debug
-                    .stderr(&text)
-                    .map_err(|e| std::io::Error::other(pi_js_compat::js_json::encode_node_utf8(&e.message)))?;
+            let mut decoder = pi_js_compat::text_decoder::Utf8StreamDecoder::new();
+            let mut bytes = [0; 4096];
+            loop {
+                let count = stderr.read(&mut bytes).await?;
+                let chunk = if count == 0 {
+                    decoder.finish()
+                } else {
+                    decoder.decode(&bytes[..count])
+                };
+                if let Some(debug) = &debug {
+                    debug
+                        .stderr(&chunk)
+                        .map_err(|e| std::io::Error::other(pi_js_compat::js_json::encode_node_utf8(&e.message)))?;
+                }
+                text.push_str(&chunk);
+                if count == 0 {
+                    break;
+                }
             }
             Ok(text)
         });

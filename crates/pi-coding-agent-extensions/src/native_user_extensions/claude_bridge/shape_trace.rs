@@ -59,6 +59,16 @@ impl ShapeTrace {
             self.tool_ids.clone(),
         )
     }
+    pub fn record_discarded(&mut self, content: &JsValue, message_id: &JsString) -> Result<(), CallbackError> {
+        let (blocks, tools) = project(content, "toolCall");
+        self.append(
+            "pi",
+            "discarded",
+            valid_id(Some(&JsValue::String(message_id.clone())), "msg_"),
+            blocks,
+            tools,
+        )
+    }
     pub fn record_pi(&mut self, phase: &str, content: &JsValue) -> Result<(), CallbackError> {
         let (blocks, tools) = project(content.get("content").unwrap_or(content), "toolCall");
         self.append("pi", phase, self.message_id.clone(), blocks, tools)

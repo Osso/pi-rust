@@ -80,9 +80,9 @@ pub struct StreamDecoder {
     names: IndexMap<String, String>,
     started: bool,
     streamed: bool,
-    message_id: JsString,
-    stream_open: bool,
-    block_start: usize,
+    pub(super) message_id: JsString,
+    pub(super) stream_open: bool,
+    pub(super) block_start: usize,
     pub parked: bool,
 }
 

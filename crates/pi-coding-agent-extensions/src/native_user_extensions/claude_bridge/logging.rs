@@ -108,6 +108,7 @@ impl Logs {
             seq,
             debug_file,
             profile,
+            pending: Arc::new(std::sync::Mutex::new(JsString::default())),
         })
     }
 }
@@ -118,13 +119,29 @@ pub(super) struct CliDebug {
     seq: u64,
     pub debug_file: Option<PathBuf>,
     pub profile: Option<super::auth_trace::AuthProfile>,
+    pending: Arc<std::sync::Mutex<JsString>>,
 }
 impl CliDebug {
     pub fn stderr(&self, text: &str) -> Result<(), CallbackError> {
-        for line in text.split(['\n', '\r']).filter(|line| !line.is_empty()) {
-            if let Some(profile) = &self.profile {
-                super::auth_trace::record_failure(profile, &JsString::from(line))?;
+        if let Some(profile) = &self.profile {
+            let mut pending = self.pending.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            let combined = pending.clone() + text;
+            let mut lines = combined.split('\n').collect::<Vec<_>>();
+            let tail = lines.pop().unwrap_or_default();
+            for line in lines {
+                let line = if line.ends_with("\r") {
+                    line.slice(0, line.len() - 1)
+                } else {
+                    line
+                };
+                super::auth_trace::record_failure(profile, &line)?;
             }
+            if !tail.is_empty() {
+                super::auth_trace::record_failure(profile, &tail)?;
+            }
+            *pending = tail.slice(tail.len().saturating_sub(4096), tail.len());
+        }
+        for line in text.split(['\n', '\r']).filter(|line| !line.is_empty()) {
             self.logs
                 .debug(format!("[cli-stderr {}#{}] {line}", self.tag, self.seq))?;
         }

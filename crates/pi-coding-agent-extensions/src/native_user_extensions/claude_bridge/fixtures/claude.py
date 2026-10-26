@@ -195,6 +195,11 @@ elif text in ["tool-round-trip", "steer-round-trip"]:
     with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
         json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
+elif text == "restream":
+    event({"type": "message_start", "message": {"id": "msg_old"}})
+    event({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+    event({"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": "abandoned content"}})
+    answer("replacement content", "msg_new")
 elif text == "rate-limit":
     for info in [
         {"status": "allowed_warning", "utilization": 0.81, "rateLimitType": "five_hour", "surpassedThreshold": 0.8},
@@ -208,6 +213,12 @@ elif text == "rate-limit":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "capacity \udfff"})
 elif text == "error":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
+elif text == "auth-stderr-wait":
+    print("OAuth invalid_grant status=401", file=sys.stderr, flush=True)
+    while True:
+        value = read()
+        if value.get("request", {}).get("subtype") == "interrupt":
+            break
 elif text == "wait":
     while True:
         value = read()

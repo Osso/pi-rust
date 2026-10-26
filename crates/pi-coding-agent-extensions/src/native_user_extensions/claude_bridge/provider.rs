@@ -884,6 +884,25 @@ impl QueryActor {
         if self.current.is_none() {
             return Ok(());
         }
+        let restream = string(frame, "type") == "stream_event"
+            && frame
+                .get("event")
+                .is_some_and(|event| string(event, "type") == "message_start");
+        let replacement = string(frame, "type") == "assistant"
+            && frame.get("message").is_some_and(|message| {
+                string(message, "model") == "<synthetic>"
+                    || (!string(message, "id").is_empty() && string(message, "id") != self.decoder.message_id)
+            });
+        if self.decoder.stream_open
+            && (restream || replacement)
+            && let Some(shape) = &mut self.shape
+        {
+            let discarded = &self.decoder.output.content[self.decoder.block_start..];
+            shape.record_discarded(
+                &js_json::to_value(discarded).map_err(|e| CallbackError::new(e.to_string()))?,
+                &self.decoder.message_id,
+            )?;
+        }
         let events = self.decoder.decode(frame)?;
         for event in events {
             if !self.decoder.parked

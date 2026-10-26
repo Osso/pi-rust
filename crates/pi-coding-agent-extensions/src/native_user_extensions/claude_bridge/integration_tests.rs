@@ -513,6 +513,95 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_auth_stderr_is_observed_before_a_running_query_exits() {
+    let (dir, config, _) = setup().await;
+    let home = dir.path().join("stderr-home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    std::fs::write(
+        home.join(".claude/live-stderr.credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"fixture"}}"#,
+    )
+    .unwrap();
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    *bridge.accounts.lock().unwrap() = Ok(Some(
+        account_state::AccountManager::new(home, vec!["live-stderr".into()]).unwrap(),
+    ));
+    let controller = pi_js_compat::abort::AbortController::new();
+    let mut options = options(&dir);
+    options.stream.request.signal = Some(controller.signal());
+    let stream = bridge
+        .stream(model(&config), context("auth-stderr-wait"), Some(options))
+        .unwrap();
+    let log = super::logging::agent_dir().unwrap().join("claude-bridge-auth.jsonl");
+    let observed = tokio::time::timeout(std::time::Duration::from_secs(1), async {
+        loop {
+            let found = std::fs::read_to_string(&log).ok().is_some_and(|text| {
+                text.lines()
+                    .filter_map(|line| js_json::parse_lossless(line).ok())
+                    .any(|row| {
+                        row.get("profile")
+                            .and_then(JsValue::as_string)
+                            .is_some_and(|s| s == "live-stderr")
+                            && row
+                                .get("event")
+                                .and_then(JsValue::as_string)
+                                .is_some_and(|s| s == "oauth_failure")
+                    })
+            });
+            if found {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    controller.abort(None);
+    tokio::time::timeout(std::time::Duration::from_secs(2), stream.result())
+        .await
+        .unwrap()
+        .unwrap();
+    assert!(
+        observed.is_ok(),
+        "auth failure must be visible while the child is still running"
+    );
+}
+
+#[tokio::test]
+async fn claude_bridge_shape_trace_records_discarded_attempt_under_its_original_message_id() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(
+        js_json::parse_lossless(r#"{"shapeTrace":true}"#).unwrap(),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    let output = bridge
+        .stream(model(&config), context("restream"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Stop);
+    let text = std::fs::read_to_string(logging::agent_dir().unwrap().join("claude-bridge-shapes.jsonl")).unwrap();
+    let discarded = text
+        .lines()
+        .map(|s| js_json::parse_lossless(s).unwrap())
+        .find(|v| {
+            v.get("phase")
+                .and_then(JsValue::as_string)
+                .is_some_and(|s| s == "discarded")
+        })
+        .expect("discarded phase");
+    assert_eq!(
+        discarded.get("sdkMessageId").and_then(JsValue::as_string).unwrap(),
+        "msg_old"
+    );
+    assert_eq!(
+        discarded.get("blockTypes").unwrap(),
+        &js_json::parse_lossless(r#"["text"]"#).unwrap()
+    );
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();
