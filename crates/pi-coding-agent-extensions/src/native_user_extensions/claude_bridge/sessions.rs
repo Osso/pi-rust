@@ -317,6 +317,7 @@ impl SessionStore {
             None => session_records::new_id()?,
         };
         let converted = convert::convert_messages(prior, provider)?;
+        let converted = super::repair::repair_tool_pairing(&converted);
         let (mut prefix, covered) = native_prefix::native_prefix(&native, &converted);
         if !native.is_empty()
             && let Some(logs) = &self.verification_logs

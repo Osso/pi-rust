@@ -7,6 +7,54 @@ use pi_js_compat::js_json::{self, JsString, JsValue};
 use std::path::Path;
 
 #[test]
+fn claude_bridge_import_repairs_orphan_and_interleaved_tool_pairs_before_writing() {
+    let fixture = js_json::parse_lossless(include_str!("fixtures/repair-oracle.json")).unwrap();
+    for case in fixture.get("imports").unwrap().as_array().unwrap() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = SessionStore::at(dir.path().join("cc"), dir.path().join("agent"));
+        let mut messages: Vec<pi_ai::types::Message> = js_json::from_value(case.get("input").unwrap()).unwrap();
+        messages.push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
+            role: pi_ai::types::UserRole::Tag,
+            content: pi_ai::types::UserContent::Text("current".into()),
+            input_source: None,
+            provider_native: None,
+            timestamp: 3.0,
+        }));
+        let context = pi_ai::types::Context {
+            system_prompt: None,
+            tools: None,
+            messages,
+        };
+        let id = store
+            .sync(&"repair-fixture".into(), &context, dir.path(), "m", true)
+            .unwrap()
+            .unwrap();
+        let path = session_records::session_path(&store.claude_dir, dir.path(), &id).unwrap();
+        let records = session_records::read_records(&path).unwrap();
+        let normalize = |mut value: JsValue| {
+            if let JsValue::Object(fields) = &mut value {
+                fields.shift_remove(&JsString::from("id"));
+            }
+            value
+        };
+        let actual = records
+            .iter()
+            .map(|r| normalize(r.get("message").unwrap().clone()))
+            .collect::<Vec<_>>();
+        let expected = case
+            .get("messages")
+            .unwrap()
+            .as_array()
+            .unwrap()
+            .iter()
+            .cloned()
+            .map(normalize)
+            .collect::<Vec<_>>();
+        assert_eq!(actual, expected, "{:?}", case.get("name"));
+    }
+}
+
+#[test]
 fn cc_session_records_match_frozen_writer_and_round_trip_through_ts_reader() {
     let fixture = js_json::parse_lossless(include_str!("fixtures/session-oracle.json")).unwrap();
     let messages = fixture.get("provider").unwrap().as_array().unwrap();
