@@ -3185,6 +3185,16 @@ impl ExtensionApi {
         }
     }
 
+    /// Working directory captured for this extension runtime (frozen ExtensionAPI.cwd).
+    pub fn cwd(&self) -> &JsString {
+        &self.cwd
+    }
+
+    /// The discovered source path, used by native package ports to locate package assets.
+    pub fn extension_path(&self) -> JsString {
+        self.extension_lock().path.clone()
+    }
+
     fn extension_lock(&self) -> std::sync::MutexGuard<'_, ExtensionState> {
         self.extension.read()
     }
