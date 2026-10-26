@@ -36,7 +36,7 @@
 - Former String-boundary U+FFFD projections (RPC OutputLog clipping, subagent/question/questionnaire previews, interactive followup slices) now require exact frozen UTF-16 parity (decision 2026-10-22).
 - `coding-agent/src/core/debug-repl.ts` is an approved gap (2026-10-18).
 - Telemetry conformance helpers and telemetry-doc generation remain gaps; do not alter existing stats behavior (2026-10-20).
-- `grok-mermaid` (third-party) is not ported; mermaid.ts is a gap, mermaid blocks render as code (2026-10-18).
+- `grok-mermaid` is not yet ported; Mermaid blocks render as code. Port the historical renderer using pinned Apache-2.0 Rust source (user decision 2026-10-26).
 - `bun/restore-sandbox-env.ts` is a gap (Bun-only bug); `tui/native-modifiers.ts` has Linux-only parity, macOS/Windows addons are a gap (2026-10-19).
 - Without `PI_PACKAGE_DIR`, `package.json` and the built-in themes are embedded in the binary (approved deviation 2026-10-18).
 - `toLocaleString()` number grouping and local-date formatting are pinned to en-US regardless of host locale; dates retain the local time zone (approved deviations 2026-10-19/20).
