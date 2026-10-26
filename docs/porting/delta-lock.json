@@ -73,6 +73,18 @@
         "packages/coding-agent/extensions/reminders/src/index.ts": "019d4b95ea948c237b0abf6999439aff20b52a1971f384173efb07c1885e0c4c",
         "packages/coding-agent/extensions/reminders/src/delivery.ts": "a476dd3234239639a920439d78ad8a20058addd00b7ce7519591810620271623"
       }
+    },
+    {
+      "approved": "2026-10-26",
+      "base": "4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d",
+      "commit": "5a0ea4d393e21d190524f26f1375486d7b86f7cb",
+      "checkout": "/home/osso/.worktrees/pi-delta-terra-5a0ea4d39",
+      "modules": {
+        "packages/ai/scripts/generate-models.ts": "b709c3d929ecabe25f40a07f60430d6820041f260b6d1bebe5e868c7808058fd",
+        "packages/ai/src/providers/openai-codex-gc.models.ts": "176a272163677e1e820550437fd6a49a95d3a6c00ea2cc8a574271888c3ce022",
+        "packages/ai/src/providers/openai-codex-team.models.ts": "5bf1b0989eee13248570b6a6c038bceb338ebc0db5798849a7382c9e955cfc7d",
+        "packages/ai/src/providers/openai-codex.models.ts": "324a614325d6ef43cd5090dba8bf466a07f34681c8d68b75e62b7fd68d6a9f26"
+      }
     }
   ]
 }

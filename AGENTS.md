@@ -18,6 +18,7 @@
 - Split-surrogate session-name helpers may use U+FFFD in memory; SQLite stored names must match TS exactly (approved 2026-10-20: “Match DB; record gap”).
 - Remove the `broadcast` tool and native `disable-broadcast` extension (user decision 2026-10-26); retain direct messaging and `channel_post`.
 - Port reminders from TS delta `be6413897` (user request 2026-10-26); preserve persistence and delivery semantics.
+- Port GPT-6.1 Terra from TS delta `5a0ea4d39` (user request 2026-10-26).
 - Target: full parity of all packages (decision 2026-10-18). Track every non-test source file in `docs/porting/coverage.md`.
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).
