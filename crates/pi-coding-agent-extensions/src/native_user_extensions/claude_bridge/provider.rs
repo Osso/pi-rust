@@ -54,6 +54,13 @@ struct PendingProfiles {
     profiles: std::collections::VecDeque<String>,
 }
 
+#[cfg(test)]
+#[derive(Clone)]
+pub(super) enum SteerWriteFault {
+    MissingStream,
+    Rejected(JsString),
+}
+
 #[derive(Clone)]
 pub struct BridgeProvider {
     state: Arc<Mutex<QueryState>>,
@@ -62,6 +69,8 @@ pub struct BridgeProvider {
     pub(super) ui: SharedUi,
     pub(super) mode: Arc<Mutex<Option<crate::core::extensions::types::ExtensionMode>>>,
     pub(super) logs: Result<super::logging::Logs, CallbackError>,
+    #[cfg(test)]
+    steer_write_fault: Arc<Mutex<Option<SteerWriteFault>>>,
     pub(super) startup_notice: Arc<Mutex<Option<super::startup_notice::StartupNotice>>>,
     pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
@@ -108,6 +117,8 @@ impl BridgeProvider {
             mode: Arc::new(Mutex::new(None)),
             startup_notice: Arc::new(Mutex::new(None)),
             logs: super::logging::Logs::new(),
+            #[cfg(test)]
+            steer_write_fault: Arc::new(Mutex::new(None)),
             ownership,
             accounts: Arc::new(Mutex::new(accounts)),
             usage_runtime: super::usage::UsageRuntime::default(),
@@ -131,6 +142,11 @@ impl BridgeProvider {
         bridge
     }
 
+    #[cfg(test)]
+    pub(super) fn inject_steer_failure(&self, error: Option<JsString>) {
+        *self.steer_write_fault.lock().unwrap() =
+            Some(error.map_or(SteerWriteFault::MissingStream, SteerWriteFault::Rejected));
+    }
     pub fn stream(
         &self,
         model: Model,
@@ -332,6 +348,7 @@ impl BridgeProvider {
                 observations,
             );
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
+            actor.session_key = key.clone();
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let auth_profile = launch
                 .as_ref()
@@ -428,6 +445,9 @@ impl BridgeProvider {
                         store.delete_ephemeral(&key, &native_id, &cwd)?;
                     } else {
                         store.complete(&key, native_id, actor.latest_cursor, &cwd)?;
+                    }
+                    if actor.missed_steer {
+                        store.mark_rebuild(&key, false);
                     }
                     if failed {
                         store.mark_rebuild(&key, true);
@@ -820,6 +840,11 @@ struct QueryActor {
     warnings: super::rate_limit::WarningState,
     logs: Result<super::logging::Logs, CallbackError>,
     shape: Option<super::shape_trace::ShapeTrace>,
+    sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
+    session_key: JsString,
+    missed_steer: bool,
+    #[cfg(test)]
+    steer_write_fault: Arc<Mutex<Option<SteerWriteFault>>>,
 }
 
 impl QueryActor {
@@ -854,6 +879,11 @@ impl QueryActor {
             warnings: Default::default(),
             logs: bridge.logs.clone(),
             shape: None,
+            sessions: bridge.sessions.clone(),
+            session_key: "(none)".into(),
+            missed_steer: false,
+            #[cfg(test)]
+            steer_write_fault: bridge.steer_write_fault.clone(),
         }
     }
 
@@ -1272,7 +1302,7 @@ impl QueryActor {
                 self.current = Some(sender);
                 self.decoder = StreamDecoder::with_tools(&self.model, self.tools.iter().map(|t| t.name.clone()));
                 if matches!(context.messages.last(), Some(pi_ai::types::Message::User(_))) {
-                    process.write(&user_message(prompt_content(&context)?, true)).await?;
+                    self.deliver_steer(prompt_content(&context)?, process).await?;
                 }
                 self.latest_cursor = self.latest_cursor.max(context.messages.len());
                 self.accept_results(&context, process).await?;
@@ -1281,6 +1311,82 @@ impl QueryActor {
         Ok(())
     }
 
+    fn mark_missed_steer(&mut self, text: &JsString) -> Result<(), CallbackError> {
+        self.missed_steer = true;
+        self.sessions
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .as_mut()
+            .map_err(|e| e.clone())?
+            .mark_rebuild(&self.session_key, false);
+        self.logs
+            .as_ref()
+            .map_err(|e| e.clone())?
+            .debug(pi_js_compat::js_format!(
+                "provider: steer never reached CC, marked query for rebuild: {}",
+                text.slice(0, 60)
+            ))
+    }
+    async fn write_steer(&self, content: JsValue, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
+        #[cfg(test)]
+        if let Some(SteerWriteFault::Rejected(message)) = self
+            .steer_write_fault
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .clone()
+        {
+            return Err(CallbackError::new(message));
+        }
+        process.write(&user_message(content, true)).await
+    }
+    async fn deliver_steer(&mut self, content: JsValue, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
+        let text = content
+            .as_array()
+            .map(|blocks| {
+                JsString::join(
+                    blocks.iter().map(|b| {
+                        if string(b, "type") == "text" {
+                            string(b, "text")
+                        } else {
+                            "[image]".into()
+                        }
+                    }),
+                    "\n",
+                )
+            })
+            .unwrap_or_else(|| content.as_string().cloned().unwrap_or_default());
+        let live = self
+            .observations
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .prompt_stream;
+        #[cfg(test)]
+        let live = live
+            && !matches!(
+                self.steer_write_fault
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .as_ref(),
+                Some(SteerWriteFault::MissingStream)
+            );
+        let logs = self.logs.as_ref().map_err(|e| e.clone())?;
+        if !live {
+            logs.debug(pi_js_compat::js_format!(
+                "WARNING: steer with no prompt stream, dropping: {}",
+                text.slice(0, 60)
+            ))?;
+            self.mark_missed_steer(&text)?;
+        } else if let Err(error) = self.write_steer(content, process).await {
+            logs.debug_error("provider: steer push rejected, delivering tool result anyway:", &error)?;
+            self.mark_missed_steer(&text)?;
+        } else {
+            logs.debug(pi_js_compat::js_format!(
+                "provider: steer written to CC stdin before tool result: {}",
+                text.slice(0, 60)
+            ))?;
+        }
+        Ok(())
+    }
     async fn accept_results(&mut self, context: &Context, process: &mut ClaudeProcess) -> Result<(), CallbackError> {
         self.logs.as_ref().map_err(|e| e.clone())?.debug_deliver_results(
             context,

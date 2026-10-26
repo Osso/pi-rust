@@ -213,6 +213,10 @@ impl SessionStore {
         self.mirrors.clear();
     }
 
+    #[cfg(test)]
+    pub(super) fn needs_rebuild(&self, key: &JsString) -> bool {
+        self.mirrors.get(key).is_some_and(|m| m.rebuild)
+    }
     pub(super) fn debug_shared_session(&self, key: &JsString) -> JsValue {
         self.mirrors
             .get(key)

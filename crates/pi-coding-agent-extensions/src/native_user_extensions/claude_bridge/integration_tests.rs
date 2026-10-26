@@ -542,6 +542,74 @@ async fn claude_bridge_fake_process_writes_source_debug_cli_shape_and_diagnostic
 }
 
 #[tokio::test]
+async fn claude_bridge_missed_steers_preserve_results_mark_rebuild_and_log_source_outcomes() {
+    for missing in [true, false] {
+        let (dir, config, _) = setup().await;
+        let mut bridge =
+            provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+        bridge.logs.as_mut().unwrap().enabled = true;
+        bridge.inject_steer_failure(if missing {
+            None
+        } else {
+            Some("fixture steer rejected".into())
+        });
+        *bridge.sessions.lock().unwrap() = Ok(sessions::SessionStore::at(
+            dir.path().join("cc"),
+            dir.path().join("agent"),
+        ));
+        let mut ctx = read_context("tool-round-trip");
+        let opts = options(&dir);
+        let key = opts.stream.session_id.clone().unwrap();
+        let first = bridge
+            .stream(model(&config), ctx.clone(), Some(opts.clone()))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        assert_eq!(first.stop_reason, StopReason::ToolUse);
+        ctx.messages.push(Message::Assistant(Box::new(first)));
+        let text = JsString::from("result kept ") + JsString::from_utf16(vec![0xdfff]);
+        ctx.messages.push(Message::ToolResult(ToolResultMessage {
+            role: ToolResultRole::Tag,
+            tool_call_id: "tool-read".into(),
+            tool_name: "read".into(),
+            content: vec![pi_ai::types::ToolResultContent::Text(pi_ai::types::TextContent::new(
+                text.clone(),
+            ))],
+            details: None,
+            is_error: false,
+            timestamp: 2.0,
+        }));
+        ctx.messages.extend(context("lost steer").messages);
+        let output = bridge
+            .stream(model(&config), ctx, Some(opts))
+            .unwrap()
+            .result()
+            .await
+            .unwrap();
+        assert_eq!(output.stop_reason, StopReason::Stop, "{:?}", output.error_message);
+        let AssistantContent::Text(answer) = &output.content[0] else {
+            panic!("text");
+        };
+        assert_eq!(answer.text, text);
+        let delivered = std::fs::read_to_string(dir.path().join(".fixture-tool-delivered")).unwrap();
+        assert_eq!(js_json::parse_lossless(&delivered).unwrap(), JsValue::String(text));
+        assert!(bridge.sessions.lock().unwrap().as_ref().unwrap().needs_rebuild(&key));
+        let log = std::fs::read_to_string(logging::debug_path().unwrap()).unwrap();
+        let module = &bridge.logs.as_ref().unwrap().module_id;
+        let expected = if missing {
+            "WARNING: steer with no prompt stream, dropping: lost steer"
+        } else {
+            "provider: steer push rejected, delivering tool result anyway: Error: fixture steer rejected"
+        };
+        assert!(log.contains(&format!("[{module}] {expected}\n")));
+        assert!(log.contains(&format!(
+            "[{module}] provider: steer never reached CC, marked query for rebuild: lost steer\n"
+        )));
+    }
+}
+
+#[tokio::test]
 async fn claude_bridge_shutdown_reports_exact_live_context_handler_and_prompt_counts() {
     use crate::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
     let (dir, config, _) = setup().await;
