@@ -602,6 +602,66 @@ async fn claude_bridge_shape_trace_records_discarded_attempt_under_its_original_
 }
 
 #[tokio::test]
+async fn claude_bridge_cancellation_interrupts_a_blocked_control_reply_and_reaps_the_child() {
+    assert_blocked_control_cancellation(false).await;
+}
+
+#[tokio::test]
+async fn claude_bridge_shutdown_interrupts_a_blocked_control_reply_and_reaps_the_child() {
+    assert_blocked_control_cancellation(true).await;
+}
+
+async fn assert_blocked_control_cancellation(shutdown: bool) {
+    let (dir, config, loaded) = setup().await;
+    let runner = super::lifecycle_tests::runner(dir.path(), loaded, Some(model(&config)));
+    let controller = pi_js_compat::abort::AbortController::new();
+    let mut opts = options(&dir);
+    opts.stream.request.signal = Some(controller.signal());
+    opts.stream.session_id = Some(runner.create_context().session_manager().unwrap().get_session_id());
+    let mut ctx = read_context("blocked-control-write");
+    ctx.tools.as_mut().unwrap()[0].description = "x".repeat(2 * 1024 * 1024).into();
+    let stream = config.stream_simple.as_ref().unwrap()(model(&config), ctx, Some(opts)).unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while !dir.path().join(".fixture-control-blocked").exists() {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .unwrap();
+    if shutdown {
+        use crate::core::extensions::types::{ExtensionEvent, SessionShutdownEvent, SessionShutdownReason};
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            runner.emit(&mut ExtensionEvent::SessionShutdown(SessionShutdownEvent {
+                reason: SessionShutdownReason::Quit,
+                target_session_file: None,
+            })),
+        )
+        .await
+        .expect("shutdown interrupts control writes");
+    } else {
+        controller.abort(None);
+    }
+    let output = tokio::time::timeout(std::time::Duration::from_secs(1), stream.result())
+        .await
+        .expect("abort must interrupt a full stdin pipe")
+        .unwrap();
+    assert_eq!(
+        output.stop_reason,
+        if shutdown {
+            StopReason::Error
+        } else {
+            StopReason::Aborted
+        }
+    );
+    if shutdown {
+        assert_eq!(output.error_message.unwrap(), "pi session shut down");
+    }
+    let pid = std::fs::read_to_string(dir.path().join(".fixture-pid")).unwrap();
+    assert!(!std::path::Path::new(&format!("/proc/{pid}")).exists());
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();
@@ -893,4 +953,103 @@ async fn claude_bridge_empty_tool_results_normalize_mcp_content_and_preserve_err
         assert_eq!(result.content.len(), 1);
         assert_eq!(result.usage.total_tokens, 0.0);
     }
+}
+
+#[tokio::test]
+async fn claude_bridge_askclaude_cancels_initialization_and_reaps_on_result_errors() {
+    use std::sync::Arc;
+    for stall in [true, false] {
+        let (dir, _, loaded) = setup().await;
+        if stall {
+            std::fs::write(dir.path().join(".fixture-stall-initialize"), "").unwrap();
+        }
+        let definition = loaded.extensions[0]
+            .read()
+            .tools
+            .get("AskClaude")
+            .unwrap()
+            .definition
+            .clone();
+        let runner = super::lifecycle_tests::runner(dir.path(), loaded, None);
+        let controller = pi_js_compat::abort::AbortController::new();
+        let args = JsValue::object([
+            (
+                "prompt",
+                JsValue::String(if stall { "wait" } else { "error-wait" }.into()),
+            ),
+            ("isolated", JsValue::Bool(true)),
+            ("mode", JsValue::String("none".into())),
+        ]);
+        let updates = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let captured = updates.clone();
+        let execute = tokio::spawn((definition.execute)(
+            "ask-cancel".into(),
+            args,
+            Some(controller.signal()),
+            Some(Arc::new(move |update| {
+                captured.lock().unwrap().push(update);
+                Ok(())
+            })),
+            Some(runner.create_context()),
+        ));
+        let pid = wait_for_fixture_pid(&dir).await;
+        if stall {
+            controller.abort(None);
+        }
+        let output = tokio::time::timeout(std::time::Duration::from_secs(1), execute)
+            .await
+            .expect("AskClaude cancellation/error must settle and reap")
+            .unwrap()
+            .unwrap();
+        if !stall {
+            assert_eq!(output.details.unwrap().get("error"), Some(&JsValue::Bool(true)));
+            assert!(
+                updates.lock().unwrap().is_empty(),
+                "source error branch does not blank progress"
+            );
+        }
+        assert!(
+            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+            "AskClaude must await cleanup: stalled={stall} pid={pid} status={:?}",
+            std::fs::read_to_string(format!("/proc/{pid}/status"))
+        );
+    }
+}
+
+#[tokio::test]
+async fn claude_bridge_summary_abort_reaps_its_child_before_terminal_output() {
+    let (dir, config, _) = setup().await;
+    std::fs::write(dir.path().join(".fixture-stall-initialize"), "").unwrap();
+    for _ in 0..8 {
+        let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+        let controller = pi_js_compat::abort::AbortController::new();
+        let mut opts = options(&dir);
+        opts.stream.cache_retention = Some(pi_ai::types::CacheRetention::None);
+        opts.stream.request.signal = Some(controller.signal());
+        let stream = bridge.stream(model(&config), context("summary"), Some(opts)).unwrap();
+        let pid = wait_for_fixture_pid(&dir).await;
+        controller.abort(None);
+        assert_eq!(stream.result().await.unwrap().stop_reason, StopReason::Aborted);
+        assert!(
+            !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+            "summary must reap before delivering abort: pid={pid:?}"
+        );
+        std::fs::remove_file(dir.path().join(".fixture-pid")).unwrap();
+    }
+}
+
+async fn wait_for_fixture_pid(dir: &tempfile::TempDir) -> String {
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            match std::fs::read_to_string(dir.path().join(".fixture-pid")) {
+                Ok(pid) if pid.parse::<u32>().is_ok() => return pid,
+                Ok(_) => {}
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                Err(error) => panic!("Cannot read fixture PID: {error}"),
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("fixture must publish a complete PID")
 }

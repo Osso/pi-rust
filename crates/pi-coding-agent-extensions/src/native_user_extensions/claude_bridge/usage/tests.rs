@@ -14,6 +14,7 @@ impl HttpBody for Body {
 struct FixtureFetch {
     responses: Mutex<VecDeque<(u16, Option<String>, &'static str)>>,
     requests: Mutex<Vec<HttpRequest>>,
+    abort_on_response: Mutex<Option<pi_js_compat::abort::AbortController>>,
 }
 impl Fetch for FixtureFetch {
     fn fetch(
@@ -23,7 +24,11 @@ impl Fetch for FixtureFetch {
     ) -> BoxFuture<'_, Result<HttpResponse, CallbackError>> {
         self.requests.lock().unwrap().push(request);
         let response = self.responses.lock().unwrap().pop_front();
+        let abort = self.abort_on_response.lock().unwrap().take();
         Box::pin(async move {
+            if let Some(controller) = abort {
+                controller.abort(None);
+            }
             let (status, retry, body) = response.expect("no unexpected HTTP request");
             Ok(HttpResponse {
                 status,
@@ -286,4 +291,59 @@ async fn claude_bridge_usage_does_not_retry_permanent_errors_or_exceed_wait_budg
     );
     assert!(sleeps.lock().unwrap().is_empty());
     assert_eq!(fetch.requests.lock().unwrap().len(), 2);
+}
+
+#[tokio::test]
+async fn claude_bridge_usage_cancelled_capacity_probe_preserves_quota_evidence_and_reports_aborted() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir(home.path().join(".claude")).unwrap();
+    std::fs::write(
+        home.path().join(".claude/a.credentials.json"),
+        r#"{"claudeAiOauth":{"accessToken":"a-token"}}"#,
+    )
+    .unwrap();
+    let executable = home.path().join("claude");
+    std::fs::write(&executable, include_str!("../fixtures/claude.py")).unwrap();
+    std::fs::set_permissions(&executable, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let mut bridge = BridgeProvider::new(
+        js_json::parse_lossless(r#"{"accountProfiles":["a"]}"#).unwrap(),
+        Ok(executable),
+        "AskClaude".into(),
+    );
+    let mut manager = super::super::account_state::AccountManager::new(home.path().into(), vec!["a".into()]).unwrap();
+    manager.reject("a", None, 0.0).unwrap();
+    *bridge.accounts.lock().unwrap() = Ok(Some(manager));
+    let before = super::super::account_state::read_state(home.path()).unwrap();
+    let controller = pi_js_compat::abort::AbortController::new();
+    let fetch = Arc::new(FixtureFetch::default());
+    *fetch.abort_on_response.lock().unwrap() = Some(controller.clone());
+    fetch.responses.lock().unwrap().push_back((200, None, WINDOWS));
+    let mut test_runtime = runtime(fetch.clone(), Arc::new(Mutex::new(Vec::new())));
+    test_runtime.now = Arc::new(|| 1000.0);
+    bridge.usage_runtime = test_runtime;
+    let model = pi_ai::providers::models_data::builtin_model("anthropic", "claude-opus-5-5").unwrap();
+    let context: pi_ai::types::Context = js_json::from_value(
+        &js_json::parse_lossless(r#"{"messages":[{"role":"user","content":"hello","timestamp":1}]}"#).unwrap(),
+    )
+    .unwrap();
+    let mut options = pi_ai::request::SimpleStreamOptions::default();
+    options.stream.request.signal = Some(controller.signal());
+    options.stream.cwd = Some(home.path().to_str().unwrap().into());
+    let output = bridge
+        .stream(model, context, Some(options))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(
+        output.stop_reason,
+        pi_ai::types::StopReason::Aborted,
+        "{:?}",
+        output.error_message
+    );
+    assert_eq!(output.error_message.unwrap(), "Claude account quota recheck cancelled");
+    assert_eq!(super::super::account_state::read_state(home.path()).unwrap(), before);
+    assert!(!home.path().join(".fixture-pid").exists());
+    assert_eq!(fetch.requests.lock().unwrap().len(), 1);
 }

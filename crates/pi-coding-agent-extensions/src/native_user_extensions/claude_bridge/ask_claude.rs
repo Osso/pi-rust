@@ -383,34 +383,57 @@ impl AskRun<'_> {
         if signal.aborted() {
             return Err(CallbackError::new("Aborted"));
         }
-        let mut process = ClaudeProcess::spawn(&launch).await?;
+        let mut process = ClaudeProcess::spawn_child(&launch)?;
+        let mut text = JsString::default();
+        let result = tokio::select! {
+            biased;
+            _ = signal.wait() => None,
+            result = self.consume_query(&mut process, &launch, &mut text) => Some(result),
+        };
+        match result {
+            Some(Ok(())) => Ok(text),
+            Some(Err(error)) => {
+                process.terminate().await?;
+                Err(error)
+            }
+            None => {
+                process.cancel().await?;
+                Ok(text)
+            }
+        }
+    }
+
+    async fn consume_query(
+        &mut self,
+        process: &mut ClaudeProcess,
+        launch: &super::process::LaunchOptions,
+        text: &mut JsString,
+    ) -> Result<(), CallbackError> {
+        process.initialize(launch).await?;
         process
             .write(&user_message(JsValue::String(string(self.args, "prompt")), false))
             .await?;
-        let mut text = JsString::default();
         let mut interval = tokio::time::interval_at(
             tokio::time::Instant::now() + std::time::Duration::from_secs(1),
             std::time::Duration::from_secs(1),
         );
         loop {
             tokio::select! {
-                _ = signal.wait() => { process.interrupt().await?; break; }
                 _ = interval.tick() => self.update_progress()?,
                 frame = process.read() => match frame? {
                     None => break,
                     Some(frame) => {
                         if string(&frame,"type") == "result" {
                             if let Some(error) = result_error(&frame) { return Err(CallbackError::new(error)); }
-                            if text.is_empty() { text = string(&frame,"result"); }
+                            if text.is_empty() { *text = string(&frame,"result"); }
                             break;
                         }
-                        self.consume_frame(&frame,&mut text);
+                        self.consume_frame(&frame,text);
                     }
                 }
             }
         }
-        process.close().await?;
-        Ok(text)
+        process.close().await
     }
 
     fn consume_frame(&mut self, frame: &JsValue, text: &mut JsString) {

@@ -242,8 +242,18 @@ elif text == "rate-limit":
     ]:
         send({"type": "rate_limit_event", "rate_limit_info": info})
     send({"type": "result", "subtype": "success", "is_error": True, "result": "capacity \udfff"})
+elif text == "error-wait":
+    send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
+    import time
+    time.sleep(300)
 elif text == "error":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
+elif text == "blocked-control-write":
+    send({"type": "control_request", "request_id": "blocked", "request": {"subtype": "mcp_message", "server_name": "custom-tools", "message": {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}}})
+    with open(".fixture-control-blocked", "w", encoding="ascii") as marker:
+        marker.write("ready")
+    import time
+    time.sleep(300)
 elif text == "auth-stderr-wait":
     print("OAuth invalid_grant status=401", file=sys.stderr, flush=True)
     while True:

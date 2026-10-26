@@ -28,11 +28,7 @@ pub(super) fn stream(
     let (sender, stream) = create_assistant_message_event_stream();
     tokio::spawn(async move {
         let signal = options.stream.request.signal.clone().unwrap_or_default();
-        let result = tokio::select! {
-            biased;
-            _ = signal.wait() => Err(CallbackError::new("Operation aborted")),
-            result = run_summary(&bridge,&model,&context,&options) => result,
-        };
+        let result = run_summary(&bridge, &model, &context, &options).await;
         let now = match super::account_state::now_seconds() {
             Ok(now) => now * 1000.0,
             Err(error) => {
@@ -123,8 +119,39 @@ struct Attempt {
     error: Option<JsString>,
     quota: Option<Option<f64>>,
 }
-async fn consume(launch: &LaunchOptions, prompt: &JsString) -> Result<Attempt, CallbackError> {
-    let mut process = ClaudeProcess::spawn(launch).await?;
+async fn consume(
+    launch: &LaunchOptions,
+    prompt: &JsString,
+    signal: &pi_js_compat::abort::AbortSignal,
+) -> Result<Attempt, CallbackError> {
+    if signal.aborted() {
+        return Err(CallbackError::new("Operation aborted"));
+    }
+    let mut process = ClaudeProcess::spawn_child(launch)?;
+    let result = tokio::select! {
+        biased;
+        _ = signal.wait() => None,
+        result = consume_query(&mut process, launch, prompt) => Some(result),
+    };
+    match result {
+        Some(Ok(attempt)) => Ok(attempt),
+        Some(Err(error)) => {
+            process.terminate().await?;
+            Err(error)
+        }
+        None => {
+            process.cancel().await?;
+            Err(CallbackError::new("Operation aborted"))
+        }
+    }
+}
+
+async fn consume_query(
+    process: &mut ClaudeProcess,
+    launch: &LaunchOptions,
+    prompt: &JsString,
+) -> Result<Attempt, CallbackError> {
+    process.initialize(launch).await?;
     process
         .write(&user_message(JsValue::String(prompt.clone()), false))
         .await?;
@@ -236,7 +263,7 @@ async fn run_summary(
             return Err(CallbackError::new(super::account_state::ACCOUNTS_EXHAUSTED));
         }
         let checked_at = (bridge.usage_runtime.now)() / 1000.0;
-        let attempt = consume(&launch, &prompt).await?;
+        let attempt = consume(&launch, &prompt, &signal).await?;
         if let Some(debug) = &launch.cli_debug
             && let Some(profile) = &debug.profile
         {
