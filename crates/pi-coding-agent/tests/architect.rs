@@ -330,7 +330,7 @@ fn prompt_serializes_the_observation_after_the_bounded_instructions() {
         pi_js_compat::js_json!(r#"{"objective":"Keep tests green"}"#)
     );
     assert!(ARCHITECT_SYSTEM_PROMPT.contains("threadId \"architect-request:<request id>\""));
-    assert!(ARCHITECT_SYSTEM_PROMPT.contains("Never use broadcast or the global shared channel"));
+    assert!(ARCHITECT_SYSTEM_PROMPT.contains("Never use the global shared channel"));
 }
 
 #[test]
@@ -507,17 +507,13 @@ fn blocks_global_broadcast_tools_for_the_architect() {
             "list_sessions",
             "Pi Architect must use its bounded structured observer snapshot, not list_sessions.",
         ),
-        (
-            "broadcast",
-            "Pi Architect must use direct agent messaging, not broadcast.",
-        ),
     ] {
         let blocked = block_architect_global_broadcast(tool).unwrap();
         assert_eq!(blocked.block, Some(true));
         assert_eq!(blocked.reason.clone(), Some(JsString::from(reason)));
     }
     assert!(block_architect_global_broadcast("read").is_none());
-    assert_eq!(ARCHITECT_EXCLUDED_TOOL_NAMES.len(), 5);
+    assert_eq!(ARCHITECT_EXCLUDED_TOOL_NAMES.len(), 4);
 }
 
 #[test]

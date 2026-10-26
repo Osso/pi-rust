@@ -2190,109 +2190,13 @@ async fn list_sessions_tool_differential() {
     }
 }
 
-#[tokio::test]
-async fn broadcast_tool_differential() {
-    use pi_coding_agent::core::extensions::types::ContextTool;
-    use pi_coding_agent::core::session_manager::SessionManager;
-    use pi_coding_agent::core::tools::broadcast::BroadcastTool;
-    use std::sync::{Arc, Mutex};
+#[test]
+fn broadcast_tool_unavailable_channel_post_available() {
+    use pi_coding_agent::core::tools::{ToolsOptions, create_all_tool_definitions};
 
-    let setup = vec![
-        json!({
-            "op": "metadata",
-            "sessionPath": "/sessions/ended.jsonl",
-            "id": "ended",
-            "cwd": "/repo/ended",
-            "modifiedAt": "2026-01-01T00:10:00.000Z"
-        }),
-        json!({
-            "op": "health",
-            "record": {
-                "sessionId": "ended",
-                "agentGeneration": 1,
-                "pid": null,
-                "lastActiveAt": null,
-                "lastCheckedAt": "2026-01-01T00:01:00.000Z",
-                "checkStatus": "dead",
-                "checkedGeneration": 1,
-                "checkLatencyMs": 0,
-                "updatedAt": "2026-01-01T00:01:00.000Z"
-            }
-        }),
-    ];
-    let root = session_fixture_root();
-    let sessions_dir = root
-        .path()
-        .join("sessions")
-        .to_str()
-        .expect("utf-8 test path")
-        .to_owned();
-    let sender_path = root
-        .path()
-        .join("sessions/sender.jsonl")
-        .to_str()
-        .expect("utf-8 test path")
-        .to_owned();
-    write_file(
-        root.path(),
-        "sessions/sender.jsonl",
-        &session_file(
-            "sender-session",
-            root.path().to_str().expect("utf-8 test path"),
-            &[],
-            None,
-        ),
-    );
-
-    let mut oracle = Oracle::new();
-    for (name, params) in [
-        ("skipped-dead", json!({ "message": "please restart" })),
-        ("filtered", json!({ "message": "please restart", "name": "other" })),
-    ] {
-        let rust_dir = temp_root("pi-broadcast-tool-rs-");
-        let rust_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((rust_dir.path()).as_os_str()))
-            .to_utf8()
-            .expect("fixture control path is scalar");
-        apply_setup(&rust_db, &setup);
-        let ts_dir = temp_root("pi-broadcast-tool-ts-");
-        let ts_db = get_control_db_path(pi_js_compat::node_fs::decode_node_path((ts_dir.path()).as_os_str()))
-            .to_utf8()
-            .expect("fixture control path is scalar");
-        let response = oracle.request(tool_request(
-            "core/tools/broadcast.ts",
-            "createBroadcastToolDefinition",
-            params.clone(),
-            json!({
-                "controlDbPath": ts_db,
-                "cwd": root.path().to_str().expect("utf-8 test path").to_owned(),
-                "sessionId": "sender-session",
-                "sessionFile": sender_path,
-                "sessionDir": sessions_dir,
-                "setup": setup.clone()
-            }),
-        ));
-        let sender = SessionManager::open(
-            &JsString::from(&sender_path),
-            Some(&JsString::from(&sessions_dir)),
-            None,
-        )
-        .expect("open sender session");
-        let context = tool_context::TestContextBuilder::new(
-            root.path().to_str().expect("utf-8 test path").to_owned(),
-            Arc::new(Mutex::new(sender)),
-        )
-        .control_db_path(&rust_db)
-        .build()
-        .await
-        .1;
-        let rust = rust_tool_result(
-            BroadcastTool::new()
-                .execute("tool-call".to_owned(), json!(params), None, None, Some(context), None)
-                .await,
-        );
-        assert_eq!(response["ok"], json!(true), "{name}: {:?}", response["error"]);
-        assert_eq!(response["output"], rust, "{name}");
-    }
+    let tools = create_all_tool_definitions(&JsString::from("/tmp"), ToolsOptions::default());
+    assert!(!tools.iter().any(|(name, _)| name.as_str() == "broadcast"));
+    assert!(tools.iter().any(|(name, _)| name.as_str() == "channel_post"));
 }
 
 #[tokio::test]

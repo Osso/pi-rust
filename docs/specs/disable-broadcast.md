@@ -1,5 +1,3 @@
 # Disable broadcast native extension
 
-The native port is registered hidden as `<native:disable-broadcast>` and loads only when selected by the user's extension path.
-
-On every `session_start`, read the current active tool list and set it to the same ordered list with all exact `broadcast` names removed. Do not change tools at extension load time or remove other names.
+The user decided on 2026-10-26 to remove the native `disable-broadcast` extension and the `broadcast` tool. The extension must not be registered or loaded. This is a deliberate removal, not parity with the former extension. Historical implementation and proof are recorded in [traceability](../porting/traceability/native-disable-broadcast.md).

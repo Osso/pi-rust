@@ -34,6 +34,23 @@ fn run_startup(agent: &Path, temp: &Path) -> (i32, String) {
 }
 
 #[test]
+fn startup_rejects_removed_disable_broadcast_extension() {
+    let temp = tempfile::tempdir().expect("temp dir");
+    let agent = temp.path().join("agent");
+    write(
+        &agent.join("extensions/disable-broadcast.ts"),
+        "export default function () {}\n",
+    );
+    let (code, stderr) = run_startup(&agent, temp.path());
+    assert_eq!(code, 1, "{stderr}");
+    assert!(
+        stderr.contains("Extension does not export a valid factory function:")
+            && stderr.contains("disable-broadcast.ts"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn startup_resolves_atlas_from_user_settings_package_path() {
     let temp = tempfile::tempdir().expect("temp dir");
     let agent = temp.path().join(".config/pi/agent");
@@ -66,10 +83,6 @@ fn startup_resolves_native_ports_from_user_package_and_extension_paths() {
     );
     write(
         &package.join("extensions/regex-replace.ts"),
-        "export default function () {}\n",
-    );
-    write(
-        &agent.join("extensions/disable-broadcast.ts"),
         "export default function () {}\n",
     );
     let bridge = temp.path().join("repos/pi-claude-bridge");
@@ -111,5 +124,4 @@ fn startup_resolves_native_ports_from_user_package_and_extension_paths() {
         stderr.contains("Extension does not export a valid factory function:") && stderr.contains("unported.ts"),
         "{stderr}"
     );
-    assert!(!stderr.contains("disable-broadcast.ts"), "{stderr}");
 }

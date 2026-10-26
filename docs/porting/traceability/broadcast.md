@@ -1,8 +1,10 @@
 # coding-agent broadcast traceability
 
-Pinned source: `packages/coding-agent/src/core/tools/broadcast.ts` at `532f7d12`.
+Pinned source: `packages/coding-agent/src/core/tools/broadcast.ts` (common pin `4f9e6f8a4`).
 
-Rust: `crates/pi-coding-agent-tools/src/core/tools/broadcast.rs` (`BroadcastTool`).
+**Removed by user decision, 2026-10-26.** The native `broadcast` tool is not part of the target; this is a deliberate gap, not parity. The frozen source inventory row remains. The implementation and proofs below describe the former port, not the removal's verification.
+
+Former Rust: `crates/pi-coding-agent-tools/src/core/tools/broadcast.rs` (`BroadcastTool`).
 
 | Source | Rust | Tests |
 |---|---|---|

@@ -44,14 +44,9 @@ pub const REQUEST_CLAIM_RENEW_INTERVAL_MS: u64 = 30_000;
 pub const ARCHITECT_SESSION_ID: &str = "architect";
 pub const ARCHITECT_REQUEST_THREAD_PREFIX: &str = "architect-request:";
 pub const ARCHITECT_RULES_SCOPE: &str = "architect";
-/// `ask_architect`, `broadcast`, `contact_parent`, then `SUPERVISOR_ONLY_TOOL_NAMES`.
-pub const ARCHITECT_EXCLUDED_TOOL_NAMES: [&str; 5] = [
-    "ask_architect",
-    "broadcast",
-    "contact_parent",
-    "ask_supervisor",
-    "manage_goal",
-];
+/// `ask_architect`, `contact_parent`, then `SUPERVISOR_ONLY_TOOL_NAMES`.
+pub const ARCHITECT_EXCLUDED_TOOL_NAMES: [&str; 4] =
+    ["ask_architect", "contact_parent", "ask_supervisor", "manage_goal"];
 
 /// One queued console prompt.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -217,7 +212,6 @@ pub fn block_architect_global_broadcast(tool_name: &str) -> Option<BeforeToolCal
     let reason = match tool_name {
         "channel_post" => "Pi Architect must use direct agent messaging, not channel_post.",
         "list_sessions" => "Pi Architect must use its bounded structured observer snapshot, not list_sessions.",
-        "broadcast" => "Pi Architect must use direct agent messaging, not broadcast.",
         _ => return None,
     };
     Some(BeforeToolCallResult {

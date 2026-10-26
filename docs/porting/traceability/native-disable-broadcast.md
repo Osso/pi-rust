@@ -1,5 +1,7 @@
 # Native disable-broadcast
 
+**Removed by user decision, 2026-10-26.** The native extension is no longer part of the target because the `broadcast` tool is removed. The audit and proof below are historical, not evidence of current registration or parity. [Removal contract](../../specs/disable-broadcast.md).
+
 Source: `/home/osso/.worktrees/pi-rust-ext-sources/disable-broadcast/disable-broadcast.ts` (user-supplied snapshot).
 Rust: `crates/pi-coding-agent-extensions/src/native_user_extensions/disable_broadcast.rs`.
 Contract: [disable broadcast](../../specs/disable-broadcast.md).

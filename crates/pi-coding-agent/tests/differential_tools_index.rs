@@ -77,7 +77,22 @@ fn tools_index_factories_match_the_pinned_typescript_source() {
         "cwd": cwd,
     }));
     assert_eq!(expected["ok"], Value::Bool(true), "{expected}");
-    let expected = &expected["output"];
+    let mut expected = expected["output"].clone();
+    for key in ["names", "allNames", "allKeys"] {
+        expected[key].as_array_mut().unwrap().retain(|name| name != "broadcast");
+    }
+    let definitions = expected["definitions"].as_array_mut().unwrap();
+    definitions.retain(|definition| definition["name"] != "broadcast");
+    for definition in definitions {
+        if definition["name"] == "channel_post" {
+            definition["promptGuidelines"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|guideline| {
+                    guideline != "For urgent targeted wakeups, use broadcast with explicit filters instead."
+                });
+        }
+    }
 
     let names = DEFAULT_ACTIVE_TOOL_NAMES
         .iter()
@@ -178,7 +193,6 @@ async fn standalone_tool_factories_preserve_undefined_context() {
         (ToolName::ResumeSession, json!({"path": "/tmp/session.jsonl"})),
         (ToolName::SearchCurrentSessionHistory, json!({"query": "needle"})),
         (ToolName::ListSessions, json!({})),
-        (ToolName::Broadcast, json!({"message": "fixture"})),
         (ToolName::ChannelPost, json!({"message": "fixture"})),
         (
             ToolName::AskQuestions,
@@ -263,7 +277,9 @@ fn availability_probe() {
         .into_iter()
         .map(|(name, _)| name.as_str())
         .collect::<Vec<_>>();
-        assert_eq!(json!(actual), expected["output"], "injected={injected}");
+        let mut expected_names = expected["output"].as_array().unwrap().clone();
+        expected_names.retain(|name| name != "broadcast");
+        assert_eq!(json!(actual), json!(expected_names), "injected={injected}");
     }
 }
 

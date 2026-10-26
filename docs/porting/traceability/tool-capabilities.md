@@ -1,5 +1,7 @@
 # Tool capabilities
 
+**User decision, 2026-10-26:** remove `broadcast` from native tool capabilities with the tool. This is a deliberate gap from the frozen source, not parity. The comparison, counts, and checkpoint below describe the former state and do not verify the removal.
+
 Frozen `packages/coding-agent/src/core/tool-capabilities.ts`, all 24 lines, at unmodified `4f9e6f8a4`. Native: `crates/pi-coding-agent-data/src/core/tool_capabilities.rs`. Values/order already match; this slice makes no production edit.
 
 | Frozen export / construction | Native / observable proof |
@@ -20,7 +22,7 @@ No production consumer mutates these exports or relies on shared-reference ident
 
 ## Discrepancies / gaps
 
-None specific to this data-only module. [Contract](../../specs/tool-capabilities.md).
+The frozen standalone-disabled set contains `broadcast`; the native target removes it by user decision. [Contract](../../specs/tool-capabilities.md).
 
 ## Checkpoint
 

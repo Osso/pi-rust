@@ -4,7 +4,6 @@ pub mod ask_questions;
 pub mod ask_questions_panel;
 pub mod ask_supervisor;
 pub mod bash;
-pub mod broadcast;
 pub mod change_working_directory;
 pub mod channel_post;
 pub mod code_index;
@@ -70,7 +69,6 @@ pub enum ToolName {
     ResumeSession,
     SearchCurrentSessionHistory,
     ListSessions,
-    Broadcast,
     ChannelPost,
     AskQuestions,
     AskSupervisor,
@@ -78,7 +76,7 @@ pub enum ToolName {
 
 impl ToolName {
     /// `allToolNames` / `DEFAULT_ACTIVE_TOOL_NAMES` in source order.
-    pub const ALL: [ToolName; 19] = [
+    pub const ALL: [ToolName; 18] = [
         ToolName::Read,
         ToolName::Bash,
         ToolName::Edit,
@@ -94,7 +92,6 @@ impl ToolName {
         ToolName::ResumeSession,
         ToolName::SearchCurrentSessionHistory,
         ToolName::ListSessions,
-        ToolName::Broadcast,
         ToolName::ChannelPost,
         ToolName::AskQuestions,
         ToolName::AskSupervisor,
@@ -117,7 +114,6 @@ impl ToolName {
             ToolName::ResumeSession => "resume_session",
             ToolName::SearchCurrentSessionHistory => "search_current_session_history",
             ToolName::ListSessions => "list_sessions",
-            ToolName::Broadcast => "broadcast",
             ToolName::ChannelPost => "channel_post",
             ToolName::AskQuestions => "ask_questions",
             ToolName::AskSupervisor => "ask_supervisor",
@@ -136,10 +132,10 @@ impl std::fmt::Display for ToolName {
 }
 
 /// Tools enabled for a default session (`DEFAULT_ACTIVE_TOOL_NAMES` in `tools/index.ts`).
-pub const DEFAULT_ACTIVE_TOOL_NAMES: [ToolName; 19] = ToolName::ALL;
+pub const DEFAULT_ACTIVE_TOOL_NAMES: [ToolName; 18] = ToolName::ALL;
 
 /// `allToolNames`.
-pub const ALL_TOOL_NAMES: [ToolName; 19] = ToolName::ALL;
+pub const ALL_TOOL_NAMES: [ToolName; 18] = ToolName::ALL;
 
 /// Update the reused `Text` component when the renderer already owns one.
 ///
@@ -255,7 +251,6 @@ pub fn create_tool_definition(name: ToolName, cwd: &JsString, options: ToolsOpti
             search_current_session_history::create_search_current_session_history_tool_definition()
         }
         ToolName::ListSessions => list_sessions::create_list_sessions_tool_definition(),
-        ToolName::Broadcast => broadcast::create_broadcast_tool_definition(),
         ToolName::ChannelPost => channel_post::create_channel_post_tool_definition(),
         ToolName::AskQuestions => ask_questions::create_ask_questions_tool_definition(),
         ToolName::AskSupervisor => ask_supervisor::create_ask_supervisor_tool_definition(),
@@ -306,7 +301,6 @@ pub fn create_tool(name: ToolName, cwd: &JsString, options: ToolsOptions) -> Arc
         | ToolName::ResumeSession
         | ToolName::SearchCurrentSessionHistory
         | ToolName::ListSessions
-        | ToolName::Broadcast
         | ToolName::ChannelPost
         | ToolName::AskQuestions
         | ToolName::AskSupervisor => wrap_definition(create_tool_definition(name, cwd, options), None),

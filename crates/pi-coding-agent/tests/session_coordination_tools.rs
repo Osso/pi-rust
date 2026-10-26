@@ -15,7 +15,6 @@ use pi_coding_agent::core::session_control_db::{
 use pi_coding_agent::core::session_health::{SessionCheckStatus, empty_session_health};
 use pi_coding_agent::core::tools::ask_architect::AskArchitectTool;
 use pi_coding_agent::core::tools::ask_supervisor::{AskSupervisorTool, parameters as ask_supervisor_parameters};
-use pi_coding_agent::core::tools::broadcast::BroadcastTool;
 use pi_coding_agent::core::tools::channel_post::ChannelPostTool;
 use pi_coding_agent::core::tools::list_sessions::ListSessionsTool;
 use pi_js_compat::js_json::{JsString, JsValue};
@@ -415,38 +414,6 @@ async fn isolated_advisory_probe() {
 }
 
 #[tokio::test]
-async fn broadcast_requires_a_persisted_session_file() {
-    let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
-        .to_utf8()
-        .expect("fixture control path is scalar");
-    let error = execute(
-        &BroadcastTool::new(),
-        json!({ "message": "please restart" }),
-        context(&control_db_path, "sender", false).await,
-    )
-    .await
-    .expect_err("missing session file must fail");
-    assert_eq!(error.to_string(), "broadcast requires a persisted session file");
-}
-
-#[tokio::test]
-async fn broadcast_rejects_an_empty_message() {
-    let temp_dir = TempDir::new().expect("temp dir");
-    let control_db_path = get_control_db_path(pi_js_compat::node_fs::decode_node_path((temp_dir.path()).as_os_str()))
-        .to_utf8()
-        .expect("fixture control path is scalar");
-    let error = execute(
-        &BroadcastTool::new(),
-        json!({ "message": "   " }),
-        context(&control_db_path, "sender", true).await,
-    )
-    .await
-    .expect_err("empty message must fail");
-    assert_eq!(error.to_string(), "broadcast requires a non-empty message");
-}
-
-#[tokio::test]
 async fn list_sessions_requires_a_control_database_path() {
     let error = ListSessionsTool::new()
         .execute(
@@ -471,7 +438,6 @@ async fn list_sessions_requires_a_control_database_path() {
 fn coordination_tools_expose_their_source_metadata() {
     assert_eq!(ListSessionsTool::new().name(), "list_sessions");
     assert!(ListSessionsTool::new().description().contains("sticky liveness"));
-    assert!(BroadcastTool::new().description().contains("eligible"));
     assert!(ChannelPostTool::new().description().contains("shared channel"));
     assert_eq!(AskSupervisorTool::new().name(), "ask_supervisor");
     assert_eq!(AskArchitectTool::new().name(), "ask_architect");

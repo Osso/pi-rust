@@ -23,7 +23,6 @@ pub static STANDALONE_DISABLED_TOOL_NAMES: std::sync::LazyLock<indexmap::IndexSe
                 "send_agent_message",
                 "contact_parent",
                 "list_sessions",
-                "broadcast",
                 "channel_post",
                 "resume_session",
             ])

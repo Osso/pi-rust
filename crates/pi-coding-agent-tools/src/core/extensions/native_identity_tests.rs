@@ -45,10 +45,10 @@ async fn native_file_stem_loads_discovered_extension() {
     let dir = tempfile::tempdir().unwrap();
     let agent = dir.path().join("agent");
     fs::create_dir_all(agent.join("extensions")).unwrap();
-    let path = agent.join("extensions/disable-broadcast.ts");
+    let path = agent.join("extensions/sample-native.ts");
     fs::write(&path, "").unwrap();
     let mut registry = ExtensionRegistry::new();
-    registry.register_hidden("<native:disable-broadcast>", factory());
+    registry.register_hidden("<native:sample-native>", factory());
     let result = registry
         .discover_and_load_extensions(
             &[],

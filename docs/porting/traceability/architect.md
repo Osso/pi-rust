@@ -42,7 +42,7 @@ Whole-module common-pin audit: `4f9e6f8a4c0065d81b10e7177b28d5082f0bc30d`, 309 l
 | `createArchitectSettingsManager` | in-memory read-only sandbox | `create_architect_settings_manager`; same test |
 | `createArchitectMultiAgentStore` | metadata attachment, archive, store restore | `create_architect_multi_agent_store` |
 | `completeSentArchitectRequest` | `architect-request:` thread id, safe integer ≥ 1, main target | `complete_sent_architect_request`; `completes_only_targeted_architect_request_threads` |
-| `blockArchitectGlobalBroadcast` | channel_post/list_sessions/broadcast reasons | `block_architect_global_broadcast`; `blocks_global_broadcast_tools_for_the_architect` |
+| `blockArchitectGlobalBroadcast` | channel_post/list_sessions reasons; broadcast tool removed by user decision | `block_architect_global_broadcast`; `blocks_global_broadcast_tools_for_the_architect` |
 | `runArchitectCycle` | skip without observation, renew every 30s while prompting, cancel renewal on completion/error | `run_architect_cycle`; `architect_cycle_prompts_only_when_an_observation_exists`; native renewal failure RED→GREEN |
 | `createArchitectStopHandler` | idempotent stop, abort, 5s force exit | `create_architect_stop_handler` |
 | `waitForArchitectInterval` | 30s or abort | `wait_for_architect_interval` |

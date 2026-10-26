@@ -16,6 +16,7 @@
 - All pre-repin approvals below are **to re-validate against 4f9e6f8a4**; retain them pending user review, not as new-pin parity evidence.
 - Control DB v15 and metadata-authoritative names formerly followed approved `c248b0067` (2026-10-20), now an ancestor of the common pin.
 - Split-surrogate session-name helpers may use U+FFFD in memory; SQLite stored names must match TS exactly (approved 2026-10-20: “Match DB; record gap”).
+- Remove the `broadcast` tool and native `disable-broadcast` extension (user decision 2026-10-26); retain direct messaging and `channel_post`.
 - Target: full parity of all packages (decision 2026-10-18). Track every non-test source file in `docs/porting/coverage.md`.
 - Port one whole TypeScript module (file or tightly coupled file group) per slice. Ask Alessio before any unapproved semantic deviation.
 - Extensions are Rust-native: bundled extensions are ported to a Rust extension API; loading TypeScript extensions is an approved deviation (2026-10-18).

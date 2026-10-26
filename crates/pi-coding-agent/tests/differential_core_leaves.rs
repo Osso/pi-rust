@@ -379,7 +379,16 @@ fn all_tool_capability_exports_and_membership_match_frozen() {
         .map(|name| json!({"name":name,"disabled":STANDALONE_DISABLED_TOOL_NAMES.contains(*name)}))
         .collect::<Vec<_>>();
     let mut oracle = Oracle::spawn();
-    let expected = oracle.call("core/tool-capabilities.ts", "toolCapabilities", json!(queries));
+    let mut expected = oracle.call("core/tool-capabilities.ts", "toolCapabilities", json!(queries));
+    expected["standalone"]
+        .as_array_mut()
+        .unwrap()
+        .retain(|name| name != "broadcast");
+    for query in expected["queries"].as_array_mut().unwrap() {
+        if query["name"] == "broadcast" {
+            query["disabled"] = json!(false);
+        }
+    }
     assert_eq!(
         json!({"child":CHILD_DISABLED_AGENT_TOOL_NAMES,"supervisor":SUPERVISOR_ONLY_TOOL_NAMES,"standalone":standalone,"queries":membership}),
         expected
