@@ -2,7 +2,7 @@
 
 Frozen: `packages/ai/scripts/generate-models.ts` at `4f9e6f8a4` ([lock](../source-lock.json)); 2232 physical lines, locked inventory2231. Native: `pi-ai::model_catalog_generator` (`models_dev`, `metadata`, `catalog`, `values`, `emission`, `artifacts`), maintenance `generate-models` bin, lossless `providers::models_data` reader. [Contract](../../specs/model-catalog-generator.md).
 
-No source exports exist; the script runs itself. Oracle `generator-repin-oracle.mts` exposes unchanged functions through TypeScript AST and captures the actual pre-emission catalog. Emission proofs execute frozen-written provider modules from temporary files. Frozen bytes and baseline generated catalogs are unchanged.
+No source exports exist; the script runs itself. Oracle `generator-repin-oracle.mts` exposes functions through TypeScript AST and captures the actual pre-emission catalog. It checks locked Terra delta `5a0ea4d39` against the common-pin generator before loading it. Emission proofs execute frozen-written provider modules from temporary files. The common-pin source bytes remain unchanged; native catalogs also include the approved Terra delta. See [Codex provider trace](providers-openai-codex.md#terra-delta-2026-10-26) for its metadata and focused proof.
 
 ## Whole-module capability and proof matrix
 

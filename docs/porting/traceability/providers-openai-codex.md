@@ -20,7 +20,9 @@ differential, covering default/GC/Team entries).
 
 ## Terra delta (2026-10-26)
 
-Locked delta `5a0ea4d39` adds `gpt-6.1-terra` to default, GC and Team catalogs. `providers_openai_codex::terra_catalog_and_registry_match_locked_typescript` compares each complete native record and registry lookup with the three locked TypeScript shards. `terra_generated_catalog_matches_locked_typescript` compares generated records to those shards. The tests were RED on absent Terra before implementation and GREEN afterward. The artifact manifest records the delta commit and updated payload hashes. Common-pin-only catalog/provider differential expectations still require delta-aware integration; they are not evidence for the post-delta catalog.
+Locked delta `5a0ea4d39` adds `gpt-6.1-terra` to the `openai-codex`, `openai-codex-gc`, and `openai-codex-team` catalogs. All three records use the name `GPT-6.1 Terra`, API `openai-codex-responses`, base URL `https://chatgpt.com/backend-api`, reasoning, text and image input, a 922,000-token context window and 128,000 maximum output tokens. Their thinking map is `max → max`, `xhigh → xhigh`, `minimal → low`. Costs per million tokens are $1 input, $5 output, $0.05 cache read and $1.25 cache write; only the provider field differs between records.
+
+`providers_openai_codex::terra_catalog_and_registry_match_locked_typescript` compares each complete native record and registry lookup with the three locked TypeScript shards. `terra_generated_catalog_matches_locked_typescript` compares generated records to those shards. The tests were RED on absent Terra before implementation and GREEN afterward. The artifact manifest records the delta commit and updated payload hashes. Catalog and provider inventory oracles apply the locked delta after checking the common-pin baseline; the generator oracle checks the locked generator delta against the baseline. These integrations do not by themselves establish a new test run.
 
 ## Notes and discrepancies
 
