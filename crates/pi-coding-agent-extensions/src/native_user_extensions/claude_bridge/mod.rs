@@ -12,6 +12,7 @@ mod ownership;
 mod process;
 pub mod prompt_capture;
 mod provider;
+mod rate_limit;
 mod session_records;
 mod sessions;
 pub mod stream;

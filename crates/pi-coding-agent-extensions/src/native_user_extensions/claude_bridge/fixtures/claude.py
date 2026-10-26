@@ -191,6 +191,17 @@ elif text in ["tool-round-trip", "steer-round-trip"]:
     with open(".fixture-tool-delivered", "w", encoding="ascii") as delivered:
         json.dump(result["result"]["content"][0]["text"], delivered, ensure_ascii=True)
     answer(result["result"]["content"][0]["text"], "final-msg")
+elif text == "rate-limit":
+    for info in [
+        {"status": "allowed_warning", "utilization": 0.81, "rateLimitType": "five_hour", "surpassedThreshold": 0.8},
+        {"status": "allowed_warning", "utilization": 0.82, "rateLimitType": "five_hour", "surpassedThreshold": 0.8},
+        {"status": "allowed_warning", "utilization": 0.86, "rateLimitType": "five_hour", "surpassedThreshold": 0.8},
+        {"status": "allowed"},
+        {"status": "allowed_warning", "utilization": 0.81, "rateLimitType": "five_hour", "surpassedThreshold": 0.8},
+        {"status": "rejected", "rateLimitType": "five_hour"},
+    ]:
+        send({"type": "rate_limit_event", "rate_limit_info": info})
+    send({"type": "result", "subtype": "success", "is_error": True, "result": "capacity \udfff"})
 elif text == "error":
     send({"type": "result", "subtype": "success", "is_error": True, "result": "Quota \udfff"})
 elif text == "wait":

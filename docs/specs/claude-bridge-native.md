@@ -29,7 +29,7 @@ Named profiles now validate before launch, migrate the freshest legacy credentia
 
 1. AskClaude cancellation and error-progress cleanup. Shared history/native resume is implemented: non-isolated calls reuse the calling Pi session's mirror or import its resolved history once; isolated calls do not import history. Offline subprocess tests cover both initial import and existing-native resume.
 2. Provider ownership is implemented: the first live instance registers at activation; later instances defer until session start and do not replace a provider already present in that session's registry. Independent registries receive their own provider. Rewrite marks reach every live serving instance; clear/reload releases the owner. Offline tests cover deferred registration, independent registries and cross-instance parked-query rebuild.
-3. Rate-limit warnings/failure labels and cancellation-safe account settlement.
+3. Rate-limit warnings and failure labels are implemented with source wording, per-query 5%/threshold deduplication, allowed/rejected rearming, local reset times and exact UTF-16 errors. Fake-process tests observe the notifications and terminal failure. Cancellation-safe account settlement remains in the cancellation-boundary work.
 4. First-TUI-query startup notice and post-write session integrity verification.
 5. Source-format auth, shape, debug/CLI-stderr, diagnostic and raw-stream logging.
 

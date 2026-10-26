@@ -412,6 +412,47 @@ async fn claude_bridge_concurrent_sessions_do_not_cross_route_identical_tool_ids
 }
 
 #[tokio::test]
+async fn claude_bridge_rate_limit_failures_are_labeled_without_losing_utf16() {
+    use crate::core::extensions::types::{ExtensionUiContext, NotifyType};
+    #[derive(Default)]
+    struct Ui(std::sync::Mutex<Vec<(JsString, Option<NotifyType>)>>);
+    impl ExtensionUiContext for Ui {
+        fn notify(
+            &self,
+            text: &JsString,
+            kind: Option<NotifyType>,
+        ) -> Result<(), pi_js_compat::callback_error::CallbackError> {
+            self.0.lock().unwrap().push((text.clone(), kind));
+            Ok(())
+        }
+    }
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    let ui = Arc::new(Ui::default());
+    *bridge.ui.lock().unwrap() = Some(ui.clone());
+    let output = bridge
+        .stream(model(&config), context("rate-limit"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(output.stop_reason, StopReason::Error);
+    let expected = js_json::parse_lossless(r#""Claude rate limit (five_hour): capacity \udfff""#).unwrap();
+    assert_eq!(output.error_message.as_ref(), expected.as_string());
+    let actual = ui.0.lock().unwrap();
+    assert_eq!(
+        actual.iter().map(|(text, _)| text.clone()).collect::<Vec<_>>(),
+        vec![
+            JsString::from("Claude rate limit warning: 81% used (five_hour)"),
+            "Claude rate limit warning: 86% used (five_hour)".into(),
+            "Claude rate limit warning: 81% used (five_hour)".into(),
+            "Claude rate limited (five_hour) — resets at unknown".into(),
+        ]
+    );
+    assert!(actual.iter().all(|(_, kind)| *kind == Some(NotifyType::Warning)));
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();

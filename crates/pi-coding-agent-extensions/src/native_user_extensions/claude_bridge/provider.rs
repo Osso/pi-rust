@@ -14,6 +14,7 @@ use super::process::{ClaudeProcess, LaunchOptions, user_message};
 use super::stream::{StreamDecoder, string};
 
 type Sender = EventSender<AssistantMessageEvent, pi_ai::types::AssistantMessage>;
+type SharedUi = Arc<Mutex<Option<Arc<dyn crate::core::extensions::types::ExtensionUiContext>>>>;
 type SharedAccounts = Arc<Mutex<Result<Option<super::account_state::AccountManager>, CallbackError>>>;
 
 pub enum QueryCommand {
@@ -49,6 +50,7 @@ pub struct BridgeProvider {
     state: Arc<Mutex<QueryState>>,
     pub(super) identity: Arc<()>,
     ownership: Arc<super::ownership::Ownership>,
+    pub(super) ui: SharedUi,
     pub sessions: Arc<Mutex<Result<super::sessions::SessionStore, CallbackError>>>,
     pub settings: JsValue,
     pub executable: Result<PathBuf, CallbackError>,
@@ -90,6 +92,7 @@ impl BridgeProvider {
         let bridge = Self {
             state: Arc::new(Mutex::new(QueryState::default())),
             identity: Arc::new(()),
+            ui: Arc::new(Mutex::new(None)),
             ownership,
             accounts: Arc::new(Mutex::new(accounts)),
             usage_runtime: super::usage::UsageRuntime::default(),
@@ -229,15 +232,7 @@ impl BridgeProvider {
         let bridge = self.clone();
         drop(state);
         tokio::spawn(async move {
-            let mut actor = QueryActor::new(
-                &model,
-                &context,
-                sender,
-                receive,
-                tool_ids,
-                bridge.accounts.clone(),
-                native_id,
-            );
+            let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, &bridge, native_id);
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone()).await;
             let (result, preserve_shared_session) = match launch {
@@ -570,6 +565,8 @@ struct QueryActor {
     latest_cursor: usize,
     quota_failed: bool,
     native_id: Arc<Mutex<Option<String>>>,
+    ui: SharedUi,
+    warnings: super::rate_limit::WarningState,
 }
 
 impl QueryActor {
@@ -579,7 +576,7 @@ impl QueryActor {
         sender: Sender,
         commands: mpsc::UnboundedReceiver<QueryCommand>,
         tool_ids: Arc<Mutex<HashSet<String>>>,
-        accounts: SharedAccounts,
+        bridge: &BridgeProvider,
         native_id: Arc<Mutex<Option<String>>>,
     ) -> Self {
         let tools = context.tools.clone().unwrap_or_default();
@@ -594,11 +591,13 @@ impl QueryActor {
             pending_results: HashMap::new(),
             turn_ended: false,
             native_session: None,
-            accounts,
+            accounts: bridge.accounts.clone(),
             rate_limit_rejection: None,
             latest_cursor: context.messages.len(),
             quota_failed: false,
             native_id,
+            ui: bridge.ui.clone(),
+            warnings: Default::default(),
         }
     }
 
@@ -669,6 +668,18 @@ impl QueryActor {
     fn settle_account_frame(&mut self, frame: &mut JsValue, launch: &LaunchOptions) -> Result<(), CallbackError> {
         if string(frame, "type") == "rate_limit_event" {
             if let Some(info) = frame.get("rate_limit_info")
+                && let Some(message) = self.warnings.observe(info)
+            {
+                let ui = self
+                    .ui
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clone();
+                if let Some(ui) = ui {
+                    ui.notify(&message, Some(crate::core::extensions::types::NotifyType::Warning))?;
+                }
+            }
+            if let Some(info) = frame.get("rate_limit_info")
                 && string(info, "status") == "rejected"
             {
                 self.rate_limit_rejection = Some(info.clone());
@@ -679,10 +690,19 @@ impl QueryActor {
             return Ok(());
         }
         let rejection = self.rate_limit_rejection.take();
+        let result_error = super::stream::result_error(frame);
+        if let (Some(error), Some(rejection)) = (&result_error, &rejection) {
+            let labeled = super::rate_limit::label(rejection, error);
+            if let JsValue::Object(fields) = frame {
+                fields.insert("subtype".into(), JsValue::String("success".into()));
+                fields.insert("is_error".into(), JsValue::Bool(true));
+                fields.insert("result".into(), JsValue::String(labeled));
+            }
+        }
         let Some(name) = launch.account_profile.as_deref() else {
             return Ok(());
         };
-        let Some(error) = super::stream::result_error(frame) else {
+        let Some(error) = result_error else {
             if let Some(checked_at) = launch.account_request_started_at {
                 let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
                 if let Some(manager) = accounts.as_mut().map_err(|e| e.clone())? {

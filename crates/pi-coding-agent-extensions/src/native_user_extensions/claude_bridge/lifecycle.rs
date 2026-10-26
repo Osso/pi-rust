@@ -18,15 +18,26 @@ fn isolated_stream(bridge: BridgeProvider, cwd: JsString) -> StreamFn {
 pub(super) fn register(pi: &ExtensionApi, bridge: BridgeProvider) -> Result<(), HandlerError> {
     let start_bridge = bridge.clone();
     pi.on_session_start(
-        move |event: SessionStartEvent, _| -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
-            let result = if matches!(
-                event.reason,
-                SessionStartReason::New | SessionStartReason::Resume | SessionStartReason::Fork
-            ) {
-                start_bridge.clear_sessions().map_err(HandlerError::from)
-            } else {
-                Ok(())
-            };
+        move |event: SessionStartEvent,
+              ctx: ExtensionContext|
+              -> BoxFuture<'static, Result<Option<()>, HandlerError>> {
+            let ui = ctx.ui();
+            if let Ok(ui) = &ui {
+                *start_bridge
+                    .ui
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(ui.clone());
+            }
+            let result = ui.and_then(|_| {
+                if matches!(
+                    event.reason,
+                    SessionStartReason::New | SessionStartReason::Resume | SessionStartReason::Fork
+                ) {
+                    start_bridge.clear_sessions().map_err(HandlerError::from)
+                } else {
+                    Ok(())
+                }
+            });
             Box::pin(async { result.map(|()| None) })
         },
     )

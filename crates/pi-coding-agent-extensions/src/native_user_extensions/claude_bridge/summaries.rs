@@ -164,6 +164,9 @@ async fn consume(launch: &LaunchOptions, prompt: &JsString) -> Result<Attempt, C
                 quota = error
                     .as_ref()
                     .and_then(|error| quota_rejection(error, rejection.as_ref()));
+                if let (Some(failure), Some(rejection)) = (&error, &rejection) {
+                    error = Some(super::rate_limit::label(rejection, failure));
+                }
                 if error.is_none() {
                     final_text = string(&frame, "result");
                 }
