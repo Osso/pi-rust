@@ -415,7 +415,11 @@ impl AskRun<'_> {
                 launch.model,
                 launch.effort.as_deref().unwrap_or("default"),
                 if launch.isolated { "true" } else { "false" },
-                launch.resume.as_deref().map(|s| &s[..s.len().min(8)]).unwrap_or("none"),
+                launch
+                    .resume
+                    .as_deref()
+                    .map(super::logging::truncate_session_id)
+                    .unwrap_or_else(|| "none".into()),
                 if launch.append.as_ref().is_some_and(|s| !s.is_empty()) {
                     "true"
                 } else {
@@ -438,6 +442,9 @@ impl AskRun<'_> {
         let result = match result {
             Some(Ok(())) => Ok(text),
             Some(Err(error)) => {
+                if let Some(profile) = launch.cli_debug.as_ref().and_then(|debug| debug.profile.as_ref()) {
+                    super::auth_trace::record_failure(profile, &error.message)?;
+                }
                 process.terminate().await?;
                 Err(error)
             }
@@ -480,7 +487,7 @@ impl AskRun<'_> {
                         if string(event, "type") == "content_block_start" && let Some(block) = event.get("content_block").filter(|b| string(b, "type") == "tool_use") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: tool_use start: {}", string(block, "name")))?; }
                         if string(&frame,"type") == "result" {
                             query_log.2 = string(&frame, "subtype");
-                            if let Some(usage) = frame.get("usage") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: result usage: in={} out={} cacheRead={} cacheWrite={} turns={}", usage.get("input_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("output_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("cache_read_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), usage.get("cache_creation_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), frame.get("num_turns").map_or_else(|| "?".into(), js_json::stringify_lossless)))?; }
+                            if let Some(usage) = frame.get("usage") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: result usage: in={} out={} cacheRead={} cacheWrite={} turns={}", usage.get("input_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("output_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("cache_read_input_tokens").filter(|v| !matches!(v, JsValue::Null)).map_or_else(|| "0".into(), js_json::stringify_lossless), usage.get("cache_creation_input_tokens").filter(|v| !matches!(v, JsValue::Null)).map_or_else(|| "0".into(), js_json::stringify_lossless), frame.get("num_turns").filter(|v| !matches!(v, JsValue::Null)).map_or_else(|| "?".into(), js_json::stringify_lossless)))?; }
                             if let Some(error) = result_error(&frame) { return Err(CallbackError::new(error)); }
                             if text.is_empty() { *text = string(&frame,"result"); }
                             break;

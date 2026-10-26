@@ -19,6 +19,9 @@ pub(super) fn agent_dir() -> Result<PathBuf, CallbackError> {
         dir.to_utf8().map_err(|e| CallbackError::new(e.to_string()))?,
     ))
 }
+pub(super) fn truncate_session_id(id: &str) -> JsString {
+    JsString::from(id).slice(0, 8)
+}
 pub(super) fn debug_path() -> Result<PathBuf, CallbackError> {
     match std::env::var_os("CLAUDE_BRIDGE_DEBUG_PATH").filter(|s| !s.is_empty()) {
         Some(path) => Ok(path.into()),
@@ -136,7 +139,7 @@ impl Logs {
         }
         data.insert("isReentrant".into(), JsValue::Bool(reentrant));
         data.insert("activeQueryContexts".into(), JsValue::Number(active as f64));
-        data.insert("activeQueryExists".into(), JsValue::Bool(reentrant));
+        data.insert("activeQueryExists".into(), JsValue::Bool(false));
         data.insert("sharedSession".into(), shared);
         data.insert(
             "messageRoles".into(),
@@ -217,6 +220,40 @@ impl Logs {
         }
         Ok(())
     }
+    pub(super) fn debug_prompt_blocks(&self, context: &pi_ai::types::Context) -> Result<(), CallbackError> {
+        let contents = super::prompt::turn_contents(context)?;
+        if contents.is_empty() {
+            return Ok(());
+        }
+        for content in &contents {
+            for block in content
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|b| super::stream::string(b, "type") == "image")
+            {
+                if !super::prompt::valid_image(block) {
+                    self.debug(pi_js_compat::js_format!(
+                        "image block missing data or mimeType, skipping: keys={}",
+                        JsString::join(block.as_object().into_iter().flat_map(|o| o.keys().cloned()), ",")
+                    ))?;
+                } else {
+                    self.debug(pi_js_compat::js_format!(
+                        "image block: mimeType={}, data length={}",
+                        super::stream::string(block, "mimeType"),
+                        super::stream::string(block, "data").len()
+                    ))?;
+                }
+            }
+        }
+        let prompt = super::prompt::extract(context)?;
+        self.debug(pi_js_compat::js_format!(
+            "extractUserPromptBlocks: {} msgs in turn, {} blocks, types={}",
+            contents.len(),
+            prompt.blocks.len(),
+            JsString::join(prompt.blocks.iter().map(|b| super::stream::string(b, "type")), ",")
+        ))
+    }
     pub(super) fn debug_fresh_query(
         &self,
         launch: &super::process::LaunchOptions,
@@ -234,7 +271,11 @@ impl Logs {
             launch.model,
             context.messages.len(),
             context.tools.as_ref().map_or(0, Vec::len),
-            launch.resume.as_deref().map(|s| &s[..s.len().min(8)]).unwrap_or("none"),
+            launch
+                .resume
+                .as_deref()
+                .map(truncate_session_id)
+                .unwrap_or_else(|| "none".into()),
             launch.effort.as_deref().unwrap_or("default"),
             context_files,
             if launch.provider.get("strictMcpConfig").and_then(JsValue::as_bool) == Some(false) {
@@ -246,7 +287,7 @@ impl Logs {
             if images { " [+images]" } else { "" }
         ))
     }
-    pub fn debug_session_paths(&self, label: &str, cwd: &Path, path: &Path) -> Result<(), CallbackError> {
+    pub fn debug_session_paths(&self, label: &JsString, cwd: &Path, path: &Path) -> Result<(), CallbackError> {
         let cwd = cwd
             .to_str()
             .ok_or_else(|| CallbackError::new("Invalid Claude working directory"))?;
@@ -257,7 +298,7 @@ impl Logs {
             .map_err(|e| e.message)
             .unwrap_or_else(|error| pi_js_compat::js_format!("<failed: {}>", error));
         let stat = std::fs::metadata(path).ok();
-        self.debug(format!("{label}: cwd={cwd}"))?;
+        self.debug(pi_js_compat::js_format!("{}: cwd={}", label, cwd))?;
         if real != cwd {
             self.debug(pi_js_compat::js_format!(
                 "{}: realpath(cwd)={} (DIFFERS — symlink-resolved path is what CC SDK uses)",
@@ -265,14 +306,16 @@ impl Logs {
                 real
             ))?;
         }
-        self.debug(format!("{label}: jsonlPath={path_text}"))?;
-        self.debug(format!(
-            "{label}: fileExists={}{}",
-            stat.is_some(),
+        self.debug(pi_js_compat::js_format!("{}: jsonlPath={}", label, path_text))?;
+        self.debug(pi_js_compat::js_format!(
+            "{}: fileExists={}{}",
+            label,
+            if stat.is_some() { "true" } else { "false" },
             stat.map(|s| format!(" size={}", s.len())).unwrap_or_default()
         ))?;
-        self.debug(format!(
-            "{label}: env.CLAUDE_CONFIG_DIR={} HOME={}",
+        self.debug(pi_js_compat::js_format!(
+            "{}: env.CLAUDE_CONFIG_DIR={} HOME={}",
+            label,
             std::env::var("CLAUDE_CONFIG_DIR").unwrap_or_else(|_| "(unset)".into()),
             std::env::var("HOME").unwrap_or_else(|_| "(unset)".into())
         ))

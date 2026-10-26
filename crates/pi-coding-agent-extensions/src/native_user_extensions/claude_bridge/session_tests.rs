@@ -122,6 +122,58 @@ fn claude_bridge_conversion_logs_exact_pre_repair_stats_and_repair_length() {
 }
 
 #[test]
+fn claude_bridge_session_debug_prefixes_use_utf16_and_rebuild_counts_can_be_negative() {
+    let fixture = js_json::parse_lossless(include_str!("fixtures/repair-oracle.json")).unwrap();
+    let mut messages: Vec<pi_ai::types::Message> = js_json::from_value(
+        fixture.get("imports").unwrap().as_array().unwrap()[0]
+            .get("input")
+            .unwrap(),
+    )
+    .unwrap();
+    messages.push(pi_ai::types::Message::User(pi_ai::types::UserMessage {
+        role: pi_ai::types::UserRole::Tag,
+        content: pi_ai::types::UserContent::Text("current".into()),
+        input_source: None,
+        provider_native: None,
+        timestamp: 3.0,
+    }));
+    let context = pi_ai::types::Context {
+        system_prompt: None,
+        tools: None,
+        messages,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = SessionStore::at(dir.path().join("cc"), dir.path().join("agent"));
+    let mut logs = super::logging::Logs::new().unwrap();
+    logs.enabled = true;
+    store.verification_logs = Some(logs.clone());
+    let key = JsString::from("utf16-log");
+    store.record(&key, "aaaaaaa😀tail".into(), 10, dir.path()).unwrap();
+    store.mark_rebuild(&key, false);
+    assert_eq!(
+        store.sync(&key, &context, dir.path(), "m", true).unwrap(),
+        Some("aaaaaaa😀tail".into())
+    );
+    assert_eq!(
+        store.sync(&key, &context, dir.path(), "m", true).unwrap(),
+        Some("aaaaaaa😀tail".into())
+    );
+    assert_eq!(
+        js_json::stringify_lossless(&store.debug_shared_session(&key)),
+        r#"{"sessionId":"aaaaaaa\ud83d","cursor":2}"#
+    );
+    let log = std::fs::read_to_string(super::logging::debug_path().unwrap()).unwrap();
+    assert!(log.contains(&format!(
+        "[{}] Case 4: -8 missed messages, 2 total → rewrote session aaaaaaa� (same id), 3 records\n",
+        logs.module_id
+    )));
+    assert!(log.contains(&format!(
+        "[{}] Case 3: resuming session aaaaaaa�, cursor=2\n",
+        logs.module_id
+    )));
+}
+
+#[test]
 fn cc_session_records_match_frozen_writer_and_round_trip_through_ts_reader() {
     let fixture = js_json::parse_lossless(include_str!("fixtures/session-oracle.json")).unwrap();
     let messages = fixture.get("provider").unwrap().as_array().unwrap();

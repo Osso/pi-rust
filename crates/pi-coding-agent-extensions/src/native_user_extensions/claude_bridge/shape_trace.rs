@@ -4,6 +4,32 @@ use pi_js_compat::{
     js_json::{JsString, JsValue},
 };
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
+pub(super) type SharedShapeTrace = Arc<Mutex<ShapeTrace>>;
+#[derive(Clone)]
+pub(super) struct ShapeSnapshot {
+    trace: SharedShapeTrace,
+    output: Arc<pi_ai::types::AssistantMessage>,
+    message_id: JsString,
+}
+impl ShapeSnapshot {
+    pub fn new(trace: &SharedShapeTrace, output: &pi_ai::types::AssistantMessage, message_id: &JsString) -> Self {
+        Self {
+            trace: trace.clone(),
+            output: Arc::new(output.clone()),
+            message_id: message_id.clone(),
+        }
+    }
+    pub fn record_reset(&self) -> Result<(), CallbackError> {
+        let content =
+            pi_js_compat::js_json::to_value(&self.output.content).map_err(|e| CallbackError::new(e.to_string()))?;
+        self.trace
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .record_pi_with_id("turn_reset", &content, &self.message_id)
+    }
+}
 
 pub(super) struct ShapeTrace {
     path: PathBuf,
@@ -64,6 +90,21 @@ impl ShapeTrace {
         self.append(
             "pi",
             "discarded",
+            valid_id(Some(&JsValue::String(message_id.clone())), "msg_"),
+            blocks,
+            tools,
+        )
+    }
+    pub fn record_pi_with_id(
+        &mut self,
+        phase: &str,
+        content: &JsValue,
+        message_id: &JsString,
+    ) -> Result<(), CallbackError> {
+        let (blocks, tools) = project(content.get("content").unwrap_or(content), "toolCall");
+        self.append(
+            "pi",
+            phase,
             valid_id(Some(&JsValue::String(message_id.clone())), "msg_"),
             blocks,
             tools,
