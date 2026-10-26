@@ -312,3 +312,7 @@ elif text == "wait":
             break
 else:
     answer("Claude: " + text, "answer-msg")
+
+# Like the real CLI in stream-json input mode: exit only once the host closes stdin.
+while sys.stdin.readline():
+    pass

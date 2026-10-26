@@ -307,3 +307,7 @@ Integrated checkpoint: stream implementation `895647444` plus `native-ext/claude
 ## CLAUDE_CONFIG_DIR export (laptop live trial, 2026-10-26)
 
 The source sets `CLAUDE_CONFIG_DIR` on the Claude child only for a selected account profile (index.ts:937 and the provider/AskClaude spreads); otherwise the child inherits the parent environment. Native had defaulted the launch directory to the session store's `~/.claude` and exported it, which makes the real Claude CLI read its global config (OAuth account) from inside that directory: live result `Failed to authenticate: OAuth session expired and could not be refreshed`, after which `pi -p` waits like the source does on an auth-error result. Fixed by exporting only profile directories. RED/GREEN: `sdk_launch_tests::claude_bridge_sdk_effort_honors_model_overrides_and_undefined_levels` (`assert_inherited_config_dir`; /tmp/bridge-configdir-red.log, /tmp/bridge-configdir-green.log).
+
+## Closing Claude stdin after `result` (laptop live trial, 2026-10-26)
+
+The source ends the prompt stream on `result` (index.ts:1875) and the SDK closes the CLI's stdin; the real CLI exits only on that EOF. Native `ClaudeProcess::close` called tokio `ChildStdin::shutdown()`, which only flushes a pipe, then waited on the child: every live query hung after its answer. Fixed by dropping stdin on close. RED/GREEN: the offline fixture now waits for EOF like the real CLI; the whole bridge suite hung without the fix (/tmp/bridge-eof-red.log) and passes with it (/tmp/bridge-eof-green.log).

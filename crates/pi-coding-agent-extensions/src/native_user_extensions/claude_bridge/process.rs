@@ -215,7 +215,8 @@ fn sdk_environment(
 
 pub struct ClaudeProcess {
     child: Child,
-    input: ChildStdin,
+    /// `None` once closed: tokio's `shutdown()` on a pipe only flushes, so EOF needs the drop.
+    input: Option<ChildStdin>,
     output: tokio::io::Lines<BufReader<ChildStdout>>,
     stderr: Option<tokio::task::JoinHandle<Result<String, std::io::Error>>>,
 }
@@ -289,7 +290,7 @@ impl ClaudeProcess {
         });
         let process = Self {
             child,
-            input,
+            input: Some(input),
             output: BufReader::new(output).lines(),
             stderr: Some(stderr),
         };
@@ -317,11 +318,15 @@ impl ClaudeProcess {
     pub async fn write(&mut self, frame: &JsValue) -> Result<(), CallbackError> {
         let mut line = js_json::stringify_lossless(frame);
         line.push('\n');
-        self.input
+        let input = self
+            .input
+            .as_mut()
+            .ok_or_else(|| CallbackError::new("Claude Code stdin: already closed"))?;
+        input
             .write_all(line.as_bytes())
             .await
             .map_err(|e| CallbackError::new(format!("Claude Code stdin: {e}")))?;
-        self.input
+        input
             .flush()
             .await
             .map_err(|e| CallbackError::new(format!("Claude Code stdin: {e}")))
@@ -337,10 +342,9 @@ impl ClaudeProcess {
     }
 
     pub async fn close(&mut self) -> Result<(), CallbackError> {
-        self.input
-            .shutdown()
-            .await
-            .map_err(|e| CallbackError::new(e.to_string()))?;
+        if let Some(mut input) = self.input.take() {
+            input.shutdown().await.map_err(|e| CallbackError::new(e.to_string()))?;
+        }
         let status = self.child.wait().await.map_err(|e| CallbackError::new(e.to_string()))?;
         let stderr = self.read_stderr().await?;
         if !status.success() {
