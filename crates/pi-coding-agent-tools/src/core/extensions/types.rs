@@ -3195,6 +3195,11 @@ impl ExtensionApi {
         self.extension_lock().path.clone()
     }
 
+    /// Resolved entry path for native ports of extensions that use `import.meta.url`.
+    pub fn resolved_path(&self) -> JsString {
+        self.extension_lock().resolved_path.clone()
+    }
+
     fn extension_lock(&self) -> std::sync::MutexGuard<'_, ExtensionState> {
         self.extension.read()
     }

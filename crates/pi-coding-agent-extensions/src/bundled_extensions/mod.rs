@@ -57,6 +57,7 @@ pub struct SmallExtensionsOptions {
 /// Registers the small first-party extensions under their source ids, in the
 /// order `main.ts` lists them in `createFirstPartyExtensionFactories`.
 pub fn register_small_extensions(registry: &mut ExtensionRegistry, options: &SmallExtensionsOptions) {
+    crate::native_user_extensions::register(registry);
     registry.register(
         "<first-party:approval-controls>",
         Arc::new(|pi| {
