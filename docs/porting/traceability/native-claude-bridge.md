@@ -2,7 +2,15 @@
 
 Source: read-only extension `38d84cb549cce66dd76d45a5020d132f74780393`, `src/`.
 Native directory: `crates/pi-coding-agent-extensions/src/native_user_extensions/claude_bridge/`.
-Audit baseline: `c4bc63836`. This is an implementation/proof inventory, **not parity closure**.
+Audit baseline: `c4bc63836`. This is an implementation/proof inventory, **not parity closure**. The table and numbered findings below retain that historical baseline; implemented follow-ups are recorded here and in the [current spec status](../../specs/claude-bridge-native.md).
+
+## Cancellation follow-up
+
+- Provider protocol operations (initialize, prompt/steer/control writes, reads and close) are under one abort boundary. Session shutdown/discard has a separate reason-bearing wakeup, so it also interrupts blocked writes. Offline tests fill the tools/list reply pipe, then abort or shut down and assert stream settlement plus child reaping.
+- AskClaude and isolated summaries retain child ownership outside their cancellable protocol futures and await reaping on cancellation/errors. The source AskClaude catch stops its interval but does not blank progress; native preserves that behavior. Tests stall initialization and return an error while the CLI stays alive.
+- Quota rechecks check cancellation after the response and do not publish new account evidence from a cancelled probe. Provider output uses Aborted, not Error, and retains the cancellation error text. The injected HTTP test compares account state before and after that boundary.
+- Parked MCP calls drain in insertion order with plain-text reason replies on abort, shutdown, discard and normal/error end. Queued results are cleared. The source resolves promises before close without waiting for transport delivery; native attempts the equivalent writes without allowing a blocked pipe to delay reaping. Exact reply-value/queue tests complement the fake-process lifetime tests. Full bidirectional MCP proof remains open.
+
 The source's TypeScript loader is not executed at runtime. Its SDK/MCP/cc-session-io contracts are implemented natively.
 
 ## Source coverage

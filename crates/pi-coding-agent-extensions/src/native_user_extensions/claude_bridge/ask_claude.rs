@@ -406,44 +406,70 @@ impl AskRun<'_> {
         if signal.aborted() {
             return Err(CallbackError::new("Aborted"));
         }
-        let mut process = ClaudeProcess::spawn(&launch).await?;
+        let mut process = ClaudeProcess::spawn_child(&launch)?;
+        let mut text = JsString::default();
+        let mut query_log = (0usize, 0usize, JsString::from("none"));
+        let result = tokio::select! {
+            biased;
+            _ = signal.wait() => None,
+            result = self.consume_query(&mut process, &launch, &mut text, &mut query_log) => Some(result),
+        };
+        let result = match result {
+            Some(Ok(())) => Ok(text),
+            Some(Err(error)) => {
+                process.terminate().await?;
+                Err(error)
+            }
+            None => {
+                process.cancel().await?;
+                Ok(text)
+            }
+        };
+        if let Ok(text) = &result {
+            self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: done stopReason={} resultSubtype={} sdkMessages={} textDeltas={} responseLen={} toolCalls={}", if signal.aborted() { "cancelled" } else { "stop" }, query_log.2, query_log.0, query_log.1, text.len(), self.calls.len()))?;
+        }
+        result
+    }
+
+    async fn consume_query(
+        &mut self,
+        process: &mut ClaudeProcess,
+        launch: &super::process::LaunchOptions,
+        text: &mut JsString,
+        query_log: &mut (usize, usize, JsString),
+    ) -> Result<(), CallbackError> {
+        process.initialize(launch).await?;
         process
             .write(&user_message(JsValue::String(string(self.args, "prompt")), false))
             .await?;
-        let mut text = JsString::default();
-        let mut sdk_message_count = 0;
-        let mut text_delta_count = 0;
-        let mut result_subtype = JsString::from("none");
+
         let mut interval = tokio::time::interval_at(
             tokio::time::Instant::now() + std::time::Duration::from_secs(1),
             std::time::Duration::from_secs(1),
         );
         loop {
             tokio::select! {
-                _ = signal.wait() => { process.interrupt().await?; break; }
                 _ = interval.tick() => self.update_progress()?,
                 frame = process.read() => match frame? {
                     None => break,
                     Some(frame) => {
-                        sdk_message_count += 1;
+                        query_log.0 += 1;
                         let event = frame.get("event").unwrap_or(&JsValue::Null);
-                        if string(event, "type") == "content_block_delta" && event.get("delta").is_some_and(|d| string(d, "type") == "text_delta") { text_delta_count += 1; }
+                        if string(event, "type") == "content_block_delta" && event.get("delta").is_some_and(|d| string(d, "type") == "text_delta") { query_log.1 += 1; }
                         if string(event, "type") == "content_block_start" && let Some(block) = event.get("content_block").filter(|b| string(b, "type") == "tool_use") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: tool_use start: {}", string(block, "name")))?; }
                         if string(&frame,"type") == "result" {
-                            result_subtype = string(&frame, "subtype");
+                            query_log.2 = string(&frame, "subtype");
                             if let Some(usage) = frame.get("usage") { self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: result usage: in={} out={} cacheRead={} cacheWrite={} turns={}", usage.get("input_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("output_tokens").map_or_else(|| "undefined".into(), js_json::stringify_lossless), usage.get("cache_read_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), usage.get("cache_creation_input_tokens").map_or_else(|| "0".into(), js_json::stringify_lossless), frame.get("num_turns").map_or_else(|| "?".into(), js_json::stringify_lossless)))?; }
                             if let Some(error) = result_error(&frame) { return Err(CallbackError::new(error)); }
-                            if text.is_empty() { text = string(&frame,"result"); }
+                            if text.is_empty() { *text = string(&frame,"result"); }
                             break;
                         }
-                        self.consume_frame(&frame,&mut text);
+                        self.consume_frame(&frame,text);
                     }
                 }
             }
         }
-        process.close().await?;
-        self.bridge.logs.as_ref().map_err(|e| e.clone())?.debug(pi_js_compat::js_format!("askClaude: done stopReason={} resultSubtype={} sdkMessages={} textDeltas={} responseLen={} toolCalls={}", if signal.aborted() { "cancelled" } else { "stop" }, result_subtype, sdk_message_count, text_delta_count, text.len(), self.calls.len()))?;
-        Ok(text)
+        process.close().await
     }
 
     fn consume_frame(&mut self, frame: &JsValue, text: &mut JsString) {
