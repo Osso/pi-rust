@@ -25,6 +25,8 @@ Use failing behavioral tests before implementation. Test direct factory registra
 
 Implementation is in progress. Unimplemented requirements must not be presented as completed parity.
 
+Named profiles now validate before launch, migrate the freshest legacy credentials once into the canonical private profile directory, share native config entries, and retain native refresh writeback there. Selection and dated quota evidence use the source's per-process account-state files, recovery epochs and process-local undated blocks. Offline tests cover profile queries and quota rotation; the account-state wire format is read and written bidirectionally with the frozen TS module. Exhausted-account live capacity rechecks and OAuth refresh probes belong to the usage integration and are not yet implemented.
+
 Real startup registers the hidden bridge factory through the common native-user registry. The real-binary package-discovery test lists `claude-opus-5-5` and `claude-haiku-5-5` offline. Registered models use the bridge API rather than the catalog's Anthropic API. Startup tests select a missing provider to stop before inference; `PI_OFFLINE` alone does not disable inference.
 
 Approved deviation (user decision 2026-10-25): forward frozen pi's `systemPromptOptions.rulesContent` as `<user_rules>\n{rulesContent}\n</user_rules>` at the position where the bridge appends custom sections. The source bridge reads `sections` (absent in the frozen API) and omits `rulesContent`; preserving that omission would lose the user's global instructions. Test exact projected text with rules present and absent.

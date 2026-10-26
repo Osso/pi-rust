@@ -71,6 +71,69 @@ fn model(config: &ProviderConfig) -> pi_ai::types::Model {
 }
 
 #[tokio::test]
+async fn claude_bridge_rejects_duplicate_account_profiles_before_launch() {
+    let (dir, config, _) = setup().await;
+    let bridge = provider::BridgeProvider::new(
+        js_json::parse_lossless(r#"{"accountProfiles":["work","work"]}"#).unwrap(),
+        Ok(dir.path().join("claude")),
+        "AskClaude".into(),
+    );
+    let result = bridge
+        .stream(model(&config), context("hello"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(result.stop_reason, StopReason::Error);
+    assert_eq!(result.error_message.unwrap(), "Duplicate profile name");
+}
+
+#[tokio::test]
+async fn claude_bridge_profile_queries_writeback_and_share_quota_selection() {
+    let (dir, config, _) = setup().await;
+    let home = dir.path().join("home");
+    std::fs::create_dir_all(home.join(".claude")).unwrap();
+    for name in ["a", "b"] {
+        std::fs::write(
+            home.join(format!(".claude/{name}.credentials.json")),
+            r#"{"claudeAiOauth":{"accessToken":"fixture"}}"#,
+        )
+        .unwrap();
+    }
+    let bridge = provider::BridgeProvider::new(JsValue::Null, Ok(dir.path().join("claude")), "AskClaude".into());
+    *bridge.accounts.lock().unwrap() = Ok(Some(
+        account_state::AccountManager::new(home.clone(), vec!["a".into(), "b".into()]).unwrap(),
+    ));
+    let first = bridge
+        .stream(model(&config), context("account-quota"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(first.stop_reason, StopReason::Error);
+    let second = bridge
+        .stream(model(&config), context("account-quota"), Some(options(&dir)))
+        .unwrap()
+        .result()
+        .await
+        .unwrap();
+    assert_eq!(second.stop_reason, StopReason::Stop);
+    assert_eq!(
+        account_profiles::read_usage_credentials(&home, Some("b"), None)
+            .unwrap()
+            .get("claudeAiOauth")
+            .unwrap()
+            .get("accessToken")
+            .unwrap()
+            .as_string()
+            .unwrap(),
+        "refreshed"
+    );
+    let mut peer = account_state::AccountManager::new(home, vec!["a".into(), "b".into()]).unwrap();
+    assert_eq!(peer.selected_profile().unwrap().as_deref(), Some("b"));
+}
+
+#[tokio::test]
 async fn claude_bridge_imports_prior_history_before_resuming_native_session() {
     let (dir, config, _) = setup().await;
     let stream_fn = config.stream_simple.as_ref().unwrap();

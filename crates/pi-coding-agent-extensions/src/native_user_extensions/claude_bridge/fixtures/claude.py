@@ -59,7 +59,19 @@ user = read()
 assert user["type"] == "user", user
 content = user["message"]["content"]
 text = content if isinstance(content, str) else "".join(item.get("text", "") for item in content)
-if text == "assert-history":
+if text == "account-quota":
+    root = os.environ["CLAUDE_CONFIG_DIR"]
+    name = os.path.basename(root)
+    if name == "a":
+        import time
+        send({"type": "rate_limit_event", "rate_limit_info": {"status": "rejected", "rateLimitType": "five_hour", "resetsAt": time.time() + 3600}})
+        send({"type": "result", "subtype": "success", "is_error": True, "result": "Rate limited"})
+    else:
+        assert name == "b", root
+        with open(os.path.join(root, ".credentials.json"), "w", encoding="utf-8") as saved:
+            json.dump({"claudeAiOauth": {"accessToken": "refreshed"}}, saved)
+        answer("account b", "account-msg")
+elif text == "assert-history":
     resume = next((arg.split("=", 1)[1] for arg in args if arg.startswith("--resume=")), None)
     assert resume, "history must be imported and resumed"
     project = "".join(c if c.isascii() and c.isalnum() else "-" for c in os.getcwd())

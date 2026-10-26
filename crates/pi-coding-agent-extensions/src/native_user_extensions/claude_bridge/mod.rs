@@ -1,4 +1,6 @@
 //! Native pi-claude-bridge, source snapshot 38d84cb549.
+pub mod account_profiles;
+pub mod account_state;
 mod ask_claude;
 pub mod ask_render;
 pub mod config;
@@ -101,6 +103,8 @@ fn activate(pi: &ExtensionApi) -> Result<(), HandlerError> {
     Ok(())
 }
 
+#[cfg(test)]
+mod account_profile_tests;
 #[cfg(test)]
 mod integration_tests;
 #[cfg(test)]

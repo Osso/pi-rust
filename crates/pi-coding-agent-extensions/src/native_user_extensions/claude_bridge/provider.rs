@@ -14,6 +14,7 @@ use super::process::{ClaudeProcess, LaunchOptions, user_message};
 use super::stream::{StreamDecoder, string};
 
 type Sender = EventSender<AssistantMessageEvent, pi_ai::types::AssistantMessage>;
+type SharedAccounts = Arc<Mutex<Result<Option<super::account_state::AccountManager>, CallbackError>>>;
 
 pub enum QueryCommand {
     Resume { sender: Sender, context: Context },
@@ -40,12 +41,26 @@ pub struct BridgeProvider {
     pub executable: Result<PathBuf, CallbackError>,
     pub ask_name: String,
     pub captures: Arc<Mutex<super::prompt_capture::PromptCaptures>>,
+    pub accounts: SharedAccounts,
 }
 
 impl BridgeProvider {
     pub fn new(settings: JsValue, executable: Result<PathBuf, CallbackError>, ask_name: String) -> Self {
+        let accounts = (|| {
+            let Some(names) = super::account_profiles::configured_names(&settings)? else {
+                return Ok(None);
+            };
+            let home = pi_js_compat::node_os::homedir().map_err(|e| CallbackError::new(e.to_string()))?;
+            let home = PathBuf::from(home.to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
+            let names = names
+                .iter()
+                .map(|name| name.to_utf8().map_err(|e| CallbackError::new(e.to_string())))
+                .collect::<Result<Vec<_>, _>>()?;
+            super::account_state::AccountManager::new(home, names).map(Some)
+        })();
         Self {
             state: Arc::new(Mutex::new(QueryState::default())),
+            accounts: Arc::new(Mutex::new(accounts)),
             settings,
             sessions: Arc::new(Mutex::new(super::sessions::SessionStore::from_environment())),
             executable,
@@ -114,7 +129,7 @@ impl BridgeProvider {
         let bridge = self.clone();
         drop(state);
         tokio::spawn(async move {
-            let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids);
+            let mut actor = QueryActor::new(&model, &context, sender, receive, tool_ids, bridge.accounts.clone());
             let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
             let launch = bridge.prepare_launch(&model, &context, &options, cwd.clone());
             let result = match launch {
@@ -175,7 +190,9 @@ impl BridgeProvider {
         let store = sessions.as_mut().map_err(|e| e.clone())?;
         let key = options.stream.session_id.clone().unwrap_or_else(|| "(none)".into());
         launch.resume = store.sync(&key, context, &cwd, &launch.model, true)?;
-        launch.claude_dir = Some(store.claude_dir.clone());
+        if launch.claude_dir.is_none() {
+            launch.claude_dir = Some(store.claude_dir.clone());
+        }
         Ok(launch)
     }
 
@@ -186,6 +203,13 @@ impl BridgeProvider {
         options: &SimpleStreamOptions,
         cwd: PathBuf,
     ) -> Result<LaunchOptions, CallbackError> {
+        let account = {
+            let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            match accounts.as_mut().map_err(|e| e.clone())? {
+                Some(manager) => Some(manager.prepare_selected(super::account_state::now_seconds()?)?),
+                None => None,
+            }
+        };
         Ok(LaunchOptions {
             executable: self.executable.clone()?,
             cwd,
@@ -217,7 +241,8 @@ impl BridgeProvider {
                 .to_owned()
             }),
             resume: None,
-            claude_dir: None,
+            claude_dir: account.as_ref().map(|(_, dir)| dir.clone()),
+            account_profile: account.map(|(name, _)| name),
             ask_mode: None,
             isolated: false,
             has_tools: context
@@ -239,6 +264,8 @@ struct QueryActor {
     pending_results: HashMap<String, JsValue>,
     turn_ended: bool,
     native_session: Option<String>,
+    accounts: SharedAccounts,
+    rate_limit_rejection: Option<JsValue>,
 }
 
 impl QueryActor {
@@ -248,6 +275,7 @@ impl QueryActor {
         sender: Sender,
         commands: mpsc::UnboundedReceiver<QueryCommand>,
         tool_ids: Arc<Mutex<HashSet<String>>>,
+        accounts: SharedAccounts,
     ) -> Self {
         let tools = context.tools.clone().unwrap_or_default();
         Self {
@@ -261,6 +289,8 @@ impl QueryActor {
             pending_results: HashMap::new(),
             turn_ended: false,
             native_session: None,
+            accounts,
+            rate_limit_rejection: None,
         }
     }
 
@@ -286,7 +316,8 @@ impl QueryActor {
                 command = self.commands.recv() => if let Some(command) = command { self.deliver(command, &mut process).await?; },
                 frame = process.read() => match frame? {
                     None => break,
-                    Some(frame) => {
+                    Some(mut frame) => {
+                        self.settle_account_frame(&mut frame, launch.account_profile.as_deref())?;
                         if string(&frame,"type") == "system" && string(&frame,"subtype") == "init" {
                             self.native_session = Some(string(&frame,"session_id").to_utf8().map_err(|e| CallbackError::new(e.to_string()))?);
                         }
@@ -301,6 +332,66 @@ impl QueryActor {
         }
         process.close().await?;
         self.finish();
+        Ok(())
+    }
+
+    fn settle_account_frame(&mut self, frame: &mut JsValue, account: Option<&str>) -> Result<(), CallbackError> {
+        if string(frame, "type") == "rate_limit_event" {
+            if let Some(info) = frame.get("rate_limit_info")
+                && string(info, "status") == "rejected"
+            {
+                self.rate_limit_rejection = Some(info.clone());
+            }
+            return Ok(());
+        }
+        if string(frame, "type") != "result" {
+            return Ok(());
+        }
+        let rejection = self.rate_limit_rejection.take();
+        let Some(name) = account else {
+            return Ok(());
+        };
+        let Some(error) = super::stream::result_error(frame) else {
+            return Ok(());
+        };
+        let disabled = error
+            == "Your organization has disabled Claude subscription access for Claude Code · Use an Anthropic API key instead, or ask your admin to enable access";
+        let subscription = rejection.as_ref().is_some_and(|info| {
+            let window = string(info, "rateLimitType");
+            let known = [
+                "five_hour",
+                "seven_day",
+                "seven_day_opus",
+                "seven_day_sonnet",
+                "seven_day_overage_included",
+            ]
+            .iter()
+            .any(|name| window == *name);
+            known && string(info, "errorCode") != "credits_required"
+        });
+        if !disabled && !subscription {
+            return Ok(());
+        }
+        let reset = rejection
+            .as_ref()
+            .and_then(|info| info.get("resetsAt"))
+            .and_then(JsValue::as_f64);
+        let mut accounts = self.accounts.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(manager) = accounts.as_mut().map_err(|e| e.clone())?
+            && manager
+                .reject(name, reset, super::account_state::now_seconds()?)?
+                .is_none()
+        {
+            *frame = JsValue::object([
+                ("type", JsValue::String("result".into())),
+                ("subtype", JsValue::String("success".into())),
+                ("is_error", JsValue::Bool(true)),
+                (
+                    "result",
+                    JsValue::String(super::account_state::ACCOUNTS_EXHAUSTED.into()),
+                ),
+            ]);
+        }
         Ok(())
     }
 
