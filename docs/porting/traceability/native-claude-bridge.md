@@ -299,3 +299,7 @@ This closes the baseline partial-tool-JSON and empty/unsupported live-result nor
 
 
 Integrated checkpoint: stream implementation `895647444` plus `native-ext/claude-bridge` at `3d6eb518ca15c5b24095957493833eac19dff841`. `/tmp/bridge-stream-merged-{tests,check,clippy,fmt}.log` covers the combined tree: 75 bridge tests pass; `cargo check -j3 --workspace --all-targets`, `cargo clippy -j3 -p pi-coding-agent-extensions --all-targets --all-features -- -D warnings`, and `cargo fmt --check` pass. Manual readability review covered the stream/conversion/provider changes and tests. Subsequent changes to this checkpoint are documentation only.
+
+## UTF-8 file decoding (readability audit 2026-10-26)
+
+`config.rs::read_config` and `write_startup_notice` (source `config.ts:48,75`) use `String::from_utf8_lossy` because the source reads them with Node `readFile*(path, "utf-8")`, i.e. WHATWG UTF-8 decoding with U+FFFD replacement of maximal invalid subparts; Rust's lossy decoder applies the same replacement rule, so output is identical. A fallible decode would turn source "replace and continue" into an error. Readability-audit P1 (lossy conversion) rejected on this basis; invalid UTF-8 input is otherwise an adversarial-input gap under the parity bar.

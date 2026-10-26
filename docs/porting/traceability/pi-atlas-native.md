@@ -51,3 +51,7 @@ Merged canonical master `9b9c08990` (the real-startup resource-loader registry w
 - `python3 scripts/source-inventory.py`: 686 rows / 186679 lines, zero mismatches; TS reverse-cache reader and Node signature check also passed on the final native cache artifact.
 
 Proof logs are `/tmp/pi-atlas-*-final.log`, `/tmp/pi-atlas-process-red.log`, and `/tmp/pi-atlas-process-green.log`; the final reverse-cache artifact is `/var/tmp/osso/pi-test-_oa9ixwf/atlas-cache-interchange`. No network, live provider, deployment, push, stash, or subagent was used. Readability tools were unavailable; manual review separated table metadata/rows, domain aggregation, filesystem effects, UI state and layout. No warning suppressions or lossy UTF-16 projections were added.
+
+## UTF-8 file decoding (readability audit 2026-10-26)
+
+`cache.rs::read_cache` and the session-log read in `load_aggregate_with_progress` (source `cache.ts:64`, `parser.ts:391`) use `String::from_utf8_lossy` because the source reads them with Node `readFile*(path, "utf-8")`, i.e. WHATWG UTF-8 decoding with U+FFFD replacement of maximal invalid subparts; Rust's lossy decoder applies the same replacement rule, so output is identical. A fallible decode would turn source "replace and continue" into an error. Readability-audit P1 (lossy conversion) rejected on this basis; invalid UTF-8 input is otherwise an adversarial-input gap under the parity bar.
