@@ -4,7 +4,7 @@ The common TypeScript pin does not render Mermaid. The user approved porting the
 
 ## Status
 
-The renderer, settings and interactive Markdown integration are implemented through `1045d5fa0`. Source audits compared the historical parser, layout, canvas, labels and interactive integration; no realistic discrepancy was established. The table identifies focused test coverage, not exhaustive differential proof. Final workspace verification remains pending.
+The renderer, settings and interactive Markdown integration are implemented through `1045d5fa0`. Source audits compared the historical parser, layout, canvas, labels and interactive integration; no realistic discrepancy was established. The table identifies focused test coverage, not exhaustive differential proof. At `7554f482d`, workspace check and all-features clippy passed; source inventory and formatting checks also passed.
 
 | Historical behavior | Rust status and proof |
 | --- | --- |
